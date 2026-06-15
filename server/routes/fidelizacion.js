@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const auth = require('../middleware/auth');
-const { requirePermission } = require('../utils/permissions');
+const { requirePermission, hasPermission } = require('../utils/permissions');
 const db = require('../db');
 const {
   getConfig,
@@ -21,6 +21,10 @@ const {
   calcularPuntos,
   calcularValorPuntos
 } = require('../services/fidelizacionService');
+
+function canAccessCliente(req) {
+  return hasPermission(req.user, 'clientes.view') || hasPermission(req.user, 'clientes.edit');
+}
 
 // ============================================
 // CONFIGURACIÓN (Admin)
@@ -145,7 +149,9 @@ router.post('/niveles/recalcular/:clienteId', auth, requirePermission('clientes.
 // GET /api/fidelizacion/puntos/saldo/:clienteId
 router.get('/puntos/saldo/:clienteId', auth, (req, res) => {
   try {
-    // TODO: Verificar que el usuario puede ver este cliente
+    if (!canAccessCliente(req)) {
+      return res.status(403).json({ error: 'Sin permisos para ver fidelizacion de clientes' });
+    }
     const saldo = getSaldoPuntos(req.params.clienteId);
     const config = getConfig();
     res.json({
@@ -162,6 +168,9 @@ router.get('/puntos/saldo/:clienteId', auth, (req, res) => {
 // GET /api/fidelizacion/puntos/historial/:clienteId
 router.get('/puntos/historial/:clienteId', auth, (req, res) => {
   try {
+    if (!canAccessCliente(req)) {
+      return res.status(403).json({ error: 'Sin permisos para ver fidelizacion de clientes' });
+    }
     const limit = parseInt(req.query.limit) || 50;
     const historial = getHistorialPuntos(req.params.clienteId, limit);
     res.json(historial);
@@ -203,6 +212,44 @@ router.post('/puntos/acumular', auth, requirePermission('pedidos.edit'), (req, r
       success: true,
       ...resultado
     });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /api/fidelizacion/puntos/ajuste-manual
+// Suma o resta puntos y/o sellos manualmente (admin)
+router.post('/puntos/ajuste-manual', auth, requirePermission('clientes.edit'), (req, res) => {
+  try {
+    const { cliente_id, delta_puntos, delta_sellos, motivo } = req.body;
+    if (!cliente_id) return res.status(400).json({ error: 'cliente_id requerido' });
+
+    const cliente = db.prepare('SELECT id, puntos, sellos_actuales, recompensas_pendientes FROM clientes WHERE id = ?').get(cliente_id);
+    if (!cliente) return res.status(404).json({ error: 'Cliente no encontrado' });
+
+    const config = getConfig();
+    const nuevosPuntos = Math.max(0, (cliente.puntos || 0) + (Number(delta_puntos) || 0));
+    const sellosBase = (cliente.sellos_actuales || 0) + (Number(delta_sellos) || 0);
+    const sellosMax = config.sellos_para_premio || 10;
+    const premiosExtra = sellosBase >= sellosMax ? Math.floor(sellosBase / sellosMax) : 0;
+    const nuevosSellos = sellosBase >= sellosMax ? sellosBase % sellosMax : Math.max(0, sellosBase);
+    const nuevosRecompensas = Math.max(0, (cliente.recompensas_pendientes || 0) + premiosExtra);
+
+    db.prepare('UPDATE clientes SET puntos = ?, sellos_actuales = ?, recompensas_pendientes = ? WHERE id = ?')
+      .run(nuevosPuntos, nuevosSellos, nuevosRecompensas, cliente_id);
+
+    // Registrar en historial de puntos si aplica
+    if (Number(delta_puntos)) {
+      acumularPuntos(cliente_id, null, 0, motivo || 'Ajuste manual');
+      // Overwrite the last accumulated value with the actual delta
+      const histId = db.prepare("SELECT id FROM puntos_historial WHERE cliente_id = ? ORDER BY id DESC LIMIT 1").get(cliente_id);
+      if (histId) {
+        db.prepare("UPDATE puntos_historial SET puntos = ?, descripcion = ? WHERE id = ?")
+          .run(Number(delta_puntos), motivo || 'Ajuste manual', histId.id);
+      }
+    }
+
+    res.json({ success: true, puntos: nuevosPuntos, sellos_actuales: nuevosSellos, recompensas_pendientes: nuevosRecompensas });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

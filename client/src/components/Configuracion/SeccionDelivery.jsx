@@ -33,7 +33,24 @@ export default function SeccionDelivery({
           <InputField label="Tiempo retiro (min)" type="number" {...f('tiempo_retiro')} />
         </div>
 
-        <div className="mt-6 grid grid-cols-1 gap-6 md:grid-cols-3">
+        <div className="mt-6 grid grid-cols-1 gap-6 md:grid-cols-2">
+          <ToggleSwitch
+            checked={config.delivery_activo !== '0'}
+            onChange={(value) => setToggle('delivery_activo', value)}
+            label="Delivery habilitado"
+            description="Mostrar la opcion de delivery en la carta web publica."
+            color="orange"
+          />
+          <ToggleSwitch
+            checked={config.retiro_activo !== '0'}
+            onChange={(value) => setToggle('retiro_activo', value)}
+            label="Retiro en local habilitado"
+            description="Mostrar la opcion de retiro en la carta web publica."
+            color="orange"
+          />
+        </div>
+
+        <div className="mt-6 grid grid-cols-1 gap-6 md:grid-cols-2">
           <ToggleSwitch
             checked={config.delivery_validacion_activa === '1'}
             onChange={(value) => setToggle('delivery_validacion_activa', value)}
@@ -48,13 +65,14 @@ export default function SeccionDelivery({
             description="El rider debe adjuntar una foto para cerrar la entrega."
             color="orange"
           />
-          <ToggleSwitch
-            checked={config.delivery_autoasignar_activo === '1'}
-            onChange={(value) => setToggle('delivery_autoasignar_activo', value)}
-            label="Autoasignar si hay un solo rider"
-            description="Reserva automaticamente al repartidor cuando hay exactamente uno disponible."
-            color="orange"
-          />
+        </div>
+
+        <div className="mt-6 rounded-2xl border border-orange-200 bg-orange-50 px-5 py-4 text-sm text-orange-800">
+          <p className="font-semibold">Asignacion de riders</p>
+          <p className="mt-1">
+            En ventas delivery el sistema intenta asignar automaticamente el rider activo mas conveniente. Si trabajas con un solo rider por turno,
+            quedara asignado aunque ya este llevando otros pedidos.
+          </p>
         </div>
       </SectionCard>
 

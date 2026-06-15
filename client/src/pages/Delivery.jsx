@@ -36,7 +36,6 @@ import {
   Globe,
   Check,
   Info,
-  Map as MapIcon2
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useAuthenticatedSocket } from '../hooks/useAuthenticatedSocket.js';
@@ -383,7 +382,7 @@ export default function Delivery() {
         <div className="rounded-[40px] border border-gray-100 bg-white p-8 shadow-sm">
           <div className="mb-8 flex items-center justify-between">
             <h3 className="text-xl font-black uppercase tracking-tight text-gray-900">Nuestra Flota</h3>
-            <div className="rounded-xl bg-emerald-50 px-3 py-1.5 text-[10px] font-black uppercase text-emerald-600">{repartidoresDisponibles.length} activos ahora</div>
+            <div className="rounded-xl bg-emerald-50 px-3 py-1.5 text-[10px] font-black uppercase text-emerald-600">{repartidoresActivos.length} riders activos</div>
           </div>
           <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
             {repartidoresActivos.map((repartidor) => (
@@ -420,7 +419,7 @@ export default function Delivery() {
 
                 <div className="grid grid-cols-2 gap-2">
                   <button onClick={() => toggleDisponible(repartidor)} className={`h-11 rounded-2xl text-[10px] font-black uppercase transition-all ${repartidor.disponible ? 'bg-emerald-50 text-emerald-600 shadow-sm' : 'border-2 border-gray-100 text-gray-400'}`}>
-                    {repartidor.disponible ? 'DISPONIBLE' : 'OCUPADO'}
+                    {repartidor.disponible ? 'PRIORIDAD' : 'EN REPARTO'}
                   </button>
                   <button onClick={() => setDetailModal(repartidor)} className="h-11 rounded-2xl bg-gray-900 text-white flex items-center justify-center shadow-lg active:scale-90 transition-all">
                     <Smartphone size={18} />

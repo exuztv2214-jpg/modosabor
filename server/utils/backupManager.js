@@ -199,9 +199,10 @@ function resetOperationalData(db) {
       SET total_gastado = 0,
           total_pedidos = 0,
           puntos = 0,
-          sellos = 0,
+          sellos_actuales = 0,
           frecuencia_dias = 7,
-          canjes_premio = 0
+          canjes_premio = 0,
+          recompensas_pendientes = 0
     `);
 
     // 4. Reset de repartidores

@@ -79,7 +79,7 @@ function cleanupClientePrueba() {
 
 function getTestProduct() {
   return db.prepare(`
-    SELECT id, nombre, precio
+    SELECT id, nombre, precio, categoria_id
     FROM productos
     WHERE activo = 1
       AND precio > 0
@@ -92,6 +92,7 @@ async function run() {
   console.log('Iniciando verificacion operativa...');
   const testUserId = ensureSystemCheckUser();
   let pedidoId = null;
+  let pedidoInternoId = null;
 
   try {
     const login = await request('/auth/login', {
@@ -159,9 +160,36 @@ async function run() {
     }
     console.log('OK: ticket de impresion generado');
 
+    const internalCreated = await request('/pedidos/interno', {
+      method: 'POST',
+      headers: authHeaders,
+      body: {
+        origen: 'tpv',
+        tipo_entrega: 'delivery',
+        cliente_nombre: 'Prueba TPV',
+        cliente_telefono: `${TEST_PHONE}1`,
+        cliente_direccion: 'Sargento Cabral 251, Monteros',
+        metodo_pago: 'efectivo',
+        items: [{
+          producto_id: product.id,
+          categoria_id: product.categoria_id || null,
+          nombre: product.nombre,
+          cantidad: 1,
+          precio_unitario: Number(product.precio),
+          subtotal: Number(product.precio),
+        }],
+      },
+    });
+    if (internalCreated.status !== 200 || !internalCreated.body?.id) {
+      throw new Error(`Crear pedido interno fallo con status ${internalCreated.status}: ${JSON.stringify(internalCreated.body)}`);
+    }
+    pedidoInternoId = internalCreated.body.id;
+    console.log('OK: pedido interno TPV creado');
+
     console.log('Verificacion operativa completada.');
   } finally {
     cleanupPedido(pedidoId);
+    cleanupPedido(pedidoInternoId);
     cleanupClientePrueba();
     cleanupSystemCheckUser(testUserId);
   }

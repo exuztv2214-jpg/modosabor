@@ -1079,10 +1079,10 @@ if (userCount.c === 0) {
   console.log(`Usuario admin inicial creado: ${initialAdminEmail}`);
 }
 
-if (process.env.NODE_ENV === 'production') {
-  const emergencyAdminEmail = String(process.env.EMERGENCY_ADMIN_EMAIL || 'admin@modosabor.com').trim().toLowerCase();
-  const emergencyAdminPassword = String(process.env.EMERGENCY_ADMIN_PASSWORD || 'admin2214').trim();
-  const emergencyAdminName = String(process.env.EMERGENCY_ADMIN_NAME || 'Hernan Lorenzo').trim() || 'Administrador';
+if (process.env.NODE_ENV === 'production' && String(process.env.EMERGENCY_ADMIN_ENABLED || '0') === '1') {
+  const emergencyAdminEmail = String(process.env.EMERGENCY_ADMIN_EMAIL || '').trim().toLowerCase();
+  const emergencyAdminPassword = String(process.env.EMERGENCY_ADMIN_PASSWORD || '').trim();
+  const emergencyAdminName = String(process.env.EMERGENCY_ADMIN_NAME || 'Administrador').trim() || 'Administrador';
 
   if (emergencyAdminEmail && emergencyAdminPassword) {
     const existingEmergencyAdmin = db.prepare('SELECT id FROM usuarios WHERE lower(email) = ?').get(emergencyAdminEmail);
