@@ -103,6 +103,20 @@ function upsertConfigRows(db, rows) {
   return { table: 'configuracion', rows: imported, skipped: false };
 }
 
+function deactivateStaleProducts(db, rows) {
+  if (!hasTable(db, 'productos') || !Array.isArray(rows)) {
+    return { table: 'productos_stale', rows: 0, skipped: true };
+  }
+  const ids = rows.map((row) => Number(row.id)).filter((id) => Number.isInteger(id) && id > 0);
+  if (!ids.length) return { table: 'productos_stale', rows: 0, skipped: false };
+
+  const placeholders = ids.map(() => '?').join(', ');
+  const result = db
+    .prepare(`UPDATE productos SET activo = 0 WHERE id NOT IN (${placeholders}) AND activo = 1`)
+    .run(...ids);
+  return { table: 'productos_stale', rows: result.changes || 0, skipped: false };
+}
+
 function importBaseDataPackage(db, payload) {
   const tables = payload?.tables || {};
   db.pragma('foreign_keys = OFF');
@@ -110,6 +124,7 @@ function importBaseDataPackage(db, payload) {
     const results = [];
     results.push(upsertRows(db, 'categorias', tables.categorias || []));
     results.push(upsertRows(db, 'productos', tables.productos || []));
+    results.push(deactivateStaleProducts(db, tables.productos || []));
     results.push(
       upsertRows(db, 'inventario_insumos', tables.inventario_insumos || [], {
         preserveExisting: ['stock_actual', 'actualizado_en'],
