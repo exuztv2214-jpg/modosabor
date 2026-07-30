@@ -15,9 +15,20 @@ db.exec('PRAGMA synchronous = NORMAL');
 
 const schemaPath = path.join(__dirname, 'schema.sql');
 const schemaSQL = fs.readFileSync(schemaPath, 'utf-8');
-db.exec(schemaSQL);
+const indexStatements = [];
+const tableStatements = schemaSQL.replace(
+  /^\s*CREATE\s+(?:UNIQUE\s+)?INDEX\b[\s\S]*?;\s*$/gim,
+  (statement) => {
+    indexStatements.push(statement);
+    return '';
+  }
+);
 
+db.exec(tableStatements);
 runMigrations(db);
+if (indexStatements.length > 0) {
+  db.exec(indexStatements.join('\n'));
+}
 runSeed(db);
 
 module.exports = db;
