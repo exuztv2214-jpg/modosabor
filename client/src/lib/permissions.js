@@ -13,19 +13,8 @@ export const ROLE_PERMISSIONS = {
     'caja.view',
     'caja.manage',
   ],
-  cocina: [
-    'dashboard.view',
-    'kds.view',
-    'pedidos.view',
-    'pedidos.kitchen',
-    'pedidos.print',
-  ],
-  delivery: [
-    'dashboard.view',
-    'delivery.view',
-    'delivery.manage',
-    'pedidos.view',
-  ],
+  cocina: ['dashboard.view', 'kds.view', 'pedidos.view', 'pedidos.kitchen', 'pedidos.print'],
+  delivery: ['dashboard.view', 'delivery.view', 'delivery.manage', 'pedidos.view'],
 };
 
 export function getPermissionsForRole(role) {

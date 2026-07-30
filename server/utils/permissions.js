@@ -14,13 +14,7 @@ const ROLE_PERMISSIONS = {
     'caja.manage',
     'configuracion.view',
   ],
-  cocina: [
-    'dashboard.view',
-    'kds.view',
-    'pedidos.view',
-    'pedidos.kitchen',
-    'pedidos.print',
-  ],
+  cocina: ['dashboard.view', 'kds.view', 'pedidos.view', 'pedidos.kitchen', 'pedidos.print'],
   delivery: [
     'dashboard.view',
     'delivery.view',

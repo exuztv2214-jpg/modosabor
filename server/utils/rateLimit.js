@@ -1,9 +1,9 @@
 function clientKey(req) {
   return String(
-    req.headers['x-forwarded-for']?.split(',')[0]
-    || req.socket?.remoteAddress
-    || req.ip
-    || 'unknown'
+    req.headers['x-forwarded-for']?.split(',')[0] ||
+      req.socket?.remoteAddress ||
+      req.ip ||
+      'unknown'
   ).trim();
 }
 
@@ -43,4 +43,5 @@ function createRateLimiter({
 
 module.exports = {
   createRateLimiter,
+  clientKey,
 };

@@ -1,0 +1,652 @@
+# Bitácora Claude — Modo Sabor
+
+Registro de todo el trabajo hecho sobre el sistema Modo Sabor y sobre el agente de WhatsApp con IA. Se va actualizando a medida que avanzamos, para poder pausar y retomar sin perder el hilo.
+
+Última actualización: 23 de julio de 2026.
+
+---
+
+## 1. Resumen general
+
+El objetivo grande es tener un agente de IA atendiendo el WhatsApp de Modo Sabor: que converse con los clientes como una persona real, tome pedidos y los cargue directamente en el sistema real (con precios recalculados por el servidor, nunca inventados por la IA). Todo esto sin pagar de más: usando Gemini (tiene capa gratuita) en vez de OpenAI o Claude/Anthropic, y n8n autoalojado (sin costo de plataforma) en el mismo VPS donde ya vive el sistema.
+
+El trabajo se dividió en dos frentes:
+
+1. **El sistema Modo Sabor en sí** (web pública, panel admin, TPV, fidelización, etc.): una serie de auditorías y arreglos que se vienen haciendo de antes.
+2. **El agente de WhatsApp**: diseño de endpoints nuevos en el backend para que la IA pueda consultar menú, cotizar, y crear pedidos; instalación de n8n en el VPS; armado y depuración del workflow.
+
+---
+
+## 2. Infraestructura
+
+- El sistema corre en un **VPS de Donweb**, dominio **www.modosabor.com.ar**.
+- Stack: backend Node/Express + cliente Vite/React, manejado con **pm2** (proceso `modosabor`) detrás de **nginx**, en la ruta `/opt/modosabor`.
+- El deploy se hace con un script de PowerShell (`npm run deploy:donweb`), que empaqueta el proyecto, lo sube por SCP, reinstala dependencias, reconstruye el cliente y reinicia pm2, preservando `.env`, `data` y `uploads` entre despliegues. Hay un chequeo aparte (`npm run deploy:donweb:check`) que valida que el health check responda.
+- El **DNS** del dominio se administra en **Cloudflare** (no en Donweb). Importante: los subdominios que apuntan a servicios propios (como n8n) tienen que estar en modo "DNS only" (nube gris, sin proxy de Cloudflare), porque si no rompe la validación de certificados HTTPS y las conexiones por WebSocket que usa WhatsApp.
+
+### n8n
+
+- Se instaló **n8n autoalojado con Docker** en el mismo VPS, en el subdominio **n8n.modosabor.com.ar**, con **nginx como proxy reverso** y certificado HTTPS de Let's Encrypt (certbot).
+- El contenedor se recreó en un momento para agregar la variable `N8N_BLOCK_ENV_ACCESS_IN_NODE=false`, necesaria para que los nodos del workflow puedan leer variables de entorno (`$env.AGENT_API_KEY`, `$env.MODO_SABOR_API_URL`, etc.) sin que n8n lo bloquee por seguridad. Se hizo preservando los datos (workflows y credenciales) gracias al volumen `n8n_data`.
+
+**Nota pendiente:** apareció una advertencia de "sitio peligroso" de Google Safe Browsing al entrar a n8n.modosabor.com.ar, tanto en mi navegador de prueba como en el tuyo. Todo indica que es un falso positivo típico de subdominios nuevos con un formulario de login genérico (el certificado SSL es válido, no hay señales reales de compromiso). Como esa URL solo la visitás vos como administrador —los clientes nunca la ven—, no afecta el funcionamiento del agente. Igual, en algún momento conviene pedir una revisión a Google Safe Browsing para que deje de aparecer.
+
+---
+
+## 3. Cambios hechos en el sistema Modo Sabor (antes de este tramo de n8n)
+
+Resumen de las auditorías y arreglos ya aplicados y desplegados al sistema principal:
+
+- **Lanzador de escritorio** (`ModoSabor.pyw`): corregido.
+- **Bug `fmtMoney` no definido** en Pedidos y `useClientes`: corregido.
+- **Auditoría completa módulo por módulo**: Dashboard, TPV, Fidelización, Web Pública, y una segunda pasada general del sistema.
+- **Dashboard**: arreglos aplicados tras la auditoría.
+- **Web pública**: contraste del header al hacer scroll, color hardcodeado en una etiqueta, imagen de reemplazo para productos sin foto.
+- **Menú del día / turnos**: se agregó `turno_id` a categorías y `menu_dia_tipo` a productos (migración + backend + admin), con selector de turno en Categorías y tipo económico/ejecutivo + promo en Control diario. La web pública ahora cambia sola entre carta y menú del día según el turno.
+- **TPV**: auditoría completa con 6 arreglos — bug de etiqueta al aparcar venta, doble venta por doble clic en confirmar, imágenes rotas en el catálogo, fricción del modal de Menú del Día, sincronización de pedidos en espera entre terminales, validación de mínimo en el campo de efectivo recibido.
+- **Delivery**: auditoría del tracking GPS end-to-end.
+- **Fidelización**: mejora visual del módulo, arreglo del branding roto en la tarjeta pública, posibilidad de subir imagen propia para el frente de la tarjeta, y rediseño completo (frente con imagen propia, dorso con sellos + QR estilo tarjeta de referencia).
+- **Bug global de `pesosToCents`** (función `isMoneyKey`): corregido en todo el sistema.
+
+**Pendiente de esta lista:** queda una verificación final tras un restart pendiente (tarea abierta, no bloqueante).
+
+---
+
+## 4. Agente de WhatsApp: diseño y backend
+
+### 4.1. Endpoints nuevos en el backend
+
+Se agregó `server/routes/agente.js`, pensado para ser llamado por n8n (no por navegadores ni por la web pública). Se protege con un header compartido `x-agent-key`, validado contra la variable de entorno `AGENT_API_KEY`. Si esa variable no está definida, todas las rutas devuelven 404 (no revela que la funcionalidad existe).
+
+Rutas:
+
+- **GET `/api/agente/estado`**: si el negocio está abierto y qué turno está corriendo.
+- **GET `/api/agente/menu`**: catálogo completo o filtrado por categoría.
+- **GET `/api/agente/producto/:id`**: detalle de un producto (variantes, extras, reglas).
+- **POST `/api/agente/cotizar`**: recibe una descripción en lenguaje natural (ej: "pizza muzzarella docena con extra queso") y devuelve el producto identificado y el precio real, calculado contra el catálogo — la IA nunca inventa precios.
+- **POST `/api/agente/envio`**: valida si una dirección está en zona de reparto (Monteros) y cotiza el envío.
+- **GET `/api/agente/cliente/:telefono`** (también acepta `?telefono=` por query): historial rápido del cliente para personalizar el saludo.
+- **POST `/api/agente/pedido`**: crea el pedido real. Acepta tanto un body plano como un campo `pedido_json` (string con el pedido completo en JSON) — esto último se agregó porque Gemini arma mejor sus llamadas a herramientas cuando el dato va como un único string declarado, en vez de un objeto libre con muchos campos anidados.
+
+En todos los casos, **el precio de cada ítem se recalcula siempre del lado del servidor** contra el catálogo real (`enrichOrderItemsWithCatalog` en `systemClient.js`); el agente nunca puede fijar un precio, solo elegir producto y variantes/extras por nombre.
+
+### 4.2. Prompt del agente ("Mica")
+
+Está en `agente-whatsapp/prompt-agente.md` y se pegó completo en el nodo del Agente dentro de n8n. Define:
+
+- Personalidad: "Mica", tono cercano y argentino (voseo), mensajes cortos como WhatsApp real, sin abusar de emojis, sin decir que es una IA salvo que se lo pregunten directamente.
+- Reglas de negocio no negociables: reparto solo en Monteros; siempre chequear si está abierto antes de tomar un pedido; nunca inventar productos/precios/promos; el total siempre sale de sumar las cotizaciones reales.
+- Flujo de 7 pasos para tomar un pedido: preguntar qué quiere → mostrar menú si lo piden → cotizar cada ítem → preguntar delivery o retiro (y cotizar envío si aplica) → preguntar forma de pago → resumen y confirmación explícita → recién ahí crear el pedido.
+- Lista de las 6 herramientas disponibles y qué hace cada una.
+
+---
+
+## 5. El workflow de n8n
+
+Workflow: **"Agente WhatsApp - Modo Sabor"**, en `https://n8n.modosabor.com.ar/workflow/z9zGo00ENHu6IGa9`.
+
+Estructura: **WhatsApp Trigger** → **Agente Modo Sabor** (nodo de IA, LangChain Agent) → **Responder por WhatsApp**. El agente tiene conectados:
+
+- **Gemini (cerebro del agente)** — modelo `gemini-2.5-flash` — como modelo de lenguaje.
+- **Memoria por teléfono** — memoria de conversación, con clave = número de WhatsApp del cliente.
+- **6 herramientas** (nodos HTTP Request Tool, cada uno llamando a un endpoint de `agente.js`): `consultar_estado`, `consultar_menu`, `cotizar_item`, `cotizar_envio`, `consultar_cliente`, `crear_pedido`.
+
+### 5.1. Decisión de modelo: Gemini en vez de OpenAI/Claude
+
+Se verificó (con búsqueda, no de memoria) que Gemini tiene una capa gratuita real y OpenAI no, así que se cambió el nodo de modelo de Anthropic Claude a Google Gemini.
+
+### 5.2. Credenciales configuradas
+
+- **Google Gemini API**: API key propia de Google AI Studio.
+- **WhatsApp OAuth account** (para el nodo Trigger): Client ID `1629659451507107` y Client Secret, de la app de Meta "modo sabor w".
+- **WhatsApp account** (para el nodo de respuesta, más simple): Access Token + Business Account ID `26163051483357551`. El número de teléfono de prueba usado tiene ID `1118624484659978`.
+
+Se tuvo que borrar una **suscripción de webhook vieja** en Meta, que apuntaba a un backend abandonado en Render.com, porque Meta solo permite un webhook activo por app — eso bloqueaba a n8n para registrar el suyo.
+
+### 5.3. El problema grande: Gemini y el schema de las herramientas
+
+Gemini rechaza cualquier herramienta cuyo `parameters.properties` quede vacío (es una limitación conocida de compatibilidad n8n + Gemini, reportada en GitHub n8n-io/n8n #13294 y #14023). El workflow original tenía los parámetros de cada tool metidos como expresiones `$fromAI()` crudas dentro de la URL o del body JSON — eso no se declara como parámetro real, así que Gemini veía el schema vacío y **tiraba abajo TODO el agente**, no solo esa herramienta.
+
+La solución fue, en cada uno de los 6 nodos, declarar los parámetros usando la interfaz estructurada de n8n ("Query/Body Parameters: Using Fields Below" con "Value Provided: By Model"), en vez de expresiones sueltas. Esto exigió también dos cambios en el backend (ya mencionados arriba): aceptar `telefono` por query string en `/cliente`, y aceptar `pedido_json` como string en `/pedido`.
+
+### 5.4. Otros problemas encontrados y corregidos en esta sesión
+
+- **n8n bloqueaba el acceso a variables de entorno** desde las expresiones de los nodos → se resolvió agregando `N8N_BLOCK_ENV_ACCESS_IN_NODE=false` al contenedor Docker.
+- **Header de autenticación faltante o corrompido**: varios de los 6 nodos tool tenían el header `x-agent-key` vacío, mal nombreado, o directamente ausente (en algún punto de la depuración se pisó por error). Se revisaron y corrigieron uno por uno: `consultar_estado`, `consultar_menu`, `cotizar_item`, `cotizar_envio` y `crear_pedido` — todos confirmados con `x-agent-key` usando `{{ $env.AGENT_API_KEY }}`.
+- **El nodo `consultar_cliente` había desaparecido por completo del workflow** (se borró sin querer durante la depuración). Se recreó desde cero: URL `GET /api/agente/cliente`, parámetro de query `telefono` (por modelo), header `x-agent-key`, y se reconectó como herramienta del agente.
+- **Publicación pendiente**: en n8n los cambios en los nodos quedan como borrador hasta hacer clic en **Publish** — el webhook de producción (el que realmente recibe los WhatsApp) sigue usando la última versión publicada. Varias rondas de "no responde" fueron en realidad porque se probaba contra una versión vieja sin los arreglos. Ya se publicó la versión con todos los arreglos de esta sesión.
+
+---
+
+## 6. Estado actual (23/07, última prueba)
+
+Se publicó la versión con: los 6 nodos con headers correctos, `consultar_cliente` recreado y reconectado, y los parámetros declarados correctamente para Gemini.
+
+Al mandar un mensaje de prueba desde el número `+54 9 3863 56-7109` al número de test de Meta, **no pasó nada** (ni respuesta ni error visible). Todavía no pudimos confirmar la causa porque, al intentar revisar la pestaña de Executions en n8n para ver el detalle, apareció la advertencia de "sitio peligroso" de Google Safe Browsing — tanto en mi navegador de prueba como en el tuyo — que bloquea el acceso hasta que se la pasa manualmente ("Detalles" → "Visitar sitio no seguro").
+
+### Pendiente inmediato
+
+1. Pasar la advertencia de seguridad en el navegador (una vez sirve para destrabar el acceso).
+2. Revisar la pestaña **Executions** del workflow en n8n para ver si el mensaje de prueba generó una ejecución nueva, y si generó error, en qué nodo.
+3. Si no generó ninguna ejecución: sospechar del lado de Meta/WhatsApp (webhook no registrado, token vencido, número de prueba desconectado) más que del workflow en sí.
+4. Confirmar que el agente responde de punta a punta, que llama las herramientas en el orden correcto, y que un pedido de prueba se crea bien en el sistema real con precios recalculados por el servidor.
+
+### Pendiente a más largo plazo (una vez todo funcione en el número de prueba)
+
+- Migrar del número de prueba de Meta al número real del negocio (381-598-8735).
+- Reemplazar el token de acceso de WhatsApp (hoy de corta duración, tipo "test") por un token de System User permanente.
+- Pedir revisión de Google Safe Browsing para el subdominio n8n.
+- Rotar la contraseña root del VPS (se compartió en texto plano en el chat en algún momento de la configuración inicial).
+
+---
+
+## 7. Próximos pasos acordados
+
+Según lo último charlado: hacemos una pausa acá con el agente de WhatsApp (documentado en esta bitácora para no perder el hilo), volvemos a terminar los pendientes del sistema Modo Sabor, y cuando esté todo lo hacemos un solo despliegue (`npm run deploy:donweb`) al VPS.
+
+---
+
+## 8. Corrección crítica de pedidos y precios (23/07)
+
+Se encontró la causa de los errores vistos como **"Datos inválidos"** al vender desde la web pública/TPV y de los totales mal mostrados después de confirmar un pedido:
+
+- El middleware `server/middleware/sanitize.js` escapaba comillas dentro de campos JSON serializados como `items`.
+- Eso convertía el JSON de productos del pedido en un string no parseable.
+- Al no poder parsear los items, el backend terminaba calculando importes en `0` o importes incoherentes.
+- También podía afectar el flujo del agente de WhatsApp cuando enviaba `pedido_json`.
+
+Correcciones realizadas:
+
+- `/api/agente` queda excluida del escape HTML para conservar `pedido_json` parseable.
+- Los campos JSON string conocidos (`items`, `variantes`, `extras`, `pagos`, `split_payments`, `metodos_pago`) conservan su JSON original si es válido.
+- Las rutas normales siguen escapando HTML en campos de texto comunes.
+- `server/scripts/verify-operacion.js` ahora verifica que un pedido público y un pedido interno TPV mantengan el ida/vuelta correcto de pesos/centavos: por ejemplo `$4500` vuelve como `$4500`, no como `$45`, `$50` o `$0`.
+
+Validación local ejecutada:
+
+- `node server\tests\run.js`: OK, 5 suites pasadas.
+- `npm run verify:operacion`: OK, crea pedido público, lo lista, cambia estado, genera ticket y crea pedido TPV validando importes.
+- `npm run verify:core`: OK.
+- `npm run build`: OK.
+- SQLite `PRAGMA integrity_check`: OK.
+- SQLite `PRAGMA foreign_key_check`: 0 errores.
+- La verificación no dejó clientes temporales ni pedidos de prueba persistidos.
+
+---
+
+## 9. Tracking, mapas y rutas de delivery (23/07)
+
+Se reforzó el flujo de mapas porque en producción se vieron iframes bloqueados y rutas que podían interpretarse fuera de Monteros.
+
+Correcciones realizadas:
+
+- `client/src/lib/maps.js` ahora arma direcciones completas con localidad, provincia y país por defecto: **Monteros, Tucuman, Argentina**.
+- Si una dirección trae una ciudad conflictiva conocida como Concepción, San Miguel de Tucumán, Yerba Buena o Aguilares, se prioriza Monteros salvo que la dirección ya mencione Monteros.
+- Se agregó link de Waze para la app rider.
+- `LiveTrackingMap` ya no queda cargando indefinidamente: si Leaflet/CDN no responde en 8 segundos, muestra fallback operativo con botones para abrir destino/rider en Google Maps.
+- `RiderRouteMap` muestra una tarjeta clara cuando el pedido no tiene coordenadas exactas, con ruta por dirección completa a Monteros.
+- `RiderPanel` ahora abre rutas usando la configuración del negocio.
+- `Delivery` dejó de depender de iframes de Google para el radar, domicilio de rider y ficha: ahora usa paneles con dirección segura y botones de ruta/mapa.
+
+Validación local ejecutada después del cambio:
+
+- `npm run build`: OK.
+- `node server\tests\run.js`: OK.
+- `npm run verify:operacion`: OK.
+- `npm run verify:core`: OK.
+
+---
+
+## 10. Deploy DonWeb endurecido (23/07)
+
+Se revisó el flujo de despliegue al VPS DonWeb para evitar que vuelva a pasar el error de SSH visto anteriormente como `mkdir: missing operand`.
+
+Correcciones realizadas:
+
+- `deploy/deploy-donweb.ps1` ahora valida que `MODOSABOR_VPS_HOST`, `MODOSABOR_VPS_PORT` y `MODOSABOR_VPS_PATH` tengan valores seguros antes de subir.
+- El path remoto no puede quedar vacío ni ser `/`.
+- Antes de empaquetar/subir, ejecuta `npm run build` localmente.
+- El script remoto ya no viaja como comando largo inline por SSH: se escribe en un `.sh`, se sube al VPS como `/root/modosabor-deploy.sh` y se ejecuta con `bash`.
+- `docs/DEPLOY-DONWEB-RAPIDO.md` quedó actualizado explicando que el deploy preserva `.env`, `server/data` y `server/uploads`.
+
+Validación ejecutada:
+
+- `npm run package:donweb`: OK.
+- `npm run deploy:donweb:check`: OK contra `https://modosabor.com.ar/api/health`.
+
+---
+
+## 11. Dorso de tarjeta Club Fidelidad (23/07)
+
+Se ajustó la página pública de Club/Fidelidad para que la parte trasera de la tarjeta no se vea deformada ni más alta que el frente.
+
+Cambios realizados:
+
+- Se agregó el fondo entregado por Hernán como asset del cliente:
+  - `client/public/assets/fidelidad/tarjeta-fide-dorso.png`
+- `client/src/pages/ClubFidelidad/TarjetaFidelidad.jsx` ahora usa ese fondo para el dorso.
+- El dorso quedó con proporción fija `8/5`, igual que el frente.
+- El QR queda integrado a la izquierda, con texto "Escaneá tu tarjeta".
+- Los sellos/puntos quedan sobre el fondo oscuro, en una grilla ordenada.
+- El mismo dorso se usa tanto si hay frente personalizado cargado como si el sistema muestra la tarjeta generada por defecto.
+
+Validación ejecutada:
+
+- `npm run build`: OK.
+- `npx eslint src/pages/ClubFidelidad/TarjetaFidelidad.jsx`: OK.
+
+### Ajuste visual posterior
+
+Después de revisar que el primer dorso todavía se veía pobre, se rediseñó nuevamente:
+
+- QR dentro de una placa blanca limpia, como tarjeta impresa real.
+- Logo del negocio integrado arriba a la derecha.
+- Título y beneficio con jerarquía clara.
+- Sellos dentro de un panel translúcido ordenado.
+- Nombre del socio y puntos en una barra inferior.
+- Se conserva el fondo negro entregado, pero como textura de marca y no como único diseño.
+
+Validación posterior:
+
+- `npx eslint src/pages/ClubFidelidad/TarjetaFidelidad.jsx`: OK.
+- `npm run build`: OK.
+
+---
+
+## 12. WhatsApp Copiloto con `#dale` (23/07)
+
+Se empezó el flujo recomendado para usar IA en WhatsApp sin que atienda sola al cliente.
+
+Objetivo:
+
+- El cliente escribe por WhatsApp.
+- El local responde manualmente.
+- Cuando el operador escribe `#dale`, n8n/IA lee la conversación reciente.
+- La IA arma un `pedido_json`.
+- El sistema crea un borrador revisable, no un pedido real automático.
+- El operador confirma el borrador desde el sistema y recién ahí entra el pedido a cocina/delivery.
+
+Cambios implementados:
+
+- Nuevo servicio compartido:
+  - `server/services/whatsappCopilotoService.js`
+- Nuevo endpoint protegido por clave de agente:
+  - `POST /api/agente/copiloto/dale`
+- Nueva API administrativa protegida por sesión:
+  - `GET /api/whatsapp-copiloto/borradores`
+  - `GET /api/whatsapp-copiloto/borradores/:id`
+  - `POST /api/whatsapp-copiloto/borradores/:id/confirmar`
+  - `POST /api/whatsapp-copiloto/borradores/:id/descartar`
+- Nueva pantalla del panel:
+  - `/admin/whatsapp-copiloto`
+- Menú lateral actualizado con "WhatsApp Copiloto".
+- Se agregó `pedido_id` a `whatsapp_pedidos_borrador` para mantener trazabilidad borrador -> pedido confirmado.
+- Se creó `agente-whatsapp/prompt-copiloto-dale.md`, separado del prompt del agente automático.
+- `agente-whatsapp/README.md` quedó actualizado con el modo recomendado.
+
+Pendiente para activación real:
+
+- Conectar n8n/Meta WhatsApp al endpoint `POST /api/agente/copiloto/dale`.
+- Configurar `AGENT_API_KEY`.
+- Probar primero con número de prueba de Meta.
+- Verificar un caso real: cliente pide -> operador escribe `#dale` -> aparece borrador -> confirmar.
+
+Validación local ejecutada:
+
+- `node server\tests\run.js`: OK.
+- Smoke de `createDraftFromCopilot` con producto real y rollback: OK.
+- `npm run verify:core`: OK.
+- `npm run verify:operacion`: OK.
+- `npm run build`: OK.
+
+### Rediseño simplificado final
+
+El segundo rediseño seguía viéndose cargado y poco gráfico. Se reemplazó por una composición más cercana a una tarjeta impresa:
+
+- Fondo negro de Modo Sabor a pantalla completa.
+- QR limpio a la izquierda, sin caja gigante.
+- Título arriba con jerarquía simple: "Modo Sabor" + "Tarjeta de fidelidad".
+- Sellos grandes al centro en grilla 3x2, más parecidos a la referencia impresa.
+- Sin logo flotante ni paneles innecesarios.
+- Nombre del cliente y progreso/puntos abajo.
+
+Validación:
+
+- `npx eslint src/pages/ClubFidelidad/TarjetaFidelidad.jsx`: OK.
+- `npm run build`: OK.
+
+### Ajuste de carga de WhatsApp Copiloto (24/07)
+
+Se revisó el error visual "No se pudo cargar WhatsApp Copiloto" en local.
+
+Diagnóstico:
+
+- El puerto `3001` estaba ocupado por un backend viejo que respondía `404` para `/api/whatsapp-copiloto/borradores`.
+- Al levantar temporalmente el backend actual, la ruta respondió correctamente y devolvió `401 No autorizado` en la prueba directa de PowerShell, esperado porque esa llamada no lleva cookie de sesión admin.
+- La duplicación del toast venía de la doble ejecución de efectos en `React.StrictMode` durante desarrollo.
+
+Corrección:
+
+- `client/src/pages/WhatsAppCopiloto.jsx` evita la doble carga inicial con `useRef`.
+- El toast ahora muestra el detalle real del error (`401`, `404`, mensaje del servidor, etc.) para diagnosticar más rápido.
+
+Validación:
+
+- `npm run build`: OK.
+- `GET /api/health`: OK con backend actual.
+- `GET /api/whatsapp-copiloto/borradores?estado=abierto`: ruta existente; devuelve `401` sin sesión, como corresponde.
+
+### Configuración del flujo WhatsApp Copiloto
+
+Se completó la preparación del lado de Modo Sabor para conectar n8n/WhatsApp:
+
+- `AGENT_API_KEY` local ya está configurado en `server/.env`.
+- `POST /api/agente/copiloto/dale` acepta `pedido_json` como string o como objeto JSON, para tolerar variaciones de n8n.
+- Se agregó `agente-whatsapp/payload-copiloto-dale.example.json`.
+- Se agregó `agente-whatsapp/workflow-copiloto-dale.md` con el flujo recomendado.
+- Se agregó `deploy/configure-donweb-agent.ps1` para configurar `AGENT_API_KEY` en el `.env` remoto de DonWeb sin tocar el resto del deploy.
+- `agente-whatsapp/README.md` quedó actualizado con la URL pública `https://modosabor.com.ar` para n8n.
+
+Validación real:
+
+- Prueba sin `producto_id`: el sistema rechazó el borrador porque no permite que la IA invente precios.
+- Prueba con producto real `Smash Simple` (`producto_id = 40`): creó borrador correctamente en `/admin/whatsapp-copiloto`.
+- Se verificó visualmente que aparecía como pendiente 1 por `$6.000`.
+- Se descartó el borrador de prueba desde la UI y quedó nuevamente en 0 pendientes.
+
+Pendiente externo:
+
+- DonWeb no permitió configurar remoto desde la herramienta en modo no interactivo (`Permission denied` sin password/TTY).
+- Quedó listo `deploy/configure-donweb-agent.ps1` para ejecutarlo desde PowerShell y cargar la misma `AGENT_API_KEY` en `/opt/modosabor/server/.env`.
+
+### Estado DonWeb posterior
+
+Se configuró manualmente `AGENT_API_KEY` en DonWeb y se reinició PM2. `https://modosabor.com.ar/api/health` respondió OK en production.
+
+Prueba remota:
+
+- `GET https://modosabor.com.ar/api/agente/estado`: OK con `x-agent-key`.
+- `POST https://modosabor.com.ar/api/agente/copiloto/dale`: todavía devuelve `404`, lo que confirma que DonWeb conserva una versión vieja del código sin la ruta nueva.
+
+Acción necesaria:
+
+- Subir el código actualizado a DonWeb con `npm run deploy:donweb`.
+- Se reforzó `deploy/deploy-donweb.ps1` para que no informe deploy completo si falla `scp` o `ssh`.
+
+### Deploy DonWeb completado para WhatsApp Copiloto
+
+El usuario ejecutó `npm run deploy:donweb` con éxito:
+
+- Build local OK.
+- Paquete subido por SCP OK.
+- Build remoto OK.
+- PM2 reiniciado OK.
+- `npm run deploy:donweb:check`: OK.
+- `GET https://modosabor.com.ar/api/agente/estado`: OK.
+- `POST https://modosabor.com.ar/api/agente/copiloto/dale` sin `#dale`: OK, devuelve `sin_comando_dale`.
+- `POST https://modosabor.com.ar/api/agente/copiloto/dale` con `#dale` y `producto_id = 40`: OK, creó borrador remoto `#1`.
+
+Observación importante:
+
+- En producción `Smash Simple` devolvió total `$5.000`, mientras local estaba en `$6.000`.
+- Esto indica que el deploy subió código, pero la base de datos remota conserva precios/menu viejos.
+- Queda pendiente sincronizar datos de catálogo/precios de local a DonWeb si se quiere que producción refleje la carta actual.
+
+Limpieza pendiente:
+
+- Descartar desde `/admin/whatsapp-copiloto` el borrador remoto de prueba `#1` (`Cliente prueba remoto copiloto`).
+
+### Sincronización segura DonWeb: admin y catálogo (24/07)
+
+Se detectó que producción tenía código actualizado, pero base de datos operativa con datos viejos:
+
+- `POST /api/auth/login` en producción rechazó `admin@modosabor.com / ModoSabor2026!`.
+- `Smash Simple` en producción figuraba a `$5.000`, mientras local está a `$6.000`.
+- El borrador remoto de prueba de WhatsApp Copiloto quedó pendiente porque no se podía entrar al admin productivo.
+
+Corrección preparada:
+
+- Se agregó `server/scripts/export-catalog.js` para exportar solo datos de carta y stock técnico.
+- Se agregó `server/scripts/import-catalog.js` para importar en DonWeb con upsert.
+- Se agregó `deploy/sync-donweb-catalog.ps1`.
+- Se agregó `deploy/reset-donweb-admin.ps1`.
+- Se agregaron scripts npm:
+  - `npm run deploy:donweb:reset-admin`
+  - `npm run deploy:donweb:sync-catalog`
+
+Cuidado aplicado:
+
+- La sincronización NO copia toda la base.
+- NO toca pedidos, clientes, caja, personal, asistencia, repartidores ni movimientos reales.
+- Actualiza `categorias`, `productos`, `inventario_insumos` e `inventario_recetas`.
+- Si un insumo ya existe en producción, conserva `stock_actual` y `actualizado_en` para no pisar el stock real del local.
+- Los productos que existan en producción pero no estén en local se desactivan, no se borran, para proteger historial.
+
+Validación local:
+
+- Export local OK: 9 categorías, 71 productos, 7 insumos, 140 recetas.
+- Importador probado contra copia temporal de la DB: OK.
+
+Pendiente operativo:
+
+1. Ejecutar en PowerShell desde `D:\Proyectos\modosabor1`:
+   - `npm run deploy:donweb:reset-admin`
+   - `npm run deploy:donweb:sync-catalog`
+2. Entrar a `https://modosabor.com.ar/admin` con `admin@modosabor.com / ModoSabor2026!`.
+3. Ir a `/admin/whatsapp-copiloto` y descartar el borrador remoto de prueba `#1` (`Cliente prueba remoto copiloto`).
+4. Validar producción con `npm run deploy:donweb:check`.
+
+### Fix deploy helpers DonWeb (24/07)
+
+El primer intento de reset admin y sync catalog falló porque los scripts remotos se subían a `/root`:
+
+- `reset-admin`: Node no encontraba `bcryptjs` porque el script corría fuera de `/opt/modosabor/server`.
+- `sync-catalog`: Node no encontraba `../db` porque el importador también corría desde `/root`.
+
+Corrección aplicada:
+
+- `deploy/reset-donweb-admin.ps1` ahora sube el script temporal a `$RemotePath/server/scripts/_reset-admin.remote.js` y lo ejecuta desde `cd $RemotePath/server`.
+- `deploy/sync-donweb-catalog.ps1` ahora sube el importador a `$RemotePath/server/scripts/_import-catalog.remote.js` y lo ejecuta desde `cd $RemotePath/server`.
+- La exportación local sigue generando `deploy/catalog-export.json`.
+
+Validación:
+
+- Sintaxis PowerShell OK.
+- `npm run deploy:donweb:sync-catalog -- -LocalOnly` OK: 9 categorías, 71 productos, 7 insumos, 140 recetas.
+- Sintaxis Node de export/import OK.
+
+Reintentar:
+
+```powershell
+cd D:\Proyectos\modosabor1
+npm run deploy:donweb:reset-admin
+npm run deploy:donweb:sync-catalog
+npm run deploy:donweb:check
+```
+
+### DonWeb admin y catálogo confirmados (24/07)
+
+Se ejecutaron correctamente en producción:
+
+- `npm run deploy:donweb:reset-admin`
+- `npm run deploy:donweb:sync-catalog`
+- `npm run deploy:donweb:check`
+
+Resultado:
+
+- Admin productivo actualizado correctamente.
+- Login productivo validado por API con `admin@modosabor.com`.
+- Health productivo OK en `https://modosabor.com.ar/api/health`.
+- Catálogo sincronizado desde local: 9 categorías, 71 productos, 7 insumos, 140 recetas.
+- PM2 reinició correctamente.
+- Menú productivo verificado vía `/api/agente/menu?categoria=hamburguesas`:
+  - `Smash Simple`: `$6.000`
+  - `Bacon Cheese`: `$6.000`
+  - `Route 66`: `$9.500`
+
+Pendiente manual menor:
+
+- Entrar a `/admin/whatsapp-copiloto` y descartar el borrador remoto de prueba `#1` si todavía aparece abierto.
+
+### WhatsApp Copiloto: puente local para WhatsApp Web (24/07)
+
+Se decidió avanzar con un puente local de WhatsApp Web porque el flujo pedido por el local es humano primero:
+
+- El operador responde manualmente desde WhatsApp.
+- La IA no atiende sola.
+- Cuando el pedido está claro, se manda al Copiloto para crear un borrador en el sistema.
+
+Importante técnico:
+
+- La API oficial de WhatsApp Business es más estable, pero está pensada para operar desde API/n8n y no siempre sirve si el operador quiere seguir respondiendo desde la app/WhatsApp Web normal.
+- Para probar rápido con el WhatsApp actual, se agregó `agente-whatsapp/puente-web` usando `whatsapp-web.js`.
+
+Agregado:
+
+- `agente-whatsapp/puente-web/server.js`: puente local con WhatsApp Web, QR, historial corto por chat y detección de disparo.
+- `agente-whatsapp/puente-web/public/`: panel local en `http://localhost:3035`.
+- `agente-whatsapp/puente-web/README.md`: instalación y uso.
+- `agente-whatsapp/workflow-puente-web-copiloto.md`: contrato del webhook n8n que transforma conversación en `pedido_json`.
+- Scripts npm:
+  - `npm run whatsapp:bridge:install`
+  - `npm run whatsapp:bridge`
+
+Mejora clave:
+
+- Además del atajo escrito `#dale`, se agregó botón `Mandar al copiloto` sobre chats recientes. Ese botón es el recomendado porque el cliente no ve ninguna palabra clave.
+
+Validación:
+
+- `npm install` dentro de `agente-whatsapp/puente-web`: OK, 0 vulnerabilidades.
+- `node -c agente-whatsapp/puente-web/server.js`: OK.
+- Se ajustó el puente para usar Chrome instalado en Windows si Puppeteer no descarga Chromium propio.
+
+Pendiente:
+
+- Configurar `N8N_COPILOTO_WEBHOOK_URL` cuando tengamos el webhook real.
+- Ejecutar `npm run whatsapp:bridge`, abrir `http://localhost:3035`, escanear QR y probar con un chat real.
+
+### Fix puente WhatsApp Web: MESSAGE_ERROR r (24/07)
+
+Durante la prueba con QR conectado, la pantalla del puente mostraba `MESSAGE_ERROR {"error":"r"}` y no aparecían chats recientes.
+
+Diagnóstico:
+
+- El fallo venía de llamadas frágiles de `whatsapp-web.js` dentro de `message.getChat()` / `message.getContact()`.
+- En algunos mensajes WhatsApp Web puede responder con errores internos poco descriptivos, incluso una sola letra.
+
+Corrección:
+
+- `agente-whatsapp/puente-web/server.js` ahora resuelve `chatId` desde datos crudos del mensaje (`id.remote`, `from`, `to`) antes de llamar APIs frágiles.
+- Si `getChat()` falla, registra `chat_lookup_warning` y sigue guardando el mensaje igual.
+- Se agregaron fallbacks para nombre/teléfono.
+- Se mejoró el registro de errores con `formatError` y `stack` cuando exista.
+- Se agregó hidratación de `chatIndex` desde `data/history.json` al iniciar, para que los chats guardados reaparezcan después de reiniciar.
+
+Validación:
+
+- `node -c agente-whatsapp\puente-web\server.js`: OK.
+
+Acción requerida:
+
+- Reiniciar el puente con Ctrl+C y `npm run whatsapp:bridge` para tomar el fix.
+
+### WhatsApp puente: modo automatico `dale` (24/07)
+
+Se ajustó el puente para que el uso diario sea simple:
+
+- El operador atiende por WhatsApp normalmente.
+- Cuando el pedido está claro, escribe `dale` en el chat.
+- El puente detecta automáticamente ese mensaje saliente y dispara la conversación al Copiloto.
+- El botón `Mandar al copiloto` queda solo como respaldo manual.
+
+Agregado:
+
+- `BRIDGE_AUTO_ON_OPERATOR_KEY=true` para activar/desactivar el disparo automático.
+- `BRIDGE_DELETE_OPERATOR_KEY=false` para permitir que, si se cambia a `true`, el puente intente borrar el `#dale` después de detectarlo.
+- La UI muestra si el disparo automático está activo.
+
+Pendiente clave:
+
+- Conectar `N8N_COPILOTO_WEBHOOK_URL` con un workflow real que use IA para convertir la conversación en `pedido_json` y llamar a `/api/agente/copiloto/dale`.
+
+### WhatsApp puente: modo directo sin n8n para pruebas (24/07)
+
+El usuario reportó que el puente "no hace nada". Se confirmó por `/api/status` que estaba levantado, pero sin destino configurado:
+
+- `n8n_configured: false`
+- `modosabor_configured: false`
+- No existía `.env` en `agente-whatsapp/puente-web`.
+
+Corrección:
+
+- El puente ahora carga primero `server/.env` del proyecto, así toma automáticamente `AGENT_API_KEY` y `MODO_SABOR_API_URL` si no hay `.env` propio del puente.
+- Si no hay webhook n8n, usa un extractor local básico:
+  - Lee el menú real desde `/api/agente/menu`.
+  - Busca nombres de productos en la conversación.
+  - Detecta cantidad cercana al nombre del producto.
+  - Detecta delivery/retiro y método de pago de forma simple.
+  - Intenta detectar dirección por texto con número y palabras de calle/zona, sin tomar cantidades como dirección.
+  - Envía `pedido_json` a `/api/agente/copiloto/dale` para crear borrador.
+- Se agregó endpoint de prueba `/api/test-pedido-json`.
+- El teléfono del pedido ahora se toma desde el chat del cliente, incluso cuando el disparador `dale` lo manda el local.
+
+Limitación:
+
+- Este modo directo no es IA real. Sirve para pedidos simples con nombres de productos claros. Para entender audios, mensajes ambiguos, cambios complejos y variantes conversacionales, sigue haciendo falta n8n + IA.
+
+Acción requerida:
+
+- Reiniciar `npm run whatsapp:bridge` para tomar el cambio.
+- Probar en WhatsApp con un texto claro, por ejemplo: "una Smash Simple y una Pepsi lata, delivery San Martin 969, efectivo", luego escribir `dale`.
+
+### WhatsApp puente: cierre de flujo dormido (24/07)
+
+Pedido del usuario: que no haya pasos raros ni paneles obligatorios; solo escribir `dale` en WhatsApp y que el pedido entre al sistema.
+
+Estado dejado:
+
+- `dale` y `#dale` son aceptados como disparadores.
+- En `.env`, `BRIDGE_OPERATOR_KEYS` queda entre comillas (`"dale,#dale"`) para que `#dale` no sea tomado como comentario.
+- El puente queda apuntando directo a `https://modosabor.com.ar`, tomando la clave del `server/.env`.
+- El puente queda con `BRIDGE_HEADLESS=false`, porque WhatsApp Web en modo invisible puede autenticarse pero quedar sin emitir `ready`.
+- El puente toma la conversación reciente y crea borrador en Modo Sabor directo si no hay n8n.
+- El botón manual queda como respaldo, no como flujo principal.
+- Se agregaron launchers:
+  - `Iniciar_WhatsApp_Copiloto.bat`
+  - `Instalar_WhatsApp_Copiloto_Inicio_Windows.bat`
+- Validado:
+  - `node -c agente-whatsapp\puente-web\server.js`: OK.
+  - `node server\tests\run.js`: 6 pasados, 0 fallados.
+  - `npm run verify:core`: OK.
+  - `npm run deploy:donweb:check`: OK.
+  - Puente local `http://localhost:3035/api/status`: `ready=true`, `modosabor_configured=true`, `direct_parser_enabled=true`, `operator_keys=["dale","#dale"]`.
+  - Parser local con ejemplo: detectó `Smash Simple`, `Pepsi lata`, `delivery`, `efectivo` y dirección `San Martin 969`.
+
+Uso esperado:
+
+1. Dejar abierto el puente con doble clic en `Iniciar_WhatsApp_Copiloto.bat`.
+2. Escanear QR si WhatsApp lo pide.
+3. Atender normal desde WhatsApp.
+4. Cuando el pedido está claro, escribir `dale`.
+5. El borrador entra a `/admin/whatsapp-copiloto` para confirmar.
+
+### Backup por posible migracion de DonWeb (25/07)
+
+Motivo: DonWeb subio el costo mensual y se evalua migrar a otro VPS economico.
+
+Hecho:
+
+- Backup local creado en `D:\Backups\ModoSabor\local-20260725-014936`.
+- ZIP local creado en `D:\Backups\ModoSabor\local-20260725-014936.zip`.
+- Incluye base local `server\data\modosabor.db`, uploads, deploy, docs, bitacora, scripts de WhatsApp y configuracion de proyecto.
+- Manifest local: `D:\Backups\ModoSabor\local-20260725-014936\manifest.json`.
+- Se agregaron scripts reutilizables:
+  - `deploy\backup-local.ps1`
+  - `deploy\backup-donweb.ps1`
+
+Estado DonWeb al intentar backup remoto:
+
+- `149.50.133.118:5942` no respondio por SSH.
+- `https://modosabor.com.ar/api/health` no respondio dentro del timeout.
+- Queda pendiente correr `deploy\backup-donweb.ps1` cuando DonWeb vuelva a responder para bajar una copia exacta del VPS con DB, uploads, backups internos, nginx, PM2 y `.env`.

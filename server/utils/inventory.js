@@ -20,7 +20,11 @@ function normalizeText(value) {
 
 function parseJson(value, fallback) {
   if (value === null || value === undefined || value === '') return fallback;
-  if (Array.isArray(value) || (typeof fallback === 'object' && !Array.isArray(fallback) && typeof value === 'object')) return value;
+  if (
+    Array.isArray(value) ||
+    (typeof fallback === 'object' && !Array.isArray(fallback) && typeof value === 'object')
+  )
+    return value;
   try {
     const parsed = JSON.parse(value);
     if (parsed === null || parsed === undefined) return fallback;
@@ -86,58 +90,87 @@ function recipeMatchesItem(row, item) {
   }
 
   if (recipe.condicion_tipo === CONDITION_TYPES.VARIANT) {
-    return selectedVariantsFromItem(item).some((entry) =>
-      normalizeText(entry.group) === normalizeText(recipe.condicion_grupo)
-      && normalizeText(entry.option) === normalizeText(recipe.condicion_valor)
+    return selectedVariantsFromItem(item).some(
+      (entry) =>
+        normalizeText(entry.group) === normalizeText(recipe.condicion_grupo) &&
+        normalizeText(entry.option) === normalizeText(recipe.condicion_valor)
     );
   }
 
   if (recipe.condicion_tipo === CONDITION_TYPES.EXTRA) {
-    return selectedExtrasFromItem(item).some((entry) => normalizeText(entry) === normalizeText(recipe.condicion_valor));
+    return selectedExtrasFromItem(item).some(
+      (entry) => normalizeText(entry) === normalizeText(recipe.condicion_valor)
+    );
   }
 
   return false;
 }
 
 function loadInventoryContext(db, productIds = []) {
-  const uniqueProductIds = Array.from(new Set((productIds || []).map((id) => Number(id)).filter((id) => Number.isFinite(id))));
-  const productFilter = uniqueProductIds.length > 0
-    ? `WHERE id IN (${uniqueProductIds.map(() => '?').join(', ')})`
-    : '';
-  const recipeFilter = uniqueProductIds.length > 0
-    ? `WHERE producto_id IN (${uniqueProductIds.map(() => '?').join(', ')})`
-    : '';
+  const uniqueProductIds = Array.from(
+    new Set((productIds || []).map((id) => Number(id)).filter((id) => Number.isFinite(id)))
+  );
+  const productFilter =
+    uniqueProductIds.length > 0
+      ? `WHERE id IN (${uniqueProductIds.map(() => '?').join(', ')})`
+      : '';
+  const recipeFilter =
+    uniqueProductIds.length > 0
+      ? `WHERE producto_id IN (${uniqueProductIds.map(() => '?').join(', ')})`
+      : '';
 
-  const products = db.prepare(`
+  const products = db
+    .prepare(
+      `
     SELECT id, nombre, stock_mode, stock_directo
     FROM productos
     ${productFilter}
-  `).all(...uniqueProductIds);
+  `
+    )
+    .all(...uniqueProductIds);
 
-  const insumos = db.prepare(`
+  const insumos = db
+    .prepare(
+      `
     SELECT id, nombre, unidad, stock_actual, stock_minimo, costo_unitario, activo
     FROM inventario_insumos
     ORDER BY nombre ASC, id ASC
-  `).all();
+  `
+    )
+    .all();
 
-  const recipes = db.prepare(`
+  const recipes = db
+    .prepare(
+      `
     SELECT *
     FROM inventario_recetas
     ${recipeFilter}
     ORDER BY producto_id ASC, orden ASC, id ASC
-  `).all(...uniqueProductIds);
+  `
+    )
+    .all(...uniqueProductIds);
 
-  const productsById = new Map(products.map((product) => [Number(product.id), {
-    ...product,
-    stock_directo: roundStock(product.stock_directo || 0),
-    stock_mode: cleanText(product.stock_mode) || 'direct',
-  }]));
-  const insumosById = new Map(insumos.map((insumo) => [Number(insumo.id), {
-    ...insumo,
-    stock_actual: roundStock(insumo.stock_actual || 0),
-    stock_minimo: roundStock(insumo.stock_minimo || 0),
-    costo_unitario: roundStock(insumo.costo_unitario || 0),
-  }]));
+  const productsById = new Map(
+    products.map((product) => [
+      Number(product.id),
+      {
+        ...product,
+        stock_directo: roundStock(product.stock_directo || 0),
+        stock_mode: cleanText(product.stock_mode) || 'direct',
+      },
+    ])
+  );
+  const insumosById = new Map(
+    insumos.map((insumo) => [
+      Number(insumo.id),
+      {
+        ...insumo,
+        stock_actual: roundStock(insumo.stock_actual || 0),
+        stock_minimo: roundStock(insumo.stock_minimo || 0),
+        costo_unitario: roundStock(insumo.costo_unitario || 0),
+      },
+    ])
+  );
   const recipesByProduct = new Map();
 
   recipes.forEach((row) => {
@@ -241,7 +274,9 @@ function getProductInventoryStatus(product, context) {
     };
   }
 
-  const stockDisponible = scenarioAvailabilities.length ? roundStock(Math.min(...scenarioAvailabilities)) : 0;
+  const stockDisponible = scenarioAvailabilities.length
+    ? roundStock(Math.min(...scenarioAvailabilities))
+    : 0;
   const canSellAnyScenario = scenarioAvailabilities.some((value) => Number(value || 0) >= 1);
 
   return {
@@ -255,7 +290,10 @@ function getProductInventoryStatus(product, context) {
 }
 
 function decorateProductsWithInventory(db, products) {
-  const context = loadInventoryContext(db, (products || []).map((product) => product.id));
+  const context = loadInventoryContext(
+    db,
+    (products || []).map((product) => product.id)
+  );
   return (products || []).map((product) => {
     const status = getProductInventoryStatus(product, context);
     return {
@@ -283,12 +321,18 @@ function aggregateRecipeRequirementsForItem(item, product, context) {
     const insumoId = Number(recipe.insumo_id);
     if (!Number.isFinite(insumoId) || Number(recipe.cantidad || 0) <= 0) return;
     const existing = requirementsByInsumo.get(insumoId) || 0;
-    requirementsByInsumo.set(insumoId, roundStock(existing + (Number(recipe.cantidad || 0) * quantity)));
+    requirementsByInsumo.set(
+      insumoId,
+      roundStock(existing + Number(recipe.cantidad || 0) * quantity)
+    );
   });
 
   return {
     matched,
-    requirements: Array.from(requirementsByInsumo.entries()).map(([insumo_id, cantidad]) => ({ insumo_id, cantidad })),
+    requirements: Array.from(requirementsByInsumo.entries()).map(([insumo_id, cantidad]) => ({
+      insumo_id,
+      cantidad,
+    })),
   };
 }
 
@@ -330,7 +374,9 @@ function planInventoryConsumption(db, items) {
 
     const recipePlan = aggregateRecipeRequirementsForItem(item, product, context);
     if (!recipePlan.requirements.length) {
-      console.warn(`[inventario] "${product.nombre}" no tiene receta para esta combinacion. Se crea el pedido sin descontar insumos.`);
+      errors.push(
+        `Falta configurar la receta de "${product.nombre}" para esta variante o combinación antes de venderla.`
+      );
       return;
     }
 
@@ -364,7 +410,9 @@ function planInventoryConsumption(db, items) {
     const product = context.productsById.get(productId);
     if (!product) return;
     if (roundStock(product.stock_directo || 0) < required) {
-      errors.push(`Stock insuficiente para "${product.nombre}". Disponible: ${roundStock(product.stock_directo || 0)}.`);
+      errors.push(
+        `Stock insuficiente para "${product.nombre}". Disponible: ${roundStock(product.stock_directo || 0)}.`
+      );
     }
   });
 
@@ -372,7 +420,9 @@ function planInventoryConsumption(db, items) {
     const insumo = context.insumosById.get(insumoId);
     const available = roundStock(insumo?.stock_actual || 0);
     if (!insumo || available < required) {
-      errors.push(`Falta stock de "${insumo?.nombre || 'insumo'}". Disponible: ${available} ${insumo?.unidad || 'u'}.`);
+      errors.push(
+        `Falta stock de "${insumo?.nombre || 'insumo'}". Disponible: ${available} ${insumo?.unidad || 'u'}.`
+      );
     }
   });
 
@@ -386,14 +436,17 @@ function planInventoryConsumption(db, items) {
 }
 
 function insertInventoryMovement(db, payload) {
-  const detail = payload?.detalle && typeof payload.detalle === 'object'
-    ? JSON.stringify(payload.detalle)
-    : JSON.stringify({});
-  db.prepare(`
+  const detail =
+    payload?.detalle && typeof payload.detalle === 'object'
+      ? JSON.stringify(payload.detalle)
+      : JSON.stringify({});
+  db.prepare(
+    `
     INSERT INTO inventario_movimientos (
       insumo_id, producto_id, pedido_id, cantidad, tipo, motivo, detalle
     ) VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(
+  `
+  ).run(
     payload?.insumo_id || null,
     payload?.producto_id || null,
     payload?.pedido_id || null,
@@ -402,6 +455,56 @@ function insertInventoryMovement(db, payload) {
     cleanText(payload?.motivo),
     detail
   );
+}
+
+function applyInventoryPlan(db, plan, options = {}) {
+  if (plan.errors.length) {
+    throw new Error(plan.errors[0]);
+  }
+
+  plan.directByProduct.forEach((required, productId) => {
+    db.prepare(
+      `
+      UPDATE productos
+      SET stock_directo = ROUND((COALESCE(stock_directo, 0) - ?) * 100) / 100
+      WHERE id = ?
+    `
+    ).run(required, productId);
+  });
+
+  plan.insumosById.forEach((required, insumoId) => {
+    db.prepare(
+      `
+      UPDATE inventario_insumos
+      SET stock_actual = ROUND((COALESCE(stock_actual, 0) - ?) * 100) / 100,
+          actualizado_en = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `
+    ).run(required, insumoId);
+  });
+
+  plan.movementDrafts.forEach((movement) => {
+    insertInventoryMovement(db, {
+      ...movement,
+      pedido_id: options?.pedido_id || null,
+      tipo: cleanText(options?.tipo) || 'venta',
+      motivo: cleanText(options?.motivo) || 'Salida de inventario',
+      detalle: {
+        ...(movement.detalle || {}),
+        ...(options?.detalle_extra || {}),
+      },
+    });
+  });
+
+  return {
+    ok: true,
+    movements: plan.movementDrafts.length,
+  };
+}
+
+function applyInventoryToItems(db, items, options = {}) {
+  const plan = planInventoryConsumption(db, items);
+  return applyInventoryPlan(db, plan, options);
 }
 
 function applyInventoryToPedido(db, pedido, options = {}) {
@@ -414,53 +517,29 @@ function applyInventoryToPedido(db, pedido, options = {}) {
   }
 
   const items = loadPedidoItems(db, pedido);
-  const plan = planInventoryConsumption(db, items);
-  if (plan.errors.length) {
-    throw new Error(plan.errors[0]);
-  }
-
-  plan.directByProduct.forEach((required, productId) => {
-    db.prepare(`
-      UPDATE productos
-      SET stock_directo = ROUND((COALESCE(stock_directo, 0) - ?) * 100) / 100
-      WHERE id = ?
-    `).run(required, productId);
-  });
-
-  plan.insumosById.forEach((required, insumoId) => {
-    db.prepare(`
-      UPDATE inventario_insumos
-      SET stock_actual = ROUND((COALESCE(stock_actual, 0) - ?) * 100) / 100,
-          actualizado_en = CURRENT_TIMESTAMP
-      WHERE id = ?
-    `).run(required, insumoId);
-  });
-
-  plan.movementDrafts.forEach((movement) => {
-    insertInventoryMovement(db, {
-      ...movement,
+  const result = applyInventoryToItems(db, items, {
+    pedido_id: pedido.id,
+    tipo: 'venta',
+    motivo: options?.motivo || `Salida por pedido #${pedido.numero}`,
+    detalle_extra: {
       pedido_id: pedido.id,
-      tipo: 'venta',
-      motivo: options?.motivo || `Salida por pedido #${pedido.numero}`,
-      detalle: {
-        ...(movement.detalle || {}),
-        pedido_id: pedido.id,
-        pedido_numero: pedido.numero,
-        origen: cleanText(pedido.origen),
-      },
-    });
+      pedido_numero: pedido.numero,
+      origen: cleanText(pedido.origen),
+    },
   });
 
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE pedidos
     SET inventario_aplicado = 1,
         inventario_revertido = 0
     WHERE id = ?
-  `).run(pedido.id);
+  `
+  ).run(pedido.id);
 
   return {
     ok: true,
-    movements: plan.movementDrafts.length,
+    movements: Number(result?.movements || 0),
   };
 }
 
@@ -473,29 +552,37 @@ function restoreInventoryForPedido(db, pedido, options = {}) {
     return { ok: true, skipped: true };
   }
 
-  const movements = db.prepare(`
+  const movements = db
+    .prepare(
+      `
     SELECT *
     FROM inventario_movimientos
     WHERE pedido_id = ? AND tipo = 'venta'
     ORDER BY id DESC
-  `).all(pedido.id);
+  `
+    )
+    .all(pedido.id);
 
   movements.forEach((movement) => {
-    const delta = roundStock(-(Number(movement.cantidad || 0)));
+    const delta = roundStock(-Number(movement.cantidad || 0));
     if (movement.producto_id) {
-      db.prepare(`
+      db.prepare(
+        `
         UPDATE productos
         SET stock_directo = ROUND((COALESCE(stock_directo, 0) + ?) * 100) / 100
         WHERE id = ?
-      `).run(delta, movement.producto_id);
+      `
+      ).run(delta, movement.producto_id);
     }
     if (movement.insumo_id) {
-      db.prepare(`
+      db.prepare(
+        `
         UPDATE inventario_insumos
         SET stock_actual = ROUND((COALESCE(stock_actual, 0) + ?) * 100) / 100,
             actualizado_en = CURRENT_TIMESTAMP
         WHERE id = ?
-      `).run(delta, movement.insumo_id);
+      `
+      ).run(delta, movement.insumo_id);
     }
 
     insertInventoryMovement(db, {
@@ -513,11 +600,13 @@ function restoreInventoryForPedido(db, pedido, options = {}) {
     });
   });
 
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE pedidos
     SET inventario_revertido = 1
     WHERE id = ?
-  `).run(pedido.id);
+  `
+  ).run(pedido.id);
 
   return {
     ok: true,
@@ -530,11 +619,13 @@ function registerManualStockAdjustment(db, product, nextStock, motivo = 'Ajuste 
   const updated = roundStock(nextStock || 0);
   const delta = roundStock(updated - previous);
 
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE productos
     SET stock_directo = ?
     WHERE id = ?
-  `).run(updated, product.id);
+  `
+  ).run(updated, product.id);
 
   if (delta !== 0) {
     insertInventoryMovement(db, {
@@ -557,6 +648,7 @@ module.exports = {
   cleanText,
   decorateProductsWithInventory,
   getProductInventoryStatus,
+  applyInventoryToItems,
   insertInventoryMovement,
   loadInventoryContext,
   parseJson,

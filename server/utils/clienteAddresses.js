@@ -4,8 +4,8 @@ function toDireccionRow(row) {
     ...row,
     principal: Number(row.principal || 0) === 1,
     activa: Number(row.activa || 0) === 1,
-    latitud: row.latitud == null ? null : Number(row.latitud),
-    longitud: row.longitud == null ? null : Number(row.longitud),
+    latitud: row.latitud === null || row.latitud === undefined ? null : Number(row.latitud),
+    longitud: row.longitud === null || row.longitud === undefined ? null : Number(row.longitud),
   };
 }
 
@@ -14,22 +14,31 @@ function cleanText(value) {
 }
 
 function cleanNumber(value) {
-  if (value === '' || value == null) return null;
+  if (value === '' || value === null || value === undefined) return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
 }
 
 function normalizeAddressInput(payload = {}, fallback = {}) {
   return {
-    id: payload.id != null ? Number(payload.id) : fallback.id ?? null,
+    id:
+      payload.id !== null && payload.id !== undefined ? Number(payload.id) : (fallback.id ?? null),
     etiqueta: cleanText(payload.etiqueta ?? fallback.etiqueta),
     direccion: cleanText(payload.direccion ?? fallback.direccion),
     referencia: cleanText(payload.referencia ?? fallback.referencia),
     departamento: cleanText(payload.departamento ?? fallback.departamento),
     latitud: cleanNumber(payload.latitud ?? fallback.latitud),
     longitud: cleanNumber(payload.longitud ?? fallback.longitud),
-    principal: payload.principal == null ? Boolean(fallback.principal) : Boolean(payload.principal),
-    activa: payload.activa == null ? (fallback.activa == null ? true : Boolean(fallback.activa)) : Boolean(payload.activa),
+    principal:
+      payload.principal === null || payload.principal === undefined
+        ? Boolean(fallback.principal)
+        : Boolean(payload.principal),
+    activa:
+      payload.activa === null || payload.activa === undefined
+        ? fallback.activa === null || fallback.activa === undefined
+          ? true
+          : Boolean(fallback.activa)
+        : Boolean(payload.activa),
   };
 }
 
@@ -76,18 +85,27 @@ function syncClienteDireccionPrincipal(db, clienteId) {
       .get(clienteId);
 
     if (fallback) {
-      db.prepare('UPDATE cliente_direcciones SET principal = 0 WHERE cliente_id = ?').run(clienteId);
-      db.prepare('UPDATE cliente_direcciones SET principal = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND cliente_id = ?').run(fallback.id, clienteId);
+      db.prepare('UPDATE cliente_direcciones SET principal = 0 WHERE cliente_id = ?').run(
+        clienteId
+      );
+      db.prepare(
+        'UPDATE cliente_direcciones SET principal = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND cliente_id = ?'
+      ).run(fallback.id, clienteId);
       principal = db.prepare('SELECT * FROM cliente_direcciones WHERE id = ?').get(fallback.id);
     }
   }
 
-  db.prepare('UPDATE clientes SET direccion = ? WHERE id = ?').run(cleanText(principal?.direccion), clienteId);
+  db.prepare('UPDATE clientes SET direccion = ? WHERE id = ?').run(
+    cleanText(principal?.direccion),
+    clienteId
+  );
   return toDireccionRow(principal);
 }
 
 function replaceClienteDirecciones(db, clienteId, direcciones = []) {
-  const existing = db.prepare('SELECT id FROM cliente_direcciones WHERE cliente_id = ?').all(clienteId);
+  const existing = db
+    .prepare('SELECT id FROM cliente_direcciones WHERE cliente_id = ?')
+    .all(clienteId);
   const existingIds = new Set(existing.map((item) => Number(item.id)));
   const normalized = (Array.isArray(direcciones) ? direcciones : [])
     .map((direccion, index) =>
@@ -134,14 +152,16 @@ function replaceClienteDirecciones(db, clienteId, direcciones = []) {
         return;
       }
 
-      const created = db.prepare(
-        `
+      const created = db
+        .prepare(
+          `
           INSERT INTO cliente_direcciones (
             cliente_id, etiqueta, direccion, referencia, departamento,
             latitud, longitud, principal, activa
           ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)
         `
-      ).run(clienteId, ...values);
+        )
+        .run(clienteId, ...values);
       keptIds.push(Number(created.lastInsertRowid));
     });
 
@@ -151,16 +171,21 @@ function replaceClienteDirecciones(db, clienteId, direcciones = []) {
 
     if (removedIds.length) {
       const placeholders = removedIds.map(() => '?').join(', ');
-      db.prepare(`DELETE FROM cliente_direcciones WHERE cliente_id = ? AND id IN (${placeholders})`).run(clienteId, ...removedIds);
+      db.prepare(
+        `DELETE FROM cliente_direcciones WHERE cliente_id = ? AND id IN (${placeholders})`
+      ).run(clienteId, ...removedIds);
     }
 
     const requestedPrincipal = normalized.find((direccion) => direccion.principal);
-    const principalId = requestedPrincipal?.id && keptIds.includes(Number(requestedPrincipal.id))
-      ? Number(requestedPrincipal.id)
-      : keptIds[0];
+    const principalId =
+      requestedPrincipal?.id && keptIds.includes(Number(requestedPrincipal.id))
+        ? Number(requestedPrincipal.id)
+        : keptIds[0];
 
     db.prepare('UPDATE cliente_direcciones SET principal = 0 WHERE cliente_id = ?').run(clienteId);
-    db.prepare('UPDATE cliente_direcciones SET principal = 1, updated_at = CURRENT_TIMESTAMP WHERE cliente_id = ? AND id = ?').run(clienteId, principalId);
+    db.prepare(
+      'UPDATE cliente_direcciones SET principal = 1, updated_at = CURRENT_TIMESTAMP WHERE cliente_id = ? AND id = ?'
+    ).run(clienteId, principalId);
 
     const principal = syncClienteDireccionPrincipal(db, clienteId);
     db.exec('COMMIT');
@@ -187,27 +212,33 @@ function createClienteDireccion(db, clienteId, payload = {}) {
     throw new Error('La direccion es obligatoria');
   }
 
-  const created = db.prepare(
-    `
+  const created = db
+    .prepare(
+      `
       INSERT INTO cliente_direcciones (
         cliente_id, etiqueta, direccion, referencia, departamento,
         latitud, longitud, principal, activa
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `
-  ).run(
-    clienteId,
-    normalized.etiqueta || (current.length === 0 ? 'Principal' : `Direccion ${current.length + 1}`),
-    normalized.direccion,
-    normalized.referencia,
-    normalized.departamento,
-    normalized.latitud,
-    normalized.longitud,
-    current.length === 0 || normalized.principal ? 1 : 0,
-    normalized.activa ? 1 : 0
-  );
+    )
+    .run(
+      clienteId,
+      normalized.etiqueta ||
+        (current.length === 0 ? 'Principal' : `Direccion ${current.length + 1}`),
+      normalized.direccion,
+      normalized.referencia,
+      normalized.departamento,
+      normalized.latitud,
+      normalized.longitud,
+      current.length === 0 || normalized.principal ? 1 : 0,
+      normalized.activa ? 1 : 0
+    );
 
   if (current.length === 0 || normalized.principal) {
-    db.prepare('UPDATE cliente_direcciones SET principal = 0 WHERE cliente_id = ? AND id != ?').run(clienteId, created.lastInsertRowid);
+    db.prepare('UPDATE cliente_direcciones SET principal = 0 WHERE cliente_id = ? AND id != ?').run(
+      clienteId,
+      created.lastInsertRowid
+    );
   }
 
   syncClienteDireccionPrincipal(db, clienteId);
@@ -215,7 +246,9 @@ function createClienteDireccion(db, clienteId, payload = {}) {
 }
 
 function updateClienteDireccion(db, clienteId, direccionId, payload = {}) {
-  const existing = db.prepare('SELECT * FROM cliente_direcciones WHERE id = ? AND cliente_id = ?').get(direccionId, clienteId);
+  const existing = db
+    .prepare('SELECT * FROM cliente_direcciones WHERE id = ? AND cliente_id = ?')
+    .get(direccionId, clienteId);
   if (!existing) return null;
 
   const normalized = normalizeAddressInput(payload, existing);
@@ -244,18 +277,29 @@ function updateClienteDireccion(db, clienteId, direccionId, payload = {}) {
 
   if (normalized.principal) {
     db.prepare('UPDATE cliente_direcciones SET principal = 0 WHERE cliente_id = ?').run(clienteId);
-    db.prepare('UPDATE cliente_direcciones SET principal = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND cliente_id = ?').run(direccionId, clienteId);
+    db.prepare(
+      'UPDATE cliente_direcciones SET principal = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND cliente_id = ?'
+    ).run(direccionId, clienteId);
   }
 
   syncClienteDireccionPrincipal(db, clienteId);
-  return toDireccionRow(db.prepare('SELECT * FROM cliente_direcciones WHERE id = ? AND cliente_id = ?').get(direccionId, clienteId));
+  return toDireccionRow(
+    db
+      .prepare('SELECT * FROM cliente_direcciones WHERE id = ? AND cliente_id = ?')
+      .get(direccionId, clienteId)
+  );
 }
 
 function deleteClienteDireccion(db, clienteId, direccionId) {
-  const existing = db.prepare('SELECT * FROM cliente_direcciones WHERE id = ? AND cliente_id = ?').get(direccionId, clienteId);
+  const existing = db
+    .prepare('SELECT * FROM cliente_direcciones WHERE id = ? AND cliente_id = ?')
+    .get(direccionId, clienteId);
   if (!existing) return false;
 
-  db.prepare('DELETE FROM cliente_direcciones WHERE id = ? AND cliente_id = ?').run(direccionId, clienteId);
+  db.prepare('DELETE FROM cliente_direcciones WHERE id = ? AND cliente_id = ?').run(
+    direccionId,
+    clienteId
+  );
   syncClienteDireccionPrincipal(db, clienteId);
   return true;
 }
@@ -271,33 +315,51 @@ function ensureClienteDireccion(db, clienteId, payload = {}, options = {}) {
 
   const current = getClienteDirecciones(db, clienteId);
   const match = current.find(
-    (direccion) => cleanText(direccion.direccion).toLowerCase() === normalized.direccion.toLowerCase()
+    (direccion) =>
+      cleanText(direccion.direccion).toLowerCase() === normalized.direccion.toLowerCase()
   );
 
   if (match) {
     if (options.makePrimaryIfEmpty && !current.some((direccion) => direccion.principal)) {
-      db.prepare('UPDATE cliente_direcciones SET principal = 0 WHERE cliente_id = ?').run(clienteId);
-      db.prepare('UPDATE cliente_direcciones SET principal = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND cliente_id = ?').run(match.id, clienteId);
+      db.prepare('UPDATE cliente_direcciones SET principal = 0 WHERE cliente_id = ?').run(
+        clienteId
+      );
+      db.prepare(
+        'UPDATE cliente_direcciones SET principal = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND cliente_id = ?'
+      ).run(match.id, clienteId);
       syncClienteDireccionPrincipal(db, clienteId);
-      return toDireccionRow(db.prepare('SELECT * FROM cliente_direcciones WHERE id = ?').get(match.id));
+      return toDireccionRow(
+        db.prepare('SELECT * FROM cliente_direcciones WHERE id = ?').get(match.id)
+      );
     }
 
     if (!cleanText(match.referencia) && normalized.referencia) {
-      db.prepare('UPDATE cliente_direcciones SET referencia = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND cliente_id = ?').run(normalized.referencia, match.id, clienteId);
+      db.prepare(
+        'UPDATE cliente_direcciones SET referencia = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND cliente_id = ?'
+      ).run(normalized.referencia, match.id, clienteId);
     }
     if (!cleanText(match.departamento) && normalized.departamento) {
-      db.prepare('UPDATE cliente_direcciones SET departamento = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND cliente_id = ?').run(normalized.departamento, match.id, clienteId);
+      db.prepare(
+        'UPDATE cliente_direcciones SET departamento = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND cliente_id = ?'
+      ).run(normalized.departamento, match.id, clienteId);
     }
 
     syncClienteDireccionPrincipal(db, clienteId);
-    return toDireccionRow(db.prepare('SELECT * FROM cliente_direcciones WHERE id = ?').get(match.id));
+    return toDireccionRow(
+      db.prepare('SELECT * FROM cliente_direcciones WHERE id = ?').get(match.id)
+    );
   }
 
   return toDireccionRow(
     createClienteDireccion(db, clienteId, {
       ...normalized,
-      principal: current.length === 0 || normalized.principal || Boolean(options.makePrimaryIfEmpty && !current.length),
-      etiqueta: normalized.etiqueta || (current.length === 0 ? 'Principal' : `Direccion ${current.length + 1}`),
+      principal:
+        current.length === 0 ||
+        normalized.principal ||
+        Boolean(options.makePrimaryIfEmpty && !current.length),
+      etiqueta:
+        normalized.etiqueta ||
+        (current.length === 0 ? 'Principal' : `Direccion ${current.length + 1}`),
     })
   );
 }

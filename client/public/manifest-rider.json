@@ -1,0 +1,27 @@
+{
+  "short_name": "Rider MS",
+  "name": "Modo Sabor - Repartidores",
+  "id": "/rider",
+  "icons": [
+    {
+      "src": "/rider-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/rider-icon-maskable.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ],
+  "start_url": "/rider",
+  "display": "standalone",
+  "theme_color": "#5D87FF",
+  "background_color": "#ffffff",
+  "orientation": "portrait",
+  "scope": "/rider",
+  "description": "App de gestion de repartos para Modo Sabor",
+  "categories": ["business", "food", "productivity"]
+}

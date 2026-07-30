@@ -13,6 +13,41 @@ function money(value, symbol = '$') {
   return `${symbol}${Number(value || 0).toLocaleString('es-AR')}`;
 }
 
+const BUSINESS_TIMEZONE = 'America/Argentina/Buenos_Aires';
+
+function parseDateLike(value) {
+  if (!value) return null;
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+
+  const raw = String(value).trim();
+  if (!raw) return null;
+
+  const hasTimezone = /([zZ]|[+-]\d{2}:\d{2})$/.test(raw);
+  const normalized = raw.includes('T') ? raw : raw.replace(' ', 'T');
+  const isoValue = hasTimezone ? normalized : `${normalized}Z`;
+  const parsed = new Date(isoValue);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function formatBusinessDateTime(value, mode = 'datetime') {
+  const date = parseDateLike(value);
+  if (!date) return String(value || '');
+
+  const options =
+    mode === 'time'
+      ? { timeZone: BUSINESS_TIMEZONE, hour: '2-digit', minute: '2-digit', second: '2-digit' }
+      : {
+          timeZone: BUSINESS_TIMEZONE,
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+        };
+
+  return date.toLocaleString('es-AR', options);
+}
+
 function parseJson(value, fallback) {
   try {
     return JSON.parse(value);
@@ -31,7 +66,9 @@ function absoluteAssetUrl(assetUrl, publicApiUrl) {
   if (!raw) return '';
   if (/^(https?:)?\/\//i.test(raw) || raw.startsWith('data:')) return raw;
 
-  const base = String(publicApiUrl || 'http://localhost:3001').trim().replace(/\/$/, '');
+  const base = String(publicApiUrl || '')
+    .trim()
+    .replace(/\/$/, '');
   if (!base) return raw;
   return raw.startsWith('/') ? `${base}${raw}` : `${base}/${raw}`;
 }
@@ -43,10 +80,13 @@ function isEnabled(config, key, fallback = false) {
 }
 
 function configMap(db) {
-  return db.prepare('SELECT * FROM configuracion').all().reduce((acc, row) => {
-    acc[row.clave] = row.valor;
-    return acc;
-  }, {});
+  return db
+    .prepare('SELECT * FROM configuracion')
+    .all()
+    .reduce((acc, row) => {
+      acc[row.clave] = row.valor;
+      return acc;
+    }, {});
 }
 
 function itemDetailLines(item) {
@@ -57,11 +97,19 @@ function itemDetailLines(item) {
       .filter(Boolean)
       .flatMap((part) => {
         if (part.startsWith('Sabores:') && part.includes(',')) {
-          const flavors = part.replace('Sabores:', '').split(',').map((entry) => entry.trim()).filter(Boolean);
+          const flavors = part
+            .replace('Sabores:', '')
+            .split(',')
+            .map((entry) => entry.trim())
+            .filter(Boolean);
           return ['Sabores:', ...flavors.map((entry) => `- ${entry}`)];
         }
         if (part.startsWith('Mitades:') && part.includes('/')) {
-          const halves = part.replace('Mitades:', '').split('/').map((entry) => entry.trim()).filter(Boolean);
+          const halves = part
+            .replace('Mitades:', '')
+            .split('/')
+            .map((entry) => entry.trim())
+            .filter(Boolean);
           return ['Mitades:', ...halves.map((entry) => `- ${entry}`)];
         }
         return [part];
@@ -75,18 +123,30 @@ function itemDetailLines(item) {
     });
   }
   if (Array.isArray(item.extras) && item.extras.length > 0) {
-    lines.push(`Extras: ${item.extras.map((extra) => extra?.nombre).filter(Boolean).join(', ')}`);
+    lines.push(
+      `Extras: ${item.extras
+        .map((extra) => extra?.nombre)
+        .filter(Boolean)
+        .join(', ')}`
+    );
   }
   return lines.filter(Boolean);
 }
 
-function baseStyles({ a6 = false, marginMm = 8, fontScale = 1, compact = false, fontType = 'mono', fontSize = '12px' } = {}) {
+function baseStyles({
+  a6 = false,
+  marginMm = 8,
+  fontScale = 1,
+  compact = false,
+  fontType = 'mono',
+  fontSize = '12px',
+} = {}) {
   const scale = Number(fontScale || 1);
   const safeScale = Number.isFinite(scale) && scale > 0 ? scale : 1;
   const titleSize = (a6 ? 18 : 24) * safeScale;
   const metaSize = (a6 ? 11 : 13) * safeScale;
   const grandSize = (a6 ? 13 : 15) * safeScale;
-  
+
   let fontFamily = 'Arial, sans-serif';
   if (fontType === 'mono') fontFamily = '"Courier New", Courier, monospace';
   if (fontType === 'serif') fontFamily = 'Georgia, serif';
@@ -165,12 +225,15 @@ function renderLogo(data) {
 }
 
 function renderItems(items, symbol, withPrice, showDetails = true) {
-  return items.map((item) => {
-    const details = showDetails ? itemDetailLines(item)
-      .map((line) => `<div class="item-subline">${escapeHtml(line)}</div>`)
-      .join('') : '';
+  return items
+    .map((item) => {
+      const details = showDetails
+        ? itemDetailLines(item)
+            .map((line) => `<div class="item-subline">${escapeHtml(line)}</div>`)
+            .join('')
+        : '';
 
-    return `
+      return `
       <div class="item">
         <div class="row">
           <div class="item-name"><span class="qty">${escapeHtml(item.cantidad)}x</span>${escapeHtml(item.nombre)}</div>
@@ -179,7 +242,8 @@ function renderItems(items, symbol, withPrice, showDetails = true) {
         ${details}
       </div>
     `;
-  }).join('');
+    })
+    .join('');
 }
 
 function renderDocumentHtml({ title, styles, bodyHtml }) {
@@ -204,11 +268,12 @@ function renderKitchenBody(data) {
   const showDetails = isEnabled(config, 'impresion_mostrar_detalles_items', true);
   const showClient = isEnabled(config, 'impresion_comanda_mostrar_cliente', true);
 
-  const tipoEntrega = pedido.tipo_entrega === 'mesa'
-    ? 'Salon'
-    : pedido.tipo_entrega === 'delivery'
-      ? 'Delivery'
-      : pedido.tipo_entrega || 'pedido';
+  const tipoEntrega =
+    pedido.tipo_entrega === 'mesa'
+      ? 'Salon'
+      : pedido.tipo_entrega === 'delivery'
+        ? 'Delivery'
+        : pedido.tipo_entrega || 'pedido';
 
   return `
     <div class="sheet">
@@ -216,7 +281,7 @@ function renderKitchenBody(data) {
       
       <div class="row">
         <div class="badge">Comanda #${escapeHtml(pedido.numero)}</div>
-        <div class="right muted">${showDate ? escapeHtml(pedido.creado_en || '') : ''}</div>
+        <div class="right muted">${showDate ? escapeHtml(formatBusinessDateTime(pedido.creado_en)) : ''}</div>
       </div>
 
       <div class="section">
@@ -224,6 +289,7 @@ function renderKitchenBody(data) {
           <div class="row"><div><strong>Tipo</strong></div><div class="right">${escapeHtml(tipoEntrega)}</div></div>
           ${pedido.tipo_entrega === 'mesa' && pedido.mesa ? `<div class="row" style="margin-top:4px;"><div><strong>Mesa</strong></div><div class="right">${escapeHtml(pedido.mesa)}</div></div>` : ''}
           ${showClient && pedido.cliente_nombre ? `<div class="row" style="margin-top:4px;"><div><strong>Cliente</strong></div><div class="right">${escapeHtml(pedido.cliente_nombre)}</div></div>` : ''}
+          ${pedido.hora_entrega ? `<div class="row" style="margin-top:4px;"><div><strong>Hora entrega</strong></div><div class="right">${escapeHtml(pedido.hora_entrega)}</div></div>` : ''}
           ${pedido.turno_operativo ? `<div class="row" style="margin-top:4px;"><div><strong>Turno</strong></div><div class="right">${escapeHtml(pedido.turno_operativo)}</div></div>` : ''}
         </div>
       </div>
@@ -241,12 +307,12 @@ function renderKitchenBody(data) {
 function renderKitchenHtml(data) {
   return renderDocumentHtml({
     title: `Comanda #${data.pedido.numero}`,
-    styles: `${baseStyles({ 
-      marginMm: data.marginMm, 
-      fontScale: data.fontScale, 
+    styles: `${baseStyles({
+      marginMm: data.marginMm,
+      fontScale: data.fontScale,
       compact: isEnabled(data.config, 'impresion_compacta'),
       fontType: data.config.impresion_tipo_letra,
-      fontSize: data.config.impresion_tamano_fuente
+      fontSize: data.config.impresion_tamano_fuente,
     })}`,
     bodyHtml: `${renderKitchenBody(data)}<div class="actions"><button class="print-btn" onclick="window.print()">Imprimir</button></div>`,
   });
@@ -265,7 +331,7 @@ function renderTicketBody(data) {
       
       <div class="row">
         <div><strong>Pedido #${escapeHtml(pedido.numero)}</strong></div>
-        <div class="right muted">${showDate ? escapeHtml(pedido.creado_en || '') : ''}</div>
+        <div class="right muted">${showDate ? escapeHtml(formatBusinessDateTime(pedido.creado_en)) : ''}</div>
       </div>
 
       <div class="section">
@@ -273,19 +339,24 @@ function renderTicketBody(data) {
       </div>
 
       <div class="totals">
-        ${showPrices ? `
+        ${
+          showPrices
+            ? `
           <div class="row"><div>Subtotal</div><div class="right">${escapeHtml(money(pedido.subtotal, moneda))}</div></div>
           ${Number(pedido.costo_envio || 0) > 0 ? `<div class="row"><div>Envío</div><div class="right">${escapeHtml(money(pedido.costo_envio, moneda))}</div></div>` : ''}
           ${Number(pedido.descuento || 0) > 0 ? `<div class="row"><div>Descuento</div><div class="right">-${escapeHtml(money(pedido.descuento, moneda))}</div></div>` : ''}
           <div class="row grand"><div>Total</div><div class="right">${escapeHtml(money(pedido.total, moneda))}</div></div>
-        ` : `
+        `
+            : `
           <div class="row grand"><div>Pedido #${escapeHtml(pedido.numero)}</div><div class="right">${escapeHtml(pedido.tipo_entrega)}</div></div>
-        `}
+        `
+        }
       </div>
 
       <div class="section">
         <div class="row"><div>Pago</div><div class="right">${escapeHtml(paymentLabel)}</div></div>
         <div class="row" style="margin-top:4px;"><div>Entrega</div><div class="right">${escapeHtml(pedido.tipo_entrega || '')}${pedido.mesa ? ` / Mesa ${escapeHtml(pedido.mesa)}` : ''}</div></div>
+        ${pedido.hora_entrega ? `<div class="row" style="margin-top:4px;"><div>Hora entrega</div><div class="right">${escapeHtml(pedido.hora_entrega)}</div></div>` : ''}
         ${pedido.cliente_nombre ? `<div class="row" style="margin-top:4px;"><div>Cliente</div><div class="right">${escapeHtml(pedido.cliente_nombre)}</div></div>` : ''}
         ${pedido.cliente_telefono ? `<div class="row" style="margin-top:4px;"><div>Teléfono</div><div class="right">${escapeHtml(pedido.cliente_telefono)}</div></div>` : ''}
         ${pedido.tipo_entrega === 'delivery' && pedido.cliente_direccion ? `<div class="row" style="margin-top:4px;"><div>Dirección</div><div class="right">${escapeHtml(pedido.cliente_direccion)}</div></div>` : ''}
@@ -295,14 +366,18 @@ function renderTicketBody(data) {
 
       ${mensajeTicket ? `<div class="footer">${escapeHtml(mensajeTicket)}</div>` : ''}
 
-      ${showQr && pedido.id ? `
+      ${
+        showQr && pedido.id
+          ? `
         <div class="qr-wrap">
           <div class="qr-box">
             <div style="font-size:10px; font-weight:800; color:#64748b; margin-bottom:4px;">SEGUIMIENTO</div>
             <div style="width:80px; height:80px; background:#ddd; display:flex; align-items:center; justify-content:center; border-radius:8px; font-size:8px;">QR CODE</div>
           </div>
         </div>
-      ` : ''}
+      `
+          : ''
+      }
     </div>
   `;
 }
@@ -310,13 +385,13 @@ function renderTicketBody(data) {
 function renderTicketHtml(data) {
   return renderDocumentHtml({
     title: `Ticket #${data.pedido.numero}`,
-    styles: `${baseStyles({ 
-      a6: true, 
-      marginMm: data.marginMm, 
+    styles: `${baseStyles({
+      a6: true,
+      marginMm: data.marginMm,
       fontScale: data.fontScale,
       compact: isEnabled(data.config, 'impresion_compacta'),
       fontType: data.config.impresion_tipo_letra,
-      fontSize: data.config.impresion_tamano_fuente
+      fontSize: data.config.impresion_tamano_fuente,
     })}`,
     bodyHtml: `${renderTicketBody(data)}<div class="actions"><button class="print-btn" onclick="window.print()">Imprimir</button></div>`,
   });
@@ -332,7 +407,7 @@ function renderDeliveryTicketBody(data) {
       ${renderHeader(data, false)}
       <div class="row">
         <div class="badge">Hoja de reparto</div>
-        <div class="right muted">${showDate ? escapeHtml(pedido.creado_en || '') : ''}</div>
+        <div class="right muted">${showDate ? escapeHtml(formatBusinessDateTime(pedido.creado_en)) : ''}</div>
       </div>
 
       <div class="section">
@@ -341,6 +416,7 @@ function renderDeliveryTicketBody(data) {
           ${pedido.cliente_nombre ? `<div class="row" style="margin-top:4px;"><div><strong>Cliente</strong></div><div class="right">${escapeHtml(pedido.cliente_nombre)}</div></div>` : ''}
           ${pedido.cliente_telefono ? `<div class="row" style="margin-top:4px;"><div><strong>Teléfono</strong></div><div class="right">${escapeHtml(pedido.cliente_telefono)}</div></div>` : ''}
           ${pedido.cliente_direccion ? `<div class="row" style="margin-top:4px;"><div><strong>Dirección</strong></div><div class="right">${escapeHtml(pedido.cliente_direccion)}</div></div>` : ''}
+          ${pedido.hora_entrega ? `<div class="row" style="margin-top:4px;"><div><strong>Hora entrega</strong></div><div class="right">${escapeHtml(pedido.hora_entrega)}</div></div>` : ''}
           ${pedido.delivery_zona ? `<div class="row" style="margin-top:4px;"><div><strong>Zona</strong></div><div class="right">${escapeHtml(pedido.delivery_zona)}</div></div>` : ''}
           ${pedido.entrega_pin ? `<div class="row" style="margin-top:4px;"><div><strong>PIN</strong></div><div class="right">${escapeHtml(pedido.entrega_pin)}</div></div>` : ''}
           <div class="row" style="margin-top:4px;"><div><strong>Pago</strong></div><div class="right">${escapeHtml(paymentLabel)}</div></div>
@@ -361,23 +437,20 @@ function renderDeliveryTicketBody(data) {
 function renderDeliveryTicketHtml(data) {
   return renderDocumentHtml({
     title: `Reparto #${data.pedido.numero}`,
-    styles: `${baseStyles({ 
-      a6: true, 
-      marginMm: data.marginMm, 
+    styles: `${baseStyles({
+      a6: true,
+      marginMm: data.marginMm,
       fontScale: data.fontScale,
       compact: isEnabled(data.config, 'impresion_compacta'),
       fontType: data.config.impresion_tipo_letra,
-      fontSize: data.config.impresion_tamano_fuente
+      fontSize: data.config.impresion_tamano_fuente,
     })}`,
     bodyHtml: `${renderDeliveryTicketBody(data)}<div class="actions"><button class="print-btn" onclick="window.print()">Imprimir</button></div>`,
   });
 }
 
 function renderPrintPackHtml(data) {
-  const pages = [
-    renderKitchenBody(data),
-    renderTicketBody(data),
-  ];
+  const pages = [renderKitchenBody(data), renderTicketBody(data)];
 
   if (data.pedido.tipo_entrega === 'delivery') {
     pages.push(renderDeliveryTicketBody(data));
@@ -386,12 +459,12 @@ function renderPrintPackHtml(data) {
   return renderDocumentHtml({
     title: `Impresion pedido #${data.pedido.numero}`,
     styles: `
-      ${baseStyles({ 
-        marginMm: data.marginMm, 
+      ${baseStyles({
+        marginMm: data.marginMm,
         fontScale: data.fontScale,
         compact: isEnabled(data.config, 'impresion_compacta'),
         fontType: data.config.impresion_tipo_letra,
-        fontSize: data.config.impresion_tamano_fuente
+        fontSize: data.config.impresion_tamano_fuente,
       })}
       <style>
         .pack-page { page-break-after: always; break-after: page; padding-bottom: 8mm; }
@@ -406,18 +479,28 @@ function renderPrintPackHtml(data) {
 }
 
 function renderMesaPrecuentaHtml(data) {
-  const { mesa, pedidos, negocioNombre, negocioDireccion, negocioTelefono, moneda, totalMesa, config } = data;
+  const {
+    mesa,
+    pedidos,
+    negocioNombre,
+    negocioDireccion,
+    negocioTelefono,
+    moneda,
+    totalMesa,
+    config,
+  } = data;
   const showDate = isEnabled(config, 'impresion_mostrar_fecha', true);
   const showPrices = isEnabled(config, 'impresion_mostrar_precios_ticket', true);
   const showDetails = isEnabled(config, 'impresion_mostrar_detalles_items', true);
 
-  const bloques = pedidos.map((pedido) => {
-    const items = parseItems(pedido.items);
-    return `
+  const bloques = pedidos
+    .map((pedido) => {
+      const items = parseItems(pedido.items);
+      return `
       <div class="section" style="border-top: 1px solid #eee; padding-top: 10px;">
         <div class="row">
           <div><strong>Pedido #${escapeHtml(pedido.numero)}</strong></div>
-          <div class="right muted">${showDate ? escapeHtml(pedido.creado_en || '') : ''}</div>
+          <div class="right muted">${showDate ? escapeHtml(formatBusinessDateTime(pedido.creado_en)) : ''}</div>
         </div>
         <div class="items">${renderItems(items, moneda, showPrices, showDetails)}</div>
         <div class="totals">
@@ -427,7 +510,8 @@ function renderMesaPrecuentaHtml(data) {
         </div>
       </div>
     `;
-  }).join('');
+    })
+    .join('');
 
   return `
     <!doctype html>
@@ -435,13 +519,13 @@ function renderMesaPrecuentaHtml(data) {
       <head>
         <meta charset="utf-8" />
         <title>Precuenta Mesa ${escapeHtml(mesa)}</title>
-        ${baseStyles({ 
-          a6: true, 
-          marginMm: data.marginMm, 
+        ${baseStyles({
+          a6: true,
+          marginMm: data.marginMm,
           fontScale: data.fontScale,
           compact: isEnabled(config, 'impresion_compacta'),
           fontType: config.impresion_tipo_letra,
-          fontSize: config.impresion_tamano_fuente
+          fontSize: config.impresion_tamano_fuente,
         })}
       </head>
       <body>
@@ -449,7 +533,7 @@ function renderMesaPrecuentaHtml(data) {
           ${renderHeader(data, true)}
           <div class="row">
             <div><strong>Precuenta mesa ${escapeHtml(mesa)}</strong></div>
-            <div class="right muted">${showDate ? escapeHtml(new Date().toLocaleString('es-AR')) : ''}</div>
+            <div class="right muted">${showDate ? escapeHtml(formatBusinessDateTime(new Date())) : ''}</div>
           </div>
 
           ${bloques}
@@ -484,7 +568,7 @@ function buildPrintDocument(db, pedido, tipo) {
     marginMm: Number(config.impresion_margen_mm || 8),
     fontScale: Number(config.impresion_escala_fuente || 1),
     logoUrl: config.negocio_logo || '',
-    publicApiUrl: config.public_api_url || 'http://localhost:3001',
+    publicApiUrl: config.public_api_url || '',
   };
 
   if (tipo === 'comanda_cocina') {
@@ -541,7 +625,7 @@ function buildMesaPrecuentaDocument(db, mesa, pedidos) {
     marginMm: Number(config.impresion_margen_mm || 8),
     fontScale: Number(config.impresion_escala_fuente || 1),
     logoUrl: config.negocio_logo || '',
-    publicApiUrl: config.public_api_url || 'http://localhost:3001',
+    publicApiUrl: config.public_api_url || '',
   };
 
   return {
@@ -560,7 +644,7 @@ function buildPrintTestDocument(db) {
     marginMm: Number(config.impresion_margen_mm || 8),
     fontScale: Number(config.impresion_escala_fuente || 1),
     logoUrl: config.negocio_logo || '',
-    publicApiUrl: config.public_api_url || 'http://localhost:3001',
+    publicApiUrl: config.public_api_url || '',
   };
 
   const html = `
@@ -569,13 +653,13 @@ function buildPrintTestDocument(db) {
       <head>
         <meta charset="utf-8" />
         <title>Prueba de Impresión</title>
-        ${baseStyles({ 
-          a6: true, 
-          marginMm: data.marginMm, 
+        ${baseStyles({
+          a6: true,
+          marginMm: data.marginMm,
           fontScale: data.fontScale,
           compact: isEnabled(config, 'impresion_compacta'),
           fontType: config.impresion_tipo_letra,
-          fontSize: config.impresion_tamano_fuente
+          fontSize: config.impresion_tamano_fuente,
         })}
       </head>
       <body>
@@ -583,7 +667,7 @@ function buildPrintTestDocument(db) {
           ${renderHeader(data, true)}
           <div class="row">
             <div><strong>Prueba de configuración</strong></div>
-            <div class="right muted">${escapeHtml(new Date().toLocaleTimeString())}</div>
+            <div class="right muted">${escapeHtml(formatBusinessDateTime(new Date(), 'time'))}</div>
           </div>
           <div class="box" style="margin-top:10px;">
             <div class="row"><div><strong>Tipo de Letra</strong></div><div class="right">${escapeHtml(config.impresion_tipo_letra || 'mono')}</div></div>
@@ -594,10 +678,19 @@ function buildPrintTestDocument(db) {
           <div class="section">
             <div class="section-label">Muestra de Items</div>
             <div class="items">
-              ${renderItems([
-                { cantidad: 1, nombre: 'Pizza de Prueba', descripcion: 'Con todos los extras habilitados' },
-                { cantidad: 2, nombre: 'Gaseosa Fría', descripcion: '' }
-              ], '$', true, isEnabled(config, 'impresion_mostrar_detalles_items', true))}
+              ${renderItems(
+                [
+                  {
+                    cantidad: 1,
+                    nombre: 'Pizza de Prueba',
+                    descripcion: 'Con todos los extras habilitados',
+                  },
+                  { cantidad: 2, nombre: 'Gaseosa Fría', descripcion: '' },
+                ],
+                '$',
+                true,
+                isEnabled(config, 'impresion_mostrar_detalles_items', true)
+              )}
             </div>
           </div>
           <div class="notes">Si el texto es muy grande o el margen muy pequeño, ajústalo en el panel.</div>
@@ -617,7 +710,8 @@ function buildPrintTestDocument(db) {
 
 function renderCajaCierreHtml(data) {
   const { activa, resumen, negocioNombre, moneda, config } = data;
-  const diferencia = Number(activa.monto_final_declarado || 0) - Number(activa.efectivo_esperado || 0);
+  const diferencia =
+    Number(activa.monto_final_declarado || 0) - Number(activa.efectivo_esperado || 0);
   const showDate = isEnabled(config, 'impresion_mostrar_fecha', true);
 
   return `
@@ -626,13 +720,13 @@ function renderCajaCierreHtml(data) {
       <head>
         <meta charset="utf-8" />
         <title>Cierre de Caja #${activa.id}</title>
-        ${baseStyles({ 
-          a6: true, 
-          marginMm: data.marginMm, 
+        ${baseStyles({
+          a6: true,
+          marginMm: data.marginMm,
           fontScale: data.fontScale,
           compact: isEnabled(config, 'impresion_compacta'),
           fontType: config.impresion_tipo_letra,
-          fontSize: config.impresion_tamano_fuente
+          fontSize: config.impresion_tamano_fuente,
         })}
       </head>
       <body>
@@ -641,7 +735,7 @@ function renderCajaCierreHtml(data) {
           
           <div class="row">
             <div><strong>Turno #${escapeHtml(String(activa.id))}</strong></div>
-            <div class="right muted">${showDate ? escapeHtml(new Date().toLocaleString('es-AR')) : ''}</div>
+            <div class="right muted">${showDate ? escapeHtml(formatBusinessDateTime(new Date())) : ''}</div>
           </div>
 
           <div class="section">
@@ -663,12 +757,16 @@ function renderCajaCierreHtml(data) {
 
           <div class="section">
             <div class="section-label">Ventas por método</div>
-            ${(resumen.porMetodo || []).map(m => `
+            ${(resumen.porMetodo || [])
+              .map(
+                (m) => `
               <div class="row" style="font-size:11px; margin-bottom:2px;">
                 <div style="text-transform:capitalize;">${escapeHtml(m.metodo_pago)}</div>
                 <div class="right">${escapeHtml(money(m.total, moneda))}</div>
               </div>
-            `).join('')}
+            `
+              )
+              .join('')}
           </div>
 
           <div class="section">
@@ -696,7 +794,7 @@ function buildCajaCierreDocument(db, activa, resumen) {
     marginMm: Number(config.impresion_margen_mm || 8),
     fontScale: Number(config.impresion_escala_fuente || 1),
     logoUrl: config.negocio_logo || '',
-    publicApiUrl: config.public_api_url || 'http://localhost:3001',
+    publicApiUrl: config.public_api_url || '',
   };
 
   return {

@@ -1,7 +1,12 @@
 const db = require('../db');
 const { recalculateClienteStats } = require('../utils/loyalty');
 const { buildPrintDocument, buildMesaPrecuentaDocument } = require('../utils/printTemplates');
-const { getConfigMap, createPreference, getPayment, searchPayments } = require('../utils/mercadoPago');
+const {
+  getConfigMap,
+  createPreference,
+  getPayment,
+  searchPayments,
+} = require('../utils/mercadoPago');
 const { logAudit, actorFromRequest } = require('../utils/audit');
 const { requirePermission, hasPermission } = require('../utils/permissions');
 const { quoteDelivery } = require('../utils/deliveryZones');
@@ -9,6 +14,11 @@ const { autoAssignPedido, assignPedidoToRepartidor } = require('../utils/deliver
 const { estimateDeliveryEta } = require('../utils/deliveryEta');
 const { getShiftForDate } = require('../utils/shifts');
 const { applyInventoryToPedido, restoreInventoryForPedido } = require('../utils/inventory');
+const {
+  getActiveCaja: getActiveCajaFromDb,
+  getConfigMap: getOperationalConfigMap,
+  getOperationalShiftContext,
+} = require('../utils/operationalCaja');
 const {
   generateTrackingToken,
   emitPedidoActualizado,
@@ -30,10 +40,13 @@ const {
 } = require('../utils/paymentStatus');
 const {
   parsePedidoItems: parseStoredPedidoItems,
+  scalePedidoItemsToStorage,
   serializePedidoItems,
   loadPedidoItems,
   replacePedidoItems,
 } = require('../utils/pedidoItems');
+const { geocodeClienteDireccion } = require('../utils/geocode');
+const { asegurarCodigoTarjeta } = require('./fidelizacionService');
 
 const ESTADO_LABELS = {
   [PedidoState.NUEVO]: 'recibido',
@@ -46,9 +59,13 @@ const ESTADO_LABELS = {
 };
 
 function getNextNumero() {
-  const config = db.prepare("SELECT valor FROM configuracion WHERE clave = 'numero_pedido_actual'").get();
+  const config = db
+    .prepare("SELECT valor FROM configuracion WHERE clave = 'numero_pedido_actual'")
+    .get();
   const num = parseInt(config?.valor || '1', 10);
-  db.prepare("INSERT OR REPLACE INTO configuracion (clave, valor) VALUES ('numero_pedido_actual', ?)").run(String(num + 1));
+  db.prepare(
+    "INSERT OR REPLACE INTO configuracion (clave, valor) VALUES ('numero_pedido_actual', ?)"
+  ).run(String(num + 1));
   return num;
 }
 
@@ -70,19 +87,26 @@ function getPedidoHydratedById(id) {
 }
 
 function listPedidosHydrated(query, params = []) {
-  return db.prepare(query).all(...params).map(hydratePedido);
+  return db
+    .prepare(query)
+    .all(...params)
+    .map(hydratePedido);
 }
 
 function getMesaPedidosAbiertos(mesa) {
   const mesaNormalizada = String(mesa || '').trim();
-  return db.prepare(`
+  return db
+    .prepare(
+      `
     SELECT *
     FROM pedidos
     WHERE tipo_entrega = 'mesa'
       AND TRIM(COALESCE(mesa, '')) = ?
       AND estado NOT IN ('entregado', 'cancelado')
     ORDER BY datetime(creado_en) ASC, id ASC
-  `).all(mesaNormalizada);
+  `
+    )
+    .all(mesaNormalizada);
 }
 
 function hydratePedido(pedido) {
@@ -95,9 +119,11 @@ function hydratePedido(pedido) {
   });
   let repartidor = null;
   if (pedido.repartidor_id) {
-    repartidor = db.prepare(
-      'SELECT id, nombre, telefono, vehiculo, latitud, longitud, ultima_ubicacion_en, zona_preferida FROM repartidores WHERE id = ?'
-    ).get(pedido.repartidor_id);
+    repartidor = db
+      .prepare(
+        'SELECT id, nombre, telefono, vehiculo, latitud, longitud, ultima_ubicacion_en, zona_preferida FROM repartidores WHERE id = ?'
+      )
+      .get(pedido.repartidor_id);
   }
 
   const eta = estimateDeliveryEta({ ...pedido, repartidor }, config);
@@ -151,8 +177,14 @@ function resolveOptionalForeignKey(table, value) {
 function sanitizePedidoReferences(payload = {}) {
   const repartidorId = resolveOptionalForeignKey('repartidores', payload.repartidor_id);
   const cuponId = resolveOptionalForeignKey('cupones', payload.cupon_id);
-  const marketingCampanaId = resolveOptionalForeignKey('marketing_campanas', payload.marketing_campana_id);
-  const marketingPromoId = resolveOptionalForeignKey('marketing_promos', payload.marketing_promo_id);
+  const marketingCampanaId = resolveOptionalForeignKey(
+    'marketing_campanas',
+    payload.marketing_campana_id
+  );
+  const marketingPromoId = resolveOptionalForeignKey(
+    'marketing_promos',
+    payload.marketing_promo_id
+  );
 
   return {
     ...payload,
@@ -165,12 +197,15 @@ function sanitizePedidoReferences(payload = {}) {
 }
 
 function generateEntregaPin() {
-  return String(Math.floor(1000 + (Math.random() * 9000)));
+  return String(Math.floor(1000 + Math.random() * 9000));
 }
 
 function subtotalFromItems(items) {
   return roundAmount(
-    items.reduce((acc, item) => acc + (Number(item.precio_unitario || 0) * Number(item.cantidad || 0)), 0)
+    items.reduce(
+      (acc, item) => acc + Number(item.precio_unitario || 0) * Number(item.cantidad || 0),
+      0
+    )
   );
 }
 
@@ -187,27 +222,27 @@ function estimateText(pedido, config) {
 function buildTrackingUrl(baseUrl, pedidoId, trackingToken = '') {
   const cleanedBase = String(baseUrl || '').replace(/\/$/, '');
   const path = cleanedBase ? `${cleanedBase}/seguimiento/${pedidoId}` : `/seguimiento/${pedidoId}`;
-  return trackingToken
-    ? `${path}?token=${encodeURIComponent(trackingToken)}`
-    : path;
+  return trackingToken ? `${path}?token=${encodeURIComponent(trackingToken)}` : path;
 }
 
 function registerPrintJob(pedidoId, tipo, area, copias, payload, printed = false) {
-  const result = db.prepare(
-    `
+  const result = db
+    .prepare(
+      `
       INSERT INTO impresiones (pedido_id, tipo, area, estado, copias, intentos, payload, impreso_en)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `
-  ).run(
-    pedidoId,
-    tipo,
-    area,
-    printed ? 'impreso' : 'pendiente',
-    Math.max(1, Number(copias || 1)),
-    printed ? 1 : 0,
-    JSON.stringify(payload),
-    printed ? new Date().toISOString() : null
-  );
+    )
+    .run(
+      pedidoId,
+      tipo,
+      area,
+      printed ? 'impreso' : 'pendiente',
+      Math.max(1, Number(copias || 1)),
+      printed ? 1 : 0,
+      JSON.stringify(payload),
+      printed ? new Date().toISOString() : null
+    );
 
   return db.prepare('SELECT * FROM impresiones WHERE id = ?').get(result.lastInsertRowid);
 }
@@ -228,13 +263,27 @@ function canTransitionPedido(user, pedido, nextEstado) {
   if (hasPermission(user, 'pedidos.kitchen')) {
     if (pedido.estado === 'confirmado' && nextEstado === 'preparando') return true;
     if (pedido.estado === 'preparando' && nextEstado === 'listo') return true;
-    if (pedido.estado === 'listo' && pedido.tipo_entrega === 'delivery' && nextEstado === 'en_camino') return true;
-    if (pedido.estado === 'listo' && pedido.tipo_entrega !== 'delivery' && nextEstado === 'entregado') return true;
+    if (
+      pedido.estado === 'listo' &&
+      pedido.tipo_entrega === 'delivery' &&
+      nextEstado === 'en_camino'
+    )
+      return true;
+    if (
+      pedido.estado === 'listo' &&
+      pedido.tipo_entrega !== 'delivery' &&
+      nextEstado === 'entregado'
+    )
+      return true;
     return false;
   }
 
   if (hasPermission(user, 'delivery.manage')) {
-    return pedido.tipo_entrega === 'delivery' && pedido.estado === 'en_camino' && nextEstado === 'entregado';
+    return (
+      pedido.tipo_entrega === 'delivery' &&
+      pedido.estado === 'en_camino' &&
+      nextEstado === 'entregado'
+    );
   }
 
   return false;
@@ -243,6 +292,7 @@ function canTransitionPedido(user, pedido, nextEstado) {
 function createPedidoRecord(payload) {
   const safePayload = sanitizePedidoReferences(payload);
   const {
+    cliente_id: cliente_id_input = null,
     cliente_nombre = '',
     cliente_telefono = '',
     cliente_direccion = '',
@@ -253,6 +303,7 @@ function createPedidoRecord(payload) {
     total,
     tipo_entrega = 'delivery',
     mesa = '',
+    hora_entrega = '',
     metodo_pago = 'efectivo',
     notas = '',
     origen = 'web',
@@ -289,12 +340,20 @@ function createPedidoRecord(payload) {
 
   const numero = getNextNumero();
   let cliente_id = null;
+  const clienteIdExplicit = optionalNumber(cliente_id_input);
 
-  if (cliente_telefono) {
-    const existing = db.prepare('SELECT id FROM clientes WHERE telefono = ?').get(cliente_telefono);
+  if (clienteIdExplicit) {
+    const existing = db
+      .prepare('SELECT id, nombre, telefono FROM clientes WHERE id = ?')
+      .get(clienteIdExplicit);
     if (existing) {
       cliente_id = existing.id;
-      db.prepare('UPDATE clientes SET nombre = ? WHERE id = ?').run(cliente_nombre || '', existing.id);
+      db.prepare('UPDATE clientes SET nombre = ?, telefono = ?, direccion = ? WHERE id = ?').run(
+        cliente_nombre || existing.nombre || '',
+        cliente_telefono || existing.telefono || '',
+        cliente_direccion || '',
+        existing.id
+      );
       ensureClienteDireccion(
         db,
         existing.id,
@@ -306,9 +365,36 @@ function createPedidoRecord(payload) {
         },
         { makePrimaryIfEmpty: true }
       );
+      asegurarCodigoTarjeta(existing.id);
+    }
+  }
+
+  if (!cliente_id && cliente_telefono) {
+    const existing = db.prepare('SELECT id FROM clientes WHERE telefono = ?').get(cliente_telefono);
+    if (existing) {
+      cliente_id = existing.id;
+      db.prepare('UPDATE clientes SET nombre = ? WHERE id = ?').run(
+        cliente_nombre || '',
+        existing.id
+      );
+      ensureClienteDireccion(
+        db,
+        existing.id,
+        {
+          etiqueta: 'Delivery',
+          direccion: cliente_direccion || '',
+          latitud: cliente_latitud,
+          longitud: cliente_longitud,
+        },
+        { makePrimaryIfEmpty: true }
+      );
+      asegurarCodigoTarjeta(existing.id);
     } else if (cliente_nombre) {
-      const created = db.prepare('INSERT INTO clientes (nombre, telefono, direccion) VALUES (?, ?, ?)').run(cliente_nombre, cliente_telefono, cliente_direccion || '');
+      const created = db
+        .prepare('INSERT INTO clientes (nombre, telefono, direccion) VALUES (?, ?, ?)')
+        .run(cliente_nombre, cliente_telefono, cliente_direccion || '');
       cliente_id = created.lastInsertRowid;
+      asegurarCodigoTarjeta(cliente_id);
       ensureClienteDireccion(
         db,
         cliente_id,
@@ -330,12 +416,12 @@ function createPedidoRecord(payload) {
     .prepare(
       `INSERT INTO pedidos (
         numero, cliente_id, cliente_nombre, cliente_telefono, cliente_direccion, items,
-        subtotal, costo_envio, descuento, total, tipo_entrega, mesa, metodo_pago,
+        subtotal, costo_envio, descuento, total, tipo_entrega, mesa, hora_entrega, metodo_pago,
         notas, origen, pago_estado, pago_id, mp_preference_id, pago_detalle, delivery_zona, tiempo_estimado_min,
         turno_operativo, entrega_pin, cliente_latitud, cliente_longitud, entrega_foto, entrega_foto_en,
         repartidor_id, marketing_campana_id, marketing_promo_id, marketing_origen, marketing_codigo,
         marketing_source, marketing_medium, marketing_campaign, marketing_content
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       numero,
@@ -350,6 +436,7 @@ function createPedidoRecord(payload) {
       total,
       tipo_entrega,
       mesa,
+      hora_entrega || '',
       metodoPago,
       notas,
       origen,
@@ -378,7 +465,7 @@ function createPedidoRecord(payload) {
 
   const pedidoId = result.lastInsertRowid;
   const tracking_token = generateTrackingToken(pedidoId);
-  
+
   // Actualizar el pedido con su tracking token
   db.prepare('UPDATE pedidos SET tracking_token = ? WHERE id = ?').run(tracking_token, pedidoId);
 
@@ -386,19 +473,32 @@ function createPedidoRecord(payload) {
 
   // Registrar uso del cupón si existe
   if (cupon_id) {
-    db.prepare(`
+    db.prepare(
+      `
       INSERT INTO cupones_usados (cupon_id, pedido_id, cliente_id, cliente_telefono, monto_descuento)
       VALUES (?, ?, ?, ?, ?)
-    `).run(cupon_id, pedidoId, cliente_id, cliente_telefono || '', descuento);
-    
+    `
+    ).run(cupon_id, pedidoId, cliente_id, cliente_telefono || '', descuento);
+
     // Incrementar contador de usos del cupón
-    db.prepare(`
+    db.prepare(
+      `
       UPDATE cupones SET usos_actuales = usos_actuales + 1, actualizado_en = CURRENT_TIMESTAMP
       WHERE id = ?
-    `).run(cupon_id);
+    `
+    ).run(cupon_id);
   }
 
-  if (marketing_campana_id || marketing_promo_id || marketing_origen || marketing_codigo || marketing_source || marketing_medium || marketing_campaign || marketing_content) {
+  if (
+    marketing_campana_id ||
+    marketing_promo_id ||
+    marketing_origen ||
+    marketing_codigo ||
+    marketing_source ||
+    marketing_medium ||
+    marketing_campaign ||
+    marketing_content
+  ) {
     const { registerPedidoAttribution } = require('./marketingService');
     registerPedidoAttribution({
       pedidoId,
@@ -414,9 +514,23 @@ function createPedidoRecord(payload) {
 function createPedidoWithInventory(payload) {
   // Validar caja abierta para pedidos internos/tpv
   if (['tpv', 'interno', 'mesa', 'caja'].includes(payload.origen || 'web')) {
-    const caja = getActiveCaja();
+    const operationalContext = getOperationalShiftContext(getOperationalConfigMap(db));
+    if (!operationalContext.abiertoAhora) {
+      throw new Error('No se puede registrar el pedido porque no hay un turno operativo abierto.');
+    }
+    const caja = getActiveCajaFromDb(db);
     if (!caja) {
-      throw new Error('No se puede registrar el pedido porque no hay una caja abierta. Inicia el turno primero.');
+      throw new Error('Debes abrir la caja antes de registrar ventas.');
+    }
+    const sameShift =
+      String(caja.turno_id || '').trim() === String(operationalContext.shiftId || '').trim();
+    const sameDate =
+      String(caja.fecha_operativa || '').trim() ===
+      String(operationalContext.fechaOperativa || '').trim();
+    if (!sameShift || !sameDate) {
+      throw new Error(
+        'La caja abierta no corresponde al turno operativo actual. Cerrala y abrí la del turno correcto.'
+      );
     }
   }
 
@@ -424,13 +538,15 @@ function createPedidoWithInventory(payload) {
     db.exec('BEGIN');
     const safePayload = sanitizePedidoReferences(payload);
     let pedido = createPedidoRecord(safePayload);
-    
+
     // Aplicar descuento de stock (basado en recetas o stock directo)
     applyInventoryToPedido(db, pedido);
 
     if (pedido.tipo_entrega === 'delivery') {
       if (safePayload.repartidor_id) {
-        pedido = assignPedidoToRepartidor(db, pedido.id, safePayload.repartidor_id, { markEnCamino: false }).pedido;
+        pedido = assignPedidoToRepartidor(db, pedido.id, safePayload.repartidor_id, {
+          markEnCamino: false,
+        }).pedido;
       } else {
         const assigned = autoAssignPedido(db, pedido.id, {
           markEnCamino: false,
@@ -438,7 +554,7 @@ function createPedidoWithInventory(payload) {
         if (assigned.ok) pedido = assigned.pedido;
       }
     }
-    
+
     db.exec('COMMIT');
     return db.prepare('SELECT * FROM pedidos WHERE id = ?').get(pedido.id);
   } catch (error) {
@@ -450,16 +566,19 @@ function createPedidoWithInventory(payload) {
 }
 
 function getActiveCaja() {
-  return db.prepare("SELECT * FROM cierres_caja WHERE estado = 'abierta' ORDER BY abierta_en DESC LIMIT 1").get();
+  return getActiveCajaFromDb(db);
 }
 
 function validateAndApplyCupon(codigo, subtotal, clienteId, clienteTelefono) {
   if (!codigo) return { valido: false, descuento: 0, cupon: null };
-  
-  const cupon = db.prepare('SELECT * FROM cupones WHERE codigo = ? AND activo = 1').get(codigo.trim().toUpperCase());
-  
-  if (!cupon) return { valido: false, error: 'Cupón no válido o inactivo', descuento: 0, cupon: null };
-  
+
+  const cupon = db
+    .prepare('SELECT * FROM cupones WHERE codigo = ? AND activo = 1')
+    .get(codigo.trim().toUpperCase());
+
+  if (!cupon)
+    return { valido: false, error: 'Cupón no válido o inactivo', descuento: 0, cupon: null };
+
   const now = new Date().toISOString();
   if (cupon.fecha_inicio && now < cupon.fecha_inicio) {
     return { valido: false, error: 'El cupón aún no está activo', descuento: 0, cupon: null };
@@ -467,26 +586,45 @@ function validateAndApplyCupon(codigo, subtotal, clienteId, clienteTelefono) {
   if (cupon.fecha_fin && now > cupon.fecha_fin) {
     return { valido: false, error: 'El cupón ha expirado', descuento: 0, cupon: null };
   }
-  
+
   if (cupon.limite_usos > 0 && cupon.usos_actuales >= cupon.limite_usos) {
-    return { valido: false, error: 'El cupón ha alcanzado el límite de usos', descuento: 0, cupon: null };
+    return {
+      valido: false,
+      error: 'El cupón ha alcanzado el límite de usos',
+      descuento: 0,
+      cupon: null,
+    };
   }
-  
+
   if (subtotal < cupon.minimo_compra) {
-    return { valido: false, error: `El mínimo de compra para este cupón es $${cupon.minimo_compra.toLocaleString('es-AR')}`, descuento: 0, cupon: null };
+    return {
+      valido: false,
+      error: `El mínimo de compra para este cupón es $${cupon.minimo_compra.toLocaleString('es-AR')}`,
+      descuento: 0,
+      cupon: null,
+    };
   }
-  
+
   if (clienteId || clienteTelefono) {
-    const usosCliente = db.prepare(`
+    const usosCliente = db
+      .prepare(
+        `
       SELECT COUNT(*) as count FROM cupones_usados 
       WHERE cupon_id = ? AND (cliente_id = ? OR cliente_telefono = ?)
-    `).get(cupon.id, clienteId || 0, clienteTelefono || '');
-    
+    `
+      )
+      .get(cupon.id, clienteId || 0, clienteTelefono || '');
+
     if (usosCliente.count >= cupon.limite_por_cliente) {
-      return { valido: false, error: 'Ya has usado este cupón el máximo de veces permitido', descuento: 0, cupon: null };
+      return {
+        valido: false,
+        error: 'Ya has usado este cupón el máximo de veces permitido',
+        descuento: 0,
+        cupon: null,
+      };
     }
   }
-  
+
   let montoDescuento = 0;
   if (cupon.tipo_descuento === 'porcentaje') {
     montoDescuento = subtotal * (cupon.valor_descuento / 100);
@@ -496,9 +634,9 @@ function validateAndApplyCupon(codigo, subtotal, clienteId, clienteTelefono) {
   } else {
     montoDescuento = cupon.valor_descuento;
   }
-  
+
   montoDescuento = Math.min(montoDescuento, subtotal);
-  
+
   return {
     valido: true,
     descuento: Math.round(montoDescuento * 100) / 100,
@@ -508,28 +646,29 @@ function validateAndApplyCupon(codigo, subtotal, clienteId, clienteTelefono) {
       descripcion: cupon.descripcion,
       tipo_descuento: cupon.tipo_descuento,
       valor_descuento: cupon.valor_descuento,
-    }
+    },
   };
 }
 
-function buildPedidoPayload(body, options = {}) {
+async function buildPedidoPayload(body, options = {}) {
   const config = options.config || getConfigMap(db);
   const tipoEntrega = body.tipo_entrega || 'delivery';
   const shift = getShiftForDate(config, new Date());
   const origen = body.origen || 'web';
-  const isPublicFlow = ['web', 'canal_publico'].includes(origen);
-  const parsedItems = typeof body.items === 'string'
-    ? parsePedidoItems(JSON.parse(body.items || '[]'))
-    : parsePedidoItems(body.items);
+  // 'whatsapp' (agente de IA) tiene que respetar el mismo control de turno
+  // que la web publica: sin esto, un pedido armado fuera de horario por el
+  // agente se cargaria igual, sin que nadie en cocina lo espere.
+  const isPublicFlow = ['web', 'canal_publico', 'whatsapp'].includes(origen);
+  const parsedItems = scalePedidoItemsToStorage(body.items);
   const subtotal = subtotalFromItems(parsedItems);
-  
+
   // Validar cupón si se proporciona
-  const cuponData = body.cupon_codigo 
+  const cuponData = body.cupon_codigo
     ? validateAndApplyCupon(body.cupon_codigo, subtotal, body.cliente_id, body.cliente_telefono)
     : { valido: false, descuento: 0, cupon: null };
-  
-  const descuentoSolicitado = cuponData.valido 
-    ? cuponData.descuento 
+
+  const descuentoSolicitado = cuponData.valido
+    ? cuponData.descuento
     : roundAmount(body.descuento || 0);
 
   let costoEnvio = 0;
@@ -537,7 +676,9 @@ function buildPedidoPayload(body, options = {}) {
   let tiempoEstimadoMin = 0;
 
   if (isPublicFlow && !shift) {
-    throw new Error('Ahora mismo estamos fuera de turno. Podes dejar el pedido para el siguiente horario o pedir por el local.');
+    throw new Error(
+      'Ahora mismo estamos fuera de turno. Podes dejar el pedido para el siguiente horario o pedir por el local.'
+    );
   }
 
   if (tipoEntrega === 'delivery') {
@@ -557,6 +698,27 @@ function buildPedidoPayload(body, options = {}) {
 
   if (tipoEntrega === 'mesa' && !String(body.mesa || '').trim()) {
     throw new Error('Mesa requerida para pedido de salon');
+  }
+
+  // ── GEOCODIFICACIÓN AUTOMÁTICA ──
+  // Si no hay coordenadas del cliente pero hay dirección, intentamos geocodificar
+  let clienteLatitud = optionalNumber(body.cliente_latitud);
+  let clienteLongitud = optionalNumber(body.cliente_longitud);
+
+  if (
+    tipoEntrega === 'delivery' &&
+    (clienteLatitud === null || clienteLongitud === null) &&
+    String(body.cliente_direccion || '').trim()
+  ) {
+    try {
+      const geo = await geocodeClienteDireccion(body.cliente_direccion, config);
+      if (geo && geo.lat && geo.lng) {
+        clienteLatitud = geo.lat;
+        clienteLongitud = geo.lng;
+      }
+    } catch (e) {
+      // Silencioso: si falla la geocodificación, el pedido se crea sin coordenadas
+    }
   }
 
   const descuento = Math.min(descuentoSolicitado, roundAmount(subtotal));
@@ -580,17 +742,19 @@ function buildPedidoPayload(body, options = {}) {
     total: roundAmount(subtotal + costoEnvio - descuento),
     tipo_entrega: tipoEntrega,
     mesa: body.mesa || '',
+    hora_entrega: String(body.hora_entrega || '').trim(),
     metodo_pago: normalizeMetodoPago(body.metodo_pago || 'efectivo'),
     notas: body.notas || '',
     origen,
     delivery_zona: deliveryZona,
     tiempo_estimado_min: tiempoEstimadoMin,
     turno_operativo: shift?.nombre || '',
-    entrega_pin: tipoEntrega === 'delivery' && String(config.delivery_validacion_activa || '0') === '1'
-      ? generateEntregaPin()
-      : '',
-    cliente_latitud: optionalNumber(body.cliente_latitud),
-    cliente_longitud: optionalNumber(body.cliente_longitud),
+    entrega_pin:
+      tipoEntrega === 'delivery' && String(config.delivery_validacion_activa || '0') === '1'
+        ? generateEntregaPin()
+        : '',
+    cliente_latitud: clienteLatitud,
+    cliente_longitud: clienteLongitud,
     cupon_id: cuponData.cupon?.id || null,
     cupon_codigo: cuponData.cupon?.codigo || null,
     cupon_validacion: cuponData,
@@ -639,16 +803,19 @@ function splitPedidoMesa(pedido, splitItems, mesaDestino) {
   }
 
   if (remainingItems.length === 0) {
-    throw new Error('No puedes dividir el pedido completo. Usa mover pedido si quieres pasarlo entero');
+    throw new Error(
+      'No puedes dividir el pedido completo. Usa mover pedido si quieres pasarlo entero'
+    );
   }
 
   const originalSubtotal = subtotalFromItems(originalItems);
   const selectedSubtotal = subtotalFromItems(selectedItems);
   const remainingSubtotal = subtotalFromItems(remainingItems);
   const originalDiscount = roundAmount(pedido.descuento || 0);
-  const selectedDiscount = originalSubtotal > 0
-    ? roundAmount(originalDiscount * (selectedSubtotal / originalSubtotal))
-    : 0;
+  const selectedDiscount =
+    originalSubtotal > 0
+      ? roundAmount(originalDiscount * (selectedSubtotal / originalSubtotal))
+      : 0;
   const remainingDiscount = roundAmount(originalDiscount - selectedDiscount);
 
   const nuevoPedido = createPedidoRecord({
@@ -668,11 +835,13 @@ function splitPedidoMesa(pedido, splitItems, mesaDestino) {
     pago_estado: pedido.pago_estado || 'pendiente',
   });
 
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE pedidos
     SET items = ?, subtotal = ?, descuento = ?, total = ?, actualizado_en = CURRENT_TIMESTAMP
     WHERE id = ?
-  `).run(
+  `
+  ).run(
     serializePedidoItems(remainingItems),
     remainingSubtotal,
     remainingDiscount,
@@ -727,8 +896,12 @@ function mergeMesaPedidosIntoTarget(targetPedido, pedidosToMerge, mesaDestino) {
   const allPedidos = [targetPedido, ...pedidosToMerge];
   const allItems = allPedidos.flatMap((pedido) => loadPedidoItems(db, pedido));
   const mergedItems = mergePedidoItems(allItems);
-  const subtotal = roundAmount(allPedidos.reduce((acc, pedido) => acc + Number(pedido.subtotal || 0), 0));
-  const descuento = roundAmount(allPedidos.reduce((acc, pedido) => acc + Number(pedido.descuento || 0), 0));
+  const subtotal = roundAmount(
+    allPedidos.reduce((acc, pedido) => acc + Number(pedido.subtotal || 0), 0)
+  );
+  const descuento = roundAmount(
+    allPedidos.reduce((acc, pedido) => acc + Number(pedido.descuento || 0), 0)
+  );
   const total = roundAmount(allPedidos.reduce((acc, pedido) => acc + Number(pedido.total || 0), 0));
   const notas = allPedidos
     .map((pedido) => String(pedido.notas || '').trim())
@@ -736,11 +909,21 @@ function mergeMesaPedidosIntoTarget(targetPedido, pedidosToMerge, mesaDestino) {
     .filter((note, index, array) => array.indexOf(note) === index)
     .join(' | ');
 
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE pedidos
     SET mesa = ?, items = ?, subtotal = ?, descuento = ?, total = ?, notas = ?, actualizado_en = CURRENT_TIMESTAMP
     WHERE id = ?
-  `).run(mesaDestino, serializePedidoItems(mergedItems), subtotal, descuento, total, notas, targetPedido.id);
+  `
+  ).run(
+    mesaDestino,
+    serializePedidoItems(mergedItems),
+    subtotal,
+    descuento,
+    total,
+    notas,
+    targetPedido.id
+  );
   replacePedidoItems(db, targetPedido.id, mergedItems);
 
   const idsToDelete = pedidosToMerge.map((pedido) => pedido.id);
@@ -755,7 +938,9 @@ function mergeMesaPedidosIntoTarget(targetPedido, pedidosToMerge, mesaDestino) {
 function syncPaymentIntoPedido(pedido, payment) {
   if (!pedido || !payment) return null;
 
-  const rawStatus = String(payment.status || 'pending').trim().toLowerCase();
+  const rawStatus = String(payment.status || 'pending')
+    .trim()
+    .toLowerCase();
   const nextPagoEstado = normalizePagoEstado(rawStatus, {
     metodoPago: 'mercadopago',
     origen: pedido.origen,
@@ -784,11 +969,13 @@ function updatePedidoPaymentStatus(pedido, nextPagoEstado, options = {}) {
     origen: pedido.origen,
   });
   const detalle = String(options.detalle || '').trim();
-  const pagoId = options.pagoId !== undefined
-    ? String(options.pagoId || '').trim()
-    : String(pedido.pago_id || '').trim();
+  const pagoId =
+    options.pagoId !== undefined
+      ? String(options.pagoId || '').trim()
+      : String(pedido.pago_id || '').trim();
 
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE pedidos
     SET pago_estado = ?,
         pago_id = ?,
@@ -798,22 +985,26 @@ function updatePedidoPaymentStatus(pedido, nextPagoEstado, options = {}) {
         END,
         actualizado_en = CURRENT_TIMESTAMP
     WHERE id = ?
-  `).run(
-    pagoEstado,
-    pagoId,
-    detalle,
-    detalle,
-    pedido.id
-  );
+  `
+  ).run(pagoEstado, pagoId, detalle, detalle, pedido.id);
 
   return db.prepare('SELECT * FROM pedidos WHERE id = ?').get(pedido.id);
 }
 
-function logMercadoPagoEvent({ pedidoId = null, tipo = '', paymentId = '', estado = '', detalle = '', payload = {} }) {
-  db.prepare(`
+function logMercadoPagoEvent({
+  pedidoId = null,
+  tipo = '',
+  paymentId = '',
+  estado = '',
+  detalle = '',
+  payload = {},
+}) {
+  db.prepare(
+    `
     INSERT INTO mercadopago_eventos (pedido_id, tipo, payment_id, estado, detalle, payload)
     VALUES (?, ?, ?, ?, ?, ?)
-  `).run(
+  `
+  ).run(
     pedidoId,
     tipo,
     String(paymentId || ''),

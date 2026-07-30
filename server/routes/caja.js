@@ -6,10 +6,17 @@ const { logAudit, actorFromRequest } = require('../utils/audit');
 const { requirePermission } = require('../utils/permissions');
 const { getCurrentShiftInfo, resolveShiftLabel } = require('../utils/shifts');
 const {
+  ensureOperationalCaja,
+  getActiveCaja,
+  getConfigMap,
+  getOperationalShiftContext,
+} = require('../utils/operationalCaja');
+const {
   summarizePaymentRows,
   isMetodoEfectivo,
   isMetodoDigital,
   isPagoPagado,
+  getPedidoPaymentBreakdown,
 } = require('../utils/paymentStatus');
 
 function safeJsonParse(value, fallback = {}) {
@@ -20,32 +27,18 @@ function safeJsonParse(value, fallback = {}) {
   }
 }
 
-function getConfigMap() {
-  return db.prepare('SELECT clave, valor FROM configuracion').all().reduce((acc, row) => {
-    acc[row.clave] = row.valor;
-    return acc;
-  }, {});
-}
-
-function getActiveCaja() {
-  return db.prepare("SELECT * FROM cierres_caja WHERE estado = 'abierta' ORDER BY abierta_en DESC LIMIT 1").get();
-}
-
 function parseMoneyInput(value) {
   if (typeof value === 'number') return value;
   const raw = String(value || '').trim();
   if (!raw) return 0;
-  const normalized = raw
-    .replace(/\s/g, '')
-    .replace(/\$/g, '')
-    .replace(/\./g, '')
-    .replace(',', '.');
+  const normalized = raw.replace(/\s/g, '').replace(/\$/g, '').replace(/\./g, '').replace(',', '.');
   const parsed = Number(normalized);
   return Number.isFinite(parsed) ? parsed : NaN;
 }
 
 function buildCajaResumen(desde, hasta = null, cierreId = null) {
-  const config = getConfigMap();
+  const database = db || require('../db');
+  const config = getConfigMap(database);
   let query = `
     SELECT *
     FROM pedidos
@@ -59,7 +52,7 @@ function buildCajaResumen(desde, hasta = null, cierreId = null) {
   }
 
   query += ' ORDER BY datetime(creado_en) DESC';
-  const rows = db.prepare(query).all(...params);
+  const rows = database.prepare(query).all(...params);
   const validRows = rows.filter((row) => row.estado !== 'cancelado');
   const paymentSummary = summarizePaymentRows(validRows);
 
@@ -83,20 +76,22 @@ function buildCajaResumen(desde, hasta = null, cierreId = null) {
     movimientosQuery += ' OR cierre_id = ?';
     movParams.push(cierreId);
   }
-  const movimientos = db.prepare(movimientosQuery).all(...movParams);
-  
+  const movimientos = database.prepare(movimientosQuery).all(...movParams);
+
   const totalIngresosManuales = movimientos
-    .filter(m => m.tipo === 'entrada')
+    .filter((m) => m.tipo === 'entrada')
     .reduce((acc, m) => acc + Number(m.monto || 0), 0);
   const totalEgresosManuales = movimientos
-    .filter(m => m.tipo === 'salida')
+    .filter((m) => m.tipo === 'salida')
     .reduce((acc, m) => acc + Number(m.monto || 0), 0);
 
   const efectivoNeto = efectivoVentas + totalIngresosManuales - totalEgresosManuales;
 
   const porMetodo = paymentSummary.byMethod;
 
-  const porTipo = db.prepare(`
+  const porTipo = database
+    .prepare(
+      `
     SELECT tipo_entrega, COUNT(*) AS cantidad, COALESCE(SUM(total), 0) AS total
     FROM pedidos
     WHERE datetime(creado_en) >= datetime(?)
@@ -104,13 +99,19 @@ function buildCajaResumen(desde, hasta = null, cierreId = null) {
       AND estado != 'cancelado'
     GROUP BY tipo_entrega
     ORDER BY total DESC
-  `).all(...params);
+  `
+    )
+    .all(...params);
 
   const entregados = rows.filter((row) => row.estado === 'entregado').length;
   const cancelados = rows.filter((row) => row.estado === 'cancelado').length;
   const activos = rows.filter((row) => !['entregado', 'cancelado'].includes(row.estado)).length;
   const porTurno = validRows.reduce((acc, row) => {
-    const label = resolveShiftLabel(config, row.turno_operativo, new Date(String(row.creado_en || '').replace(' ', 'T')));
+    const label = resolveShiftLabel(
+      config,
+      row.turno_operativo,
+      new Date(String(row.creado_en || '').replace(' ', 'T'))
+    );
     const current = acc.get(label) || {
       turno: label,
       pedidos: 0,
@@ -122,8 +123,11 @@ function buildCajaResumen(desde, hasta = null, cierreId = null) {
     current.pedidos += 1;
     current.total += Number(row.total || 0);
     if (isPagoPagado(row.pago_estado, { metodoPago: row.metodo_pago, origen: row.origen })) {
-      if (isMetodoEfectivo(row.metodo_pago)) current.efectivo += Number(row.total || 0);
-      else if (isMetodoDigital(row.metodo_pago)) current.digitales += Number(row.total || 0);
+      getPedidoPaymentBreakdown(row).forEach((entry) => {
+        const amount = Number(entry.monto || 0);
+        if (isMetodoEfectivo(entry.metodo_pago)) current.efectivo += amount;
+        else if (isMetodoDigital(entry.metodo_pago)) current.digitales += amount;
+      });
     } else {
       current.pendiente += Number(row.total || 0);
     }
@@ -152,45 +156,93 @@ function buildCajaResumen(desde, hasta = null, cierreId = null) {
     porMetodo,
     porTipo,
     movimientos,
-    porTurno: Array.from(porTurno.values()).map((item) => ({
-      ...item,
-      ticketPromedio: item.pedidos ? Math.round(item.total / item.pedidos) : 0,
-    })).sort((a, b) => b.total - a.total || b.pedidos - a.pedidos),
+    porTurno: Array.from(porTurno.values())
+      .map((item) => ({
+        ...item,
+        ticketPromedio: item.pedidos ? Math.round(item.total / item.pedidos) : 0,
+      }))
+      .sort((a, b) => b.total - a.total || b.pedidos - a.pedidos),
   };
 }
 
 router.get('/estado', auth, requirePermission('caja.view'), (req, res) => {
-  const activa = getActiveCaja();
-  const historial = db.prepare('SELECT * FROM cierres_caja ORDER BY abierta_en DESC LIMIT 20').all()
+  const actor = actorFromRequest(req);
+  const operational = ensureOperationalCaja(db, {
+    actor_id: actor.actor_id,
+    actor_nombre: actor.actor_nombre || 'Sistema',
+    buildCajaResumen,
+    autoOpen: true,
+  });
+  const activa = operational.activeCaja;
+  const historial = db
+    .prepare('SELECT * FROM cierres_caja ORDER BY abierta_en DESC LIMIT 20')
+    .all()
     .map((item) => ({ ...item, resumen: safeJsonParse(item.resumen_json, {}) }));
-  const auditoria = db.prepare('SELECT * FROM auditoria_eventos ORDER BY creado_en DESC LIMIT 40').all()
+  const auditoria = db
+    .prepare('SELECT * FROM auditoria_eventos ORDER BY creado_en DESC LIMIT 40')
+    .all()
     .map((item) => ({ ...item, detalle: safeJsonParse(item.detalle, {}) }));
+
+  operational.events.forEach((event) => {
+    logAudit(db, {
+      modulo: 'caja',
+      accion: event.type === 'opened' ? 'apertura_automatica' : 'cierre_automatico',
+      entidad: 'cierre_caja',
+      entidad_id: event.caja?.id,
+      actor_id: actor.actor_id,
+      actor_nombre: actor.actor_nombre || 'Sistema',
+      detalle: {
+        turno_id: event.caja?.turno_id || '',
+        turno_nombre: event.caja?.turno_nombre || '',
+        fecha_operativa: event.caja?.fecha_operativa || '',
+        auto_abierta: Number(event.caja?.auto_abierta || 0) === 1,
+        auto_cierre_motivo: event.caja?.auto_cierre_motivo || '',
+      },
+    });
+  });
 
   res.json({
     activa: activa ? { ...activa, resumen: safeJsonParse(activa.resumen_json, {}) } : null,
     resumen: activa ? buildCajaResumen(activa.abierta_en, null, activa.id) : null,
     historial,
     auditoria,
+    turno_operativo: operational.context,
   });
 });
 
 router.post('/movimiento', auth, requirePermission('caja.manage'), (req, res) => {
-  const activa = getActiveCaja();
+  const activa = getActiveCaja(db);
   if (!activa) return res.status(400).json({ error: 'Debes abrir la caja primero' });
 
   const { tipo, monto, motivo } = req.body;
-  if (!['entrada', 'salida'].includes(tipo)) return res.status(400).json({ error: 'Tipo invalido' });
+  if (!['entrada', 'salida'].includes(tipo))
+    return res.status(400).json({ error: 'Tipo invalido' });
   const montoNormalizado = parseMoneyInput(monto);
-  if (Number.isNaN(montoNormalizado) || montoNormalizado <= 0) return res.status(400).json({ error: 'Monto debe ser mayor a 0' });
-  if (!String(motivo || '').trim()) return res.status(400).json({ error: 'Debes indicar un motivo' });
+  if (Number.isNaN(montoNormalizado) || montoNormalizado <= 0)
+    return res.status(400).json({ error: 'Monto debe ser mayor a 0' });
+  if (!String(motivo || '').trim())
+    return res.status(400).json({ error: 'Debes indicar un motivo' });
 
   const actor = actorFromRequest(req);
-  const result = db.prepare(`
+  const result = db
+    .prepare(
+      `
     INSERT INTO caja_movimientos (cierre_id, tipo, monto, motivo, actor_id, actor_nombre)
     VALUES (?, ?, ?, ?, ?, ?)
-  `).run(activa.id, tipo, montoNormalizado, String(motivo || '').trim(), actor.actor_id, actor.actor_nombre);
+  `
+    )
+    .run(
+      activa.id,
+      tipo,
+      montoNormalizado,
+      String(motivo || '').trim(),
+      actor.actor_id,
+      actor.actor_nombre
+    );
 
-  const movimiento = db.prepare('SELECT * FROM caja_movimientos WHERE id = ?').get(result.lastInsertRowid);
+  const movimiento = db
+    .prepare('SELECT * FROM caja_movimientos WHERE id = ?')
+    .get(result.lastInsertRowid);
   logAudit(db, {
     modulo: 'caja',
     accion: 'movimiento_manual',
@@ -205,18 +257,37 @@ router.post('/movimiento', auth, requirePermission('caja.manage'), (req, res) =>
 });
 
 router.post('/apertura', auth, requirePermission('caja.manage'), (req, res) => {
-  if (getActiveCaja()) return res.status(400).json({ error: 'Ya hay una caja abierta' });
-
   const { monto_inicial = 0, notas = '' } = req.body;
   const montoInicial = parseMoneyInput(monto_inicial);
   if (Number.isNaN(montoInicial) || montoInicial < 0) {
     return res.status(400).json({ error: 'El monto inicial debe ser 0 o mayor' });
   }
   const actor = actorFromRequest(req);
-  const result = db.prepare(`
-    INSERT INTO cierres_caja (estado, abierta_por_id, abierta_por_nombre, monto_inicial, notas_apertura)
-    VALUES ('abierta', ?, ?, ?, ?)
-  `).run(actor.actor_id, actor.actor_nombre, montoInicial, notas || '');
+  const config = getConfigMap(db);
+  const operationalContext = getOperationalShiftContext(config);
+  if (!operationalContext.abiertoAhora) {
+    return res.status(400).json({ error: 'No hay un turno operativo abierto para abrir caja' });
+  }
+  if (getActiveCaja(db)) return res.status(400).json({ error: 'Ya hay una caja abierta' });
+  const result = db
+    .prepare(
+      `
+    INSERT INTO cierres_caja (
+      estado, abierta_por_id, abierta_por_nombre, monto_inicial, notas_apertura,
+      turno_id, turno_nombre, fecha_operativa, auto_abierta
+    )
+    VALUES ('abierta', ?, ?, ?, ?, ?, ?, ?, 0)
+  `
+    )
+    .run(
+      actor.actor_id,
+      actor.actor_nombre,
+      montoInicial,
+      notas || '',
+      operationalContext.shiftId,
+      operationalContext.shiftName,
+      operationalContext.fechaOperativa
+    );
 
   const caja = db.prepare('SELECT * FROM cierres_caja WHERE id = ?').get(result.lastInsertRowid);
   logAudit(db, {
@@ -233,7 +304,7 @@ router.post('/apertura', auth, requirePermission('caja.manage'), (req, res) => {
 });
 
 router.post('/cierre', auth, requirePermission('caja.manage'), (req, res) => {
-  const activa = getActiveCaja();
+  const activa = getActiveCaja(db);
   if (!activa) return res.status(400).json({ error: 'No hay una caja abierta' });
 
   const { monto_final_declarado = 0, notas = '' } = req.body;
@@ -243,12 +314,13 @@ router.post('/cierre', auth, requirePermission('caja.manage'), (req, res) => {
   }
   const actor = actorFromRequest(req);
   const resumen = buildCajaResumen(activa.abierta_en, null, activa.id);
-  
+
   // El efectivo esperado ahora considera: Inicial + Ventas Efectivo + Entradas Manuales - Salidas (Gastos)
   const efectivoEsperado = Number(activa.monto_inicial || 0) + Number(resumen.efectivoNeto || 0);
   const diferencia = declarado - efectivoEsperado;
 
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE cierres_caja
     SET estado = 'cerrada',
         cerrada_en = CURRENT_TIMESTAMP,
@@ -260,7 +332,8 @@ router.post('/cierre', auth, requirePermission('caja.manage'), (req, res) => {
         resumen_json = ?,
         notas_cierre = ?
     WHERE id = ?
-  `).run(
+  `
+  ).run(
     actor.actor_id,
     actor.actor_nombre,
     declarado,
@@ -289,7 +362,7 @@ router.post('/cierre', auth, requirePermission('caja.manage'), (req, res) => {
   const caja = db.prepare('SELECT * FROM cierres_caja WHERE id = ?').get(activa.id);
   const { buildCajaCierreDocument } = require('../utils/printTemplates');
   const document = buildCajaCierreDocument(db, caja, resumen);
-  
+
   res.json({ ...caja, resumen, html: document.html });
 });
 
@@ -300,7 +373,7 @@ router.get('/cierre/:id/ticket', auth, requirePermission('caja.view'), (req, res
   const resumen = safeJsonParse(cierre.resumen_json, {});
   const { buildCajaCierreDocument } = require('../utils/printTemplates');
   const document = buildCajaCierreDocument(db, cierre, resumen);
-  
+
   res.type('html').send(document.html);
 });
 

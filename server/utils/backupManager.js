@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const Database = require('better-sqlite3');
 const { backupsDir, dbFile, ensureDir } = require('./storagePaths');
+const logger = require('./logger');
 
 function ensureBackupsDir() {
   ensureDir(backupsDir);
@@ -17,7 +18,8 @@ function normalizePathForSql(filePath) {
 
 function cleanupOldBackups(maxFiles = 14) {
   ensureBackupsDir();
-  const files = fs.readdirSync(backupsDir)
+  const files = fs
+    .readdirSync(backupsDir)
     .filter((file) => file.endsWith('.sqlite'))
     .map((file) => {
       const fullPath = path.join(backupsDir, file);
@@ -33,7 +35,8 @@ function cleanupOldBackups(maxFiles = 14) {
 
 function listBackups() {
   ensureBackupsDir();
-  return fs.readdirSync(backupsDir)
+  return fs
+    .readdirSync(backupsDir)
     .filter((file) => file.endsWith('.sqlite'))
     .map((file) => {
       const fullPath = path.join(backupsDir, file);
@@ -77,17 +80,25 @@ function getBackupPath(file) {
 }
 
 function listApplicationTables(database) {
-  return database.prepare(`
+  return database
+    .prepare(
+      `
     SELECT name
     FROM sqlite_master
     WHERE type = 'table'
       AND name NOT LIKE 'sqlite_%'
     ORDER BY name ASC
-  `).all().map((row) => row.name);
+  `
+    )
+    .all()
+    .map((row) => row.name);
 }
 
 function tableColumns(database, table) {
-  return database.prepare(`PRAGMA table_info(${table})`).all().map((row) => row.name);
+  return database
+    .prepare(`PRAGMA table_info(${table})`)
+    .all()
+    .map((row) => row.name);
 }
 
 function restoreDatabaseBackup(db, file, options = {}) {
@@ -128,11 +139,16 @@ function restoreDatabaseBackup(db, file, options = {}) {
       restoredTables.push({ table, rows: rows.length });
     });
 
-    const backupSequenceExists = backupDb.prepare(`
+    const backupSequenceExists =
+      backupDb
+        .prepare(
+          `
       SELECT COUNT(*) as c
       FROM sqlite_master
       WHERE type = 'table' AND name = 'sqlite_sequence'
-    `).get().c > 0;
+    `
+        )
+        .get().c > 0;
 
     if (backupSequenceExists) {
       db.exec('DELETE FROM sqlite_sequence');
@@ -215,7 +231,9 @@ function resetOperationalData(db) {
     `);
 
     // 5. Reset de contadores de configuración
-    db.prepare("INSERT OR REPLACE INTO configuracion (clave, valor) VALUES ('numero_pedido_actual', '1')").run();
+    db.prepare(
+      "INSERT OR REPLACE INTO configuracion (clave, valor) VALUES ('numero_pedido_actual', '1')"
+    ).run();
 
     db.exec('COMMIT');
   } catch (error) {
@@ -227,11 +245,15 @@ function resetOperationalData(db) {
 }
 
 function startAutomaticBackups(db) {
-  const configRows = db.prepare(`
+  const configRows = db
+    .prepare(
+      `
     SELECT clave, valor
     FROM configuracion
     WHERE clave IN ('backup_automatico_activo', 'backup_intervalo_horas', 'backup_max_archivos')
-  `).all();
+  `
+    )
+    .all();
   const config = Object.fromEntries(configRows.map((row) => [row.clave, row.valor || '']));
 
   if (config.backup_automatico_activo !== '1') {
@@ -244,16 +266,19 @@ function startAutomaticBackups(db) {
   try {
     createDatabaseBackup(db, { reason: 'startup', maxFiles });
   } catch (error) {
-    console.error('No se pudo crear el backup automatico inicial:', error.message);
+    logger.error('No se pudo crear el backup automatico inicial', { message: error.message });
   }
 
-  return setInterval(() => {
-    try {
-      createDatabaseBackup(db, { reason: 'auto', maxFiles });
-    } catch (error) {
-      console.error('No se pudo crear el backup automatico:', error.message);
-    }
-  }, intervalHours * 60 * 60 * 1000);
+  return setInterval(
+    () => {
+      try {
+        createDatabaseBackup(db, { reason: 'auto', maxFiles });
+      } catch (error) {
+        logger.error('No se pudo crear el backup automatico', { message: error.message });
+      }
+    },
+    intervalHours * 60 * 60 * 1000
+  );
 }
 
 module.exports = {

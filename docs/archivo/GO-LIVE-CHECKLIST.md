@@ -1,6 +1,7 @@
 # Modo Sabor - Checklist de salida a produccion
 
 ## 1. Base tecnica
+
 - [ ] Backend publicado con URL HTTPS fija
 - [ ] Frontend publicado con URL HTTPS fija
 - [ ] `JWT_SECRET` fuerte cargado en backend
@@ -17,6 +18,7 @@
 - [ ] Si la operacion sera con comandas impresas, desactivar `KDS` antes de abrir
 
 ## 2. MercadoPago
+
 - [ ] Cargar `mercadopago_token` real
 - [ ] Confirmar diagnostico en configuracion
 - [ ] Crear pedido real con MercadoPago
@@ -27,6 +29,7 @@
 - [ ] Probar boton de sincronizacion manual de pagos
 
 ## 3. WhatsApp API
+
 - [ ] Cargar `whatsapp_api_token`
 - [ ] Cargar `whatsapp_phone_number_id`
 - [ ] Cargar `whatsapp_webhook_verify_token`
@@ -39,6 +42,7 @@
 - [ ] Confirmar derivacion a inbox humano
 
 ## 4. Menu y pedidos
+
 - [ ] Revisar categorias y productos cargados
 - [ ] Revisar precios y variantes del menu real
 - [ ] Probar pedido web
@@ -47,6 +51,7 @@
 - [ ] Confirmar que todos entren en `Pedidos`
 
 ## 5. Delivery
+
 - [ ] Configurar zonas reales de delivery
 - [ ] Probar direccion valida con zona
 - [ ] Probar direccion fuera de zona
@@ -62,6 +67,7 @@
 - [ ] Confirmar que al entregar se libere el rider y se invalide el token de tracking
 
 ## 6. Impresion
+
 - [ ] Ajustar `impresion_margen_mm`
 - [ ] Ajustar `impresion_escala_fuente`
 - [ ] Usar prueba A6 desde configuracion
@@ -71,6 +77,7 @@
 - [ ] Confirmar lectura correcta de variantes y notas
 
 ## 7. Operacion y seguridad
+
 - [ ] Probar login con cada rol
 - [ ] Confirmar permisos por modulo
 - [ ] Cambiar contrasena desde `Mi cuenta`
@@ -80,6 +87,7 @@
 - [ ] Revisar clientes inactivos y campana de recompra
 
 ## 8. Ensayo general
+
 - [ ] Pedido web + pago + impresion + cocina o comanda impresa + entrega + seguimiento
 - [ ] Pedido por WhatsApp + confirmacion + impresion + entrega
 - [ ] Pedido delivery en TPV + asignacion de rider + ticket/comanda

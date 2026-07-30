@@ -20,7 +20,9 @@ function createFileFilter({
   allowedMimeTypes = [],
   message = 'Archivo no permitido',
 } = {}) {
-  const extensionSet = new Set(allowedExtensions.map((extension) => String(extension || '').toLowerCase()));
+  const extensionSet = new Set(
+    allowedExtensions.map((extension) => String(extension || '').toLowerCase())
+  );
   const mimeSet = new Set(allowedMimeTypes.map((mime) => String(mime || '').toLowerCase()));
 
   return (_req, file, cb) => {

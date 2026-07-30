@@ -1,4 +1,6 @@
-const RAW_API_URL = String(import.meta.env.VITE_API_URL || '').trim().replace(/\/$/, '');
+const RAW_API_URL = String(import.meta.env.VITE_API_URL || '')
+  .trim()
+  .replace(/\/$/, '');
 
 // In local dev we prefer the Vite proxy to avoid hardcoding a backend port here.
 export const API_ORIGIN = RAW_API_URL || '';

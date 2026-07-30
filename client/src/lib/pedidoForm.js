@@ -20,7 +20,8 @@ export function normalizeText(value) {
 export function getPresentationPrices(producto) {
   const variantes = safeParseArray(producto?.variantes);
   const presentacion = variantes.find((group) => normalizeText(group?.nombre) === 'presentacion');
-  if (!presentacion || !Array.isArray(presentacion.opciones) || presentacion.opciones.length === 0) return [];
+  if (!presentacion || !Array.isArray(presentacion.opciones) || presentacion.opciones.length === 0)
+    return [];
 
   return presentacion.opciones.map((option) => ({
     nombre: option?.nombre || '',
@@ -42,7 +43,9 @@ export function getPrimaryDisplayPrice(producto) {
 
   for (const preferred of preferredGroups) {
     const group = variantes.find((item) => normalizeText(item?.nombre) === preferred.group);
-    const option = (group?.opciones || []).find((item) => normalizeText(item?.nombre) === preferred.option);
+    const option = (group?.opciones || []).find(
+      (item) => normalizeText(item?.nombre) === preferred.option
+    );
     if (option) {
       return {
         price: basePrice + Number(option?.precio_extra || 0),
@@ -102,7 +105,9 @@ export function getStructuredDisplayPrices(producto) {
 
     const resolved = config.options
       .map((entry) => {
-        const option = (group?.opciones || []).find((item) => normalizeText(item?.nombre) === entry.option);
+        const option = (group?.opciones || []).find(
+          (item) => normalizeText(item?.nombre) === entry.option
+        );
         if (!option) return null;
         return {
           label: entry.label,
@@ -128,32 +133,43 @@ export function getStructuredDisplayPrices(producto) {
 
 export function createEmptyCustomer() {
   return {
+    id: null,
     nombre: '',
     telefono: '',
     direccion: '',
+    codigo_tarjeta: '',
+    puntos: 0,
+    recompensas_pendientes: 0,
+    sellos_actuales: 0,
+    nivel: 'Bronce',
     latitud: null,
     longitud: null,
   };
 }
 
-export function createDeliveryQuoteState({ tipoEntrega = 'delivery', config = {}, overrides = {} } = {}) {
-  const base = tipoEntrega === 'delivery'
-    ? {
-      costo_envio: 0,
-      tiempo_estimado_min: Number(config.tiempo_delivery || 30),
-      zone_name: '',
-      available: false,
-      pending: false,
-      message: 'Completa la direccion para calcular envio.',
-    }
-    : {
-      costo_envio: 0,
-      tiempo_estimado_min: Number(config.tiempo_retiro || 20),
-      zone_name: '',
-      available: true,
-      pending: false,
-      message: '',
-    };
+export function createDeliveryQuoteState({
+  tipoEntrega = 'delivery',
+  config = {},
+  overrides = {},
+} = {}) {
+  const base =
+    tipoEntrega === 'delivery'
+      ? {
+          costo_envio: 0,
+          tiempo_estimado_min: Number(config.tiempo_delivery || 30),
+          zone_name: '',
+          available: false,
+          pending: false,
+          message: 'Completa la direccion para calcular envio.',
+        }
+      : {
+          costo_envio: 0,
+          tiempo_estimado_min: Number(config.tiempo_retiro || 20),
+          zone_name: '',
+          available: true,
+          pending: false,
+          message: '',
+        };
 
   return {
     ...base,
@@ -170,21 +186,32 @@ export function calculatePedidoSummary({
   descuentoFijo = null,
   metodoPago = 'efectivo',
   efectivoRecibido = '',
+  cashTarget = null,
 } = {}) {
-  const subtotal = (items || []).reduce((sum, item) => sum + (Number(item.precio_unitario || 0) * Number(item.cantidad || 0)), 0);
+  const subtotal = (items || []).reduce(
+    (sum, item) => sum + Number(item.precio_unitario || 0) * Number(item.cantidad || 0),
+    0
+  );
   const envio = tipoEntrega === 'delivery' ? Number(deliveryQuote?.costo_envio || 0) : 0;
   const totalItems = (items || []).reduce((sum, item) => sum + Number(item.cantidad || 0), 0);
 
   const descuentoNumero = Math.max(0, Number(descuento || 0));
-  const descuentoAplicado = descuentoFijo !== null && descuentoFijo !== undefined
-    ? Math.min(Number(descuentoFijo || 0), subtotal + envio)
-    : descuentoTipo === 'porcentaje'
-      ? Math.min(subtotal + envio, ((subtotal + envio) * Math.min(descuentoNumero, 100)) / 100)
-      : Math.min(descuentoNumero, subtotal + envio);
+  const descuentoAplicado =
+    descuentoFijo !== null && descuentoFijo !== undefined
+      ? Math.min(Number(descuentoFijo || 0), subtotal + envio)
+      : descuentoTipo === 'porcentaje'
+        ? Math.min(subtotal + envio, ((subtotal + envio) * Math.min(descuentoNumero, 100)) / 100)
+        : Math.min(descuentoNumero, subtotal + envio);
 
   const total = Math.max(0, subtotal + envio - descuentoAplicado);
   const efectivoRecibidoNumero = Number(efectivoRecibido || 0);
-  const vuelto = metodoPago === 'efectivo' ? Math.max(0, efectivoRecibidoNumero - total) : 0;
+  const vueltoTarget =
+    cashTarget !== null && cashTarget !== undefined
+      ? Math.max(0, Number(cashTarget || 0))
+      : metodoPago === 'efectivo'
+        ? total
+        : 0;
+  const vuelto = vueltoTarget > 0 ? Math.max(0, efectivoRecibidoNumero - vueltoTarget) : 0;
 
   return {
     subtotal,
@@ -208,16 +235,31 @@ export function getTpvSubmitError({
   efectivoRecibido = '',
   efectivoRecibidoNumero = 0,
   total = 0,
+  cashTarget = null,
+  splitPayments = [],
 } = {}) {
   if (!items.length) return 'Agrega productos al pedido';
   if (tipoEntrega === 'delivery' && !cliente?.nombre) return 'Nombre requerido para delivery';
   if (tipoEntrega === 'delivery' && !cliente?.direccion) return 'Direccion requerida para delivery';
-  if (tipoEntrega === 'delivery' && deliveryQuote?.pending) return 'Espera a que se calcule el envio';
+  if (tipoEntrega === 'delivery' && deliveryQuote?.pending)
+    return 'Espera a que se calcule el envio';
   if (tipoEntrega === 'delivery' && deliveryQuote?.available === false) {
     return deliveryQuote?.message || 'La direccion no pertenece a una zona valida';
   }
   if (tipoEntrega === 'mesa' && !String(mesa || '').trim()) return 'Mesa requerida para salon';
-  if (metodoPago === 'efectivo' && efectivoRecibido && efectivoRecibidoNumero < total) {
+  if (splitPayments.length > 0) {
+    const splitTotal = splitPayments.reduce((sum, item) => sum + Number(item.monto || 0), 0);
+    if (Math.abs(splitTotal - Number(total || 0)) > 0.5) {
+      return 'El cobro mixto debe completar el total exacto';
+    }
+  }
+  const efectivoObjetivo =
+    cashTarget !== null && cashTarget !== undefined
+      ? Number(cashTarget || 0)
+      : metodoPago === 'efectivo'
+        ? Number(total || 0)
+        : 0;
+  if (efectivoObjetivo > 0 && efectivoRecibido && efectivoRecibidoNumero < efectivoObjetivo) {
     return 'El efectivo recibido no alcanza el total';
   }
   return '';
@@ -229,33 +271,38 @@ export function buildPedidoPayload({
   summary = {},
   tipoEntrega = 'delivery',
   mesa = '',
+  horaEntrega = '',
   metodoPago = 'efectivo',
   notas = '',
   origen = 'web',
   repartidorId = undefined,
   extra = {},
 } = {}) {
+  const normalizedItems = (items || []).map((item) => ({
+    producto_id: item.producto_id ?? null,
+    nombre: item.nombre || '',
+    cantidad: Number(item.cantidad || 0),
+    precio_unitario: Number(item.precio_unitario || 0),
+    variantes: item.variantes || {},
+    extras: item.extras || [],
+    descripcion: item.descripcion || '',
+  }));
+
   return {
+    cliente_id: customer?.id ?? null,
     cliente_nombre: customer?.nombre || '',
     cliente_telefono: customer?.telefono || '',
     cliente_direccion: customer?.direccion || '',
     cliente_latitud: customer?.latitud ?? null,
     cliente_longitud: customer?.longitud ?? null,
-    items: (items || []).map((item) => ({
-      producto_id: item.producto_id,
-      nombre: item.nombre,
-      cantidad: item.cantidad,
-      precio_unitario: item.precio_unitario,
-      variantes: item.variantes,
-      extras: item.extras,
-      descripcion: item.descripcion,
-    })),
+    items: JSON.stringify(normalizedItems),
     subtotal: Number(summary.subtotal || 0),
     costo_envio: Number(summary.envio || 0),
     descuento: Number(summary.descuentoAplicado || 0),
     total: Number(summary.total || 0),
     tipo_entrega: tipoEntrega,
     mesa,
+    hora_entrega: String(horaEntrega || '').trim(),
     metodo_pago: metodoPago,
     notas,
     origen,

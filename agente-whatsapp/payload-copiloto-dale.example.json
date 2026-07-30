@@ -1,0 +1,32 @@
+{
+  "comando": "#dale",
+  "telefono": "3810000000",
+  "nombre": "Nombre del cliente",
+  "mensajes": [
+    {
+      "direccion": "cliente",
+      "contenido": "Hola, quiero una Smash Simple para retirar. Pago efectivo."
+    },
+    {
+      "direccion": "local",
+      "contenido": "#dale"
+    }
+  ],
+  "pedido_json": {
+    "cliente_nombre": "Nombre del cliente",
+    "cliente_telefono": "3810000000",
+    "cliente_direccion": "",
+    "tipo_entrega": "retiro",
+    "metodo_pago": "efectivo",
+    "notas": "Pedido armado desde WhatsApp Copiloto.",
+    "items": [
+      {
+        "producto_id": 40,
+        "cantidad": 1,
+        "variantes": {},
+        "extras": [],
+        "descripcion": "Smash Simple"
+      }
+    ]
+  }
+}

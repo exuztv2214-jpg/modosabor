@@ -5,11 +5,13 @@ const db = require('../db');
 const JWT_SECRET = getJwtSecret();
 
 module.exports = (req, res, next) => {
-  const token = req.headers.authorization?.split(' ')[1];
+  const token = req.cookies?.auth_token || req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(401).json({ error: 'No autorizado' });
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
-    const current = db.prepare('SELECT id, nombre, email, rol, activo FROM usuarios WHERE id = ?').get(decoded.id);
+    const current = db
+      .prepare('SELECT id, nombre, email, rol, activo FROM usuarios WHERE id = ?')
+      .get(decoded.id);
     if (!current || Number(current.activo) !== 1) {
       return res.status(401).json({ error: 'No autorizado' });
     }

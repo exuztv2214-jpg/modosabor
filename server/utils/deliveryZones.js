@@ -11,6 +11,46 @@ function toNumber(value, fallback = 0) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+// Bounding box de Monteros, Tucumán
+// Coordenadas aproximadas que cubren toda la ciudad
+const MONTEROS_BOUNDS = {
+  minLat: -27.05,
+  maxLat: -26.9,
+  minLng: -65.35,
+  maxLng: -65.2,
+};
+
+function isInsideMonteros(latitud, longitud) {
+  const lat = Number(latitud);
+  const lng = Number(longitud);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+  return (
+    lat >= MONTEROS_BOUNDS.minLat &&
+    lat <= MONTEROS_BOUNDS.maxLat &&
+    lng >= MONTEROS_BOUNDS.minLng &&
+    lng <= MONTEROS_BOUNDS.maxLng
+  );
+}
+
+function validateRiderLocation(latitud, longitud) {
+  const inside = isInsideMonteros(latitud, longitud);
+  return {
+    valid: inside,
+    insideMonteros: inside,
+    message: inside
+      ? 'Ubicación dentro de Monteros'
+      : 'Ubicación fuera de Monteros. El delivery solo opera dentro de la ciudad.',
+  };
+}
+
+function getLocationDisplay(latitud, longitud) {
+  const validation = validateRiderLocation(latitud, longitud);
+  if (validation.insideMonteros) {
+    return { text: 'Monteros, Tucumán', valid: true };
+  }
+  return { text: 'Fuera de zona de cobertura', valid: false };
+}
+
 function defaultZones(config = {}) {
   const baseCost = toNumber(config.costo_envio_base, 0);
   const baseTime = toNumber(config.tiempo_delivery, 25);
@@ -19,6 +59,7 @@ function defaultZones(config = {}) {
       id: 'monteros',
       nombre: 'Monteros',
       keywords: ['monteros', 'centro', 'casco centrico', 'las piedras'],
+      catchAll: true,
       costo_envio: baseCost,
       tiempo_estimado_min: baseTime,
       activa: true,
@@ -34,7 +75,7 @@ function defaultZones(config = {}) {
     {
       id: 'extendida',
       nombre: 'Fuera de Monteros - extendida',
-      keywords: ['ruta', 'km', 'afuera', 'rio seco', 'famailla', 'concepcion'],
+      keywords: ['ruta', 'km', 'afuera', 'rio seco', 'famailla'],
       costo_envio: Math.max(baseCost, 2500),
       tiempo_estimado_min: baseTime + 30,
       activa: true,
@@ -46,9 +87,9 @@ function parseZoneKeywords(zone) {
   const source = Array.isArray(zone?.keywords)
     ? zone.keywords
     : String(zone?.keywords || '')
-      .split(',')
-      .map((entry) => entry.trim())
-      .filter(Boolean);
+        .split(',')
+        .map((entry) => entry.trim())
+        .filter(Boolean);
 
   return source.map((keyword) => normalizeText(keyword)).filter(Boolean);
 }
@@ -66,8 +107,12 @@ function parseZones(config = {}) {
         id: String(zone?.id || `zona_${index + 1}`),
         nombre: String(zone?.nombre || `Zona ${index + 1}`).trim(),
         keywords: parseZoneKeywords(zone),
+        catchAll: zone?.catchAll === true || zone?.catchAll === 1 || zone?.catchAll === '1',
         costo_envio: Math.max(0, toNumber(zone?.costo_envio, toNumber(config.costo_envio_base, 0))),
-        tiempo_estimado_min: Math.max(0, toNumber(zone?.tiempo_estimado_min, toNumber(config.tiempo_delivery, 30))),
+        tiempo_estimado_min: Math.max(
+          0,
+          toNumber(zone?.tiempo_estimado_min, toNumber(config.tiempo_delivery, 30))
+        ),
         activa: zone?.activa !== false && zone?.activa !== 0 && zone?.activa !== '0',
       }))
       .filter((zone) => zone.nombre);
@@ -80,7 +125,17 @@ function findMatchingZone(zones, address) {
   const normalizedAddress = normalizeText(address);
   if (!normalizedAddress) return null;
 
-  return zones.find((zone) => zone.activa && zone.keywords.some((keyword) => normalizedAddress.includes(keyword))) || null;
+  // Primero buscar por keywords
+  const byKeyword = zones.find(
+    (zone) =>
+      zone.activa &&
+      zone.keywords.length > 0 &&
+      zone.keywords.some((keyword) => normalizedAddress.includes(keyword))
+  );
+  if (byKeyword) return byKeyword;
+
+  // Si no hay match, usar la zona catchAll (ej: Monteros es la zona local por defecto)
+  return zones.find((zone) => zone.activa && zone.catchAll) || null;
 }
 
 function quoteDelivery(config = {}, address = '', options = {}) {
@@ -147,16 +202,19 @@ function quoteDelivery(config = {}, address = '', options = {}) {
 
 function serializeZones(zones = []) {
   return JSON.stringify(
-    zones.map((zone, index) => ({
-      id: String(zone?.id || `zona_${index + 1}`),
-      nombre: String(zone?.nombre || '').trim(),
-      keywords: Array.isArray(zone?.keywords)
-        ? zone.keywords.map((keyword) => String(keyword || '').trim()).filter(Boolean)
-        : parseZoneKeywords(zone),
-      costo_envio: Math.max(0, toNumber(zone?.costo_envio, 0)),
-      tiempo_estimado_min: Math.max(0, toNumber(zone?.tiempo_estimado_min, 0)),
-      activa: zone?.activa !== false && zone?.activa !== 0 && zone?.activa !== '0',
-    })).filter((zone) => zone.nombre)
+    zones
+      .map((zone, index) => ({
+        id: String(zone?.id || `zona_${index + 1}`),
+        nombre: String(zone?.nombre || '').trim(),
+        keywords: Array.isArray(zone?.keywords)
+          ? zone.keywords.map((keyword) => String(keyword || '').trim()).filter(Boolean)
+          : parseZoneKeywords(zone),
+        catchAll: zone?.catchAll === true || zone?.catchAll === 1 || zone?.catchAll === '1',
+        costo_envio: Math.max(0, toNumber(zone?.costo_envio, 0)),
+        tiempo_estimado_min: Math.max(0, toNumber(zone?.tiempo_estimado_min, 0)),
+        activa: zone?.activa !== false && zone?.activa !== 0 && zone?.activa !== '0',
+      }))
+      .filter((zone) => zone.nombre)
   );
 }
 
@@ -165,4 +223,8 @@ module.exports = {
   parseZones,
   quoteDelivery,
   serializeZones,
+  isInsideMonteros,
+  validateRiderLocation,
+  getLocationDisplay,
+  MONTEROS_BOUNDS,
 };

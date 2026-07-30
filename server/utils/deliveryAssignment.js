@@ -1,10 +1,27 @@
+const { getCurrentShiftInfo, matchesPreferredShift } = require('./shifts');
+
+function getConfigMap(db) {
+  return db
+    .prepare('SELECT clave, valor FROM configuracion')
+    .all()
+    .reduce((acc, row) => {
+      acc[row.clave] = row.valor;
+      return acc;
+    }, {});
+}
+
 function listActiveRepartidores(db) {
-  return db.prepare(`
+  return db
+    .prepare(
+      `
     SELECT
       r.*,
+      p.turno_preferido AS personal_turno_preferido,
+      p.activo AS personal_activo,
       COALESCE(active.active_orders, 0) AS active_orders,
       history.last_assigned_at
     FROM repartidores r
+    LEFT JOIN personal p ON p.id = r.personal_id
     LEFT JOIN (
       SELECT repartidor_id, COUNT(*) AS active_orders
       FROM pedidos
@@ -25,11 +42,39 @@ function listActiveRepartidores(db) {
       datetime(history.last_assigned_at) ASC,
       datetime(r.creado_en) ASC,
       r.id ASC
-  `).all();
+  `
+    )
+    .all();
+}
+
+function filterRepartidoresByCurrentShift(db, repartidores) {
+  const config = getConfigMap(db);
+  const shiftInfo = getCurrentShiftInfo(config);
+  const currentShiftId = String(shiftInfo.turno_actual?.id || '')
+    .trim()
+    .toLowerCase();
+  if (!currentShiftId) return repartidores;
+
+  const filtered = (repartidores || []).filter((repartidor) => {
+    if (Number(repartidor.personal_id || 0) > 0 && Number(repartidor.personal_activo || 1) === 0) {
+      return false;
+    }
+    return matchesPreferredShift(repartidor.personal_turno_preferido, currentShiftId);
+  });
+
+  return filtered.length ? filtered : repartidores;
+}
+
+function listAvailableRepartidores(db) {
+  return filterRepartidoresByCurrentShift(db, listActiveRepartidores(db)).filter(
+    (repartidor) => Number(repartidor.disponible) === 1
+  );
 }
 
 function normalizeZone(value) {
-  return String(value || '').trim().toLowerCase();
+  return String(value || '')
+    .trim()
+    .toLowerCase();
 }
 
 function getPedidoById(db, pedidoId) {
@@ -37,15 +82,19 @@ function getPedidoById(db, pedidoId) {
 }
 
 function getRepartidorById(db, repartidorId) {
-  return repartidorId ? db.prepare('SELECT * FROM repartidores WHERE id = ?').get(repartidorId) : null;
+  return repartidorId
+    ? db.prepare('SELECT * FROM repartidores WHERE id = ?').get(repartidorId)
+    : null;
 }
 
 function pickBestAvailableRepartidor(db, pedido = null) {
   const targetZone = normalizeZone(pedido?.delivery_zona);
-  const disponibles = listActiveRepartidores(db)
+  const disponibles = filterRepartidoresByCurrentShift(db, listActiveRepartidores(db))
     .map((repartidor) => {
       const preferredZone = normalizeZone(repartidor.zona_preferida);
-      const lastPingAt = repartidor.ultima_ubicacion_en ? new Date(repartidor.ultima_ubicacion_en).getTime() : 0;
+      const lastPingAt = repartidor.ultima_ubicacion_en
+        ? new Date(repartidor.ultima_ubicacion_en).getTime()
+        : 0;
       return {
         ...repartidor,
         _score: [
@@ -68,27 +117,32 @@ function pickBestAvailableRepartidor(db, pedido = null) {
 function assignPedidoToRepartidor(db, pedidoId, repartidorId, options = {}) {
   const pedido = getPedidoById(db, pedidoId);
   if (!pedido) throw new Error('Pedido no encontrado');
-  if (pedido.tipo_entrega !== 'delivery') throw new Error('Solo se puede asignar repartidor a pedidos delivery');
-  if (['entregado', 'cancelado'].includes(pedido.estado)) throw new Error('El pedido ya no admite asignacion');
+  if (pedido.tipo_entrega !== 'delivery')
+    throw new Error('Solo se puede asignar repartidor a pedidos delivery');
+  if (['entregado', 'cancelado'].includes(pedido.estado))
+    throw new Error('El pedido ya no admite asignacion');
 
   const repartidor = getRepartidorById(db, repartidorId);
   if (!repartidor || !repartidor.activo) throw new Error('Repartidor no encontrado');
 
   const previousRepartidorId = Number(pedido.repartidor_id || 0);
-  const previousRepartidor = previousRepartidorId && previousRepartidorId !== Number(repartidor.id)
-    ? getRepartidorById(db, previousRepartidorId)
-    : null;
+  const previousRepartidor =
+    previousRepartidorId && previousRepartidorId !== Number(repartidor.id)
+      ? getRepartidorById(db, previousRepartidorId)
+      : null;
   if (previousRepartidorId && previousRepartidorId !== Number(repartidor.id)) {
     db.prepare('UPDATE repartidores SET disponible = 1 WHERE id = ?').run(previousRepartidorId);
   }
 
   const nextState = options.markEnCamino ? 'en_camino' : pedido.estado;
 
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE pedidos
     SET repartidor_id = ?, repartidor_nombre = ?, estado = ?, actualizado_en = CURRENT_TIMESTAMP
     WHERE id = ?
-  `).run(repartidor.id, repartidor.nombre, nextState, pedido.id);
+  `
+  ).run(repartidor.id, repartidor.nombre, nextState, pedido.id);
 
   db.prepare('UPDATE repartidores SET disponible = 0 WHERE id = ?').run(repartidor.id);
 
@@ -102,19 +156,28 @@ function assignPedidoToRepartidor(db, pedidoId, repartidorId, options = {}) {
 
 function autoAssignPedido(db, pedidoId, options = {}) {
   const pedido = getPedidoById(db, pedidoId);
-  const activos = listActiveRepartidores(db);
-  if (options.onlyIfSingleAvailable && activos.length !== 1) {
+  const activos = filterRepartidoresByCurrentShift(db, listActiveRepartidores(db));
+  const disponibles = activos.filter((repartidor) => Number(repartidor.disponible) === 1);
+
+  if (options.onlyIfSingleAvailable && disponibles.length > 1) {
     return {
       ok: false,
-      reason: activos.length === 0 ? 'no_available_repartidor' : 'multiple_available_repartidores',
+      reason: 'multiple_available_repartidores',
       repartidor: null,
       pedido,
     };
   }
 
-  const repartidor = options.onlyIfSingleAvailable
-    ? (activos[0] || null)
-    : pickBestAvailableRepartidor(db, pedido);
+  let repartidor = null;
+  if (options.onlyIfSingleAvailable) {
+    if (disponibles.length === 1) {
+      repartidor = disponibles[0];
+    } else if (disponibles.length === 0 && activos.length === 1) {
+      repartidor = activos[0];
+    }
+  } else {
+    repartidor = pickBestAvailableRepartidor(db, pedido);
+  }
   if (!repartidor) {
     return {
       ok: false,
@@ -134,6 +197,7 @@ function autoAssignPedido(db, pedidoId, options = {}) {
 
 module.exports = {
   listActiveRepartidores,
+  listAvailableRepartidores,
   pickBestAvailableRepartidor,
   getPedidoById,
   getRepartidorById,

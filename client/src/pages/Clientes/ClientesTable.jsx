@@ -1,0 +1,86 @@
+import ClientesCampaignsSection from '../../components/Clientes/ClientesCampaignsSection.jsx';
+import ClientesGrid from '../../components/Clientes/ClientesGrid.jsx';
+
+export default function ClientesTable({
+  filtered,
+  segmentHighlights,
+  setFiltroEstado,
+  launchSegmentCampaign,
+  campaignDashboardStats,
+  campaignSegmentStats,
+  campaignTopCampaign,
+  formatPedidoDate,
+  fmtMoney,
+  campaignModal,
+  getSegmentMessage,
+  setCampaignMessage,
+  sendCampaign,
+  campaignSending,
+  setCampaignModal,
+  campaignVariables,
+  insertCampaignVariable,
+  campaignMessage,
+  copyToClipboard,
+  openCampaignPreview,
+  saveCampaignTemplate,
+  registerCampaignHistory,
+  getWhatsAppLink,
+  campaignMetrics,
+  campaignHistoryFilter,
+  setCampaignHistoryFilter,
+  CAMPAIGN_HISTORY_FILTERS,
+  filteredCampaignHistory,
+  reopenCampaignFromHistory,
+  abrirDetalle,
+  AvatarDisplay,
+  getEstadoBadge,
+  sellosParaPremio,
+  getCardQuickAction,
+  toast,
+}) {
+  return (
+    <>
+      <ClientesCampaignsSection
+        segmentHighlights={segmentHighlights}
+        setFiltroEstado={setFiltroEstado}
+        launchSegmentCampaign={launchSegmentCampaign}
+        campaignDashboardStats={campaignDashboardStats}
+        campaignSegmentStats={campaignSegmentStats}
+        campaignTopCampaign={campaignTopCampaign}
+        formatPedidoDate={formatPedidoDate}
+        fmtMoney={fmtMoney}
+        campaignModal={campaignModal}
+        getSegmentMessage={getSegmentMessage}
+        setCampaignMessage={setCampaignMessage}
+        sendCampaign={sendCampaign}
+        campaignSending={campaignSending}
+        setCampaignModal={setCampaignModal}
+        campaignVariables={campaignVariables}
+        insertCampaignVariable={insertCampaignVariable}
+        campaignMessage={campaignMessage}
+        copyToClipboard={copyToClipboard}
+        openCampaignPreview={openCampaignPreview}
+        saveCampaignTemplate={saveCampaignTemplate}
+        registerCampaignHistory={registerCampaignHistory}
+        getWhatsAppLink={getWhatsAppLink}
+        campaignMetrics={campaignMetrics}
+        campaignHistoryFilter={campaignHistoryFilter}
+        setCampaignHistoryFilter={setCampaignHistoryFilter}
+        campaignHistoryFilters={CAMPAIGN_HISTORY_FILTERS}
+        filteredCampaignHistory={filteredCampaignHistory}
+        reopenCampaignFromHistory={reopenCampaignFromHistory}
+      />
+
+      <ClientesGrid
+        filtered={filtered}
+        abrirDetalle={abrirDetalle}
+        AvatarDisplay={AvatarDisplay}
+        getEstadoBadge={getEstadoBadge}
+        fmtMoney={fmtMoney}
+        sellosParaPremio={sellosParaPremio}
+        getCardQuickAction={getCardQuickAction}
+        toast={toast}
+      />
+    </>
+  );
+}

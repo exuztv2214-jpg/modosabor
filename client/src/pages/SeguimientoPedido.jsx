@@ -1,9 +1,13 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
-import { addMinutes, differenceInMinutes, format, formatDistanceToNowStrict, parseISO } from 'date-fns';
+import {
+  addMinutes,
+  differenceInMinutes,
+  format,
+  formatDistanceToNowStrict,
+  parseISO,
+} from 'date-fns';
 import { es } from 'date-fns/locale';
-import api from '../lib/api.js';
-import { socketManager } from '../lib/socket.js';
 import {
   Bike,
   CheckCircle2,
@@ -16,15 +20,25 @@ import {
   PackageCheck,
   Phone,
   RefreshCw,
+  Share2,
   Store,
   XCircle,
 } from 'lucide-react';
+
+import api from '../lib/api.js';
+import { socketManager } from '../lib/socket.js';
 import { paymentStatusLabel } from '../lib/paymentStatus.js';
 import { normalizePedidoItems } from '../lib/pedidoItems.js';
+import LiveTrackingMap from '../components/LiveTrackingMap.jsx';
 
 const ESTADOS = [
   { key: 'nuevo', label: 'Recibido', hint: 'Lo acabamos de tomar', icon: CircleDashed },
-  { key: 'confirmado', label: 'Confirmado', hint: 'Tu pedido ya entro en cola', icon: CheckCircle2 },
+  {
+    key: 'confirmado',
+    label: 'Confirmado',
+    hint: 'Tu pedido ya entro en cola',
+    icon: CheckCircle2,
+  },
   { key: 'preparando', label: 'Preparando', hint: 'Lo estamos cocinando ahora', icon: CookingPot },
   { key: 'listo', label: 'Listo', hint: 'Ya esta preparado', icon: PackageCheck },
   { key: 'en_camino', label: 'En camino', hint: 'Va rumbo a tu direccion', icon: Bike },
@@ -59,7 +73,8 @@ function estimateLabel(pedido) {
 }
 
 function baseMinutes(pedido, config) {
-  if (pedido?.tipo_entrega === 'delivery') return Number(pedido.tiempo_estimado_min || config.tiempo_delivery || 30);
+  if (pedido?.tipo_entrega === 'delivery')
+    return Number(pedido.tiempo_estimado_min || config.tiempo_delivery || 30);
   if (pedido?.tipo_entrega === 'retiro') return Number(config.tiempo_retiro || 20);
   return Number(config.tiempo_delivery || 30);
 }
@@ -84,21 +99,42 @@ function estimateMinutesRemaining(pedido, config) {
   return Math.max(base - elapsed, 5);
 }
 
-function riderMapUrl(repartidor) {
-  if (!repartidor?.latitud || !repartidor?.longitud) return '';
-  const lat = Number(repartidor.latitud);
-  const lng = Number(repartidor.longitud);
-  const delta = 0.008;
-  const bbox = `${lng - delta},${lat - delta},${lng + delta},${lat + delta}`;
-  return `https://www.openstreetmap.org/export/embed.html?bbox=${encodeURIComponent(bbox)}&layer=mapnik&marker=${lat},${lng}`;
+function riderLocationAgeMinutes(repartidor) {
+  if (!repartidor?.ultima_ubicacion_en) return null;
+  const diff = differenceInMinutes(new Date(), parseISO(repartidor.ultima_ubicacion_en));
+  return Number.isFinite(diff) ? Math.max(0, diff) : null;
 }
 
-function riderRouteUrl(pedido) {
-  if (!pedido?.repartidor?.latitud || !pedido?.repartidor?.longitud) return '';
-  const destination = pedido?.cliente_latitud && pedido?.cliente_longitud
-    ? `${pedido.cliente_latitud},${pedido.cliente_longitud}`
-    : encodeURIComponent(pedido?.cliente_direccion || '');
-  return `https://www.google.com/maps/dir/${pedido.repartidor.latitud},${pedido.repartidor.longitud}/${destination}`;
+function isRiderLocationStale(repartidor) {
+  const age = riderLocationAgeMinutes(repartidor);
+  if (age === null) return true;
+  return age > 10;
+}
+
+// ── Web Notifications helpers ──
+function requestNotificationPermission() {
+  if (!('Notification' in window)) return Promise.resolve('unsupported');
+  if (Notification.permission === 'granted') return Promise.resolve('granted');
+  if (Notification.permission === 'denied') return Promise.resolve('denied');
+  return Notification.requestPermission();
+}
+
+function sendBrowserNotification(title, body, options = {}) {
+  if (!('Notification' in window)) return false;
+  if (Notification.permission !== 'granted') return false;
+  try {
+    new Notification(title, {
+      body,
+      icon: '/favicon.svg',
+      badge: '/favicon.svg',
+      tag: options.tag || 'modosabor',
+      requireInteraction: options.requireInteraction || false,
+      ...options,
+    });
+    return true;
+  } catch (e) {
+    return false;
+  }
 }
 
 export default function SeguimientoPedido() {
@@ -110,23 +146,29 @@ export default function SeguimientoPedido() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
+  // Refs para evitar notificaciones duplicadas
+  const notifiedRef = useRef({
+    cerca: false, // < 500m
+    llegando: false, // < 150m
+    entregado: false,
+  });
+
   useEffect(() => {
     let mounted = true;
 
     const load = async () => {
       try {
         if (mounted) setLoading(true);
-        
-        // Cargar pedido con token si está disponible
-        const pedidoUrl = token 
+
+        const pedidoUrl = token
           ? `/pedidos/${id}?token=${encodeURIComponent(token)}`
           : `/pedidos/${id}`;
-          
+
         const [pedidoData, configData] = await Promise.all([
           api.get(pedidoUrl),
           api.get('/configuracion'),
         ]);
-        
+
         if (!mounted) return;
         setPedido(pedidoData);
         setConfig(configData);
@@ -142,31 +184,48 @@ export default function SeguimientoPedido() {
     load();
     const interval = setInterval(load, 15000);
 
-    // Conectar socket y unirse a room de tracking si tenemos token
     let cleanupSocket = null;
-    
+
     if (token) {
       socketManager.connect();
-      socketManager.joinTracking(id, token).catch(() => {
-        // Silenciar errores de tracking, el polling sigue funcionando
-      });
-      
+      socketManager.joinTracking(id, token).catch(() => {});
+
       cleanupSocket = socketManager.on('pedido_actualizado', (updated) => {
         if (String(updated.id) === String(id)) {
           setPedido(updated);
         }
       });
-      
+
       socketManager.on('repartidor_ubicacion', (repartidor) => {
         setPedido((prev) => {
           if (!prev?.repartidor_id || String(prev.repartidor_id) !== String(repartidor.id)) {
             return prev;
           }
-          return {
-            ...prev,
-            repartidor,
-          };
+          return { ...prev, repartidor };
         });
+      });
+
+      // ── Eventos de proximidad desde el backend ──
+      socketManager.on('repartidor_cerca', (data) => {
+        if (!notifiedRef.current.cerca) {
+          notifiedRef.current.cerca = true;
+          sendBrowserNotification(
+            'Tu delivery está cerca',
+            `El repartidor está a ${Math.round(data.distancia || 0)} metros de tu dirección.`,
+            { tag: 'repartidor_cerca', requireInteraction: false }
+          );
+        }
+      });
+
+      socketManager.on('repartidor_llegando', (data) => {
+        if (!notifiedRef.current.llegando) {
+          notifiedRef.current.llegando = true;
+          sendBrowserNotification(
+            '¡Tu delivery está llegando!',
+            `El repartidor está a ${Math.round(data.distancia || 0)} metros. Preparate para recibirlo.`,
+            { tag: 'repartidor_llegando', requireInteraction: true }
+          );
+        }
       });
     }
 
@@ -177,6 +236,34 @@ export default function SeguimientoPedido() {
       socketManager.disconnect();
     };
   }, [id, token]);
+
+  // ── Solicitar permiso de notificación cuando pasa a "en_camino" ──
+  useEffect(() => {
+    if (pedido?.estado === 'en_camino' && token) {
+      requestNotificationPermission().then((permission) => {
+        if (permission === 'granted') {
+          // Opcional: notificación de confirmación de que el tracking está activo
+          sendBrowserNotification(
+            'Seguimiento activado',
+            'Te avisaremos cuando tu delivery esté cerca.',
+            { tag: 'tracking_activo', requireInteraction: false }
+          );
+        }
+      });
+    }
+  }, [pedido?.estado, token]);
+
+  // ── Notificación de pedido entregado ──
+  useEffect(() => {
+    if (pedido?.estado === 'entregado' && token && !notifiedRef.current.entregado) {
+      notifiedRef.current.entregado = true;
+      sendBrowserNotification(
+        'Pedido entregado',
+        '¡Gracias por elegirnos! Tu pedido fue entregado con éxito.',
+        { tag: 'pedido_entregado', requireInteraction: false }
+      );
+    }
+  }, [pedido?.estado, token]);
 
   const currentStep = useMemo(() => {
     if (!pedido) return -1;
@@ -207,18 +294,61 @@ export default function SeguimientoPedido() {
     return Math.round((currentStep / (ESTADOS.length - 1)) * 100);
   }, [pedido, currentStep]);
 
-  const items = useMemo(() => {
-    return normalizePedidoItems(pedido?.items);
-  }, [pedido]);
+  const items = useMemo(() => normalizePedidoItems(pedido?.items), [pedido]);
+
+  const riderGpsStale = useMemo(
+    () => isRiderLocationStale(pedido?.repartidor),
+    [pedido?.repartidor]
+  );
+  const riderGpsAgeMinutes = useMemo(
+    () => riderLocationAgeMinutes(pedido?.repartidor),
+    [pedido?.repartidor]
+  );
+
+  const trackingUrl = useMemo(() => {
+    if (!pedido) return '';
+    const base = window.location.origin;
+    return token
+      ? `${base}/seguimiento/${pedido.id}?token=${encodeURIComponent(token)}`
+      : `${base}/seguimiento/${pedido.id}`;
+  }, [pedido, token]);
+
+  const handleShare = async () => {
+    const text = `Segui tu pedido #${pedido?.numero} de Modo Sabor en tiempo real: ${trackingUrl}`;
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: `Pedido #${pedido?.numero} - Modo Sabor`,
+          text,
+          url: trackingUrl,
+        });
+        return;
+      } catch (err) {
+        // Fallback si el usuario cancela o falla
+      }
+    }
+    // Fallback: copiar al portapapeles
+    try {
+      await navigator.clipboard.writeText(text);
+      alert('Link de tracking copiado al portapapeles');
+    } catch (e) {
+      // Fallback final: seleccionar texto
+      window.prompt('Copia este link:', text);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gray-50 px-4 py-8">
       <div className="mx-auto max-w-5xl">
         <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="text-xs font-bold uppercase tracking-[0.22em] text-indigo-600">Seguimiento en vivo</p>
+            <p className="text-xs font-bold uppercase tracking-[0.22em] text-indigo-600">
+              Seguimiento en vivo
+            </p>
             <h1 className="mt-2 text-3xl font-bold text-gray-900">Tu pedido</h1>
-            <p className="mt-2 text-sm text-gray-500">Revisa el estado del pedido y el avance de la entrega.</p>
+            <p className="mt-2 text-sm text-gray-500">
+              Revisa el estado del pedido y el avance de la entrega.
+            </p>
           </div>
           <div className="flex gap-2">
             <button
@@ -228,9 +358,18 @@ export default function SeguimientoPedido() {
               <RefreshCw size={15} />
               Actualizar
             </button>
+            {pedido && (
+              <button
+                onClick={handleShare}
+                className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-100"
+              >
+                <Share2 size={15} />
+                Compartir
+              </button>
+            )}
             <Link
               to="/"
-              className="inline-flex items-center gap-2 rounded-xl bg-gray-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-gray-800"
+              className="inline-flex items-center gap-2 rounded-xl bg-primary-500 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-600"
             >
               Volver al menu
             </Link>
@@ -243,7 +382,7 @@ export default function SeguimientoPedido() {
           </div>
         ) : error ? (
           <div className={`${cardClass} p-10 text-center`}>
-            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-rose-50 text-rose-600">
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-danger-50 text-danger-600">
               <XCircle size={28} />
             </div>
             <h2 className="mt-4 text-xl font-bold text-gray-900">No pudimos abrir el pedido</h2>
@@ -255,17 +394,23 @@ export default function SeguimientoPedido() {
               <div className="border-b border-gray-200 bg-gradient-to-r from-orange-50 to-white px-6 py-6">
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                   <div>
-                    <p className="text-xs font-bold uppercase tracking-[0.18em] text-orange-600">Pedido #{pedido.numero}</p>
-                    <h2 className="mt-2 text-2xl font-bold text-gray-900">{tipoEntregaLabel(pedido.tipo_entrega)}</h2>
+                    <p className="text-xs font-bold uppercase tracking-[0.18em] text-orange-600">
+                      Pedido #{pedido.numero}
+                    </p>
+                    <h2 className="mt-2 text-2xl font-bold text-gray-900">
+                      {tipoEntregaLabel(pedido.tipo_entrega)}
+                    </h2>
                     <p className="mt-2 text-sm text-gray-500">{estimateLabel(pedido)}</p>
                   </div>
-                  <div className={`rounded-full px-4 py-2 text-sm font-bold ${
-                    pedido.estado === 'cancelado'
-                      ? 'bg-rose-100 text-rose-700'
-                      : pedido.estado === 'entregado'
-                        ? 'bg-emerald-100 text-emerald-700'
-                        : 'bg-orange-100 text-orange-700'
-                  }`}>
+                  <div
+                    className={`rounded-full px-4 py-2 text-sm font-bold ${
+                      pedido.estado === 'cancelado'
+                        ? 'bg-danger-100 text-danger-700'
+                        : pedido.estado === 'entregado'
+                          ? 'bg-success-100 text-success-700'
+                          : 'bg-orange-100 text-orange-700'
+                    }`}
+                  >
                     {pedido.estado.replace('_', ' ')}
                   </div>
                 </div>
@@ -279,16 +424,25 @@ export default function SeguimientoPedido() {
                   </div>
                   <p className="mt-2 text-2xl font-bold text-gray-900">{tiempoEstimado}</p>
                   {pedido.tipo_entrega === 'delivery' && pedido.delivery_zona ? (
-                    <p className="mt-2 text-sm text-gray-500">Zona detectada: {pedido.delivery_zona}</p>
+                    <p className="mt-2 text-sm text-gray-500">
+                      Zona detectada: {pedido.delivery_zona}
+                    </p>
                   ) : null}
                   {pedido.tipo_entrega === 'delivery' && pedido.distancia_repartidor_km ? (
-                    <p className="mt-1 text-sm text-gray-500">Repartidor a {pedido.distancia_repartidor_km} km aprox</p>
+                    <p className="mt-1 text-sm text-gray-500">
+                      Repartidor a {pedido.distancia_repartidor_km} km aprox
+                    </p>
                   ) : null}
                   {pedido.tipo_entrega === 'delivery' && pedido.ubicacion_repartidor_atrasada ? (
-                    <p className="mt-1 text-xs font-semibold text-amber-700">La ultima ubicacion del repartidor ya tiene varios minutos; el ETA puede variar.</p>
+                    <p className="mt-1 text-xs font-semibold text-warning-700">
+                      La ultima ubicacion del repartidor ya tiene varios minutos; el ETA puede
+                      variar.
+                    </p>
                   ) : null}
                   {llegadaEstimada ? (
-                    <p className="mt-2 text-sm text-gray-500">Llegada aproximada a las {llegadaEstimada}</p>
+                    <p className="mt-2 text-sm text-gray-500">
+                      Llegada aproximada a las {llegadaEstimada}
+                    </p>
                   ) : null}
                   <div className="mt-4">
                     <div className="flex items-center justify-between text-xs font-bold uppercase tracking-[0.16em] text-gray-400">
@@ -304,46 +458,47 @@ export default function SeguimientoPedido() {
                   </div>
                 </div>
 
+                {/* Mapa de tracking en tiempo real */}
                 {pedido.repartidor?.latitud && pedido.repartidor?.longitud ? (
-                  <div className="mb-6 overflow-hidden rounded-2xl border border-blue-100 bg-white shadow-sm">
-                    <div className="flex items-center justify-between border-b border-blue-100 bg-blue-50 px-5 py-4">
+                  <div className="mb-6 overflow-hidden rounded-2xl border border-primary-100 bg-white shadow-sm">
+                    <div className="flex items-center justify-between border-b border-primary-100 bg-primary-50 px-5 py-4">
                       <div>
-                        <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-blue-600">Tracking live</p>
-                        <h3 className="mt-1 text-lg font-bold text-gray-900">Tu delivery en vivo</h3>
+                        <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-primary-600">
+                          Tracking live
+                        </p>
+                        <h3 className="mt-1 text-lg font-bold text-gray-900">
+                          Tu delivery en vivo
+                        </h3>
                       </div>
                       <div className="rounded-full bg-white px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-blue-700">
-                        {pedido.ubicacion_repartidor_atrasada ? 'Señal atrasada' : 'En movimiento'}
+                        {riderGpsStale ? 'Última señal' : 'En movimiento'}
                       </div>
                     </div>
-                    <iframe
-                      title="Seguimiento en vivo"
-                      src={riderMapUrl(pedido.repartidor)}
-                      className="h-72 w-full border-0"
-                      loading="lazy"
-                      referrerPolicy="no-referrer-when-downgrade"
-                    />
-                    <div className="flex flex-wrap gap-3 px-5 py-4">
-                      <a
-                        href={`https://www.google.com/maps?q=${pedido.repartidor.latitud},${pedido.repartidor.longitud}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-2 rounded-xl bg-gray-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-gray-800"
-                      >
-                        <MapPin size={15} />
-                        Ver rider
-                      </a>
-                      {riderRouteUrl(pedido) ? (
-                        <a
-                          href={riderRouteUrl(pedido)}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-blue-700 transition hover:bg-gray-50"
-                        >
-                          <ExternalLink size={15} />
-                          Ver ruta
-                        </a>
-                      ) : null}
+                    <div style={{ height: '360px', width: '100%' }}>
+                      <LiveTrackingMap
+                        riderLat={pedido.repartidor.latitud}
+                        riderLng={pedido.repartidor.longitud}
+                        clientLat={pedido.cliente_latitud}
+                        clientLng={pedido.cliente_longitud}
+                        clientAddress={pedido.cliente_direccion}
+                        riderName={pedido.repartidor.nombre}
+                        riderPhone={pedido.repartidor.telefono}
+                        etaMinutes={
+                          pedido.estado === 'en_camino'
+                            ? estimateMinutesRemaining(pedido, config)
+                            : null
+                        }
+                        isStale={riderGpsStale}
+                        mapConfig={config}
+                      />
                     </div>
+                    {riderGpsAgeMinutes !== null ? (
+                      <div className="border-t border-primary-100 bg-white px-5 py-3 text-xs font-semibold text-gray-500">
+                        {riderGpsStale
+                          ? `La última ubicación del rider se actualizó hace ${riderGpsAgeMinutes} min.`
+                          : 'Ubicación del rider actualizada recientemente.'}
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
 
@@ -356,27 +511,41 @@ export default function SeguimientoPedido() {
                     return (
                       <div key={estado.key} className="flex gap-4">
                         <div className="flex flex-col items-center">
-                          <div className={`flex h-11 w-11 items-center justify-center rounded-full border-2 ${
-                            active ? 'border-orange-500 bg-orange-50 text-orange-600' : 'border-gray-300 bg-white text-gray-400'
-                          }`}>
+                          <div
+                            className={`flex h-11 w-11 items-center justify-center rounded-full border-2 ${
+                              active
+                                ? 'border-orange-500 bg-orange-50 text-orange-600'
+                                : 'border-gray-300 bg-white text-gray-400'
+                            }`}
+                          >
                             <Icon size={18} />
                           </div>
                           {index < ESTADOS.length - 1 ? (
-                            <div className={`mt-2 h-10 w-0.5 ${active && currentStep > index ? 'bg-orange-400' : 'bg-slate-200'}`} />
+                            <div
+                              className={`mt-2 h-10 w-0.5 ${active && currentStep > index ? 'bg-orange-400' : 'bg-slate-200'}`}
+                            />
                           ) : null}
                         </div>
-                        <div className={`flex-1 rounded-xl border px-4 py-3 ${
-                          current ? 'border-orange-200 bg-orange-50/70' : 'border-gray-200 bg-white'
-                        }`}>
+                        <div
+                          className={`flex-1 rounded-xl border px-4 py-3 ${
+                            current
+                              ? 'border-orange-200 bg-orange-50/70'
+                              : 'border-gray-200 bg-white'
+                          }`}
+                        >
                           <div className="flex items-center justify-between gap-3">
                             <div>
                               <p className="font-bold text-gray-900">{estado.label}</p>
                               <p className="mt-1 text-sm text-gray-500">{estado.hint}</p>
                             </div>
                             {current ? (
-                              <span className="rounded-full bg-slate-950 px-3 py-1 text-xs font-bold text-white">Actual</span>
+                              <span className="rounded-full bg-primary-500 px-3 py-1 text-xs font-bold text-white shadow-sm">
+                                Actual
+                              </span>
                             ) : active ? (
-                              <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-700">Hecho</span>
+                              <span className="rounded-full bg-success-100 px-3 py-1 text-xs font-bold text-success-700">
+                                Hecho
+                              </span>
                             ) : (
                               <ChevronRight size={18} className="text-slate-300" />
                             )}
@@ -388,7 +557,7 @@ export default function SeguimientoPedido() {
                 </div>
 
                 {pedido.estado === 'cancelado' ? (
-                  <div className="mt-6 rounded-xl border border-rose-200 bg-rose-50 px-4 py-4 text-sm text-rose-700">
+                  <div className="mt-6 rounded-xl border border-rose-200 bg-danger-50 px-4 py-4 text-sm text-danger-700">
                     El pedido fue cancelado. Si necesitas ayuda, escribinos y lo revisamos juntos.
                   </div>
                 ) : null}
@@ -405,16 +574,28 @@ export default function SeguimientoPedido() {
                   </div>
                   <div className="flex items-center justify-between rounded-xl bg-gray-50 px-4 py-3">
                     <span className="text-sm text-gray-500">Pago</span>
-                    <span className="font-semibold capitalize text-gray-800">{pedido.metodo_pago === 'mercadopago' ? 'MercadoPago' : pedido.metodo_pago}</span>
+                    <span className="font-semibold capitalize text-gray-800">
+                      {pedido.metodo_pago === 'mercadopago' ? 'MercadoPago' : pedido.metodo_pago}
+                    </span>
                   </div>
                   <div className="flex items-center justify-between rounded-xl bg-gray-50 px-4 py-3">
                     <span className="text-sm text-gray-500">Cobro</span>
-                    <span className="font-semibold text-gray-800">{paymentStatusLabel(pedido.pago_estado)}</span>
+                    <span className="font-semibold text-gray-800">
+                      {paymentStatusLabel(pedido.pago_estado)}
+                    </span>
                   </div>
                   <div className="flex items-center justify-between rounded-xl bg-gray-50 px-4 py-3">
                     <span className="text-sm text-gray-500">Entrega</span>
-                    <span className="font-semibold text-gray-800">{tipoEntregaLabel(pedido.tipo_entrega)}</span>
+                    <span className="font-semibold text-gray-800">
+                      {tipoEntregaLabel(pedido.tipo_entrega)}
+                    </span>
                   </div>
+                  {pedido.hora_entrega ? (
+                    <div className="flex items-center justify-between rounded-xl bg-violet-50 px-4 py-3">
+                      <span className="text-sm text-violet-700">Hora estimada</span>
+                      <span className="font-semibold text-violet-900">{pedido.hora_entrega}</span>
+                    </div>
+                  ) : null}
                   {pedido.turno_operativo ? (
                     <div className="flex items-center justify-between rounded-xl bg-gray-50 px-4 py-3">
                       <span className="text-sm text-gray-500">Turno</span>
@@ -422,16 +603,26 @@ export default function SeguimientoPedido() {
                     </div>
                   ) : null}
                   {pedido.tipo_entrega === 'delivery' && pedido.entrega_pin ? (
-                    <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
-                      <p className="text-xs font-bold uppercase tracking-[0.16em] text-amber-700">Codigo de entrega</p>
-                      <p className="mt-1 text-2xl font-bold tracking-[0.2em] text-gray-900">{pedido.entrega_pin}</p>
-                      <p className="mt-1 text-xs text-amber-800">Compartilo solo al recibir el pedido para validar la entrega.</p>
+                    <div className="rounded-xl border border-amber-200 bg-warning-50 px-4 py-3">
+                      <p className="text-xs font-bold uppercase tracking-[0.16em] text-warning-700">
+                        Codigo de entrega
+                      </p>
+                      <p className="mt-1 text-2xl font-bold tracking-[0.2em] text-gray-900">
+                        {pedido.entrega_pin}
+                      </p>
+                      <p className="mt-1 text-xs text-amber-800">
+                        Compartilo solo al recibir el pedido para validar la entrega.
+                      </p>
                     </div>
                   ) : null}
                   {pedido.estado === 'entregado' && pedido.entrega_foto ? (
-                    <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
-                      <p className="text-xs font-bold uppercase tracking-[0.16em] text-emerald-700">Entrega validada</p>
-                      <p className="mt-1 text-sm text-emerald-900">La entrega quedo registrada con comprobante de rider.</p>
+                    <div className="rounded-xl border border-emerald-200 bg-success-50 px-4 py-3">
+                      <p className="text-xs font-bold uppercase tracking-[0.16em] text-success-700">
+                        Entrega validada
+                      </p>
+                      <p className="mt-1 text-sm text-emerald-900">
+                        La entrega quedo registrada con comprobante de rider.
+                      </p>
                     </div>
                   ) : null}
                 </div>
@@ -441,13 +632,22 @@ export default function SeguimientoPedido() {
                 <h3 className="text-lg font-bold text-gray-900">Detalle</h3>
                 <div className="mt-4 space-y-3">
                   {items.map((item, index) => (
-                    <div key={`${item.nombre}-${index}`} className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
+                    <div
+                      key={`${item.nombre}-${index}`}
+                      className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3"
+                    >
                       <div className="flex items-start justify-between gap-3">
                         <div>
-                          <p className="font-bold text-gray-900">{item.cantidad}x {item.nombre}</p>
-                          {item.descripcion ? <p className="mt-1 text-sm text-gray-500">{item.descripcion}</p> : null}
+                          <p className="font-bold text-gray-900">
+                            {item.cantidad}x {item.nombre}
+                          </p>
+                          {item.descripcion ? (
+                            <p className="mt-1 text-sm text-gray-500">{item.descripcion}</p>
+                          ) : null}
                         </div>
-                        <span className="font-bold text-gray-900">{money(Number(item.precio_unitario || 0) * Number(item.cantidad || 0))}</span>
+                        <span className="font-bold text-gray-900">
+                          {money(Number(item.precio_unitario || 0) * Number(item.cantidad || 0))}
+                        </span>
                       </div>
                     </div>
                   ))}
@@ -457,8 +657,16 @@ export default function SeguimientoPedido() {
               <section className={`${cardClass} p-6`}>
                 <h3 className="text-lg font-bold text-gray-900">Contacto</h3>
                 <div className="mt-4 space-y-3 text-sm text-gray-600">
-                  {pedido.cliente_nombre ? <p><strong>Cliente:</strong> {pedido.cliente_nombre}</p> : null}
-                  {pedido.cliente_telefono ? <p><strong>Telefono:</strong> {pedido.cliente_telefono}</p> : null}
+                  {pedido.cliente_nombre ? (
+                    <p>
+                      <strong>Cliente:</strong> {pedido.cliente_nombre}
+                    </p>
+                  ) : null}
+                  {pedido.cliente_telefono ? (
+                    <p>
+                      <strong>Telefono:</strong> {pedido.cliente_telefono}
+                    </p>
+                  ) : null}
                   {pedido.cliente_direccion ? (
                     <div className="flex items-start gap-2">
                       <MapPin size={15} className="mt-0.5 text-orange-500" />
@@ -468,59 +676,46 @@ export default function SeguimientoPedido() {
                   {config.negocio_telefono ? (
                     <div className="flex items-start gap-2">
                       <Store size={15} className="mt-0.5 text-orange-500" />
-                      <span>{config.negocio_nombre || 'Modo Sabor'} - {config.negocio_telefono}</span>
+                      <span>
+                        {config.negocio_nombre || 'Modo Sabor'} - {config.negocio_telefono}
+                      </span>
                     </div>
                   ) : null}
                 </div>
                 {pedido.repartidor ? (
-                  <div className="mt-5 rounded-xl border border-blue-100 bg-blue-50 px-4 py-4">
-                    <p className="text-xs font-bold uppercase tracking-[0.18em] text-blue-700">Delivery</p>
+                  <div className="mt-5 rounded-xl border border-primary-100 bg-primary-50 px-4 py-4">
+                    <p className="text-xs font-bold uppercase tracking-[0.18em] text-blue-700">
+                      Delivery
+                    </p>
                     <p className="mt-2 font-bold text-gray-900">{pedido.repartidor.nombre}</p>
-                    {pedido.repartidor.telefono ? <p className="mt-1 text-sm text-gray-600">Tel: {pedido.repartidor.telefono}</p> : null}
-                    {pedido.repartidor.vehiculo ? <p className="mt-1 text-sm text-gray-600">Vehiculo: {pedido.repartidor.vehiculo}</p> : null}
-                    {pedido.entrega_pin ? <p className="mt-2 text-sm font-semibold text-blue-900">PIN de validacion: {pedido.entrega_pin}</p> : null}
+                    {pedido.repartidor.telefono ? (
+                      <p className="mt-1 text-sm text-gray-600">
+                        Tel: {pedido.repartidor.telefono}
+                      </p>
+                    ) : null}
+                    {pedido.repartidor.vehiculo ? (
+                      <p className="mt-1 text-sm text-gray-600">
+                        Vehiculo: {pedido.repartidor.vehiculo}
+                      </p>
+                    ) : null}
+                    {pedido.entrega_pin ? (
+                      <p className="mt-2 text-sm font-semibold text-blue-900">
+                        PIN de validacion: {pedido.entrega_pin}
+                      </p>
+                    ) : null}
                     {pedido.repartidor.ultima_ubicacion_en ? (
                       <p className="mt-2 text-xs text-gray-500">
-                        Ultima ubicacion: {formatDistanceToNowStrict(parseISO(pedido.repartidor.ultima_ubicacion_en), { addSuffix: true, locale: es })}
+                        Ultima ubicacion:{' '}
+                        {formatDistanceToNowStrict(
+                          parseISO(pedido.repartidor.ultima_ubicacion_en),
+                          { addSuffix: true, locale: es }
+                        )}
                       </p>
                     ) : null}
                     {pedido.distancia_repartidor_km ? (
-                      <p className="mt-1 text-xs text-gray-500">Distancia estimada: {pedido.distancia_repartidor_km} km</p>
-                    ) : null}
-                    {pedido.repartidor.latitud && pedido.repartidor.longitud ? (
-                      <div className="mt-4 overflow-hidden rounded-xl border border-blue-100 bg-white">
-                        <iframe
-                          title="Mapa del delivery"
-                          src={riderMapUrl(pedido.repartidor)}
-                          className="h-48 w-full border-0"
-                          loading="lazy"
-                          referrerPolicy="no-referrer-when-downgrade"
-                        />
-                        <div className="flex flex-wrap gap-2 px-3 py-3">
-                          <a
-                            href={`https://www.google.com/maps?q=${pedido.repartidor.latitud},${pedido.repartidor.longitud}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-2 rounded-xl bg-gray-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-gray-800"
-                          >
-                            <MapPin size={15} />
-                            Ver delivery
-                          </a>
-                          {pedido.cliente_direccion ? (
-                            <a
-                              href={pedido.cliente_latitud && pedido.cliente_longitud
-                                ? `https://www.google.com/maps?q=${pedido.cliente_latitud},${pedido.cliente_longitud}`
-                                : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(pedido.cliente_direccion)}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-blue-700 transition hover:bg-gray-50"
-                            >
-                              <ExternalLink size={15} />
-                              Abrir destino
-                            </a>
-                          ) : null}
-                        </div>
-                      </div>
+                      <p className="mt-1 text-xs text-gray-500">
+                        Distancia estimada: {pedido.distancia_repartidor_km} km
+                      </p>
                     ) : null}
                   </div>
                 ) : null}

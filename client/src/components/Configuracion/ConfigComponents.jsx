@@ -38,12 +38,12 @@ export function ToggleSwitch({ checked, onChange, label, description, color = 'o
 export function SectionCard({ icon: Icon, tone = 'orange', title, subtitle, children }) {
   const tones = {
     indigo: 'bg-indigo-100 text-indigo-600',
-    emerald: 'bg-emerald-100 text-emerald-600',
+    emerald: 'bg-success-100 text-success-600',
     orange: 'bg-orange-100 text-orange-600',
     green: 'bg-green-100 text-green-600',
-    blue: 'bg-blue-100 text-blue-600',
-    amber: 'bg-amber-100 text-amber-600',
-    rose: 'bg-rose-100 text-rose-600',
+    blue: 'bg-primary-100 text-primary-600',
+    amber: 'bg-warning-100 text-warning-600',
+    rose: 'bg-danger-100 text-danger-600',
     violet: 'bg-violet-100 text-violet-600',
   };
 

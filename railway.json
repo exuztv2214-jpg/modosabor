@@ -3,13 +3,7 @@
   "build": {
     "builder": "DOCKERFILE",
     "dockerfilePath": "Dockerfile",
-    "watchPatterns": [
-      "/Dockerfile",
-      "/railway.json",
-      "/server/**",
-      "/client/**",
-      "/package.json"
-    ]
+    "watchPatterns": ["/Dockerfile", "/railway.json", "/server/**", "/client/**", "/package.json"]
   },
   "deploy": {
     "restartPolicyType": "ON_FAILURE",

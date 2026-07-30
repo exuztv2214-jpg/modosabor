@@ -2,10 +2,43 @@ function roundAmount(value) {
   return Math.round(Number(value || 0) * 100) / 100;
 }
 
+const MONEY_PATTERNS = ['precio', 'costo', 'total', 'subtotal', 'descuento', 'monto', 'valor'];
+
+function isMoneyKey(key = '') {
+  const normalized = String(key || '').toLowerCase();
+  return MONEY_PATTERNS.some((pattern) => normalized.includes(pattern));
+}
+
+function scaleMoneyTreeToStorage(value, keyHint = '') {
+  if (value === null || value === undefined || value === '') return value;
+
+  if (Array.isArray(value)) {
+    return value.map((entry) => scaleMoneyTreeToStorage(entry, keyHint));
+  }
+
+  if (typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, entry]) => [key, scaleMoneyTreeToStorage(entry, key)])
+    );
+  }
+
+  if (typeof value === 'number' && Number.isFinite(value) && isMoneyKey(keyHint)) {
+    return Math.round(value * 100);
+  }
+
+  return value;
+}
+
 function parseJson(value, fallback) {
   if (value === null || value === undefined || value === '') return fallback;
   if (Array.isArray(fallback) && Array.isArray(value)) return value;
-  if (!Array.isArray(fallback) && fallback && typeof fallback === 'object' && typeof value === 'object' && !Array.isArray(value)) {
+  if (
+    !Array.isArray(fallback) &&
+    fallback &&
+    typeof fallback === 'object' &&
+    typeof value === 'object' &&
+    !Array.isArray(value)
+  ) {
     return value;
   }
   try {
@@ -30,7 +63,12 @@ function normalizeText(value = '') {
 
 function inferVariantsFromItem(base = {}) {
   const current = parseJson(base.variantes_json ?? base.variantes, {});
-  if (current && typeof current === 'object' && !Array.isArray(current) && Object.keys(current).length) {
+  if (
+    current &&
+    typeof current === 'object' &&
+    !Array.isArray(current) &&
+    Object.keys(current).length
+  ) {
     return current;
   }
 
@@ -44,7 +82,8 @@ function inferVariantsFromItem(base = {}) {
   else if (nombre.includes('docena')) variants.Presentacion = 'Docena';
 
   if (descripcion.includes('tipo: pollo')) variants.Tipo = 'Pollo';
-  else if (descripcion.includes('tipo: ternera') || descripcion.includes('tipo: carne')) variants.Tipo = 'Ternera';
+  else if (descripcion.includes('tipo: ternera') || descripcion.includes('tipo: carne'))
+    variants.Tipo = 'Ternera';
 
   return variants;
 }
@@ -76,7 +115,9 @@ function normalizePedidoItem(rawItem = {}) {
 
 function parsePedidoItems(rawItems) {
   if (Array.isArray(rawItems)) {
-    return rawItems.map(normalizePedidoItem).filter((item) => item.nombre || Number(item.producto_id));
+    return rawItems
+      .map(normalizePedidoItem)
+      .filter((item) => item.nombre || Number(item.producto_id));
   }
 
   try {
@@ -89,16 +130,14 @@ function parsePedidoItems(rawItems) {
   }
 }
 
+function scalePedidoItemsToStorage(items) {
+  return parsePedidoItems(items).map((item) => scaleMoneyTreeToStorage(item));
+}
+
 function serializePedidoItems(items) {
   return JSON.stringify(
     parsePedidoItems(items).map((item) => {
-      const {
-        pedido_id,
-        creado_en,
-        variantes_json,
-        extras_json,
-        ...rest
-      } = item;
+      const { pedido_id, creado_en, variantes_json, extras_json, ...rest } = item;
       return rest;
     })
   );
@@ -122,18 +161,23 @@ function mapPedidoItemRow(row, fallback = {}) {
 }
 
 function getPedidoItemRows(db, pedidoId) {
-  return db.prepare(`
+  return db
+    .prepare(
+      `
     SELECT *
     FROM pedido_items
     WHERE pedido_id = ?
     ORDER BY id ASC
-  `).all(pedidoId);
+  `
+    )
+    .all(pedidoId);
 }
 
 function loadPedidoItems(db, pedidoOrId, options = {}) {
-  const pedido = typeof pedidoOrId === 'object' && pedidoOrId
-    ? pedidoOrId
-    : db.prepare('SELECT id, items FROM pedidos WHERE id = ?').get(pedidoOrId);
+  const pedido =
+    typeof pedidoOrId === 'object' && pedidoOrId
+      ? pedidoOrId
+      : db.prepare('SELECT id, items FROM pedidos WHERE id = ?').get(pedidoOrId);
 
   if (!pedido?.id) return [];
 
@@ -165,16 +209,19 @@ function replacePedidoItems(db, pedidoId, items = []) {
   deleteStmt.run(pedidoId);
   normalizedItems.forEach((item) => {
     const requestedProductId = Number(item.producto_id || 0);
-    const product = Number.isFinite(requestedProductId) && requestedProductId > 0
-      ? findProductStmt.get(requestedProductId)
-      : null;
+    const product =
+      Number.isFinite(requestedProductId) && requestedProductId > 0
+        ? findProductStmt.get(requestedProductId)
+        : null;
     const requestedCategoryId = Number(item.categoria_id || 0);
-    const categoryCandidate = Number.isFinite(requestedCategoryId) && requestedCategoryId > 0
-      ? requestedCategoryId
-      : Number(product?.categoria_id || 0);
-    const category = Number.isFinite(categoryCandidate) && categoryCandidate > 0
-      ? findCategoryStmt.get(categoryCandidate)
-      : null;
+    const categoryCandidate =
+      Number.isFinite(requestedCategoryId) && requestedCategoryId > 0
+        ? requestedCategoryId
+        : Number(product?.categoria_id || 0);
+    const category =
+      Number.isFinite(categoryCandidate) && categoryCandidate > 0
+        ? findCategoryStmt.get(categoryCandidate)
+        : null;
 
     insertStmt.run(
       pedidoId,
@@ -182,7 +229,11 @@ function replacePedidoItems(db, pedidoId, items = []) {
       item.nombre || '',
       Number(item.cantidad || 0),
       Number(item.precio_unitario || 0),
-      roundAmount(item.subtotal !== undefined ? item.subtotal : Number(item.cantidad || 0) * Number(item.precio_unitario || 0)),
+      roundAmount(
+        item.subtotal !== undefined
+          ? item.subtotal
+          : Number(item.cantidad || 0) * Number(item.precio_unitario || 0)
+      ),
       JSON.stringify(item.variantes || {}),
       JSON.stringify(item.extras || []),
       category?.id || null,
@@ -195,7 +246,9 @@ function replacePedidoItems(db, pedidoId, items = []) {
 
 function backfillPedidoItems(db, options = {}) {
   const limit = Math.max(1, Number(options.limit || 5000));
-  const rows = db.prepare(`
+  const rows = db
+    .prepare(
+      `
     SELECT p.id, p.items
     FROM pedidos p
     WHERE TRIM(COALESCE(p.items, '')) != ''
@@ -206,7 +259,9 @@ function backfillPedidoItems(db, options = {}) {
       )
     ORDER BY p.id ASC
     LIMIT ?
-  `).all(limit);
+  `
+    )
+    .all(limit);
 
   let synced = 0;
   rows.forEach((pedido) => {
@@ -222,6 +277,7 @@ function backfillPedidoItems(db, options = {}) {
 module.exports = {
   roundAmount,
   parsePedidoItems,
+  scalePedidoItemsToStorage,
   serializePedidoItems,
   loadPedidoItems,
   replacePedidoItems,

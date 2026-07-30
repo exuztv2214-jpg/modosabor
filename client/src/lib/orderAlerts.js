@@ -9,12 +9,12 @@ export function claimAlertKey(key, ttlMs = 4000) {
   if (!normalized) return true;
   const now = Date.now();
   const existing = recentAlertClaims.get(normalized);
-  if (existing && (now - existing) < ttlMs) {
+  if (existing && now - existing < ttlMs) {
     return false;
   }
   recentAlertClaims.set(normalized, now);
   if (recentAlertClaims.size > 200) {
-    const fresh = [...recentAlertClaims.entries()].filter(([, ts]) => (now - ts) < ttlMs);
+    const fresh = [...recentAlertClaims.entries()].filter(([, ts]) => now - ts < ttlMs);
     recentAlertClaims.clear();
     fresh.forEach(([entryKey, ts]) => recentAlertClaims.set(entryKey, ts));
   }
@@ -48,9 +48,7 @@ export function buildOrderAnnouncementText(pedido = {}, config = {}) {
 
   if (template) {
     return cleanupAnnouncementText(
-      template
-        .replaceAll('{cliente}', customer)
-        .replaceAll('{numero}', numero)
+      template.replaceAll('{cliente}', customer).replaceAll('{numero}', numero)
     );
   }
 
@@ -70,7 +68,9 @@ export function buildDeliveredAnnouncementText(pedido = {}, options = {}) {
   const customer = normalizeCustomerName(pedido?.cliente_nombre);
   const numero = pedido?.numero ? String(pedido.numero) : '';
   const rider = normalizeCustomerName(options?.riderName || pedido?.repartidor_nombre);
-  const scope = String(options?.scope || 'admin').trim().toLowerCase();
+  const scope = String(options?.scope || 'admin')
+    .trim()
+    .toLowerCase();
 
   if (scope === 'rider') {
     if (customer && numero) {

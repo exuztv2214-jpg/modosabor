@@ -13,7 +13,7 @@ export default function TpvVariantModal({
 }) {
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/35 p-4 backdrop-blur-sm"
       onClick={onClose}
     >
       <div
@@ -21,8 +21,19 @@ export default function TpvVariantModal({
         onClick={(event) => event.stopPropagation()}
       >
         <div className="mb-5 flex items-center justify-between">
-          <h3 className="text-lg font-black text-gray-900">{variantModal.producto.nombre}</h3>
-          <button type="button" onClick={onClose} className="text-gray-400 transition hover:text-gray-600">
+          <div>
+            <h3 className="text-lg font-black text-gray-900">{variantModal.producto.nombre}</h3>
+            {variantModal.rewardOptions ? (
+              <span className="mt-1 inline-flex rounded-full bg-success-100 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-success-700">
+                Premio fidelidad
+              </span>
+            ) : null}
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-gray-400 transition hover:text-gray-600"
+          >
             <X size={20} />
           </button>
         </div>
@@ -43,7 +54,12 @@ export default function TpvVariantModal({
                   >
                     <span className="font-bold">{optionName}</span>
                     <span className="mt-1 block text-xs font-semibold text-primary-600">
-                      {fmt(Number(variantModal.producto.precio || 0) + Number(option.precio_extra || 0))}
+                      {fmt(
+                        (variantModal.rewardOptions?.priceOverride !== undefined
+                          ? Number(variantModal.rewardOptions.priceOverride || 0)
+                          : Number(variantModal.producto.precio || 0)) +
+                          Number(option.precio_extra || 0)
+                      )}
                     </span>
                   </button>
                 );
@@ -57,7 +73,9 @@ export default function TpvVariantModal({
             <p className="mb-2 text-sm font-black text-gray-800">Extras</p>
             <div className="space-y-2">
               {variantModal.extras.map((extra) => {
-                const selected = variantModal.extrasSel.some((item) => item.nombre === extra.nombre);
+                const selected = variantModal.extrasSel.some(
+                  (item) => item.nombre === extra.nombre
+                );
                 return (
                   <button
                     key={extra.nombre}
@@ -75,14 +93,22 @@ export default function TpvVariantModal({
         ) : null}
 
         {!variantesCompletas ? (
-          <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700">
+          <div className="mb-4 rounded-2xl border border-amber-200 bg-warning-50 px-3 py-2 text-xs font-bold text-warning-700">
             Completa todas las variantes obligatorias.
           </div>
         ) : null}
 
         <div className="mb-4 flex items-center justify-between rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3">
-          <span className="text-xs font-bold uppercase tracking-[0.18em] text-gray-500">Total seleccionado</span>
-          <span className="text-base font-black text-primary-600">{fmt(selectedVariantTotal || variantModal.producto.precio)}</span>
+          <span className="text-xs font-bold uppercase tracking-[0.18em] text-gray-500">
+            Total seleccionado
+          </span>
+          <span className="text-base font-black text-primary-600">
+            {fmt(
+              selectedVariantTotal ||
+                variantModal.rewardOptions?.priceOverride ||
+                variantModal.producto.precio
+            )}
+          </span>
         </div>
 
         <button

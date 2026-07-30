@@ -59,9 +59,7 @@ const MENU = {
     ['Dulce Picante', 'Milanesa dulce picante.', '$13.000', '$11.500'],
     ['BBQ', 'Milanesa BBQ.', '$15.000', '$13.500'],
   ],
-  Papas: [
-    ['Papas Full Cheddar', 'Papas Full Cheddar.', '$7.000'],
-  ],
+  Papas: [['Papas Full Cheddar', 'Papas Full Cheddar.', '$7.000']],
 };
 
 function buildProductPayload(categoryName, row) {
@@ -141,8 +139,12 @@ function buildProductPayload(categoryName, row) {
 }
 
 const selectCategory = db.prepare('SELECT * FROM categorias WHERE lower(nombre) = lower(?)');
-const insertCategory = db.prepare('INSERT INTO categorias (nombre, icono, color, orden, activo) VALUES (?, ?, ?, ?, 1)');
-const updateCategory = db.prepare('UPDATE categorias SET icono = ?, color = ?, orden = ?, activo = 1 WHERE id = ?');
+const insertCategory = db.prepare(
+  'INSERT INTO categorias (nombre, icono, color, orden, activo) VALUES (?, ?, ?, ?, 1)'
+);
+const updateCategory = db.prepare(
+  'UPDATE categorias SET icono = ?, color = ?, orden = ?, activo = 1 WHERE id = ?'
+);
 const selectProducts = db.prepare('SELECT * FROM productos');
 const insertProduct = db.prepare(`
   INSERT INTO productos (
@@ -162,7 +164,12 @@ for (const category of CATEGORY_DEFS) {
     updateCategory.run(category.icono, category.color, category.orden, existing.id);
     categories[category.nombre] = existing.id;
   } else {
-    const result = insertCategory.run(category.nombre, category.icono, category.color, category.orden);
+    const result = insertCategory.run(
+      category.nombre,
+      category.icono,
+      category.color,
+      category.orden
+    );
     categories[category.nombre] = Number(result.lastInsertRowid);
   }
 }
@@ -216,10 +223,16 @@ for (const [categoryName, rows] of Object.entries(MENU)) {
 }
 
 const totalProductos = db.prepare('SELECT COUNT(*) as c FROM productos').get().c;
-console.log(JSON.stringify({
-  ok: true,
-  categories: Object.keys(categories).length,
-  inserted,
-  updated,
-  totalProductos,
-}, null, 2));
+console.log(
+  JSON.stringify(
+    {
+      ok: true,
+      categories: Object.keys(categories).length,
+      inserted,
+      updated,
+      totalProductos,
+    },
+    null,
+    2
+  )
+);

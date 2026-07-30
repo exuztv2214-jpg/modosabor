@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Modo Sabor - Puente WhatsApp</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero">
+        <div>
+          <p class="eyebrow">Modo Sabor</p>
+          <h1>Puente WhatsApp Copiloto</h1>
+          <p class="copy">
+            Escanea el QR, responde a tus clientes como siempre y escribe
+            <strong>#dale</strong> cuando quieras mandar la conversación al copiloto.
+          </p>
+        </div>
+        <div id="badge" class="badge">Cargando</div>
+      </section>
+
+      <section class="grid">
+        <article class="panel qr-panel">
+          <p class="label">Conexion</p>
+          <div id="qrBox" class="qr-box">
+            <span>Esperando QR...</span>
+          </div>
+          <button id="refreshBtn" type="button">Actualizar</button>
+        </article>
+
+        <article class="panel">
+          <p class="label">Estado</p>
+          <dl class="status-list">
+            <div>
+              <dt>Palabra clave</dt>
+              <dd id="operatorKey">-</dd>
+            </div>
+            <div>
+              <dt>Auto #dale</dt>
+              <dd id="autoState">-</dd>
+            </div>
+            <div>
+              <dt>n8n</dt>
+              <dd id="n8nState">-</dd>
+            </div>
+            <div>
+              <dt>Modo Sabor</dt>
+              <dd id="apiState">-</dd>
+            </div>
+            <div>
+              <dt>Error</dt>
+              <dd id="lastError">-</dd>
+            </div>
+          </dl>
+          <button id="testBtn" type="button" class="secondary">Probar disparo</button>
+        </article>
+      </section>
+
+      <section class="panel">
+        <div class="section-head">
+          <p class="label">Chats recientes</p>
+          <button id="refreshChatsBtn" type="button" class="small">Actualizar chats</button>
+        </div>
+        <div id="chats" class="chats"></div>
+      </section>
+
+      <section class="panel">
+        <p class="label">Eventos</p>
+        <div id="events" class="events"></div>
+      </section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

@@ -15,7 +15,9 @@ import {
   Copy,
   RefreshCw,
 } from 'lucide-react';
+
 import api from '../lib/api.js';
+import ActionDialog from '../components/ActionDialog.jsx';
 
 const fmtMoney = (value) => `$${Number(value || 0).toLocaleString('es-AR')}`;
 
@@ -33,13 +35,15 @@ function formatDate(dateString) {
 function Badge({ children, variant = 'default' }) {
   const variants = {
     default: 'bg-gray-100 text-gray-700',
-    success: 'bg-emerald-100 text-emerald-700',
-    danger: 'bg-rose-100 text-rose-700',
-    warning: 'bg-amber-100 text-amber-700',
-    primary: 'bg-indigo-100 text-indigo-700',
+    success: 'bg-success-100 text-success-700',
+    danger: 'bg-danger-100 text-danger-700',
+    warning: 'bg-warning-100 text-warning-700',
+    primary: 'bg-primary-50 text-primary-500',
   };
   return (
-    <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium ${variants[variant]}`}>
+    <span
+      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium ${variants[variant]}`}
+    >
       {children}
     </span>
   );
@@ -52,7 +56,10 @@ function Modal({ isOpen, onClose, title, children, maxWidth = 'max-w-lg' }) {
       <div className={`w-full ${maxWidth} rounded-2xl bg-white p-6 shadow-2xl`}>
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-lg font-bold text-gray-900">{title}</h3>
-          <button onClick={onClose} className="rounded-lg p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600">
+          <button
+            onClick={onClose}
+            className="rounded-lg p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+          >
             <XCircle size={20} />
           </button>
         </div>
@@ -70,6 +77,7 @@ export default function Cupones() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingCupon, setEditingCupon] = useState(null);
   const [stats, setStats] = useState({ total: 0, activos: 0, usados: 0 });
+  const [deleteDialog, setDeleteDialog] = useState(null);
 
   const [form, setForm] = useState({
     codigo: '',
@@ -94,9 +102,9 @@ export default function Cupones() {
       setLoading(true);
       const data = await api.get('/cupones');
       setCupones(data);
-      
+
       // Calcular stats
-      const activos = data.filter(c => c.activo).length;
+      const activos = data.filter((c) => c.activo).length;
       const usados = data.reduce((acc, c) => acc + (c.usos_actuales || 0), 0);
       setStats({ total: data.length, activos, usados });
     } catch (error) {
@@ -108,21 +116,18 @@ export default function Cupones() {
 
   const cuponesFiltrados = useMemo(() => {
     let filtered = cupones;
-    
+
     if (search) {
       const q = search.toLowerCase();
-      filtered = filtered.filter(c => 
-        c.codigo.toLowerCase().includes(q) || 
-        (c.descripcion || '').toLowerCase().includes(q)
+      filtered = filtered.filter(
+        (c) => c.codigo.toLowerCase().includes(q) || (c.descripcion || '').toLowerCase().includes(q)
       );
     }
-    
+
     if (filtroActivo !== 'todos') {
-      filtered = filtered.filter(c => 
-        filtroActivo === 'activos' ? c.activo : !c.activo
-      );
+      filtered = filtered.filter((c) => (filtroActivo === 'activos' ? c.activo : !c.activo));
     }
-    
+
     return filtered;
   }, [cupones, search, filtroActivo]);
 
@@ -167,7 +172,7 @@ export default function Cupones() {
 
   async function handleSubmit(e) {
     e.preventDefault();
-    
+
     if (!form.codigo.trim()) {
       toast.error('El código es requerido');
       return;
@@ -176,7 +181,7 @@ export default function Cupones() {
       toast.error('El valor de descuento debe ser mayor a 0');
       return;
     }
-    
+
     const payload = {
       ...form,
       valor_descuento: parseFloat(form.valor_descuento),
@@ -204,11 +209,15 @@ export default function Cupones() {
   }
 
   async function handleDelete(cupon) {
-    if (!confirm(`¿Eliminar el cupón "${cupon.codigo}"?`)) return;
-    
+    setDeleteDialog(cupon);
+  }
+
+  async function confirmarDelete() {
+    if (!deleteDialog) return;
     try {
-      await api.delete(`/cupones/${cupon.id}`);
+      await api.delete(`/cupones/${deleteDialog.id}`);
       toast.success('Cupón eliminado');
+      setDeleteDialog(null);
       loadCupones();
     } catch (error) {
       toast.error('Error al eliminar cupón');
@@ -230,7 +239,7 @@ export default function Cupones() {
         </div>
         <button
           onClick={() => openModal()}
-          className="flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-indigo-700"
+          className="flex items-center justify-center gap-2 rounded-xl bg-primary-500 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-primary-600"
         >
           <Plus size={18} />
           Nuevo cupón
@@ -241,7 +250,7 @@ export default function Cupones() {
       <div className="grid gap-4 sm:grid-cols-3">
         <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-100 text-indigo-600">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary-50 text-primary-500">
               <Tag size={20} />
             </div>
             <div>
@@ -252,7 +261,7 @@ export default function Cupones() {
         </div>
         <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-100 text-emerald-600">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-success-100 text-success-600">
               <CheckCircle size={20} />
             </div>
             <div>
@@ -263,7 +272,7 @@ export default function Cupones() {
         </div>
         <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-100 text-amber-600">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-warning-100 text-warning-600">
               <Users size={20} />
             </div>
             <div>
@@ -283,7 +292,7 @@ export default function Cupones() {
             placeholder="Buscar cupón..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full rounded-xl border border-gray-200 pl-10 pr-4 py-2.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+            className="w-full rounded-xl border border-gray-200 pl-10 pr-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
           />
         </div>
         <div className="flex gap-2">
@@ -293,7 +302,7 @@ export default function Cupones() {
               onClick={() => setFiltroActivo(filtro)}
               className={`rounded-xl px-4 py-2 text-sm font-medium transition-colors ${
                 filtroActivo === filtro
-                  ? 'bg-indigo-100 text-indigo-700'
+                  ? 'bg-primary-50 text-primary-500'
                   : 'bg-white text-gray-600 hover:bg-gray-50 border border-gray-200'
               }`}
             >
@@ -343,7 +352,7 @@ export default function Cupones() {
                         </code>
                         <button
                           onClick={() => copyToClipboard(cupon.codigo)}
-                          className="text-gray-400 hover:text-indigo-600"
+                          className="text-gray-400 hover:text-primary-500"
                           title="Copiar código"
                         >
                           <Copy size={14} />
@@ -355,7 +364,7 @@ export default function Cupones() {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
-                        <Icon size={16} className="text-indigo-600" />
+                        <Icon size={16} className="text-primary-500" />
                         <span className="font-medium text-gray-900">
                           {cupon.tipo_descuento === 'porcentaje'
                             ? `${cupon.valor_descuento}%`
@@ -363,7 +372,9 @@ export default function Cupones() {
                         </span>
                       </div>
                       {cupon.descuento_maximo > 0 && cupon.tipo_descuento === 'porcentaje' && (
-                        <p className="text-xs text-gray-500">Máx: {fmtMoney(cupon.descuento_maximo)}</p>
+                        <p className="text-xs text-gray-500">
+                          Máx: {fmtMoney(cupon.descuento_maximo)}
+                        </p>
                       )}
                     </td>
                     <td className="px-4 py-3">
@@ -388,7 +399,9 @@ export default function Cupones() {
                     </td>
                     <td className="px-4 py-3">
                       <div className="text-sm">
-                        <span className="font-semibold text-gray-900">{cupon.usos_actuales || 0}</span>
+                        <span className="font-semibold text-gray-900">
+                          {cupon.usos_actuales || 0}
+                        </span>
                         {cupon.limite_usos > 0 && (
                           <span className="text-gray-500"> / {cupon.limite_usos}</span>
                         )}
@@ -411,14 +424,14 @@ export default function Cupones() {
                       <div className="flex items-center justify-end gap-1">
                         <button
                           onClick={() => openModal(cupon)}
-                          className="rounded-lg p-1.5 text-gray-500 hover:bg-indigo-50 hover:text-indigo-600"
+                          className="rounded-lg p-1.5 text-gray-500 hover:bg-primary-50 hover:text-primary-500"
                           title="Editar"
                         >
                           <Edit2 size={16} />
                         </button>
                         <button
                           onClick={() => handleDelete(cupon)}
-                          className="rounded-lg p-1.5 text-gray-500 hover:bg-rose-50 hover:text-rose-600"
+                          className="rounded-lg p-1.5 text-gray-500 hover:bg-danger-50 hover:text-danger-600"
                           title="Eliminar"
                         >
                           <Trash2 size={16} />
@@ -436,7 +449,10 @@ export default function Cupones() {
       {/* Modal */}
       <Modal
         isOpen={modalOpen}
-        onClose={() => { setModalOpen(false); resetForm(); }}
+        onClose={() => {
+          setModalOpen(false);
+          resetForm();
+        }}
         title={editingCupon ? 'Editar cupón' : 'Nuevo cupón'}
         maxWidth="max-w-2xl"
       >
@@ -444,14 +460,31 @@ export default function Cupones() {
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="sm:col-span-2">
               <label className="mb-1 block text-sm font-medium text-gray-700">Código *</label>
-              <input
-                type="text"
-                value={form.codigo}
-                onChange={(e) => setForm({ ...form, codigo: e.target.value.toUpperCase() })}
-                className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm font-mono uppercase focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
-                placeholder="EJ: DESCUENTO20"
-                required
-              />
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={form.codigo}
+                  onChange={(e) => setForm({ ...form, codigo: e.target.value.toUpperCase() })}
+                  className="flex-1 rounded-xl border border-gray-200 px-3 py-2 text-sm font-mono uppercase focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                  placeholder="EJ: DESCUENTO20"
+                  required
+                />
+                <button
+                  type="button"
+                  title="Generar código aleatorio"
+                  onClick={() => {
+                    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+                    const part = Array.from(
+                      { length: 6 },
+                      () => chars[Math.floor(Math.random() * chars.length)]
+                    ).join('');
+                    setForm((f) => ({ ...f, codigo: `PROMO-${part}` }));
+                  }}
+                  className="flex items-center gap-1.5 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-xs font-bold text-gray-600 hover:bg-primary-50 hover:text-primary-500 hover:border-primary-200 transition-all whitespace-nowrap"
+                >
+                  🎲 Generar
+                </button>
+              </div>
             </div>
 
             <div className="sm:col-span-2">
@@ -460,17 +493,19 @@ export default function Cupones() {
                 type="text"
                 value={form.descripcion}
                 onChange={(e) => setForm({ ...form, descripcion: e.target.value })}
-                className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
                 placeholder="Ej: 20% de descuento en tu primera compra"
               />
             </div>
 
             <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700">Tipo de descuento *</label>
+              <label className="mb-1 block text-sm font-medium text-gray-700">
+                Tipo de descuento *
+              </label>
               <select
                 value={form.tipo_descuento}
                 onChange={(e) => setForm({ ...form, tipo_descuento: e.target.value })}
-                className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
               >
                 <option value="porcentaje">Porcentaje (%)</option>
                 <option value="fijo">Monto fijo ($)</option>
@@ -485,21 +520,23 @@ export default function Cupones() {
                 min="0"
                 value={form.valor_descuento}
                 onChange={(e) => setForm({ ...form, valor_descuento: e.target.value })}
-                className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
                 placeholder={form.tipo_descuento === 'porcentaje' ? 'Ej: 20' : 'Ej: 5000'}
                 required
               />
             </div>
 
             <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700">Mínimo de compra</label>
+              <label className="mb-1 block text-sm font-medium text-gray-700">
+                Mínimo de compra
+              </label>
               <input
                 type="number"
                 step="0.01"
                 min="0"
                 value={form.minimo_compra}
                 onChange={(e) => setForm({ ...form, minimo_compra: e.target.value })}
-                className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
                 placeholder="0"
               />
             </div>
@@ -515,7 +552,7 @@ export default function Cupones() {
                 value={form.descuento_maximo}
                 onChange={(e) => setForm({ ...form, descuento_maximo: e.target.value })}
                 disabled={form.tipo_descuento === 'fijo'}
-                className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200 disabled:bg-gray-100"
+                className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200 disabled:bg-gray-100"
                 placeholder="Sin límite"
               />
             </div>
@@ -526,7 +563,7 @@ export default function Cupones() {
                 type="datetime-local"
                 value={form.fecha_inicio}
                 onChange={(e) => setForm({ ...form, fecha_inicio: e.target.value })}
-                className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
               />
             </div>
 
@@ -536,24 +573,28 @@ export default function Cupones() {
                 type="datetime-local"
                 value={form.fecha_fin}
                 onChange={(e) => setForm({ ...form, fecha_fin: e.target.value })}
-                className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
               />
             </div>
 
             <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700">Límite total de usos</label>
+              <label className="mb-1 block text-sm font-medium text-gray-700">
+                Límite total de usos
+              </label>
               <input
                 type="number"
                 min="0"
                 value={form.limite_usos}
                 onChange={(e) => setForm({ ...form, limite_usos: e.target.value })}
-                className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
                 placeholder="Sin límite"
               />
             </div>
 
             <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700">Límite por cliente</label>
+              <label className="mb-1 block text-sm font-medium text-gray-700">
+                Límite por cliente
+              </label>
               <input
                 type="number"
                 min="1"
@@ -570,28 +611,43 @@ export default function Cupones() {
               id="activo"
               checked={form.activo}
               onChange={(e) => setForm({ ...form, activo: e.target.checked })}
-              className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+              className="h-4 w-4 rounded border-gray-300 text-primary-500 focus:ring-blue-500"
             />
-            <label htmlFor="activo" className="text-sm text-gray-700">Cupón activo</label>
+            <label htmlFor="activo" className="text-sm text-gray-700">
+              Cupón activo
+            </label>
           </div>
 
           <div className="flex justify-end gap-3 pt-4">
             <button
               type="button"
-              onClick={() => { setModalOpen(false); resetForm(); }}
+              onClick={() => {
+                setModalOpen(false);
+                resetForm();
+              }}
               className="rounded-xl px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100"
             >
               Cancelar
             </button>
             <button
               type="submit"
-              className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+              className="rounded-xl bg-primary-500 px-4 py-2 text-sm font-medium text-white hover:bg-primary-600"
             >
               {editingCupon ? 'Guardar cambios' : 'Crear cupón'}
             </button>
           </div>
         </form>
       </Modal>
+      <ActionDialog
+        open={Boolean(deleteDialog)}
+        title={deleteDialog ? `Eliminar cupón ${deleteDialog.codigo}` : ''}
+        description="El cupón dejará de estar disponible para promociones y descuentos."
+        confirmLabel="Eliminar cupón"
+        cancelLabel="Cancelar"
+        tone="danger"
+        onConfirm={confirmarDelete}
+        onClose={() => setDeleteDialog(null)}
+      />
     </div>
   );
 }

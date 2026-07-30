@@ -12,7 +12,9 @@ const CONTENT_STATES = new Set(['borrador', 'listo', 'publicado']);
 const CALENDAR_STATES = new Set(['pendiente', 'listo', 'publicado', 'cancelado']);
 
 function cleanText(value) {
-  return String(value || '').replace(/\s+/g, ' ').trim();
+  return String(value || '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function normalizeText(value) {
@@ -116,7 +118,9 @@ function mapCampaign(row) {
     contenido_id: row.contenido_id ? Number(row.contenido_id) : null,
     activa: Number(row.activa) === 1,
     whatsapp_cta_texto: buildCampaignCta(row),
-    whatsapp_mensaje_sugerido: cleanText(row.whatsapp_mensaje_sugerido || '') || `Hola, vengo por ${cleanText(row.tracking_slug || '')}`,
+    whatsapp_mensaje_sugerido:
+      cleanText(row.whatsapp_mensaje_sugerido || '') ||
+      `Hola, vengo por ${cleanText(row.tracking_slug || '')}`,
   };
 }
 
@@ -146,8 +150,12 @@ function ensureUniqueTrackingSlug(rawSlug, excludeId = null) {
 
   while (true) {
     const row = excludeId
-      ? db.prepare('SELECT id FROM marketing_campanas WHERE tracking_slug = ? AND id != ? LIMIT 1').get(candidate, excludeId)
-      : db.prepare('SELECT id FROM marketing_campanas WHERE tracking_slug = ? LIMIT 1').get(candidate);
+      ? db
+          .prepare('SELECT id FROM marketing_campanas WHERE tracking_slug = ? AND id != ? LIMIT 1')
+          .get(candidate, excludeId)
+      : db
+          .prepare('SELECT id FROM marketing_campanas WHERE tracking_slug = ? LIMIT 1')
+          .get(candidate);
     if (!row?.id) return candidate;
     counter += 1;
     candidate = `${baseSlug}-${counter}`;
@@ -169,39 +177,58 @@ function isWithinWindow(row, now = new Date()) {
 
 function getPromoById(id) {
   if (!id) return null;
-  return mapPromo(db.prepare(`
+  return mapPromo(
+    db
+      .prepare(
+        `
     SELECT p.*, c.codigo AS cupon_codigo, c.descripcion AS cupon_descripcion, pr.nombre AS producto_nombre
     FROM marketing_promos p
     LEFT JOIN cupones c ON c.id = p.cupon_id
     LEFT JOIN productos pr ON pr.id = p.producto_id
     WHERE p.id = ?
-  `).get(Number(id)));
+  `
+      )
+      .get(Number(id))
+  );
 }
 
 function getContenidoById(id) {
   if (!id) return null;
-  return mapContenido(db.prepare('SELECT * FROM marketing_contenidos WHERE id = ?').get(Number(id)));
+  return mapContenido(
+    db.prepare('SELECT * FROM marketing_contenidos WHERE id = ?').get(Number(id))
+  );
 }
 
 function getCampaignById(id) {
   if (!id) return null;
-  return mapCampaign(db.prepare(`
+  return mapCampaign(
+    db
+      .prepare(
+        `
     SELECT c.*, p.nombre AS promo_nombre, ct.titulo AS contenido_titulo
     FROM marketing_campanas c
     LEFT JOIN marketing_promos p ON p.id = c.promo_id
     LEFT JOIN marketing_contenidos ct ON ct.id = c.contenido_id
     WHERE c.id = ?
-  `).get(Number(id)));
+  `
+      )
+      .get(Number(id))
+  );
 }
 
 function listPromos() {
-  return db.prepare(`
+  return db
+    .prepare(
+      `
     SELECT p.*, c.codigo AS cupon_codigo, c.descripcion AS cupon_descripcion, pr.nombre AS producto_nombre
     FROM marketing_promos p
     LEFT JOIN cupones c ON c.id = p.cupon_id
     LEFT JOIN productos pr ON pr.id = p.producto_id
     ORDER BY p.activa DESC, datetime(COALESCE(p.fecha_inicio, p.creado_en)) DESC, p.id DESC
-  `).all().map(mapPromo);
+  `
+    )
+    .all()
+    .map(mapPromo);
 }
 
 function normalizePromoPayload(input = {}, current = null) {
@@ -228,7 +255,8 @@ function normalizePromoPayload(input = {}, current = null) {
     fecha_inicio: toDateTimeValue(input.fecha_inicio ?? current?.fecha_inicio ?? ''),
     fecha_fin: toDateTimeValue(input.fecha_fin ?? current?.fecha_fin ?? ''),
     activa: toBool(input.activa ?? current?.activa, true) ? 1 : 0,
-    canal_sugerido: cleanText(input.canal_sugerido ?? current?.canal_sugerido ?? 'general') || 'general',
+    canal_sugerido:
+      cleanText(input.canal_sugerido ?? current?.canal_sugerido ?? 'general') || 'general',
     cupon_id: toNullableNumber(input.cupon_id ?? current?.cupon_id ?? null),
     producto_id: toNullableNumber(input.producto_id ?? current?.producto_id ?? null),
   };
@@ -236,22 +264,26 @@ function normalizePromoPayload(input = {}, current = null) {
 
 function createPromo(input = {}) {
   const payload = normalizePromoPayload(input);
-  const result = db.prepare(`
+  const result = db
+    .prepare(
+      `
     INSERT INTO marketing_promos (
       nombre, descripcion, tipo_promo, valor, fecha_inicio, fecha_fin, activa, canal_sugerido, cupon_id, producto_id, creado_en, actualizado_en
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-  `).run(
-    payload.nombre,
-    payload.descripcion,
-    payload.tipo_promo,
-    payload.valor,
-    payload.fecha_inicio,
-    payload.fecha_fin,
-    payload.activa,
-    payload.canal_sugerido,
-    payload.cupon_id,
-    payload.producto_id
-  );
+  `
+    )
+    .run(
+      payload.nombre,
+      payload.descripcion,
+      payload.tipo_promo,
+      payload.valor,
+      payload.fecha_inicio,
+      payload.fecha_fin,
+      payload.activa,
+      payload.canal_sugerido,
+      payload.cupon_id,
+      payload.producto_id
+    );
   return getPromoById(result.lastInsertRowid);
 }
 
@@ -260,12 +292,14 @@ function updatePromo(id, input = {}) {
   if (!current) throw new Error('Promo no encontrada');
   const payload = normalizePromoPayload(input, current);
 
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE marketing_promos
     SET nombre = ?, descripcion = ?, tipo_promo = ?, valor = ?, fecha_inicio = ?, fecha_fin = ?, activa = ?, canal_sugerido = ?,
         cupon_id = ?, producto_id = ?, actualizado_en = CURRENT_TIMESTAMP
     WHERE id = ?
-  `).run(
+  `
+  ).run(
     payload.nombre,
     payload.descripcion,
     payload.tipo_promo,
@@ -290,12 +324,17 @@ function deletePromo(id) {
 }
 
 function listContenidos() {
-  return db.prepare(`
+  return db
+    .prepare(
+      `
     SELECT *
     FROM marketing_contenidos
     ORDER BY CASE estado WHEN 'borrador' THEN 0 WHEN 'listo' THEN 1 WHEN 'publicado' THEN 2 ELSE 3 END,
              datetime(COALESCE(actualizado_en, creado_en)) DESC, id DESC
-  `).all().map(mapContenido);
+  `
+    )
+    .all()
+    .map(mapContenido);
 }
 
 function normalizeContenidoPayload(input = {}, current = null) {
@@ -310,7 +349,8 @@ function normalizeContenidoPayload(input = {}, current = null) {
   return {
     titulo,
     objetivo: cleanText(input.objetivo ?? current?.objetivo ?? ''),
-    red_sugerida: cleanText(input.red_sugerida ?? current?.red_sugerida ?? 'instagram') || 'instagram',
+    red_sugerida:
+      cleanText(input.red_sugerida ?? current?.red_sugerida ?? 'instagram') || 'instagram',
     texto_corto: cleanText(input.texto_corto ?? current?.texto_corto ?? ''),
     texto_largo: cleanText(input.texto_largo ?? current?.texto_largo ?? ''),
     cta: cleanText(input.cta ?? current?.cta ?? ''),
@@ -320,19 +360,23 @@ function normalizeContenidoPayload(input = {}, current = null) {
 
 function createContenido(input = {}) {
   const payload = normalizeContenidoPayload(input);
-  const result = db.prepare(`
+  const result = db
+    .prepare(
+      `
     INSERT INTO marketing_contenidos (
       titulo, objetivo, red_sugerida, texto_corto, texto_largo, cta, estado, creado_en, actualizado_en
     ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-  `).run(
-    payload.titulo,
-    payload.objetivo,
-    payload.red_sugerida,
-    payload.texto_corto,
-    payload.texto_largo,
-    payload.cta,
-    payload.estado
-  );
+  `
+    )
+    .run(
+      payload.titulo,
+      payload.objetivo,
+      payload.red_sugerida,
+      payload.texto_corto,
+      payload.texto_largo,
+      payload.cta,
+      payload.estado
+    );
   return getContenidoById(result.lastInsertRowid);
 }
 
@@ -341,11 +385,13 @@ function updateContenido(id, input = {}) {
   if (!current) throw new Error('Contenido no encontrado');
   const payload = normalizeContenidoPayload(input, current);
 
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE marketing_contenidos
     SET titulo = ?, objetivo = ?, red_sugerida = ?, texto_corto = ?, texto_largo = ?, cta = ?, estado = ?, actualizado_en = CURRENT_TIMESTAMP
     WHERE id = ?
-  `).run(
+  `
+  ).run(
     payload.titulo,
     payload.objetivo,
     payload.red_sugerida,
@@ -367,13 +413,18 @@ function deleteContenido(id) {
 }
 
 function listCampanas() {
-  return db.prepare(`
+  return db
+    .prepare(
+      `
     SELECT c.*, p.nombre AS promo_nombre, ct.titulo AS contenido_titulo
     FROM marketing_campanas c
     LEFT JOIN marketing_promos p ON p.id = c.promo_id
     LEFT JOIN marketing_contenidos ct ON ct.id = c.contenido_id
     ORDER BY c.activa DESC, datetime(COALESCE(c.fecha_inicio, c.creado_en)) DESC, c.id DESC
-  `).all().map(mapCampaign);
+  `
+    )
+    .all()
+    .map(mapCampaign);
 }
 
 function normalizeCampaignPayload(input = {}, current = null) {
@@ -385,14 +436,16 @@ function normalizeCampaignPayload(input = {}, current = null) {
   const contenido = contenidoId ? getContenidoById(contenidoId) : null;
   const rawSlug = cleanText(input.tracking_slug ?? current?.tracking_slug ?? nombre);
   const trackingSlug = ensureUniqueTrackingSlug(rawSlug, current?.id || null);
-  const marketingSource = cleanText(input.marketing_source ?? current?.marketing_source ?? canal) || canal;
-  const marketingMedium = cleanText(input.marketing_medium ?? current?.marketing_medium ?? deriveMedium(canal)) || deriveMedium(canal);
-  const marketingCampaign = cleanText(input.marketing_campaign ?? current?.marketing_campaign ?? trackingSlug) || trackingSlug;
+  const marketingSource =
+    cleanText(input.marketing_source ?? current?.marketing_source ?? canal) || canal;
+  const marketingMedium =
+    cleanText(input.marketing_medium ?? current?.marketing_medium ?? deriveMedium(canal)) ||
+    deriveMedium(canal);
+  const marketingCampaign =
+    cleanText(input.marketing_campaign ?? current?.marketing_campaign ?? trackingSlug) ||
+    trackingSlug;
   const marketingContent = cleanText(
-    input.marketing_content
-    ?? current?.marketing_content
-    ?? contenido?.titulo
-    ?? ''
+    input.marketing_content ?? current?.marketing_content ?? contenido?.titulo ?? ''
   );
 
   return {
@@ -401,7 +454,10 @@ function normalizeCampaignPayload(input = {}, current = null) {
     canal,
     fecha_inicio: toDateTimeValue(input.fecha_inicio ?? current?.fecha_inicio ?? ''),
     fecha_fin: toDateTimeValue(input.fecha_fin ?? current?.fecha_fin ?? ''),
-    presupuesto_estimado: toNumber(input.presupuesto_estimado ?? current?.presupuesto_estimado ?? 0, 0),
+    presupuesto_estimado: toNumber(
+      input.presupuesto_estimado ?? current?.presupuesto_estimado ?? 0,
+      0
+    ),
     promo_id: toNullableNumber(input.promo_id ?? current?.promo_id ?? null),
     contenido_id: contenidoId,
     activa: toBool(input.activa ?? current?.activa, true) ? 1 : 0,
@@ -411,36 +467,44 @@ function normalizeCampaignPayload(input = {}, current = null) {
     marketing_medium: marketingMedium,
     marketing_campaign: marketingCampaign,
     marketing_content: marketingContent,
-    whatsapp_mensaje_sugerido: cleanText(input.whatsapp_mensaje_sugerido ?? current?.whatsapp_mensaje_sugerido ?? `Hola, vengo por ${trackingSlug}`),
+    whatsapp_mensaje_sugerido: cleanText(
+      input.whatsapp_mensaje_sugerido ??
+        current?.whatsapp_mensaje_sugerido ??
+        `Hola, vengo por ${trackingSlug}`
+    ),
   };
 }
 
 function createCampana(input = {}) {
   const payload = normalizeCampaignPayload(input);
-  const result = db.prepare(`
+  const result = db
+    .prepare(
+      `
     INSERT INTO marketing_campanas (
       nombre, objetivo, canal, fecha_inicio, fecha_fin, presupuesto_estimado, promo_id, contenido_id,
       activa, observaciones, tracking_slug, marketing_source, marketing_medium, marketing_campaign, marketing_content,
       whatsapp_mensaje_sugerido, creado_en, actualizado_en
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-  `).run(
-    payload.nombre,
-    payload.objetivo,
-    payload.canal,
-    payload.fecha_inicio,
-    payload.fecha_fin,
-    payload.presupuesto_estimado,
-    payload.promo_id,
-    payload.contenido_id,
-    payload.activa,
-    payload.observaciones,
-    payload.tracking_slug,
-    payload.marketing_source,
-    payload.marketing_medium,
-    payload.marketing_campaign,
-    payload.marketing_content,
-    payload.whatsapp_mensaje_sugerido
-  );
+  `
+    )
+    .run(
+      payload.nombre,
+      payload.objetivo,
+      payload.canal,
+      payload.fecha_inicio,
+      payload.fecha_fin,
+      payload.presupuesto_estimado,
+      payload.promo_id,
+      payload.contenido_id,
+      payload.activa,
+      payload.observaciones,
+      payload.tracking_slug,
+      payload.marketing_source,
+      payload.marketing_medium,
+      payload.marketing_campaign,
+      payload.marketing_content,
+      payload.whatsapp_mensaje_sugerido
+    );
   return getCampaignById(result.lastInsertRowid);
 }
 
@@ -449,13 +513,15 @@ function updateCampana(id, input = {}) {
   if (!current) throw new Error('Campaña no encontrada');
   const payload = normalizeCampaignPayload(input, current);
 
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE marketing_campanas
     SET nombre = ?, objetivo = ?, canal = ?, fecha_inicio = ?, fecha_fin = ?, presupuesto_estimado = ?, promo_id = ?, contenido_id = ?,
         activa = ?, observaciones = ?, tracking_slug = ?, marketing_source = ?, marketing_medium = ?, marketing_campaign = ?,
         marketing_content = ?, whatsapp_mensaje_sugerido = ?, actualizado_en = CURRENT_TIMESTAMP
     WHERE id = ?
-  `).run(
+  `
+  ).run(
     payload.nombre,
     payload.objetivo,
     payload.canal,
@@ -486,18 +552,25 @@ function deleteCampana(id) {
 }
 
 function listCalendario() {
-  return db.prepare(`
+  return db
+    .prepare(
+      `
     SELECT cal.*, ct.titulo AS contenido_titulo, p.nombre AS promo_nombre, c.nombre AS campana_nombre
     FROM marketing_calendario cal
     LEFT JOIN marketing_contenidos ct ON ct.id = cal.contenido_id
     LEFT JOIN marketing_promos p ON p.id = cal.promo_id
     LEFT JOIN marketing_campanas c ON c.id = cal.campana_id
     ORDER BY datetime(cal.fecha_programada) ASC, cal.id DESC
-  `).all().map(mapCalendar);
+  `
+    )
+    .all()
+    .map(mapCalendar);
 }
 
 function normalizeCalendarPayload(input = {}, current = null) {
-  const fechaProgramada = toDateTimeValue(input.fecha_programada ?? current?.fecha_programada ?? '');
+  const fechaProgramada = toDateTimeValue(
+    input.fecha_programada ?? current?.fecha_programada ?? ''
+  );
   if (!fechaProgramada) throw new Error('La fecha sugerida de publicación es obligatoria');
 
   const estado = cleanText(input.estado ?? current?.estado ?? 'pendiente').toLowerCase();
@@ -518,19 +591,23 @@ function normalizeCalendarPayload(input = {}, current = null) {
 
 function createCalendario(input = {}) {
   const payload = normalizeCalendarPayload(input);
-  const result = db.prepare(`
+  const result = db
+    .prepare(
+      `
     INSERT INTO marketing_calendario (
       contenido_id, promo_id, campana_id, fecha_programada, canal, estado, observaciones, creado_en, actualizado_en
     ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-  `).run(
-    payload.contenido_id,
-    payload.promo_id,
-    payload.campana_id,
-    payload.fecha_programada,
-    payload.canal,
-    payload.estado,
-    payload.observaciones
-  );
+  `
+    )
+    .run(
+      payload.contenido_id,
+      payload.promo_id,
+      payload.campana_id,
+      payload.fecha_programada,
+      payload.canal,
+      payload.estado,
+      payload.observaciones
+    );
   return listCalendario().find((item) => item.id === Number(result.lastInsertRowid)) || null;
 }
 
@@ -538,11 +615,13 @@ function updateCalendario(id, input = {}) {
   const current = db.prepare('SELECT * FROM marketing_calendario WHERE id = ?').get(Number(id));
   if (!current) throw new Error('Evento de calendario no encontrado');
   const payload = normalizeCalendarPayload(input, current);
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE marketing_calendario
     SET contenido_id = ?, promo_id = ?, campana_id = ?, fecha_programada = ?, canal = ?, estado = ?, observaciones = ?, actualizado_en = CURRENT_TIMESTAMP
     WHERE id = ?
-  `).run(
+  `
+  ).run(
     payload.contenido_id,
     payload.promo_id,
     payload.campana_id,
@@ -563,28 +642,38 @@ function deleteCalendario(id) {
 }
 
 function getReferences() {
-  const cupones = db.prepare(`
+  const cupones = db
+    .prepare(
+      `
     SELECT id, codigo, descripcion, tipo_descuento, valor_descuento, activo
     FROM cupones
     WHERE activo = 1
     ORDER BY codigo ASC
-  `).all().map((row) => ({
-    ...row,
-    id: Number(row.id),
-    valor_descuento: Number(row.valor_descuento || 0),
-    activo: Number(row.activo) === 1,
-  }));
+  `
+    )
+    .all()
+    .map((row) => ({
+      ...row,
+      id: Number(row.id),
+      valor_descuento: Number(row.valor_descuento || 0),
+      activo: Number(row.activo) === 1,
+    }));
 
-  const productos = db.prepare(`
+  const productos = db
+    .prepare(
+      `
     SELECT id, nombre, precio
     FROM productos
     WHERE activo = 1
     ORDER BY nombre ASC
-  `).all().map((row) => ({
-    id: Number(row.id),
-    nombre: row.nombre || '',
-    precio: Number(row.precio || 0),
-  }));
+  `
+    )
+    .all()
+    .map((row) => ({
+      id: Number(row.id),
+      nombre: row.nombre || '',
+      precio: Number(row.precio || 0),
+    }));
 
   return {
     cupones,
@@ -605,14 +694,22 @@ function getDashboard() {
 
   const conversacionesAtribuidas = 0;
 
-  const pedidosAtribuidos = db.prepare(`
+  const pedidosAtribuidos =
+    db
+      .prepare(
+        `
     SELECT COUNT(*) AS total
     FROM pedidos
     WHERE marketing_campana_id IS NOT NULL
        OR TRIM(COALESCE(marketing_codigo, '')) != ''
-  `).get()?.total || 0;
+  `
+      )
+      .get()?.total || 0;
 
-  const ventasAtribuidas = Number(db.prepare(`
+  const ventasAtribuidas = Number(
+    db
+      .prepare(
+        `
     SELECT COALESCE(SUM(total), 0) AS total
     FROM pedidos
     WHERE estado != 'cancelado'
@@ -620,9 +717,14 @@ function getDashboard() {
         marketing_campana_id IS NOT NULL
         OR TRIM(COALESCE(marketing_codigo, '')) != ''
       )
-  `).get()?.total || 0);
+  `
+      )
+      .get()?.total || 0
+  );
 
-  const attributedOrders = db.prepare(`
+  const attributedOrders = db
+    .prepare(
+      `
     SELECT id, cliente_id, cliente_telefono
     FROM pedidos
     WHERE estado != 'cancelado'
@@ -631,48 +733,65 @@ function getDashboard() {
         OR TRIM(COALESCE(marketing_codigo, '')) != ''
       )
     ORDER BY datetime(creado_en) ASC, id ASC
-  `).all();
+  `
+    )
+    .all();
 
   let clientesNuevosEstimados = 0;
   attributedOrders.forEach((order) => {
     const previousByClient = order.cliente_id
-      ? db.prepare(`
+      ? db
+          .prepare(
+            `
         SELECT id
         FROM pedidos
         WHERE id < ?
           AND estado != 'cancelado'
           AND cliente_id = ?
         LIMIT 1
-      `).get(order.id, order.cliente_id)
+      `
+          )
+          .get(order.id, order.cliente_id)
       : null;
 
     const comparable = comparablePhone(order.cliente_telefono);
-    const previousByPhone = !previousByClient && comparable
-      ? db.prepare(`
+    const previousByPhone =
+      !previousByClient && comparable
+        ? db
+            .prepare(
+              `
         SELECT id
         FROM pedidos
         WHERE id < ?
           AND estado != 'cancelado'
           AND REPLACE(REPLACE(REPLACE(cliente_telefono, ' ', ''), '+', ''), '-', '') LIKE ?
         LIMIT 1
-      `).get(order.id, `%${comparable}`)
-      : null;
+      `
+            )
+            .get(order.id, `%${comparable}`)
+        : null;
 
     if (!previousByClient && !previousByPhone) {
       clientesNuevosEstimados += 1;
     }
   });
 
-  const publicacionesPendientes = calendario.filter((item) => ['pendiente', 'listo'].includes(item.estado)).length;
+  const publicacionesPendientes = calendario.filter((item) =>
+    ['pendiente', 'listo'].includes(item.estado)
+  ).length;
 
-  const attributionRows = db.prepare(`
+  const attributionRows = db
+    .prepare(
+      `
     SELECT a.*, c.nombre AS campana_nombre, p.nombre AS promo_nombre
     FROM marketing_atribuciones a
     LEFT JOIN marketing_campanas c ON c.id = a.marketing_campana_id
     LEFT JOIN marketing_promos p ON p.id = a.marketing_promo_id
     ORDER BY datetime(a.creado_en) DESC, a.id DESC
     LIMIT 8
-  `).all();
+  `
+    )
+    .all();
 
   return {
     metrics: {
@@ -685,7 +804,9 @@ function getDashboard() {
       publicaciones_pendientes: publicacionesPendientes,
     },
     active_campaigns: campaigns.filter((item) => isWithinWindow(item)).slice(0, 6),
-    pending_calendar: calendario.filter((item) => ['pendiente', 'listo'].includes(item.estado)).slice(0, 8),
+    pending_calendar: calendario
+      .filter((item) => ['pendiente', 'listo'].includes(item.estado))
+      .slice(0, 8),
     recent_attributions: attributionRows.map((row) => ({
       ...row,
       id: Number(row.id),
@@ -706,9 +827,14 @@ function buildAttributionFromCampaign(campaign) {
     marketing_promo_id: campaign.promo_id ? Number(campaign.promo_id) : null,
     marketing_origen: cleanText(campaign.canal || 'general') || 'general',
     marketing_codigo: cleanText(campaign.tracking_slug || ''),
-    marketing_source: cleanText(campaign.marketing_source || campaign.canal || 'general') || 'general',
-    marketing_medium: cleanText(campaign.marketing_medium || deriveMedium(campaign.canal)) || deriveMedium(campaign.canal),
-    marketing_campaign: cleanText(campaign.marketing_campaign || campaign.tracking_slug || campaign.nombre || ''),
+    marketing_source:
+      cleanText(campaign.marketing_source || campaign.canal || 'general') || 'general',
+    marketing_medium:
+      cleanText(campaign.marketing_medium || deriveMedium(campaign.canal)) ||
+      deriveMedium(campaign.canal),
+    marketing_campaign: cleanText(
+      campaign.marketing_campaign || campaign.tracking_slug || campaign.nombre || ''
+    ),
     marketing_content: cleanText(campaign.marketing_content || campaign.contenido_titulo || ''),
   };
 }
@@ -734,7 +860,8 @@ function normalizeAttributionFields(input = {}) {
       normalized.marketing_codigo = normalized.marketing_codigo || fromCampaign.marketing_codigo;
       normalized.marketing_source = normalized.marketing_source || fromCampaign.marketing_source;
       normalized.marketing_medium = normalized.marketing_medium || fromCampaign.marketing_medium;
-      normalized.marketing_campaign = normalized.marketing_campaign || fromCampaign.marketing_campaign;
+      normalized.marketing_campaign =
+        normalized.marketing_campaign || fromCampaign.marketing_campaign;
       normalized.marketing_content = normalized.marketing_content || fromCampaign.marketing_content;
     }
   }
@@ -744,14 +871,14 @@ function normalizeAttributionFields(input = {}) {
 
 function hasAttributionFields(input = {}) {
   return Boolean(
-    input.marketing_campana_id
-    || input.marketing_promo_id
-    || cleanText(input.marketing_origen || '')
-    || cleanText(input.marketing_codigo || '')
-    || cleanText(input.marketing_source || '')
-    || cleanText(input.marketing_medium || '')
-    || cleanText(input.marketing_campaign || '')
-    || cleanText(input.marketing_content || '')
+    input.marketing_campana_id ||
+    input.marketing_promo_id ||
+    cleanText(input.marketing_origen || '') ||
+    cleanText(input.marketing_codigo || '') ||
+    cleanText(input.marketing_source || '') ||
+    cleanText(input.marketing_medium || '') ||
+    cleanText(input.marketing_campaign || '') ||
+    cleanText(input.marketing_content || '')
   );
 }
 
@@ -767,7 +894,9 @@ function matchCampaignByTracking(messageText = '') {
       if (!code) return null;
       const normalizedCode = normalizeText(code);
       const compactCode = normalizedCode.replace(/[^a-z0-9]/g, '');
-      const matched = normalizedMessage.includes(normalizedCode) || (compactCode && compactMessage.includes(compactCode));
+      const matched =
+        normalizedMessage.includes(normalizedCode) ||
+        (compactCode && compactMessage.includes(compactCode));
       if (!matched) return null;
       return {
         campaign,
@@ -783,17 +912,22 @@ function matchCampaignByTracking(messageText = '') {
 function updateDraftAttributionByConversation(conversationId, attribution) {
   if (!conversationId || !hasAttributionFields(attribution)) return null;
 
-  const draft = db.prepare(`
+  const draft = db
+    .prepare(
+      `
     SELECT id
     FROM whatsapp_pedidos_borrador
     WHERE conversacion_id = ? AND estado = 'abierto'
     ORDER BY id DESC
     LIMIT 1
-  `).get(Number(conversationId));
+  `
+    )
+    .get(Number(conversationId));
 
   if (!draft?.id) return null;
 
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE whatsapp_pedidos_borrador
     SET marketing_campana_id = ?,
         marketing_promo_id = ?,
@@ -805,7 +939,8 @@ function updateDraftAttributionByConversation(conversationId, attribution) {
         marketing_content = ?,
         actualizado_en = CURRENT_TIMESTAMP
     WHERE id = ?
-  `).run(
+  `
+  ).run(
     attribution.marketing_campana_id,
     attribution.marketing_promo_id,
     attribution.marketing_origen,
@@ -833,35 +968,41 @@ function registerAttributionEvent({
 }) {
   if (!hasAttributionFields(attribution)) return null;
   const payload = normalizeAttributionFields(attribution);
-  const result = db.prepare(`
+  const result = db
+    .prepare(
+      `
     INSERT INTO marketing_atribuciones (
       event_type, marketing_campana_id, marketing_promo_id, marketing_origen, marketing_codigo,
       marketing_source, marketing_medium, marketing_campaign, marketing_content,
       conversacion_id, borrador_id, pedido_id, cliente_id, telefono, amount, metadata_json, creado_en
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-  `).run(
-    cleanText(eventType || 'evento'),
-    payload.marketing_campana_id,
-    payload.marketing_promo_id,
-    payload.marketing_origen,
-    payload.marketing_codigo,
-    payload.marketing_source,
-    payload.marketing_medium,
-    payload.marketing_campaign,
-    payload.marketing_content,
-    toNullableNumber(conversacionId),
-    toNullableNumber(borradorId),
-    toNullableNumber(pedidoId),
-    toNullableNumber(clienteId),
-    cleanText(telefono || ''),
-    Number(amount || 0),
-    safeJson(metadata)
-  );
+  `
+    )
+    .run(
+      cleanText(eventType || 'evento'),
+      payload.marketing_campana_id,
+      payload.marketing_promo_id,
+      payload.marketing_origen,
+      payload.marketing_codigo,
+      payload.marketing_source,
+      payload.marketing_medium,
+      payload.marketing_campaign,
+      payload.marketing_content,
+      toNullableNumber(conversacionId),
+      toNullableNumber(borradorId),
+      toNullableNumber(pedidoId),
+      toNullableNumber(clienteId),
+      cleanText(telefono || ''),
+      Number(amount || 0),
+      safeJson(metadata)
+    );
   return Number(result.lastInsertRowid);
 }
 
 function applyConversationAttribution({ conversationId, telefono = '', messageText = '' }) {
-  const current = db.prepare('SELECT * FROM whatsapp_conversaciones WHERE id = ?').get(Number(conversationId));
+  const current = db
+    .prepare('SELECT * FROM whatsapp_conversaciones WHERE id = ?')
+    .get(Number(conversationId));
   if (!current) return null;
 
   const existingAttribution = normalizeAttributionFields(current);
@@ -876,7 +1017,8 @@ function applyConversationAttribution({ conversationId, telefono = '', messageTe
   }
 
   const attribution = buildAttributionFromCampaign(campaign);
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE whatsapp_conversaciones
     SET marketing_campana_id = ?,
         marketing_promo_id = ?,
@@ -888,7 +1030,8 @@ function applyConversationAttribution({ conversationId, telefono = '', messageTe
         marketing_content = ?,
         actualizado_en = CURRENT_TIMESTAMP
     WHERE id = ?
-  `).run(
+  `
+  ).run(
     attribution.marketing_campana_id,
     attribution.marketing_promo_id,
     attribution.marketing_origen,
@@ -914,17 +1057,22 @@ function applyConversationAttribution({ conversationId, telefono = '', messageTe
     },
   });
 
-  return db.prepare('SELECT * FROM whatsapp_conversaciones WHERE id = ?').get(Number(conversationId));
+  return db
+    .prepare('SELECT * FROM whatsapp_conversaciones WHERE id = ?')
+    .get(Number(conversationId));
 }
 
 function syncDraftAttributionFromConversation({ conversationId, draftId }) {
-  const conversation = db.prepare('SELECT * FROM whatsapp_conversaciones WHERE id = ?').get(Number(conversationId));
+  const conversation = db
+    .prepare('SELECT * FROM whatsapp_conversaciones WHERE id = ?')
+    .get(Number(conversationId));
   if (!conversation) return null;
 
   const attribution = normalizeAttributionFields(conversation);
   if (!hasAttributionFields(attribution)) return null;
 
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE whatsapp_pedidos_borrador
     SET marketing_campana_id = ?,
         marketing_promo_id = ?,
@@ -936,7 +1084,8 @@ function syncDraftAttributionFromConversation({ conversationId, draftId }) {
         marketing_content = ?,
         actualizado_en = CURRENT_TIMESTAMP
     WHERE id = ?
-  `).run(
+  `
+  ).run(
     attribution.marketing_campana_id,
     attribution.marketing_promo_id,
     attribution.marketing_origen,
@@ -951,7 +1100,7 @@ function syncDraftAttributionFromConversation({ conversationId, draftId }) {
   registerAttributionEvent({
     eventType: 'borrador_atribuido',
     attribution,
-    conversacionId,
+    conversacionId: conversationId,
     borradorId: draftId,
     telefono: conversation.telefono || '',
     metadata: {
@@ -984,27 +1133,36 @@ function registerPedidoAttribution({ pedidoId, payload = {}, clienteId = null, t
   });
 
   const previousByClient = pedido.cliente_id
-    ? db.prepare(`
+    ? db
+        .prepare(
+          `
       SELECT id
       FROM pedidos
       WHERE id < ?
         AND estado != 'cancelado'
         AND cliente_id = ?
       LIMIT 1
-    `).get(pedido.id, pedido.cliente_id)
+    `
+        )
+        .get(pedido.id, pedido.cliente_id)
     : null;
 
   const comparable = comparablePhone(pedido.cliente_telefono || telefono);
-  const previousByPhone = !previousByClient && comparable
-    ? db.prepare(`
+  const previousByPhone =
+    !previousByClient && comparable
+      ? db
+          .prepare(
+            `
       SELECT id
       FROM pedidos
       WHERE id < ?
         AND estado != 'cancelado'
         AND REPLACE(REPLACE(REPLACE(cliente_telefono, ' ', ''), '+', ''), '-', '') LIKE ?
       LIMIT 1
-    `).get(pedido.id, `%${comparable}`)
-    : null;
+    `
+          )
+          .get(pedido.id, `%${comparable}`)
+      : null;
 
   if (!previousByClient && !previousByPhone) {
     registerAttributionEvent({
@@ -1084,13 +1242,21 @@ function findPublisherDestinationDuplicate(url, excludeId = null) {
   if (!normalized) return null;
 
   const rows = db.prepare('SELECT * FROM marketing_publicador_destinos').all();
-  return rows
-    .map(mapPublisherDestination)
-    .find((item) => Number(item.id) !== Number(excludeId || 0) && normalizePublisherUrl(item.url) === normalized) || null;
+  return (
+    rows
+      .map(mapPublisherDestination)
+      .find(
+        (item) =>
+          Number(item.id) !== Number(excludeId || 0) &&
+          normalizePublisherUrl(item.url) === normalized
+      ) || null
+  );
 }
 
 function listPublisherDestinations() {
-  return db.prepare(`
+  return db
+    .prepare(
+      `
     SELECT *
     FROM marketing_publicador_destinos
     ORDER BY activo DESC,
@@ -1098,7 +1264,10 @@ function listPublisherDestinations() {
              CASE WHEN orden > 0 THEN orden ELSE 999999 END ASC,
              datetime(creado_en) DESC,
              nombre COLLATE NOCASE ASC
-  `).all().map(mapPublisherDestination);
+  `
+    )
+    .all()
+    .map(mapPublisherDestination);
 }
 
 function getPublisherDestinationById(id) {
@@ -1114,10 +1283,14 @@ function createPublisherDestination(input = {}) {
   if (duplicate) {
     throw new Error(`Ese destino ya existe: ${duplicate.nombre}`);
   }
-  const result = db.prepare(`
+  const result = db
+    .prepare(
+      `
     INSERT INTO marketing_publicador_destinos (nombre, url, tipo, activo, orden, notas, creado_en, actualizado_en)
     VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-  `).run(payload.nombre, payload.url, payload.tipo, payload.activo, payload.orden, payload.notas);
+  `
+    )
+    .run(payload.nombre, payload.url, payload.tipo, payload.activo, payload.orden, payload.notas);
   return getPublisherDestinationById(result.lastInsertRowid);
 }
 
@@ -1129,11 +1302,21 @@ function updatePublisherDestination(id, input = {}) {
   if (duplicate) {
     throw new Error(`Ese destino ya existe: ${duplicate.nombre}`);
   }
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE marketing_publicador_destinos
     SET nombre = ?, url = ?, tipo = ?, activo = ?, orden = ?, notas = ?, actualizado_en = CURRENT_TIMESTAMP
     WHERE id = ?
-  `).run(payload.nombre, payload.url, payload.tipo, payload.activo, payload.orden, payload.notas, Number(id));
+  `
+  ).run(
+    payload.nombre,
+    payload.url,
+    payload.tipo,
+    payload.activo,
+    payload.orden,
+    payload.notas,
+    Number(id)
+  );
   return getPublisherDestinationById(id);
 }
 
@@ -1147,11 +1330,13 @@ function deletePublisherDestination(id) {
 function updatePublisherDestinationPreview(id, previewPath = '') {
   const current = getPublisherDestinationById(id);
   if (!current) throw new Error('Destino no encontrado');
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE marketing_publicador_destinos
     SET preview_path = ?, preview_actualizado_en = CURRENT_TIMESTAMP, actualizado_en = CURRENT_TIMESTAMP
     WHERE id = ?
-  `).run(cleanText(previewPath || ''), Number(id));
+  `
+  ).run(cleanText(previewPath || ''), Number(id));
   return getPublisherDestinationById(id);
 }
 
@@ -1159,7 +1344,8 @@ function normalizePublisherPostPayload(input = {}, current = null) {
   const titulo = cleanText(input.titulo || current?.titulo || '');
   if (!titulo) throw new Error('El titulo de la publicacion es obligatorio');
 
-  const estado = cleanText(input.estado || current?.estado || 'borrador').toLowerCase() || 'borrador';
+  const estado =
+    cleanText(input.estado || current?.estado || 'borrador').toLowerCase() || 'borrador';
   if (!new Set(['borrador', 'listo', 'publicando', 'publicado']).has(estado)) {
     throw new Error('El estado de la publicacion no es valido');
   }
@@ -1176,45 +1362,58 @@ function normalizePublisherPostPayload(input = {}, current = null) {
 }
 
 function listPublisherPosts() {
-  return db.prepare(`
+  return db
+    .prepare(
+      `
     SELECT p.*,
       (SELECT COUNT(*) FROM marketing_publicador_envios e WHERE e.publicacion_id = p.id) AS destinos_total,
       (SELECT COUNT(*) FROM marketing_publicador_envios e WHERE e.publicacion_id = p.id AND e.estado = 'publicado') AS destinos_publicados,
       (SELECT COUNT(*) FROM marketing_publicador_envios e WHERE e.publicacion_id = p.id AND e.estado IN ('pendiente', 'abierto', 'error')) AS destinos_pendientes
     FROM marketing_publicador_publicaciones p
     ORDER BY datetime(p.actualizado_en) DESC, p.id DESC
-  `).all().map(mapPublisherPost);
+  `
+    )
+    .all()
+    .map(mapPublisherPost);
 }
 
 function getPublisherPostById(id) {
   if (!id) return null;
   return mapPublisherPost(
-    db.prepare(`
+    db
+      .prepare(
+        `
       SELECT p.*,
         (SELECT COUNT(*) FROM marketing_publicador_envios e WHERE e.publicacion_id = p.id) AS destinos_total,
         (SELECT COUNT(*) FROM marketing_publicador_envios e WHERE e.publicacion_id = p.id AND e.estado = 'publicado') AS destinos_publicados,
         (SELECT COUNT(*) FROM marketing_publicador_envios e WHERE e.publicacion_id = p.id AND e.estado IN ('pendiente', 'abierto', 'error')) AS destinos_pendientes
       FROM marketing_publicador_publicaciones p
       WHERE p.id = ?
-    `).get(Number(id))
+    `
+      )
+      .get(Number(id))
   );
 }
 
 function createPublisherPost(input = {}) {
   const payload = normalizePublisherPostPayload(input);
-  const result = db.prepare(`
+  const result = db
+    .prepare(
+      `
     INSERT INTO marketing_publicador_publicaciones (
       titulo, mensaje, link_url, media_path, media_mime, media_nombre, estado, creado_en, actualizado_en
     ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-  `).run(
-    payload.titulo,
-    payload.mensaje,
-    payload.link_url,
-    payload.media_path,
-    payload.media_mime,
-    payload.media_nombre,
-    payload.estado
-  );
+  `
+    )
+    .run(
+      payload.titulo,
+      payload.mensaje,
+      payload.link_url,
+      payload.media_path,
+      payload.media_mime,
+      payload.media_nombre,
+      payload.estado
+    );
   return getPublisherPostById(result.lastInsertRowid);
 }
 
@@ -1222,11 +1421,13 @@ function updatePublisherPost(id, input = {}) {
   const current = getPublisherPostById(id);
   if (!current) throw new Error('Publicacion no encontrada');
   const payload = normalizePublisherPostPayload(input, current);
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE marketing_publicador_publicaciones
     SET titulo = ?, mensaje = ?, link_url = ?, media_path = ?, media_mime = ?, media_nombre = ?, estado = ?, actualizado_en = CURRENT_TIMESTAMP
     WHERE id = ?
-  `).run(
+  `
+  ).run(
     payload.titulo,
     payload.mensaje,
     payload.link_url,
@@ -1247,34 +1448,44 @@ function deletePublisherPost(id) {
 }
 
 function buildPublisherText(post) {
-  return [String(post?.mensaje || '').trim(), String(post?.link_url || '').trim()].filter(Boolean).join('\n\n').trim();
+  return [String(post?.mensaje || '').trim(), String(post?.link_url || '').trim()]
+    .filter(Boolean)
+    .join('\n\n')
+    .trim();
 }
 
 function listPublisherQueue(postId) {
   const post = getPublisherPostById(postId);
   if (!post) throw new Error('Publicacion no encontrada');
-  const items = db.prepare(`
+  const items = db
+    .prepare(
+      `
     SELECT e.*, d.nombre AS destino_nombre, d.url AS destino_url, d.tipo AS destino_tipo
     FROM marketing_publicador_envios e
     JOIN marketing_publicador_destinos d ON d.id = e.destino_id
     WHERE e.publicacion_id = ?
     ORDER BY e.orden ASC, e.id ASC
-  `).all(Number(postId)).map((row) => {
-    const mapped = mapPublisherQueueRow(row);
-    return {
-      ...mapped,
-      texto_preparado: buildPublisherText(post),
-      media_path: post.media_path || '',
-      media_nombre: post.media_nombre || '',
-      media_mime: post.media_mime || '',
-      open_url: row.destino_url || '',
-    };
-  });
+  `
+    )
+    .all(Number(postId))
+    .map((row) => {
+      const mapped = mapPublisherQueueRow(row);
+      return {
+        ...mapped,
+        texto_preparado: buildPublisherText(post),
+        media_path: post.media_path || '',
+        media_nombre: post.media_nombre || '',
+        media_mime: post.media_mime || '',
+        open_url: row.destino_url || '',
+      };
+    });
   return { publicacion: post, items };
 }
 
 function getPublisherQueueItemById(id) {
-  const row = db.prepare(`
+  const row = db
+    .prepare(
+      `
     SELECT e.*,
       d.nombre AS destino_nombre,
       d.url AS destino_url,
@@ -1289,7 +1500,9 @@ function getPublisherQueueItemById(id) {
     JOIN marketing_publicador_destinos d ON d.id = e.destino_id
     JOIN marketing_publicador_publicaciones p ON p.id = e.publicacion_id
     WHERE e.id = ?
-  `).get(Number(id));
+  `
+    )
+    .get(Number(id));
   if (!row) return null;
   const mapped = mapPublisherQueueRow(row);
   return {
@@ -1315,9 +1528,10 @@ function planPublisherQueue(postId, destinationIds = null) {
   if (!post) throw new Error('Publicacion no encontrada');
 
   const allDestinations = listPublisherDestinations().filter((item) => item.activo);
-  const requestedIds = Array.isArray(destinationIds) && destinationIds.length
-    ? destinationIds.map((id) => Number(id)).filter((id) => Number.isFinite(id))
-    : allDestinations.map((item) => item.id);
+  const requestedIds =
+    Array.isArray(destinationIds) && destinationIds.length
+      ? destinationIds.map((id) => Number(id)).filter((id) => Number.isFinite(id))
+      : allDestinations.map((item) => item.id);
 
   const selectedDestinations = allDestinations.filter((item) => requestedIds.includes(item.id));
   const seenUrls = new Set();
@@ -1333,20 +1547,26 @@ function planPublisherQueue(postId, destinationIds = null) {
 
   db.exec('BEGIN');
   try {
-    db.prepare('DELETE FROM marketing_publicador_envios WHERE publicacion_id = ?').run(Number(postId));
+    db.prepare('DELETE FROM marketing_publicador_envios WHERE publicacion_id = ?').run(
+      Number(postId)
+    );
     const insert = db.prepare(`
       INSERT INTO marketing_publicador_envios (publicacion_id, destino_id, estado, orden, creado_en, actualizado_en)
       VALUES (?, ?, 'pendiente', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
     `);
     ids.forEach((id, index) => insert.run(Number(postId), id, index + 1));
-    db.prepare(`
+    db.prepare(
+      `
       UPDATE marketing_publicador_publicaciones
       SET estado = 'listo', actualizado_en = CURRENT_TIMESTAMP
       WHERE id = ?
-    `).run(Number(postId));
+    `
+    ).run(Number(postId));
     db.exec('COMMIT');
   } catch (error) {
-    try { db.exec('ROLLBACK'); } catch {}
+    try {
+      db.exec('ROLLBACK');
+    } catch {}
     throw error;
   }
   return listPublisherQueue(postId);
@@ -1357,10 +1577,13 @@ function updatePublisherQueueItemStatus(id, estado, notas = '') {
   if (!new Set(['pendiente', 'abierto', 'publicado', 'omitido', 'error']).has(normalized)) {
     throw new Error('Estado de envio no valido');
   }
-  const current = db.prepare('SELECT * FROM marketing_publicador_envios WHERE id = ?').get(Number(id));
+  const current = db
+    .prepare('SELECT * FROM marketing_publicador_envios WHERE id = ?')
+    .get(Number(id));
   if (!current) throw new Error('Envio no encontrado');
 
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE marketing_publicador_envios
     SET estado = ?,
         notas = ?,
@@ -1369,35 +1592,56 @@ function updatePublisherQueueItemStatus(id, estado, notas = '') {
         omitido_en = CASE WHEN ? = 'omitido' THEN CURRENT_TIMESTAMP ELSE omitido_en END,
         actualizado_en = CURRENT_TIMESTAMP
     WHERE id = ?
-  `).run(normalized, cleanText(notas), normalized, normalized, normalized, Number(id));
+  `
+  ).run(normalized, cleanText(notas), normalized, normalized, normalized, Number(id));
 
   const publicacionId = Number(current.publicacion_id);
-  const pendingCount = Number(db.prepare(`
+  const pendingCount = Number(
+    db
+      .prepare(
+        `
     SELECT COUNT(*) AS total
     FROM marketing_publicador_envios
     WHERE publicacion_id = ? AND estado IN ('pendiente', 'abierto')
-  `).get(publicacionId)?.total || 0);
-  const publishedCount = Number(db.prepare(`
+  `
+      )
+      .get(publicacionId)?.total || 0
+  );
+  const publishedCount = Number(
+    db
+      .prepare(
+        `
     SELECT COUNT(*) AS total
     FROM marketing_publicador_envios
     WHERE publicacion_id = ? AND estado = 'publicado'
-  `).get(publicacionId)?.total || 0);
-  const errorCount = Number(db.prepare(`
+  `
+      )
+      .get(publicacionId)?.total || 0
+  );
+  const errorCount = Number(
+    db
+      .prepare(
+        `
     SELECT COUNT(*) AS total
     FROM marketing_publicador_envios
     WHERE publicacion_id = ? AND estado = 'error'
-  `).get(publicacionId)?.total || 0);
+  `
+      )
+      .get(publicacionId)?.total || 0
+  );
 
   let postStatus = 'publicando';
   if (pendingCount === 0 && publishedCount > 0 && errorCount === 0) postStatus = 'publicado';
   else if (pendingCount === 0 && errorCount > 0) postStatus = 'listo';
   else if (publishedCount === 0) postStatus = 'listo';
 
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE marketing_publicador_publicaciones
     SET estado = ?, actualizado_en = CURRENT_TIMESTAMP
     WHERE id = ?
-  `).run(postStatus, publicacionId);
+  `
+  ).run(postStatus, publicacionId);
 
   return listPublisherQueue(publicacionId);
 }

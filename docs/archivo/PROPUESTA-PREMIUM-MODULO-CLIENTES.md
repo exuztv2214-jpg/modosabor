@@ -276,4 +276,3 @@ Resultado esperado:
 - modulo mas solido
 - mas util para operacion diaria
 - mejor base para campanas y automatizacion
-

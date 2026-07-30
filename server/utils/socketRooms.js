@@ -1,18 +1,19 @@
 /**
- * Gestión segura de Socket.IO con rooms por pedido y rol
- * Previene exposición global de datos sensibles
+ * Gestion segura de Socket.IO con rooms por pedido y rol
+ * Previene exposicion global de datos sensibles
  */
 
 const jwt = require('jsonwebtoken');
 const { getJwtSecret } = require('./authConfig');
 const db = require('../db');
 const { parsePedidoItems } = require('./pedidoItems');
+const logger = require('./logger');
 
-// Almacenamiento en memoria de tokens de seguimiento (podría moverse a Redis en el futuro)
+// Almacenamiento en memoria de tokens de seguimiento (podria moverse a Redis en el futuro)
 const trackingTokens = new Map();
 
 /**
- * Generar token único de seguimiento para un pedido
+ * Generar token unico de seguimiento para un pedido
  */
 function generateTrackingToken(pedidoId) {
   const crypto = require('crypto');
@@ -30,22 +31,24 @@ function generateTrackingToken(pedidoId) {
 function validateTrackingToken(pedidoId, token) {
   if (!pedidoId || !token) return false;
 
-  // 1. Intentar validar desde memoria (rápido)
+  // 1. Intentar validar desde memoria (rapido)
   const stored = trackingTokens.get(String(pedidoId));
   if (stored && stored.token === token) {
-    // Validar expiración (7 días)
+    // Validar expiracion (7 dias)
     const MAX_AGE = 7 * 24 * 60 * 60 * 1000;
     if (Date.now() - stored.createdAt <= MAX_AGE) {
       return true;
     }
     trackingTokens.delete(String(pedidoId));
   }
-  
+
   // 2. Fallback: Validar contra Base de Datos (robusto ante reinicios)
   try {
-    const pedido = db.prepare('SELECT id, tracking_token, creado_en FROM pedidos WHERE id = ?').get(pedidoId);
+    const pedido = db
+      .prepare('SELECT id, tracking_token, creado_en FROM pedidos WHERE id = ?')
+      .get(pedidoId);
     if (pedido && pedido.tracking_token === token) {
-      // Re-hidratar memoria para próximas consultas
+      // Re-hidratar memoria para proximas consultas
       trackingTokens.set(String(pedidoId), {
         token: pedido.tracking_token,
         createdAt: new Date(pedido.creado_en).getTime(),
@@ -53,9 +56,9 @@ function validateTrackingToken(pedidoId, token) {
       return true;
     }
   } catch (error) {
-    console.error('Error validando tracking_token en DB:', error);
+    logger.error('Error validando tracking_token en DB', { message: error.message });
   }
-  
+
   return false;
 }
 
@@ -69,20 +72,45 @@ function clearTrackingToken(pedidoId) {
   try {
     db.prepare('UPDATE pedidos SET tracking_token = ? WHERE id = ?').run('', pedidoId);
   } catch (error) {
-    console.error('Error limpiando tracking_token en DB:', error);
+    logger.error('Error limpiando tracking_token en DB', { message: error.message });
   }
 }
 
 /**
- * Inicializar seguridad de sockets
+ * Inicializar seguridad de sockets con autenticacion por cookie
  */
 function initSocketSecurity(io) {
-  io.on('connection', (socket) => {
-    // Socket sin autenticar solo puede unirse a rooms de tracking público
-    socket.authenticated = false;
-    socket.user = null;
+  io.use((socket, next) => {
+    try {
+      const token = socket.handshake.headers.cookie
+        ?.split(';')
+        .find((c) => c.trim().startsWith('auth_token='))
+        ?.split('=')[1];
 
-    // Evento de autenticación para usuarios admin
+      if (token) {
+        const user = jwt.verify(token, getJwtSecret());
+        socket.user = user;
+        socket.authenticated = true;
+      } else {
+        socket.authenticated = false;
+        socket.user = null;
+      }
+      next();
+    } catch (error) {
+      socket.authenticated = false;
+      socket.user = null;
+      next();
+    }
+  });
+
+  io.on('connection', (socket) => {
+    if (socket.authenticated && socket.user) {
+      socket.join(`role_${socket.user.rol}`);
+      socket.join('authenticated');
+      socket.emit('authenticated', { success: true, rol: socket.user.rol });
+    }
+
+    // Evento de autenticacion legacy (para compatibilidad con clientes que usan token manual)
     socket.on('authenticate', (token) => {
       try {
         const user = jwt.verify(token, getJwtSecret());
@@ -92,11 +120,11 @@ function initSocketSecurity(io) {
         socket.join('authenticated');
         socket.emit('authenticated', { success: true, rol: user.rol });
       } catch (error) {
-        socket.emit('authenticated', { success: false, error: 'Token inválido' });
+        socket.emit('authenticated', { success: false, error: 'Token invalido' });
       }
     });
 
-    // Unirse a room de seguimiento de pedido (público)
+    // Unirse a room de seguimiento de pedido (publico)
     socket.on('join_tracking', ({ pedidoId, token }) => {
       if (!pedidoId || !token) {
         socket.emit('tracking_error', { message: 'Datos incompletos' });
@@ -104,7 +132,7 @@ function initSocketSecurity(io) {
       }
 
       if (!validateTrackingToken(pedidoId, token)) {
-        socket.emit('tracking_error', { message: 'Token de seguimiento inválido' });
+        socket.emit('tracking_error', { message: 'Token de seguimiento invalido' });
         return;
       }
 
@@ -112,16 +140,18 @@ function initSocketSecurity(io) {
       socket.emit('tracking_joined', { pedidoId });
     });
 
-    // Unirse como repartidor (autenticación por código)
+    // Unirse como repartidor (autenticacion por codigo)
     socket.on('join_rider', ({ repartidorId, codigo }) => {
       if (!repartidorId || !codigo) {
         socket.emit('rider_error', { message: 'Datos incompletos' });
         return;
       }
 
-      const repartidor = db.prepare('SELECT id, codigo_acceso FROM repartidores WHERE id = ?').get(repartidorId);
+      const repartidor = db
+        .prepare('SELECT id, codigo_acceso FROM repartidores WHERE id = ?')
+        .get(repartidorId);
       if (!repartidor || repartidor.codigo_acceso !== codigo) {
-        socket.emit('rider_error', { message: 'Código de acceso inválido' });
+        socket.emit('rider_error', { message: 'Codigo de acceso invalido' });
         return;
       }
 
@@ -132,13 +162,13 @@ function initSocketSecurity(io) {
 
     // Salir de rooms al desconectar
     socket.on('disconnect', () => {
-      // Cleanup automático por Socket.IO
+      // Cleanup automatico por Socket.IO
     });
   });
 }
 
 /**
- * Emitir actualización de pedido SOLO a interesados autorizados
+ * Emitir actualizacion de pedido SOLO a interesados autorizados
  */
 function emitPedidoActualizado(io, pedido, options = {}) {
   const normalizedPedido = {
@@ -147,8 +177,8 @@ function emitPedidoActualizado(io, pedido, options = {}) {
   };
   const pedidoId = normalizedPedido.id;
   const includeRepartidor = options.includeRepartidor !== false;
-  
-  // Datos públicos (para tracking)
+
+  // Datos publicos (para tracking)
   const publicData = {
     id: normalizedPedido.id,
     numero: normalizedPedido.numero,
@@ -181,13 +211,16 @@ function emitPedidoActualizado(io, pedido, options = {}) {
   };
 
   // Datos para repartidor asignado
-  const riderData = includeRepartidor && normalizedPedido.repartidor ? {
-    id: normalizedPedido.repartidor.id,
-    nombre: normalizedPedido.repartidor.nombre,
-    latitud: normalizedPedido.repartidor.latitud,
-    longitud: normalizedPedido.repartidor.longitud,
-    ultima_ubicacion_en: normalizedPedido.repartidor.ultima_ubicacion_en,
-  } : null;
+  const riderData =
+    includeRepartidor && normalizedPedido.repartidor
+      ? {
+          id: normalizedPedido.repartidor.id,
+          nombre: normalizedPedido.repartidor.nombre,
+          latitud: normalizedPedido.repartidor.latitud,
+          longitud: normalizedPedido.repartidor.longitud,
+          ultima_ubicacion_en: normalizedPedido.repartidor.ultima_ubicacion_en,
+        }
+      : null;
 
   // Datos completos para admin
   const fullData = normalizedPedido;
@@ -198,7 +231,7 @@ function emitPedidoActualizado(io, pedido, options = {}) {
     repartidor: riderData,
   });
 
-  // 2. Emitir versión completa a usuarios autenticados (admin)
+  // 2. Emitir version completa a usuarios autenticados (admin)
   io.to('authenticated').emit('pedido_actualizado_admin', fullData);
 
   // 3. Si tiene repartidor, notificar solo a ese repartidor
@@ -207,7 +240,10 @@ function emitPedidoActualizado(io, pedido, options = {}) {
   }
 }
 
-function emitDeliveryAssignment(io, { pedido = null, repartidor = null, previousRepartidor = null, emitPedido = true } = {}) {
+function emitDeliveryAssignment(
+  io,
+  { pedido = null, repartidor = null, previousRepartidor = null, emitPedido = true } = {}
+) {
   if (pedido && emitPedido) {
     emitPedidoActualizado(io, pedido);
   }
@@ -222,7 +258,7 @@ function emitDeliveryAssignment(io, { pedido = null, repartidor = null, previous
 }
 
 /**
- * Emitir ubicación de repartidor (solo a cliente del pedido asignado)
+ * Emitir ubicacion de repartidor (solo a cliente del pedido asignado)
  */
 function emitRepartidorUbicacion(io, repartidor, pedidoId) {
   const publicLocation = {
@@ -233,12 +269,12 @@ function emitRepartidorUbicacion(io, repartidor, pedidoId) {
     ultima_ubicacion_en: repartidor.ultima_ubicacion_en,
   };
 
-  // Solo enviar ubicación al cliente que tiene un pedido con este repartidor
+  // Solo enviar ubicacion al cliente que tiene un pedido con este repartidor
   if (pedidoId) {
     io.to(`pedido_${pedidoId}`).emit('repartidor_ubicacion', publicLocation);
   }
 
-  // Admins ven ubicación completa
+  // Admins ven ubicacion completa
   io.to('authenticated').emit('repartidor_ubicacion_admin', repartidor);
 }
 
@@ -253,29 +289,33 @@ function emitNuevoPedido(io, pedido) {
   };
   room.emit('nuevo_pedido', payload);
   room.emit('system_nuevo_pedido', payload);
-  
+
   // Logging para debugging de alarmas
   const stats = getRoomStats(io);
-  console.log(`[socket] nuevo_pedido #${pedido?.numero} emitido. Origen: ${pedido?.origen}. Sockets en 'authenticated': ${stats['authenticated'] || 0}`);
+  logger.info(
+    `[socket] nuevo_pedido #${pedido?.numero} emitido. Origen: ${pedido?.origen}. Sockets en 'authenticated': ${stats['authenticated'] || 0}`
+  );
 }
 
 /**
- * Obtener estadísticas de rooms (para debugging)
+ * Obtener estadisticas de rooms (para debugging)
  */
 function getRoomStats(io) {
   const rooms = io.sockets.adapter.rooms;
   const stats = {};
-  
+
   for (const [roomName, sockets] of rooms) {
-    if (!roomName.startsWith('role_') && 
-        !roomName.startsWith('pedido_') && 
-        !roomName.startsWith('repartidor_') &&
-        roomName !== 'authenticated') {
+    if (
+      !roomName.startsWith('role_') &&
+      !roomName.startsWith('pedido_') &&
+      !roomName.startsWith('repartidor_') &&
+      roomName !== 'authenticated'
+    ) {
       continue;
     }
     stats[roomName] = sockets.size;
   }
-  
+
   return stats;
 }
 

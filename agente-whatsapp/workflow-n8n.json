@@ -1,0 +1,233 @@
+{
+  "name": "Agente WhatsApp - Modo Sabor",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": ["messages"],
+        "options": {}
+      },
+      "id": "trigger-whatsapp",
+      "name": "WhatsApp Trigger",
+      "type": "n8n-nodes-base.whatsAppTrigger",
+      "typeVersion": 1,
+      "position": [0, 0],
+      "webhookId": "REEMPLAZAR_AL_CONFIGURAR",
+      "credentials": {
+        "whatsAppTriggerApi": {
+          "id": "REEMPLAZAR",
+          "name": "Modo Sabor WhatsApp"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $json.messages[0].from }}",
+        "contextWindowLength": 20
+      },
+      "id": "memory-buffer",
+      "name": "Memoria por telefono",
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [220, 200]
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-2.5-flash",
+        "options": {}
+      },
+      "id": "model-gemini",
+      "name": "Gemini (cerebro del agente)",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [220, 0],
+      "credentials": {
+        "googlePalmApi": {
+          "id": "REEMPLAZAR",
+          "name": "Google Gemini API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "toolDescription": "Consulta si Modo Sabor esta abierto ahora mismo y que turno esta corriendo. Usar siempre antes de tomar un pedido.",
+        "url": "={{ $env.MODO_SABOR_API_URL }}/api/agente/estado",
+        "method": "GET",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "x-agent-key", "value": "={{ $env.AGENT_API_KEY }}" }]
+        }
+      },
+      "id": "tool-estado",
+      "name": "consultar_estado",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [460, -260]
+    },
+    {
+      "parameters": {
+        "toolDescription": "Trae el catalogo de productos de Modo Sabor, opcionalmente filtrado por categoria (ej: pizzas, empanadas, milanesas). Usar cuando el cliente pregunta que hay o pide ver la carta.",
+        "url": "={{ $env.MODO_SABOR_API_URL }}/api/agente/menu",
+        "method": "GET",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "x-agent-key", "value": "={{ $env.AGENT_API_KEY }}" }]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "categoria",
+              "value": "={{ $fromAI('categoria', 'Nombre de la categoria a filtrar, o vacio para traer todo el menu', 'string') }}"
+            }
+          ]
+        }
+      },
+      "id": "tool-menu",
+      "name": "consultar_menu",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [460, -160]
+    },
+    {
+      "parameters": {
+        "toolDescription": "Cotiza UN item del pedido a partir de una descripcion en lenguaje natural (ej: 'pizza muzzarella docena con extra queso'). Devuelve el producto identificado, el precio total ya calculado contra el catalogo real, y una descripcion clara. Hay que llamar esta tool para CADA item antes de sumarlo al pedido - nunca inventar precios.",
+        "url": "={{ $env.MODO_SABOR_API_URL }}/api/agente/cotizar",
+        "method": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "x-agent-key", "value": "={{ $env.AGENT_API_KEY }}" }]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \"query\": $fromAI('query', 'Descripcion en lenguaje natural de lo que pidio el cliente: producto, tamano/presentacion y extras', 'string') } }}"
+      },
+      "id": "tool-cotizar",
+      "name": "cotizar_item",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [460, -60]
+    },
+    {
+      "parameters": {
+        "toolDescription": "Valida si una direccion esta dentro de la zona de reparto de Monteros y devuelve el costo de envio. Usar siempre antes de confirmar un pedido de delivery.",
+        "url": "={{ $env.MODO_SABOR_API_URL }}/api/agente/envio",
+        "method": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "x-agent-key", "value": "={{ $env.AGENT_API_KEY }}" }]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \"direccion\": $fromAI('direccion', 'Direccion completa que dio el cliente: calle, numero, referencia', 'string') } }}"
+      },
+      "id": "tool-envio",
+      "name": "cotizar_envio",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [460, 40]
+    },
+    {
+      "parameters": {
+        "toolDescription": "Busca si el numero de telefono que esta escribiendo ya pidio antes en Modo Sabor, para saludar por su nombre si corresponde. No es obligatorio usarla siempre.",
+        "url": "={{ $env.MODO_SABOR_API_URL }}/api/agente/cliente/{{ $fromAI('telefono', 'Numero de telefono del cliente que esta escribiendo', 'string') }}",
+        "method": "GET",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "x-agent-key", "value": "={{ $env.AGENT_API_KEY }}" }]
+        }
+      },
+      "id": "tool-cliente",
+      "name": "consultar_cliente",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [460, 140]
+    },
+    {
+      "parameters": {
+        "toolDescription": "Crea el pedido definitivo en el sistema de Modo Sabor. Llamar SOLO UNA VEZ, al final, despues de que el cliente confirmo explicitamente todo el pedido (items, direccion o retiro, forma de pago y total). Cada item necesita producto_id (obtenido de cotizar_item) y cantidad; variantes y extras son opcionales y deben usar los mismos nombres que devolvio cotizar_item.",
+        "url": "={{ $env.MODO_SABOR_API_URL }}/api/agente/pedido",
+        "method": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "x-agent-key", "value": "={{ $env.AGENT_API_KEY }}" }]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $fromAI('pedido_json', 'Objeto JSON con el pedido completo: {cliente_nombre, cliente_telefono, cliente_direccion, tipo_entrega: delivery|retiro, metodo_pago, notas, items: [{producto_id, cantidad, variantes, extras, descripcion}]}. cliente_telefono siempre debe ser el numero de WhatsApp de quien escribe.', 'json') }}"
+      },
+      "id": "tool-pedido",
+      "name": "crear_pedido",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [460, 240]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.messages[0].text.body }}",
+        "options": {
+          "systemMessage": "REEMPLAZAR: pegar aca el contenido completo de prompt-agente.md"
+        }
+      },
+      "id": "ai-agent",
+      "name": "Agente Modo Sabor",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.9,
+      "position": [220, -60]
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "={{ $env.WHATSAPP_PHONE_NUMBER_ID }}",
+        "recipientPhoneNumber": "={{ $('WhatsApp Trigger').item.json.messages[0].from }}",
+        "textBody": "={{ $json.output }}"
+      },
+      "id": "send-whatsapp",
+      "name": "Responder por WhatsApp",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1,
+      "position": [680, -60],
+      "credentials": {
+        "whatsAppApi": {
+          "id": "REEMPLAZAR",
+          "name": "Modo Sabor WhatsApp"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "WhatsApp Trigger": {
+      "main": [[{ "node": "Agente Modo Sabor", "type": "main", "index": 0 }]]
+    },
+    "Gemini (cerebro del agente)": {
+      "ai_languageModel": [
+        [{ "node": "Agente Modo Sabor", "type": "ai_languageModel", "index": 0 }]
+      ]
+    },
+    "Memoria por telefono": {
+      "ai_memory": [[{ "node": "Agente Modo Sabor", "type": "ai_memory", "index": 0 }]]
+    },
+    "consultar_estado": {
+      "ai_tool": [[{ "node": "Agente Modo Sabor", "type": "ai_tool", "index": 0 }]]
+    },
+    "consultar_menu": {
+      "ai_tool": [[{ "node": "Agente Modo Sabor", "type": "ai_tool", "index": 0 }]]
+    },
+    "cotizar_item": {
+      "ai_tool": [[{ "node": "Agente Modo Sabor", "type": "ai_tool", "index": 0 }]]
+    },
+    "cotizar_envio": {
+      "ai_tool": [[{ "node": "Agente Modo Sabor", "type": "ai_tool", "index": 0 }]]
+    },
+    "consultar_cliente": {
+      "ai_tool": [[{ "node": "Agente Modo Sabor", "type": "ai_tool", "index": 0 }]]
+    },
+    "crear_pedido": {
+      "ai_tool": [[{ "node": "Agente Modo Sabor", "type": "ai_tool", "index": 0 }]]
+    },
+    "Agente Modo Sabor": {
+      "main": [[{ "node": "Responder por WhatsApp", "type": "main", "index": 0 }]]
+    }
+  }
+}

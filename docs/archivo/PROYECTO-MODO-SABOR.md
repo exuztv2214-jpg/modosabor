@@ -16,7 +16,7 @@ Modo Sabor sera un sistema integral para delivery, retiro en local y, mas adelan
 
 ## Documentos de detalle
 
-- [IMPRESION-A6-COMANDAS.md](C:\Users\Exe\.verdent\verdent-projects\modosabor1\IMPRESION-A6-COMANDAS.md): especificacion aterrizada del modulo de impresion que conviene encarar primero
+- [IMPRESION-A6-COMANDAS.md](C:\Users\Exe.verdent\verdent-projects\modosabor1\IMPRESION-A6-COMANDAS.md): especificacion aterrizada del modulo de impresion que conviene encarar primero
 
 ## Objetivo real del proyecto
 
@@ -48,6 +48,7 @@ Estado actual:
 
 - existe
 - permite listar productos y generar pedido
+- ya respeta mejor la visibilidad del `menu del dia` segun lo que realmente sale hoy
 - falta cerrar variantes complejas reales, pagos integrados y tracking
 
 ### 2. Dashboard
@@ -199,11 +200,13 @@ Casos reales de Modo Sabor:
 - pizzas por mitades
 - empanadas por unidad, media docena y docena
 - milanesas con variantes y agregados
+- menu del dia cambiante, con base reutilizable y activacion diaria
 
 Estado actual:
 
 - existe
 - ya soporta variantes y extras
+- ya contempla mejor el caso `Menu del Dia` con biblioteca base, activacion diaria y copia del dia anterior
 - falta pulir reglas de negocio, impresion detallada y uso total en TPV/web
 
 ### 8. Clientes
@@ -575,3 +578,13 @@ Orden recomendado:
 5. despues volver a impresion A6 y cocina
 
 Porque hoy el proyecto ya tiene mucho alcance. Lo que mas valor agrega ahora es bajar riesgo operativo y tecnico para que todo lo que ya existe sea mas confiable.
+
+- 2026-06-23:
+  - se separo la instalacion PWA del sistema y la del rider con manifests distintos
+  - el panel admin ahora puede instalarse como app de escritorio desde el header
+  - la app rider ahora cambia su manifest al entrar, muestra ayuda de instalacion y avisa si el GPS quedo atrasado
+  - se corrigio la carga del logo de rider para que pase por configuracion en vez de productos
+  - se mejoro el service worker para cachear shell de admin y rider
+  - se agregaron scripts nuevos para empaquetar y desplegar a DonWeb desde PowerShell
+  - se limpio `.gitignore` para no ensuciar el repo con artefactos locales, logs launcher y bases locales
+  - se dejo el detalle tecnico actualizado en `docs/ESTADO-ACTUAL-2026-06-23.md`

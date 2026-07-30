@@ -47,25 +47,31 @@ function firstNonEmpty(...values) {
 
 function mergeRuntimeConfig(config = {}) {
   const env = process.env;
-  const railwayUrl = clean(env.RAILWAY_PUBLIC_DOMAIN) ? `https://${clean(env.RAILWAY_PUBLIC_DOMAIN)}` : '';
+  const railwayUrl = clean(env.RAILWAY_PUBLIC_DOMAIN)
+    ? `https://${clean(env.RAILWAY_PUBLIC_DOMAIN)}`
+    : '';
 
   return {
     ...config,
-    public_app_url: cleanUrl(firstNonEmpty(
-      env.PUBLIC_APP_URL,
-      env.FRONTEND_URL,
-      env.APP_URL,
-      railwayUrl,
-      config.public_app_url
-    )),
-    public_api_url: cleanUrl(firstNonEmpty(
-      env.PUBLIC_API_URL,
-      env.BACKEND_URL,
-      env.API_URL,
-      env.RENDER_EXTERNAL_URL,
-      railwayUrl,
-      config.public_api_url
-    )),
+    public_app_url: cleanUrl(
+      firstNonEmpty(
+        env.PUBLIC_APP_URL,
+        env.FRONTEND_URL,
+        env.APP_URL,
+        railwayUrl,
+        config.public_app_url
+      )
+    ),
+    public_api_url: cleanUrl(
+      firstNonEmpty(
+        env.PUBLIC_API_URL,
+        env.BACKEND_URL,
+        env.API_URL,
+        env.RENDER_EXTERNAL_URL,
+        railwayUrl,
+        config.public_api_url
+      )
+    ),
   };
 }
 

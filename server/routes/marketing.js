@@ -6,7 +6,12 @@ const { requirePermission } = require('../utils/permissions');
 const db = require('../db');
 const { uploadsDir, ensureDir } = require('../utils/storagePaths');
 const { getConfigMap } = require('../utils/mercadoPago');
-const { autopublishFacebookGroup, autopublishFacebookQueue, captureFacebookGroupPreview, openFacebookLoginSession } = require('../services/facebookPublisherService');
+const {
+  autopublishFacebookGroup,
+  autopublishFacebookQueue,
+  captureFacebookGroupPreview,
+  openFacebookLoginSession,
+} = require('../services/facebookPublisherService');
 const marketingService = require('../services/marketingService');
 
 const router = express.Router();
@@ -18,12 +23,13 @@ const marketingUpload = multer({
     destination: (_req, _file, cb) => cb(null, marketingUploadsDir),
     filename: (_req, file, cb) => {
       const ext = path.extname(file.originalname || '').toLowerCase();
-      const safeBase = String(path.basename(file.originalname || 'pieza', ext))
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .replace(/[^a-zA-Z0-9_-]+/g, '-')
-        .replace(/-+/g, '-')
-        .replace(/^-|-$/g, '') || 'pieza';
+      const safeBase =
+        String(path.basename(file.originalname || 'pieza', ext))
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .replace(/[^a-zA-Z0-9_-]+/g, '-')
+          .replace(/-+/g, '-')
+          .replace(/^-|-$/g, '') || 'pieza';
       cb(null, `${Date.now()}-${safeBase}${ext}`);
     },
   }),
@@ -58,7 +64,11 @@ router.put('/promos/:id', (req, res) => {
     const updated = marketingService.updatePromo(req.params.id, req.body || {});
     return res.json(updated);
   } catch (error) {
-    const status = String(error.message || '').toLowerCase().includes('no encontrada') ? 404 : 400;
+    const status = String(error.message || '')
+      .toLowerCase()
+      .includes('no encontrada')
+      ? 404
+      : 400;
     return res.status(status).json({ error: error.message || 'No se pudo actualizar la promo' });
   }
 });
@@ -68,7 +78,11 @@ router.delete('/promos/:id', (req, res) => {
     const deleted = marketingService.deletePromo(req.params.id);
     return res.json({ ok: true, deleted });
   } catch (error) {
-    const status = String(error.message || '').toLowerCase().includes('no encontrada') ? 404 : 400;
+    const status = String(error.message || '')
+      .toLowerCase()
+      .includes('no encontrada')
+      ? 404
+      : 400;
     return res.status(status).json({ error: error.message || 'No se pudo eliminar la promo' });
   }
 });
@@ -95,8 +109,14 @@ router.put('/contenidos/:id', (req, res) => {
     const updated = marketingService.updateContenido(req.params.id, req.body || {});
     return res.json(updated);
   } catch (error) {
-    const status = String(error.message || '').toLowerCase().includes('no encontrado') ? 404 : 400;
-    return res.status(status).json({ error: error.message || 'No se pudo actualizar el contenido' });
+    const status = String(error.message || '')
+      .toLowerCase()
+      .includes('no encontrado')
+      ? 404
+      : 400;
+    return res
+      .status(status)
+      .json({ error: error.message || 'No se pudo actualizar el contenido' });
   }
 });
 
@@ -105,7 +125,11 @@ router.delete('/contenidos/:id', (req, res) => {
     const deleted = marketingService.deleteContenido(req.params.id);
     return res.json({ ok: true, deleted });
   } catch (error) {
-    const status = String(error.message || '').toLowerCase().includes('no encontrado') ? 404 : 400;
+    const status = String(error.message || '')
+      .toLowerCase()
+      .includes('no encontrado')
+      ? 404
+      : 400;
     return res.status(status).json({ error: error.message || 'No se pudo eliminar el contenido' });
   }
 });
@@ -128,7 +152,11 @@ router.put('/campanas/:id', (req, res) => {
     const updated = marketingService.updateCampana(req.params.id, req.body || {});
     return res.json(updated);
   } catch (error) {
-    const status = String(error.message || '').toLowerCase().includes('no encontrada') ? 404 : 400;
+    const status = String(error.message || '')
+      .toLowerCase()
+      .includes('no encontrada')
+      ? 404
+      : 400;
     return res.status(status).json({ error: error.message || 'No se pudo actualizar la campaña' });
   }
 });
@@ -138,7 +166,11 @@ router.delete('/campanas/:id', (req, res) => {
     const deleted = marketingService.deleteCampana(req.params.id);
     return res.json({ ok: true, deleted });
   } catch (error) {
-    const status = String(error.message || '').toLowerCase().includes('no encontrada') ? 404 : 400;
+    const status = String(error.message || '')
+      .toLowerCase()
+      .includes('no encontrada')
+      ? 404
+      : 400;
     return res.status(status).json({ error: error.message || 'No se pudo eliminar la campaña' });
   }
 });
@@ -156,7 +188,9 @@ router.post('/calendario', (req, res) => {
     const created = marketingService.createCalendario(req.body || {});
     return res.status(201).json(created);
   } catch (error) {
-    return res.status(400).json({ error: error.message || 'No se pudo crear el evento del calendario' });
+    return res
+      .status(400)
+      .json({ error: error.message || 'No se pudo crear el evento del calendario' });
   }
 });
 
@@ -165,8 +199,14 @@ router.put('/calendario/:id', (req, res) => {
     const updated = marketingService.updateCalendario(req.params.id, req.body || {});
     return res.json(updated);
   } catch (error) {
-    const status = String(error.message || '').toLowerCase().includes('no encontrado') ? 404 : 400;
-    return res.status(status).json({ error: error.message || 'No se pudo actualizar el evento del calendario' });
+    const status = String(error.message || '')
+      .toLowerCase()
+      .includes('no encontrado')
+      ? 404
+      : 400;
+    return res
+      .status(status)
+      .json({ error: error.message || 'No se pudo actualizar el evento del calendario' });
   }
 });
 
@@ -175,8 +215,14 @@ router.delete('/calendario/:id', (req, res) => {
     const deleted = marketingService.deleteCalendario(req.params.id);
     return res.json({ ok: true, deleted });
   } catch (error) {
-    const status = String(error.message || '').toLowerCase().includes('no encontrado') ? 404 : 400;
-    return res.status(status).json({ error: error.message || 'No se pudo eliminar el evento del calendario' });
+    const status = String(error.message || '')
+      .toLowerCase()
+      .includes('no encontrado')
+      ? 404
+      : 400;
+    return res
+      .status(status)
+      .json({ error: error.message || 'No se pudo eliminar el evento del calendario' });
   }
 });
 
@@ -198,7 +244,11 @@ router.put('/publicador/destinos/:id', (req, res) => {
     const updated = marketingService.updatePublisherDestination(req.params.id, req.body || {});
     return res.json(updated);
   } catch (error) {
-    const status = String(error.message || '').toLowerCase().includes('no encontrado') ? 404 : 400;
+    const status = String(error.message || '')
+      .toLowerCase()
+      .includes('no encontrado')
+      ? 404
+      : 400;
     return res.status(status).json({ error: error.message || 'No se pudo actualizar el destino' });
   }
 });
@@ -208,7 +258,11 @@ router.delete('/publicador/destinos/:id', (req, res) => {
     const deleted = marketingService.deletePublisherDestination(req.params.id);
     return res.json({ ok: true, deleted });
   } catch (error) {
-    const status = String(error.message || '').toLowerCase().includes('no encontrado') ? 404 : 400;
+    const status = String(error.message || '')
+      .toLowerCase()
+      .includes('no encontrado')
+      ? 404
+      : 400;
     return res.status(status).json({ error: error.message || 'No se pudo eliminar el destino' });
   }
 });
@@ -223,10 +277,15 @@ router.post('/publicador/destinos/:id/capturar-preview', async (req, res) => {
       url: destino.url,
       slug: destino.nombre || `destino-${destino.id}`,
     });
-    const updated = marketingService.updatePublisherDestinationPreview(destino.id, captured.preview_path);
+    const updated = marketingService.updatePublisherDestinationPreview(
+      destino.id,
+      captured.preview_path
+    );
     return res.json(updated);
   } catch (error) {
-    return res.status(400).json({ error: error.message || 'No se pudo capturar la vista previa del grupo' });
+    return res
+      .status(400)
+      .json({ error: error.message || 'No se pudo capturar la vista previa del grupo' });
   }
 });
 
@@ -235,7 +294,9 @@ router.post('/publicador/facebook/login', async (_req, res) => {
     const result = await openFacebookLoginSession();
     return res.json(result);
   } catch (error) {
-    return res.status(400).json({ error: error.message || 'No se pudo iniciar la sesion de Facebook en Chrome' });
+    return res
+      .status(400)
+      .json({ error: error.message || 'No se pudo iniciar la sesion de Facebook en Chrome' });
   }
 });
 
@@ -265,14 +326,22 @@ router.put('/publicador/publicaciones/:id', marketingUpload.single('media'), (re
     }
     const updated = marketingService.updatePublisherPost(req.params.id, {
       ...(req.body || {}),
-      media_path: req.file ? `/uploads/marketing-publicador/${req.file.filename}` : current.media_path,
+      media_path: req.file
+        ? `/uploads/marketing-publicador/${req.file.filename}`
+        : current.media_path,
       media_mime: req.file?.mimetype || current.media_mime || '',
       media_nombre: req.file?.originalname || current.media_nombre || '',
     });
     return res.json(updated);
   } catch (error) {
-    const status = String(error.message || '').toLowerCase().includes('no encontrada') ? 404 : 400;
-    return res.status(status).json({ error: error.message || 'No se pudo actualizar la publicacion' });
+    const status = String(error.message || '')
+      .toLowerCase()
+      .includes('no encontrada')
+      ? 404
+      : 400;
+    return res
+      .status(status)
+      .json({ error: error.message || 'No se pudo actualizar la publicacion' });
   }
 });
 
@@ -281,8 +350,14 @@ router.delete('/publicador/publicaciones/:id', (req, res) => {
     const deleted = marketingService.deletePublisherPost(req.params.id);
     return res.json({ ok: true, deleted });
   } catch (error) {
-    const status = String(error.message || '').toLowerCase().includes('no encontrada') ? 404 : 400;
-    return res.status(status).json({ error: error.message || 'No se pudo eliminar la publicacion' });
+    const status = String(error.message || '')
+      .toLowerCase()
+      .includes('no encontrada')
+      ? 404
+      : 400;
+    return res
+      .status(status)
+      .json({ error: error.message || 'No se pudo eliminar la publicacion' });
   }
 });
 
@@ -298,7 +373,9 @@ router.post('/publicador/publicaciones/:id/preparar-cola', (req, res) => {
 router.post('/publicador/publicaciones/:id/autopublicar-cola', async (req, res) => {
   try {
     const queue = marketingService.listPublisherQueue(req.params.id);
-    const pendingItems = (queue.items || []).filter((item) => ['pendiente', 'abierto', 'error'].includes(item.estado));
+    const pendingItems = (queue.items || []).filter((item) =>
+      ['pendiente', 'abierto', 'error'].includes(item.estado)
+    );
     if (!pendingItems.length) {
       return res.status(400).json({ error: 'No hay destinos pendientes para autopublicar' });
     }
@@ -317,7 +394,11 @@ router.post('/publicador/publicaciones/:id/autopublicar-cola', async (req, res) 
       const outcome = (batch.results || []).find((entry) => Number(entry.id) === Number(item.id));
       if (outcome?.ok) {
         results.push({ id: item.id, ok: true, destino: item.destino_nombre });
-        marketingService.updatePublisherQueueItemStatus(item.id, 'publicado', 'Publicado automaticamente en cola');
+        marketingService.updatePublisherQueueItemStatus(
+          item.id,
+          'publicado',
+          'Publicado automaticamente en cola'
+        );
       } else {
         const message = outcome?.error || 'Error autopublicando';
         results.push({ id: item.id, ok: false, destino: item.destino_nombre, error: message });
@@ -337,17 +418,29 @@ router.get('/publicador/publicaciones/:id/cola', (req, res) => {
     const queue = marketingService.listPublisherQueue(req.params.id);
     return res.json(queue);
   } catch (error) {
-    const status = String(error.message || '').toLowerCase().includes('no encontrada') ? 404 : 400;
+    const status = String(error.message || '')
+      .toLowerCase()
+      .includes('no encontrada')
+      ? 404
+      : 400;
     return res.status(status).json({ error: error.message || 'No se pudo cargar la cola' });
   }
 });
 
 router.post('/publicador/envios/:id/estado', (req, res) => {
   try {
-    const queue = marketingService.updatePublisherQueueItemStatus(req.params.id, req.body?.estado, req.body?.notas || '');
+    const queue = marketingService.updatePublisherQueueItemStatus(
+      req.params.id,
+      req.body?.estado,
+      req.body?.notas || ''
+    );
     return res.json(queue);
   } catch (error) {
-    const status = String(error.message || '').toLowerCase().includes('no encontrado') ? 404 : 400;
+    const status = String(error.message || '')
+      .toLowerCase()
+      .includes('no encontrado')
+      ? 404
+      : 400;
     return res.status(status).json({ error: error.message || 'No se pudo actualizar el envio' });
   }
 });
@@ -365,11 +458,19 @@ router.post('/publicador/envios/:id/autopublicar', async (req, res) => {
       mediaPublicPath: item.publicacion_media_path,
     });
 
-    const queue = marketingService.updatePublisherQueueItemStatus(req.params.id, 'publicado', 'Publicado automaticamente');
+    const queue = marketingService.updatePublisherQueueItemStatus(
+      req.params.id,
+      'publicado',
+      'Publicado automaticamente'
+    );
     return res.json(queue);
   } catch (error) {
     try {
-      marketingService.updatePublisherQueueItemStatus(req.params.id, 'error', error.message || 'Error autopublicando');
+      marketingService.updatePublisherQueueItemStatus(
+        req.params.id,
+        'error',
+        error.message || 'Error autopublicando'
+      );
     } catch {}
     return res.status(400).json({ error: error.message || 'No se pudo autopublicar en Facebook' });
   }

@@ -1,6 +1,5 @@
-import { NavLink } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext.jsx';
-import { useAppConfig } from '../context/AppConfigContext.jsx';
+import { useState, useEffect } from 'react';
+import { NavLink, useLocation } from 'react-router-dom';
 import {
   Armchair,
   BarChart3,
@@ -10,10 +9,14 @@ import {
   ClipboardCheck,
   ClipboardList,
   ExternalLink,
+  Gift,
   LayoutDashboard,
   Megaphone,
+  MessageCircle,
   Package,
+  Receipt,
   Settings,
+  ShieldAlert,
   ShieldCheck,
   ShoppingCart,
   Tag,
@@ -26,37 +29,163 @@ import {
   X,
 } from 'lucide-react';
 
+import { useAuth } from '../context/AuthContext.jsx';
+import { useAppConfig } from '../context/AppConfigContext.jsx';
+import { socketManager } from '../lib/socket.js';
+
 const links = [
   { type: 'header', label: 'Inicio' },
-  { to: '/admin/dashboard', icon: LayoutDashboard, label: 'Dashboard', permission: 'dashboard.view' },
+  {
+    to: '/admin/dashboard',
+    icon: LayoutDashboard,
+    label: 'Dashboard',
+    permission: 'dashboard.view',
+  },
   { to: '/', icon: ExternalLink, label: 'Ver Menu Online' },
   { type: 'header', label: 'Operaciones' },
-  { to: '/admin/operacion', icon: ClipboardCheck, label: 'Control diario', permission: 'dashboard.view' },
-  { to: '/admin/tpv', icon: ShoppingCart, label: 'TPV / Caja', permission: 'tpv.use', moduleKey: 'tpv' },
-  { to: '/admin/caja', icon: WalletCards, label: 'Cierre de Caja', permission: 'caja.view', moduleKey: 'caja' },
+  {
+    to: '/admin/operacion',
+    icon: ClipboardCheck,
+    label: 'Control diario',
+    permission: 'dashboard.view',
+  },
+  {
+    to: '/admin/tpv',
+    icon: ShoppingCart,
+    label: 'TPV / Caja',
+    permission: 'tpv.use',
+    moduleKey: 'tpv',
+  },
+  {
+    to: '/admin/caja',
+    icon: WalletCards,
+    label: 'Cierre de Caja',
+    permission: 'caja.view',
+    moduleKey: 'caja',
+  },
   { to: '/admin/pedidos', icon: ClipboardList, label: 'Pedidos', permission: 'pedidos.view' },
-  { to: '/admin/kds', icon: ChefHat, label: 'Cocina / KDS', permission: 'kds.view', moduleKey: 'kds' },
-  { to: '/admin/mesas', icon: Armchair, label: 'Mesas / Salon', permission: 'mesas.view', moduleKey: 'mesas' },
-  { to: '/admin/delivery', icon: Bike, label: 'Delivery', permission: 'delivery.view', moduleKey: 'delivery' },
-  { type: 'header', label: 'Catalogo' },
+  {
+    to: '/admin/whatsapp-copiloto',
+    icon: MessageCircle,
+    label: 'WhatsApp Copiloto',
+    permission: 'pedidos.view',
+  },
+  {
+    to: '/admin/kds',
+    icon: ChefHat,
+    label: 'Cocina / KDS',
+    permission: 'kds.view',
+    moduleKey: 'kds',
+  },
+  {
+    to: '/admin/mesas',
+    icon: Armchair,
+    label: 'Mesas / Salón',
+    permission: 'mesas.view',
+    moduleKey: 'mesas',
+  },
+  {
+    to: '/admin/delivery',
+    icon: Bike,
+    label: 'Delivery',
+    permission: 'delivery.view',
+    moduleKey: 'delivery',
+  },
+  { type: 'header', label: 'Catálogo' },
   { to: '/admin/productos', icon: Package, label: 'Productos', permission: 'productos.edit' },
-  { to: '/admin/inventario', icon: Boxes, label: 'Inventario', permission: 'productos.edit', moduleKey: 'inventario' },
-  { to: '/admin/categorias', icon: Tag, label: 'Categorias', permission: 'productos.edit' },
-  { type: 'header', label: 'Gestion' },
-  { to: '/admin/clientes', icon: Users, label: 'Clientes', permission: 'clientes.view', moduleKey: 'clientes' },
-  { to: '/admin/marketing', icon: Megaphone, label: 'Marketing Digital', permission: 'reportes.view', moduleKey: 'marketing' },
-  { to: '/admin/reportes', icon: BarChart3, label: 'Reportes', permission: 'reportes.view', moduleKey: 'reportes' },
-  { type: 'header', label: 'Configuracion' },
+  {
+    to: '/admin/inventario',
+    icon: Boxes,
+    label: 'Inventario',
+    permission: 'productos.edit',
+    moduleKey: 'inventario',
+  },
+  {
+    to: '/admin/compras',
+    icon: Receipt,
+    label: 'Compras',
+    permission: 'productos.edit',
+    moduleKey: 'inventario',
+  },
+  { to: '/admin/categorias', icon: Tag, label: 'Categorías', permission: 'productos.edit' },
+  { type: 'header', label: 'Gestión' },
+  {
+    to: '/admin/clientes',
+    icon: Users,
+    label: 'Clientes',
+    permission: 'clientes.view',
+    moduleKey: 'clientes',
+  },
+  {
+    to: '/admin/fidelizacion',
+    icon: Gift,
+    label: 'Fidelización',
+    permission: 'clientes.view',
+    moduleKey: 'clientes',
+  },
+  {
+    to: '/admin/marketing',
+    icon: Megaphone,
+    label: 'Marketing Digital',
+    permission: 'reportes.view',
+    moduleKey: 'marketing',
+  },
+  {
+    to: '/admin/reportes',
+    icon: BarChart3,
+    label: 'Reportes',
+    permission: 'reportes.view',
+    moduleKey: 'reportes',
+  },
+  { type: 'header', label: 'Configuración' },
   { to: '/admin/cuenta', icon: UserCircle, label: 'Mi cuenta' },
-  { to: '/admin/configuracion', icon: Settings, label: 'Configuracion', permission: 'config.manage' },
-  { to: '/admin/personal', icon: UserSquare2, label: 'Personal', permission: 'config.manage', moduleKey: 'personal' },
+  {
+    to: '/admin/configuracion',
+    icon: Settings,
+    label: 'Configuración',
+    permission: 'config.manage',
+  },
+  {
+    to: '/admin/personal',
+    icon: UserSquare2,
+    label: 'Personal',
+    permission: 'config.manage',
+    moduleKey: 'personal',
+  },
   { to: '/admin/usuarios', icon: ShieldCheck, label: 'Usuarios', permission: 'config.manage' },
-  { to: '/admin/cupones', icon: TicketPercent, label: 'Cupones', permission: 'config.manage', moduleKey: 'cupones' },
+  {
+    to: '/admin/cupones',
+    icon: TicketPercent,
+    label: 'Cupones',
+    permission: 'config.manage',
+    moduleKey: 'cupones',
+  },
+  { to: '/admin/auditoria', icon: ShieldAlert, label: 'Auditoría', permission: 'config.manage' },
 ];
 
 export default function SidebarModern({ onCloseMobile }) {
   const { user, hasPermission } = useAuth();
   const { config: branding, isModuleEnabled } = useAppConfig();
+  const location = useLocation();
+  const [pedidosBadge, setPedidosBadge] = useState(0);
+
+  // Reset badge when navigating to pedidos
+  useEffect(() => {
+    if (location.pathname === '/admin/pedidos') {
+      setPedidosBadge(0);
+    }
+  }, [location.pathname]);
+
+  // Subscribe to new orders via socket
+  useEffect(() => {
+    if (!user) return;
+    const unsub = socketManager.on('nuevo_pedido', () => {
+      if (location.pathname !== '/admin/pedidos') {
+        setPedidosBadge((n) => n + 1);
+      }
+    });
+    return unsub;
+  }, [user, location.pathname]);
 
   const filteredLinks = links.filter((link) => {
     if (link.type === 'header') return true;
@@ -83,10 +212,10 @@ export default function SidebarModern({ onCloseMobile }) {
         <img
           src={branding.negocio_logo}
           alt="logo"
-          className="h-10 w-10 shrink-0 rounded-xl border border-blue-100/50 bg-blue-50/50 p-1.5 object-contain shadow-sm"
+          className="h-10 w-10 shrink-0 rounded-xl border border-primary-100/50 bg-primary-50/50 p-1.5 object-contain shadow-sm"
         />
       ) : (
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#5D87FF] text-white shadow-lg shadow-blue-200">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary-500 text-white shadow-lg shadow-primary-200">
           <UtensilsCrossed size={20} />
         </div>
       )}
@@ -95,8 +224,8 @@ export default function SidebarModern({ onCloseMobile }) {
         <h1 className="truncate text-lg font-black leading-tight tracking-tight text-gray-900">
           {branding.negocio_nombre || 'Modo Sabor'}
         </h1>
-        <p className="truncate text-[10px] font-black uppercase tracking-widest text-[#5D87FF]">
-          {branding.negocio_localidad || 'Administracion'}
+        <p className="truncate text-[10px] font-black uppercase tracking-widest text-primary-500">
+          {branding.negocio_localidad || 'Administración'}
         </p>
       </div>
 
@@ -111,7 +240,7 @@ export default function SidebarModern({ onCloseMobile }) {
     </div>
   );
 
-  const NavItem = ({ to, icon: Icon, label }) => (
+  const NavItem = ({ to, icon: Icon, label, badge }) => (
     <NavLink
       key={to}
       to={to}
@@ -119,13 +248,21 @@ export default function SidebarModern({ onCloseMobile }) {
       className={({ isActive }) =>
         `group relative mb-1 flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-bold transition-all duration-200 ${
           isActive
-            ? 'bg-[#5D87FF] text-white shadow-lg shadow-blue-200'
-            : 'text-gray-500 hover:bg-blue-50 hover:text-[#5D87FF]'
+            ? 'bg-primary-500 text-white shadow-lg shadow-primary-200'
+            : 'text-gray-500 hover:bg-primary-50 hover:text-primary-500'
         }`
       }
     >
-      <Icon size={19} className="shrink-0 transition-transform duration-200 group-hover:scale-110" />
-      <span className="truncate">{label}</span>
+      <Icon
+        size={19}
+        className="shrink-0 transition-transform duration-200 group-hover:scale-110"
+      />
+      <span className="truncate flex-1">{label}</span>
+      {badge > 0 && (
+        <span className="ml-auto flex h-5 min-w-[20px] items-center justify-center rounded-full bg-danger-500 px-1.5 text-[10px] font-black text-white shadow-sm animate-pulse">
+          {badge > 99 ? '99+' : badge}
+        </span>
+      )}
     </NavLink>
   );
 
@@ -137,39 +274,53 @@ export default function SidebarModern({ onCloseMobile }) {
         {finalLinks.map((link, idx) => {
           if (link.type === 'header') {
             return (
-              <p key={`header-${idx}`} className="mb-3 mt-6 px-4 text-[11px] font-black uppercase tracking-[0.2em] text-gray-400 first:mt-2">
+              <p
+                key={`header-${idx}`}
+                className="mb-3 mt-6 px-4 text-[11px] font-black uppercase tracking-[0.2em] text-gray-400 first:mt-2"
+              >
                 {link.label}
               </p>
             );
           }
-          return <NavItem key={link.to} {...link} />;
+          const badge = link.to === '/admin/pedidos' ? pedidosBadge : 0;
+          return <NavItem key={link.to} {...link} badge={badge} />;
         })}
 
-        <div className="mb-6 mt-8 px-4">
-          <div className="group relative overflow-hidden rounded-[24px] bg-[#ECF2FF] p-5">
-            <div className="absolute -bottom-4 -right-4 h-24 w-24 rounded-full bg-[#5D87FF]/10 transition-transform duration-700 group-hover:scale-150" />
-            <p className="relative z-10 mb-1 text-xs font-black text-gray-900">Necesitas ayuda?</p>
-            <p className="relative z-10 mb-4 text-[10px] font-bold uppercase tracking-tighter text-gray-500">Soporte 24/7 activo</p>
-            <a
-              href="https://wa.me/tu-numero"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="relative z-10 inline-block w-full rounded-xl bg-[#5D87FF] py-2 text-center text-[10px] font-black uppercase tracking-widest text-white shadow-lg shadow-blue-100 transition-transform hover:scale-105"
-            >
-              Contactar
-            </a>
+        {branding.negocio_telefono && (
+          <div className="mb-6 mt-8 px-4">
+            <div className="group relative overflow-hidden rounded-[24px] bg-primary-50 p-5">
+              <div className="absolute -bottom-4 -right-4 h-24 w-24 rounded-full bg-primary-500/10 transition-transform duration-700 group-hover:scale-150" />
+              <p className="relative z-10 mb-1 text-xs font-black text-gray-900">
+                ¿Necesitas ayuda?
+              </p>
+              <p className="relative z-10 mb-4 text-[10px] font-bold uppercase tracking-tighter text-gray-500">
+                Soporte disponible
+              </p>
+              <a
+                href={`https://wa.me/${String(branding.negocio_telefono).replace(/\D/g, '')}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="relative z-10 inline-block w-full rounded-xl bg-primary-500 py-2 text-center text-[10px] font-black uppercase tracking-widest text-white shadow-lg shadow-primary-100 transition-transform hover:scale-105"
+              >
+                Contactar
+              </a>
+            </div>
           </div>
-        </div>
+        )}
       </nav>
 
-      <div className="border-t border-gray-50 p-4">
+      <div className="border-t border-gray-50 p-4 space-y-2">
         <div className="flex items-center gap-3 rounded-[20px] border border-gray-100/50 bg-gray-50/80 px-4 py-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#5D87FF] to-[#49BEFF] text-sm font-black text-white shadow-sm">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-primary-500 to-info-500 text-sm font-black text-white shadow-sm">
             {user?.nombre?.[0]?.toUpperCase() || 'A'}
           </div>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-xs font-black tracking-tight text-gray-900">{user?.nombre || 'Administrador'}</p>
-            <p className="truncate text-[10px] font-bold uppercase tracking-tighter text-[#5D87FF]">{user?.rol || 'Admin'}</p>
+            <p className="truncate text-xs font-black tracking-tight text-gray-900">
+              {user?.nombre || 'Administrador'}
+            </p>
+            <p className="truncate text-[10px] font-bold uppercase tracking-tighter text-primary-500">
+              {user?.rol || 'Admin'}
+            </p>
           </div>
         </div>
       </div>

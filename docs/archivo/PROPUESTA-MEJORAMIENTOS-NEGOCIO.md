@@ -10,17 +10,18 @@
 ### 1.1 Sistema de Puntos
 
 #### Concepto
+
 Los clientes acumulan puntos por cada compra que pueden canjear por productos gratis o descuentos.
 
 #### Reglas de Negocio
 
-| Concepto | Configuración | Ejemplo |
-|----------|---------------|---------|
-| Tasa de conversión | 1 punto cada $100 | Compra $350 = 3.5 puntos |
-| Puntos por producto | Variable | Pizza especial = 10 pts, Empanada = 5 pts |
-| Valor del punto | 1 punto = $10 de descuento | 50 puntos = $500 off |
-| Expiración | 6 meses sin actividad | Se resetean si no compra |
-| Bonificación primera compra | 2x puntos | Bienvenida al sistema |
+| Concepto                    | Configuración              | Ejemplo                                   |
+| --------------------------- | -------------------------- | ----------------------------------------- |
+| Tasa de conversión          | 1 punto cada $100          | Compra $350 = 3.5 puntos                  |
+| Puntos por producto         | Variable                   | Pizza especial = 10 pts, Empanada = 5 pts |
+| Valor del punto             | 1 punto = $10 de descuento | 50 puntos = $500 off                      |
+| Expiración                  | 6 meses sin actividad      | Se resetean si no compra                  |
+| Bonificación primera compra | 2x puntos                  | Bienvenida al sistema                     |
 
 #### Implementación Técnica
 
@@ -51,7 +52,7 @@ CREATE TABLE puntos_transacciones (
 
 -- Vista de saldo actual por cliente
 CREATE VIEW cliente_puntos_saldo AS
-SELECT 
+SELECT
   cliente_id,
   SUM(CASE WHEN tipo IN ('ganancia', 'bonus') THEN puntos ELSE -puntos END) as saldo
 FROM puntos_transacciones
@@ -60,6 +61,7 @@ GROUP BY cliente_id;
 ```
 
 **Flujo:**
+
 1. Cliente completa pedido
 2. Sistema calcula puntos ganados
 3. Se acreditan automáticamente (estado = 'entregado')
@@ -77,31 +79,35 @@ GROUP BY cliente_id;
 ### 1.2 Niveles de Cliente (Tier System)
 
 #### Concepto
+
 Los clientes suben de nivel según su gasto acumulado en los últimos 12 meses.
 
 #### Niveles Propuestos
 
-| Nivel | Gasto Anual | Beneficios |
-|-------|-------------|------------|
-| 🥉 Bronce | $0 - $50.000 | Puntos normales |
-| 🥈 Plata | $50.001 - $150.000 | 1.5x puntos, envío gratis >$8.000 |
-| 🥇 Oro | $150.001 - $300.000 | 2x puntos, envío siempre gratis, prioridad en hora pico |
-| 💎 Platino | >$300.000 | 3x puntos, envío gratis, atención prioritaria, regalo sorpresa |
+| Nivel      | Gasto Anual         | Beneficios                                                     |
+| ---------- | ------------------- | -------------------------------------------------------------- |
+| 🥉 Bronce  | $0 - $50.000        | Puntos normales                                                |
+| 🥈 Plata   | $50.001 - $150.000  | 1.5x puntos, envío gratis >$8.000                              |
+| 🥇 Oro     | $150.001 - $300.000 | 2x puntos, envío siempre gratis, prioridad en hora pico        |
+| 💎 Platino | >$300.000           | 3x puntos, envío gratis, atención prioritaria, regalo sorpresa |
 
 #### Beneficios por Nivel
 
 **Plata:**
+
 - Multiplicador 1.5x en puntos
 - Envío gratis en compras >$8.000
 - Acceso a promos exclusivas
 
 **Oro:**
+
 - Multiplicador 2x en puntos
 - Envío gratis sin mínimo
 - Atención prioritaria en fila de pedidos
 - Cumpleaños: pizza gratis
 
 **Platino:**
+
 - Multiplicador 3x en puntos
 - Regalo sorpresa cada 3 meses
 - Número VIP (atención inmediata)
@@ -116,7 +122,7 @@ ALTER TABLE clientes ADD COLUMN gasto_ultimos_12_meses REAL DEFAULT 0;
 ALTER TABLE clientes ADD COLUMN fecha_ultima_evaluacion TEXT;
 
 -- Función de recálculo (ejecutar mensualmente)
-UPDATE clientes 
+UPDATE clientes
 SET nivel = CASE
   WHEN gasto_ultimos_12_meses > 300000 THEN 'platino'
   WHEN gasto_ultimos_12_meses > 150000 THEN 'oro'
@@ -130,20 +136,24 @@ END;
 ### 1.3 Sellos (Stamp Card Digital)
 
 #### Concepto
+
 Por cada compra, el cliente gana un sello. Al completar la tarjeta (ej: 10 sellos), gana un producto gratis.
 
 #### Variantes
 
 **Tarjeta de Pizzas:**
+
 - 10 sellos = 1 pizza gratis
 - Válido por 3 meses
 - Solo pizzas de hasta $8.000
 
 **Tarjeta de Empanadas:**
+
 - 6 sellos = 1 docena gratis
 - Válido por 2 meses
 
 **Tarjeta Mixta:**
+
 - 5 compras = Empanada gratis
 - 10 compras = Pizza gratis
 - 15 compras = Combo gratis
@@ -168,7 +178,7 @@ CREATE TABLE tarjetas_sellos (
 INSERT INTO sellos_historial (tarjeta_id, pedido_id, fecha)
 VALUES (?, ?, CURRENT_TIMESTAMP);
 
-UPDATE tarjetas_sellos 
+UPDATE tarjetas_sellos
 SET sellos_actuales = sellos_actuales + 1,
     estado = CASE WHEN sellos_actuales + 1 >= sellos_necesarios THEN 'completada' ELSE 'activa' END
 WHERE id = ?;
@@ -177,6 +187,7 @@ WHERE id = ?;
 #### Notificación al Completar
 
 **WhatsApp:**
+
 ```
 🎉 ¡Felicitaciones [Nombre]!
 
@@ -195,15 +206,16 @@ Válido hasta: 15/05/2026
 ### 2.1 Recuperación de Carritos Abandonados
 
 #### Concepto
+
 Si el cliente agrega productos al carrito en la web pero no completa el pedido, enviar recordatorios automáticos.
 
 #### Flujo de Recuperación
 
-| Tiempo | Acción | Contenido |
-|--------|--------|-----------|
-| 15 min | WhatsApp | "¿Te quedó algo pendiente? Tenés una pizza esperando 🍕" |
-| 24 hs | WhatsApp + Email | "Tu carrito te extraña. 10% off si completás ahora" |
-| 72 hs | WhatsApp | "Última chance: tu carrito expira en 24 hs" |
+| Tiempo | Acción           | Contenido                                                |
+| ------ | ---------------- | -------------------------------------------------------- |
+| 15 min | WhatsApp         | "¿Te quedó algo pendiente? Tenés una pizza esperando 🍕" |
+| 24 hs  | WhatsApp + Email | "Tu carrito te extraña. 10% off si completás ahora"      |
+| 72 hs  | WhatsApp         | "Última chance: tu carrito expira en 24 hs"              |
 
 #### Implementación
 
@@ -221,13 +233,14 @@ CREATE TABLE carritos_abandonados (
 );
 
 -- Worker que corre cada 15 minutos
-SELECT * FROM carritos_abandonados 
-WHERE estado = 'pendiente' 
+SELECT * FROM carritos_abandonados
+WHERE estado = 'pendiente'
 AND datetime(creado_en) < datetime('now', '-15 minutes')
 AND datetime(creado_en) > datetime('now', '-1 hour');
 ```
 
 **Contenido del mensaje:**
+
 ```
 👋 Hola [Nombre]
 
@@ -237,7 +250,7 @@ Vimos que dejaste esto en tu carrito:
 
 Total: $8.500
 
-¿Te lo enviamos? 
+¿Te lo enviamos?
 👉 [Link de checkout con carrito pre-cargado]
 
 ⚡ Tenés 10% OFF si pedís en las próximas 2 horas
@@ -249,21 +262,22 @@ Código: VOLVI10
 ### 2.2 Re-activación de Clientes Inactivos
 
 #### Concepto
+
 Detectar clientes que no compran hace X tiempo y enviarles ofertas personalizadas.
 
 #### Segmentación
 
-| Segmento | Inactividad | Estrategia |
-|----------|-------------|------------|
-| Riesgo | 30 días sin comprar | "Te extrañamos" + 15% off |
-| Perdido | 60 días sin comprar | "Volvemos a verte" + 20% off + envío gratis |
-| Muy Perdido | 90 días sin comprar | "¿Todo bien?" + 30% off + regalo |
+| Segmento    | Inactividad         | Estrategia                                  |
+| ----------- | ------------------- | ------------------------------------------- |
+| Riesgo      | 30 días sin comprar | "Te extrañamos" + 15% off                   |
+| Perdido     | 60 días sin comprar | "Volvemos a verte" + 20% off + envío gratis |
+| Muy Perdido | 90 días sin comprar | "¿Todo bien?" + 30% off + regalo            |
 
 #### Implementación
 
 ```sql
 -- Clientes a reactivar
-SELECT 
+SELECT
   c.id,
   c.nombre,
   c.telefono,
@@ -279,6 +293,7 @@ HAVING ultima_compra < datetime('now', '-30 days');
 ```
 
 **Mensaje personalizado:**
+
 ```
 Hola [Nombre] 👋
 
@@ -298,16 +313,17 @@ Válido por 7 días 👆
 ### 2.3 Marketing de Cumpleaños
 
 #### Concepto
+
 Enviar regalo automático en el cumpleaños del cliente.
 
 #### Regalos por Nivel
 
-| Nivel | Regalo | Mensaje |
-|-------|--------|---------|
-| Todos | Email/SMS de felicitación | "¡Feliz cumple! 🎂" |
-| Bronce/Plata | 15% off | "Tu regalo de cumple" |
-| Oro | Pizza gratis | "¡Pizza de regalo por tu día!" |
-| Platino | Combo gratis + delivery gratis | "¡Festejemos juntos!" |
+| Nivel        | Regalo                         | Mensaje                        |
+| ------------ | ------------------------------ | ------------------------------ |
+| Todos        | Email/SMS de felicitación      | "¡Feliz cumple! 🎂"            |
+| Bronce/Plata | 15% off                        | "Tu regalo de cumple"          |
+| Oro          | Pizza gratis                   | "¡Pizza de regalo por tu día!" |
+| Platino      | Combo gratis + delivery gratis | "¡Festejemos juntos!"          |
 
 #### Implementación
 
@@ -315,7 +331,7 @@ Enviar regalo automático en el cumpleaños del cliente.
 ALTER TABLE clientes ADD COLUMN fecha_nacimiento TEXT;
 
 -- Cron diario a las 9 AM
-SELECT * FROM clientes 
+SELECT * FROM clientes
 WHERE strftime('%m-%d', fecha_nacimiento) = strftime('%m-%d', 'now')
 AND YEAR(ultimo_cumple_enviado) != YEAR('now');
 ```
@@ -327,18 +343,22 @@ AND YEAR(ultimo_cumple_enviado) != YEAR('now');
 #### Ejemplos de Segmentación
 
 **1. Amantes de la Pizza (compran 80% pizzas)**
+
 - Oferta: "2x1 en pizzas los martes"
 - Canal: WhatsApp
 
 **2. Familias (ticket promedio >$15.000)**
+
 - Oferta: "Combo familiar + gaseosa gratis"
 - Canal: Email + WhatsApp
 
 **3. Compradores de Noche (pedidos después 20hs)**
+
 - Oferta: "Envío gratis después de las 22hs"
 - Canal: Push (si hay app)
 
 **4. Fieles (más de 10 pedidos)**
+
 - Oferta: Acceso anticipado a nuevos productos
 - Canal: WhatsApp VIP
 
@@ -347,7 +367,7 @@ AND YEAR(ultimo_cumple_enviado) != YEAR('now');
 ```javascript
 // Servicio de segmentación
 function segmentarClientes(criterio) {
-  switch(criterio) {
+  switch (criterio) {
     case 'amantes_pizza':
       return db.query(`
         SELECT cliente_id, 
@@ -358,7 +378,7 @@ function segmentarClientes(criterio) {
         GROUP BY cliente_id
         HAVING (pedidos_pizza * 1.0 / total_pedidos) > 0.8
       `);
-    
+
     case 'familias':
       return db.query(`
         SELECT cliente_id, AVG(total) as ticket_promedio
@@ -375,6 +395,7 @@ function segmentarClientes(criterio) {
 ### 2.5 Sistema de Referidos
 
 #### Concepto
+
 "Trae un amigo y ambos ganan"
 
 #### Mecánica
@@ -386,10 +407,10 @@ function segmentarClientes(criterio) {
 
 #### Recompensas
 
-| Rol | Recompensa | Condición |
-|-----|------------|-----------|
-| Referidor | $1.000 de crédito | Amigo completa primer pedido |
-| Referido | 20% OFF primer pedido | Usa código de referido |
+| Rol       | Recompensa            | Condición                    |
+| --------- | --------------------- | ---------------------------- |
+| Referidor | $1.000 de crédito     | Amigo completa primer pedido |
+| Referido  | 20% OFF primer pedido | Usa código de referido       |
 
 #### Implementación
 
@@ -410,6 +431,7 @@ CREATE TABLE referidos_tracking (
 ```
 
 **Flujo WhatsApp:**
+
 ```
 🎁 ¡Ganá $1.000 por cada amigo que traigas!
 
@@ -429,12 +451,12 @@ Cuando hagan su primer pedido, vos ganás $1.000 y ellos 20% OFF 🎉
 
 #### Opciones de Integración
 
-| Tipo | Complejidad | Costo | Tiempo | Recomendación |
-|------|-------------|-------|--------|---------------|
-| API Directa | Alta | $$$$ | 2-3 meses | ❌ No recomendado para arrancar |
-| Middleware Rappi | Media | $$$ | 1-2 meses | ⚠️ Si hay volumen alto |
-| Tiendanube/Tienda virtual | Baja | $$ | 2-4 semanas | ✅ Recomendado para empezar |
-| Manual (dashboard Rappi) | Nula | $ | Inmediato | ✅ Empezar aquí |
+| Tipo                      | Complejidad | Costo | Tiempo      | Recomendación                   |
+| ------------------------- | ----------- | ----- | ----------- | ------------------------------- |
+| API Directa               | Alta        | $$$$  | 2-3 meses   | ❌ No recomendado para arrancar |
+| Middleware Rappi          | Media       | $$$   | 1-2 meses   | ⚠️ Si hay volumen alto          |
+| Tiendanube/Tienda virtual | Baja        | $$    | 2-4 semanas | ✅ Recomendado para empezar     |
+| Manual (dashboard Rappi)  | Nula        | $     | Inmediato   | ✅ Empezar aquí                 |
 
 #### Recomendación para Modo Sabor
 
@@ -514,40 +536,40 @@ Rappi Cloud ←→ Middleware Modo Sabor ←→ Sistema Modo Sabor
 // Rappi nos envía nuevo pedido
 router.post('/webhook/nuevo-pedido', async (req, res) => {
   const pedidoRappi = req.body;
-  
+
   // Transformar a nuestro formato
   const pedidoPropio = transformarPedidoRappi(pedidoRappi);
-  
+
   // Crear en nuestra DB
   const creado = await crearPedido(pedidoPropio);
-  
+
   // Emitir a cocina
   io.emit('nuevo_pedido_rappi', creado);
-  
+
   res.json({ status: 'confirmed', id: creado.id });
 });
 
 // Rappi notifica cambio de estado (rider asignado, en camino, etc)
 router.post('/webhook/estado', async (req, res) => {
   const { pedido_id, estado } = req.body;
-  
+
   await actualizarEstadoPedido(pedido_id, mapearEstadoRappi(estado));
-  
+
   res.json({ ok: true });
 });
 ```
 
 #### Mapeo de Estados
 
-| Estado Rappi | Estado Modo Sabor | Acción |
-|--------------|-------------------|--------|
-| `created` | `nuevo` | Crear pedido, emitir alerta |
-| `confirmed` | `confirmado` | - |
-| `preparing` | `preparando` | - |
-| `ready` | `listo` | Notificar rider |
-| `dispatched` | `en_camino` | - |
-| `delivered` | `entregado` | Cerrar pedido, fidelización |
-| `cancelled` | `cancelado` | Restaurar stock |
+| Estado Rappi | Estado Modo Sabor | Acción                      |
+| ------------ | ----------------- | --------------------------- |
+| `created`    | `nuevo`           | Crear pedido, emitir alerta |
+| `confirmed`  | `confirmado`      | -                           |
+| `preparing`  | `preparando`      | -                           |
+| `ready`      | `listo`           | Notificar rider             |
+| `dispatched` | `en_camino`       | -                           |
+| `delivered`  | `entregado`       | Cerrar pedido, fidelización |
+| `cancelled`  | `cancelado`       | Restaurar stock             |
 
 #### Transformación de Productos
 
@@ -559,17 +581,17 @@ function transformarPedidoRappi(rappiPayload) {
     cliente_nombre: rappiPayload.customer.name,
     cliente_telefono: rappiPayload.customer.phone,
     cliente_direccion: formatearDireccionRappi(rappiPayload.delivery.address),
-    items: rappiPayload.items.map(item => ({
+    items: rappiPayload.items.map((item) => ({
       producto_id: mapearProductoRappi(item.sku),
       nombre: item.name,
       cantidad: item.quantity,
       precio_unitario: item.unit_price,
-      notas: item.comments
+      notas: item.comments,
     })),
     total: rappiPayload.total,
     tipo_entrega: 'delivery',
     metodo_pago: 'online', // Rappi ya cobró
-    notas: rappiPayload.notes
+    notas: rappiPayload.notes,
   };
 }
 ```
@@ -579,6 +601,7 @@ function transformarPedidoRappi(rappiPayload) {
 ### 3.4 Sincronización de Menú
 
 #### Problema
+
 Los precios en Rappi deben ser mayores (comisión 20-30%). Mantener dos menús es tedioso.
 
 #### Solución: Multiplicador Automático
@@ -595,7 +618,7 @@ CREATE TABLE precios_por_canal (
 
 -- Insertar precios Rappi con markup automático
 INSERT INTO precios_por_canal (producto_id, canal, precio)
-SELECT 
+SELECT
   id,
   'rappi',
   ROUND(precio * 1.25, -1) -- 25% más, redondeado
@@ -603,6 +626,7 @@ FROM productos;
 ```
 
 **Dashboard de sincronización:**
+
 - Ver productos sin sincronizar
 - Aplicar markup porcentual
 - Publicar cambios a Rappi vía API
@@ -613,13 +637,13 @@ FROM productos;
 
 #### KPIs a Monitorear
 
-| Métrica | Objetivo | Fuente |
-|---------|----------|--------|
-| Pedidos Rappi / Pedidos propios | < 40% | Dashboard |
-| Tiempo de confirmación | < 2 min | Logs |
-| Cancelaciones | < 5% | Dashboard Rappi |
-| Rating en Rappi | > 4.5 | App Rappi |
-| Ticket promedio Rappi | vs Propios | Comparativa |
+| Métrica                         | Objetivo   | Fuente          |
+| ------------------------------- | ---------- | --------------- |
+| Pedidos Rappi / Pedidos propios | < 40%      | Dashboard       |
+| Tiempo de confirmación          | < 2 min    | Logs            |
+| Cancelaciones                   | < 5%       | Dashboard Rappi |
+| Rating en Rappi                 | > 4.5      | App Rappi       |
+| Ticket promedio Rappi           | vs Propios | Comparativa     |
 
 #### Alertas
 
@@ -634,6 +658,7 @@ FROM productos;
 ### Fase 1: Fidelización Básica (Semanas 1-2)
 
 **Entregables:**
+
 - [ ] Sistema de puntos básico
 - [ ] Acumulación automática al entregar
 - [ ] Visualización en web y TPV
@@ -646,6 +671,7 @@ FROM productos;
 ### Fase 2: Marketing Automation (Semanas 3-4)
 
 **Entregables:**
+
 - [ ] Carritos abandonados (1 recordatorio)
 - [ ] Re-activación 30 días
 - [ ] Cumpleaños básico
@@ -658,6 +684,7 @@ FROM productos;
 ### Fase 3: Programa Completo (Semanas 5-8)
 
 **Entregables:**
+
 - [ ] Niveles de cliente
 - [ ] Sellos digitales
 - [ ] Referidos
@@ -671,6 +698,7 @@ FROM productos;
 ### Fase 4: Rappi Integración (Mes 2-3)
 
 **Opción A - Manual:**
+
 - [ ] Registro en Rappi
 - [ ] Carga de menú
 - [ ] Operación manual
@@ -679,6 +707,7 @@ FROM productos;
 **Costo:** $0 desarrollo, 15-25% comisión
 
 **Opción B - API (futuro):**
+
 - [ ] Desarrollo middleware
 - [ ] Testing
 - [ ] Go-live
@@ -691,27 +720,30 @@ FROM productos;
 
 ### ROI Esperado
 
-| Iniciativa | Inversión | Retorno Esperado | Tiempo |
-|------------|-----------|------------------|--------|
-| Puntos/Niveles | Baja | +15% frecuencia | 3 meses |
-| Carritos abandonados | Baja | +8% conversion | 1 mes |
-| Re-activación | Baja | +10% clientes recuperados | 2 meses |
-| Rappi Manual | Media | +30% volumen | Inmediato |
-| Rappi API | Alta | +30% volumen, -5% comisión | 6 meses |
+| Iniciativa           | Inversión | Retorno Esperado           | Tiempo    |
+| -------------------- | --------- | -------------------------- | --------- |
+| Puntos/Niveles       | Baja      | +15% frecuencia            | 3 meses   |
+| Carritos abandonados | Baja      | +8% conversion             | 1 mes     |
+| Re-activación        | Baja      | +10% clientes recuperados  | 2 meses   |
+| Rappi Manual         | Media     | +30% volumen               | Inmediato |
+| Rappi API            | Alta      | +30% volumen, -5% comisión | 6 meses   |
 
 ### Métricas de Éxito
 
 **Fidelización:**
+
 - % de clientes que usan programa: > 40%
 - Ticket promedio miembros vs no-miembros: +20%
 - Frecuencia de compra: +25%
 
 **Marketing Automation:**
+
 - Tasa de apertura WhatsApp: > 70%
 - Tasa de conversión carritos abandonados: > 15%
 - Tasa recuperación inactivos: > 10%
 
 **Rappi:**
+
 - % de pedidos por canal: < 30%
 - Ticket promedio: vs propios
 - Costo de adquisición: vs marketing propio
@@ -724,11 +756,11 @@ FROM productos;
 
 ```json
 {
-  "node-cron": "^3.0.2",      // Workers automáticos
-  "axios": "^1.6.0",           // HTTP para APIs
-  "twilio": "^4.19.0",         // SMS/WhatsApp oficial
-  "sendgrid": "^7.7.0",        // Emails
-  "bull": "^4.11.0"            // Colas de jobs
+  "node-cron": "^3.0.2", // Workers automáticos
+  "axios": "^1.6.0", // HTTP para APIs
+  "twilio": "^4.19.0", // SMS/WhatsApp oficial
+  "sendgrid": "^7.7.0", // Emails
+  "bull": "^4.11.0" // Colas de jobs
 }
 ```
 
@@ -764,4 +796,3 @@ cron.schedule('0 2 1 * *', () => {
 **Documento creado:** 2026-04-04  
 **Revisión:** Mensual mientras se implementa  
 **Responsable:** [Asignar Product Owner]
-

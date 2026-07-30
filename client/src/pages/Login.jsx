@@ -1,35 +1,42 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext.jsx';
-import api from '../lib/api.js';
 import toast from 'react-hot-toast';
 import { Eye, EyeOff, Lock, Mail } from 'lucide-react';
 
+import { useAuth } from '../context/AuthContext.jsx';
+import { useAppConfig } from '../context/AppConfigContext.jsx';
+import api from '../lib/api.js';
+
 export default function Login() {
-  const [form, setForm] = useState({ email: 'admin@modosabor.com', password: '' });
+  const [form, setForm] = useState({ email: '', password: '' });
   const [showPw, setShowPw] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [config, setConfig] = useState(null);
   const { login, isAuth } = useAuth();
+  const { config } = useAppConfig();
   const navigate = useNavigate();
 
   useEffect(() => {
-    // Cargar configuracion para el logo y branding
-    api.get('/configuracion').then(data => setConfig(data)).catch(() => {});
-  }, []);
+    if (isAuth) {
+      navigate('/admin/dashboard', { replace: true });
+    }
+  }, [isAuth, navigate]);
 
-  if (isAuth) { navigate('/admin/dashboard'); return null; }
+  if (isAuth) return null;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
     try {
       const res = await api.post('/auth/login', form);
-      login(res.token, res.user);
+      login(res.user);
       navigate('/admin/dashboard');
     } catch (err) {
       console.error('Login error:', err);
-      const msg = err.error || (err.code === 'ERR_NETWORK' || !err.response ? 'Error de conexión con el servidor' : 'Credenciales incorrectas');
+      const msg =
+        err.error ||
+        (err.code === 'ERR_NETWORK' || !err.response
+          ? 'Error de conexión con el servidor'
+          : 'Credenciales incorrectas');
       toast.error(msg);
     } finally {
       setLoading(false);
@@ -39,24 +46,23 @@ export default function Login() {
   return (
     <div className="min-h-screen bg-[#f4f7fb] flex items-center justify-center p-6 relative overflow-hidden">
       {/* Decoracion de fondo estilo Modernize */}
-      <div className="absolute top-[-10%] right-[-10%] w-[400px] h-[400px] bg-blue-100 rounded-full blur-3xl opacity-50"></div>
+      <div className="absolute top-[-10%] right-[-10%] w-[400px] h-[400px] bg-primary-100 rounded-full blur-3xl opacity-50"></div>
       <div className="absolute bottom-[-10%] left-[-10%] w-[300px] h-[300px] bg-orange-100 rounded-full blur-3xl opacity-50"></div>
 
       <div className="w-full max-w-[450px] z-10">
         {/* Card Principal */}
         <div className="bg-white rounded-[32px] p-8 md:p-12 shadow-[0_20px_50px_rgba(0,0,0,0.05)] border border-gray-100">
-          
           {/* Header con Logo */}
           <div className="text-center mb-10">
             {config?.negocio_logo ? (
-              <img 
-                src={config.negocio_logo} 
-                alt="Logo" 
+              <img
+                src={config.negocio_logo}
+                alt="Logo"
                 className="h-16 mx-auto mb-4 object-contain"
               />
             ) : (
-              <div className="inline-flex items-center justify-center w-16 h-16 bg-blue-50 rounded-2xl mb-4">
-                <span className="text-blue-600 font-black text-2xl">M</span>
+              <div className="inline-flex items-center justify-center w-16 h-16 bg-primary-50 rounded-2xl mb-4">
+                <span className="text-primary-600 font-black text-2xl">M</span>
               </div>
             )}
             <h1 className="text-2xl font-black text-gray-900 tracking-tight">
@@ -68,18 +74,20 @@ export default function Login() {
           <form onSubmit={handleSubmit} className="space-y-6">
             {/* Input Email */}
             <div className="space-y-2">
-              <label className="text-xs font-bold text-gray-700 uppercase tracking-wider ml-1">Email</label>
+              <label className="text-xs font-bold text-gray-700 uppercase tracking-wider ml-1">
+                Email
+              </label>
               <div className="relative">
                 <div className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">
                   <Mail size={18} />
                 </div>
-                <input 
-                  type="email" 
-                  value={form.email} 
-                  onChange={e => setForm({ ...form, email: e.target.value })}
+                <input
+                  type="email"
+                  value={form.email}
+                  onChange={(e) => setForm({ ...form, email: e.target.value })}
                   placeholder="admin@modosabor.com"
-                  className="w-full bg-gray-50 border-none rounded-2xl px-12 py-4 text-sm font-medium focus:ring-2 focus:ring-blue-500/20 focus:bg-white transition-all outline-none" 
-                  required 
+                  className="w-full bg-gray-50 border-none rounded-2xl px-12 py-4 text-sm font-medium focus:ring-2 focus:ring-blue-500/20 focus:bg-white transition-all outline-none"
+                  required
                 />
               </div>
             </div>
@@ -87,24 +95,26 @@ export default function Login() {
             {/* Input Password */}
             <div className="space-y-2">
               <div className="flex justify-between items-center ml-1">
-                <label className="text-xs font-bold text-gray-700 uppercase tracking-wider">Contraseña</label>
+                <label className="text-xs font-bold text-gray-700 uppercase tracking-wider">
+                  Contraseña
+                </label>
               </div>
               <div className="relative">
                 <div className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">
                   <Lock size={18} />
                 </div>
-                <input 
-                  type={showPw ? 'text' : 'password'} 
-                  value={form.password} 
-                  onChange={e => setForm({ ...form, password: e.target.value })}
+                <input
+                  type={showPw ? 'text' : 'password'}
+                  value={form.password}
+                  onChange={(e) => setForm({ ...form, password: e.target.value })}
                   placeholder="••••••••"
-                  className="w-full bg-gray-50 border-none rounded-2xl px-12 py-4 text-sm font-medium focus:ring-2 focus:ring-blue-500/20 focus:bg-white transition-all outline-none" 
-                  required 
+                  className="w-full bg-gray-50 border-none rounded-2xl px-12 py-4 text-sm font-medium focus:ring-2 focus:ring-blue-500/20 focus:bg-white transition-all outline-none"
+                  required
                 />
-                <button 
-                  type="button" 
-                  onClick={() => setShowPw(!showPw)} 
-                  className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-blue-600 transition-colors"
+                <button
+                  type="button"
+                  onClick={() => setShowPw(!showPw)}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-primary-600 transition-colors"
                 >
                   {showPw ? <EyeOff size={18} /> : <Eye size={18} />}
                 </button>
@@ -112,10 +122,10 @@ export default function Login() {
             </div>
 
             {/* Boton Ingresar */}
-            <button 
-              type="submit" 
+            <button
+              type="submit"
               disabled={loading}
-              className="w-full bg-[#5D87FF] hover:bg-[#4570EA] text-white font-bold py-4 rounded-2xl transition-all disabled:opacity-50 text-sm shadow-[0_8px_20px_rgba(93,135,255,0.25)] hover:shadow-[0_8px_25px_rgba(93,135,255,0.35)] active:scale-[0.98]"
+              className="w-full bg-primary-500 hover:bg-primary-600 text-white font-bold py-4 rounded-2xl transition-all disabled:opacity-50 text-sm shadow-[0_8px_20px_rgba(93,135,255,0.25)] hover:shadow-[0_8px_25px_rgba(93,135,255,0.35)] active:scale-[0.98]"
             >
               {loading ? 'Validando...' : 'Iniciar Sesión'}
             </button>
@@ -125,11 +135,13 @@ export default function Login() {
           <div className="mt-10 pt-8 border-t border-gray-50">
             <div className="flex items-center justify-center gap-2 mb-4">
               <div className="h-[1px] w-8 bg-gray-100"></div>
-              <span className="text-[10px] font-bold text-gray-300 uppercase tracking-widest px-2">Acceso</span>
+              <span className="text-[10px] font-bold text-gray-300 uppercase tracking-widest px-2">
+                Acceso
+              </span>
               <div className="h-[1px] w-8 bg-gray-100"></div>
             </div>
-            <div className="bg-blue-50/50 rounded-2xl p-4 text-center border border-blue-100/50">
-              <p className="text-[11px] text-blue-600 font-bold leading-relaxed">
+            <div className="bg-primary-50/50 rounded-2xl p-4 text-center border border-primary-100/50">
+              <p className="text-[11px] text-primary-600 font-bold leading-relaxed">
                 Ingresá con un usuario activo del sistema.
               </p>
             </div>

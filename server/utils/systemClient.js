@@ -39,7 +39,9 @@ const CATEGORY_ALIASES = [
 ];
 
 function cleanText(value) {
-  return String(value || '').replace(/\s+/g, ' ').trim();
+  return String(value || '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function normalizeText(value) {
@@ -66,8 +68,15 @@ function parseJsonArray(value) {
   }
 }
 
+// Los montos en la base (productos.precio, delivery_zonas.costo_envio,
+// pedidos.total, etc.) se guardan en CENTAVOS (convencion del sistema). Todas
+// las funciones de este archivo trabajan internamente con esos valores en
+// centavos tal cual vienen de la base, asi que cualquier texto legible para
+// humanos tiene que dividir por 100 aca. Antes esta funcion no dividia, asi
+// que cada *_texto/money_text quedaba inflado x100 (nunca se noto porque este
+// modulo no estaba conectado a ninguna ruta todavia).
 function formatMoney(value) {
-  return `$${Number(value || 0).toLocaleString('es-AR')}`;
+  return `$${(Number(value || 0) / 100).toLocaleString('es-AR')}`;
 }
 
 function expandAliasTerms(value) {
@@ -83,7 +92,10 @@ function expandAliasTerms(value) {
       return;
     }
 
-    if (normalizedAliases.some((alias) => normalized.includes(alias)) || normalized.includes(normalizedCanonical)) {
+    if (
+      normalizedAliases.some((alias) => normalized.includes(alias)) ||
+      normalized.includes(normalizedCanonical)
+    ) {
       terms.add(normalizedCanonical);
       normalizedAliases.forEach((alias) => terms.add(alias));
     }
@@ -118,9 +130,10 @@ function mapProductRow(row) {
     stock_disponible: Number(row.stock_disponible ?? row.stock_directo ?? 0),
     destacado: Number(row.destacado) === 1,
     activo: Number(row.activo) === 1,
-    disponible_para_venta: typeof row.disponible_para_venta === 'boolean'
-      ? row.disponible_para_venta
-      : Number(row.disponible_para_venta) === 1,
+    disponible_para_venta:
+      typeof row.disponible_para_venta === 'boolean'
+        ? row.disponible_para_venta
+        : Number(row.disponible_para_venta) === 1,
     variantes: parseJsonArray(row.variantes),
     extras: parseJsonArray(row.extras),
   };
@@ -193,12 +206,16 @@ function getFeaturedProducts(db, limit = 5) {
 }
 
 function getProductById(db, productId) {
-  const row = db.prepare(`
+  const row = db
+    .prepare(
+      `
     SELECT p.*, c.nombre AS categoria_nombre
     FROM productos p
     LEFT JOIN categorias c ON c.id = p.categoria_id
     WHERE p.id = ?
-  `).get(Number(productId));
+  `
+    )
+    .get(Number(productId));
 
   if (!row) return null;
   return decorateProducts(db, [row])[0] || null;
@@ -208,9 +225,9 @@ function scoreCategory(category, query) {
   const normalizedQuery = normalizeText(query);
   const categoryTerms = new Set([
     normalizeText(category.nombre),
-    ...CATEGORY_ALIASES
-      .filter(([name]) => normalizeText(name) === normalizeText(category.nombre))
-      .flatMap(([, aliases]) => aliases.map((alias) => normalizeText(alias))),
+    ...CATEGORY_ALIASES.filter(
+      ([name]) => normalizeText(name) === normalizeText(category.nombre)
+    ).flatMap(([, aliases]) => aliases.map((alias) => normalizeText(alias))),
   ]);
 
   let score = 0;
@@ -228,7 +245,12 @@ function findCategoryMatch(db, query) {
   const scored = categories
     .map((category) => ({ category, score: scoreCategory(category, query) }))
     .filter((entry) => entry.score > 0)
-    .sort((left, right) => right.score - left.score || left.category.orden - right.category.orden || left.category.nombre.localeCompare(right.category.nombre));
+    .sort(
+      (left, right) =>
+        right.score - left.score ||
+        left.category.orden - right.category.orden ||
+        left.category.nombre.localeCompare(right.category.nombre)
+    );
 
   if (!scored.length) {
     return {
@@ -252,11 +274,15 @@ function findCategoryMatch(db, query) {
 }
 
 function buildProductSearchTerms(product) {
-  return Array.from(new Set([
-    ...expandAliasTerms(product.nombre),
-    normalizeText(product.descripcion || ''),
-    normalizeText(product.categoria_nombre || ''),
-  ].filter(Boolean)));
+  return Array.from(
+    new Set(
+      [
+        ...expandAliasTerms(product.nombre),
+        normalizeText(product.descripcion || ''),
+        normalizeText(product.categoria_nombre || ''),
+      ].filter(Boolean)
+    )
+  );
 }
 
 function scoreProduct(product, query) {
@@ -273,7 +299,9 @@ function scoreProduct(product, query) {
   if (normalizedQuery.includes(productName)) score = Math.max(score, 110);
   if (categoryName && normalizedQuery.includes(categoryName)) score += 10;
 
-  const overlap = queryWords.filter((word) => word.length > 1 && terms.some((term) => term.includes(word) || word.includes(term)));
+  const overlap = queryWords.filter(
+    (word) => word.length > 1 && terms.some((term) => term.includes(word) || word.includes(term))
+  );
   if (overlap.length) {
     score += overlap.length * 10;
   }
@@ -294,7 +322,12 @@ function searchProducts(db, query, limit = 6, options = {}) {
       score: scoreProduct(product, query),
     }))
     .filter((product) => product.score > 0)
-    .sort((left, right) => right.score - left.score || Number(right.destacado) - Number(left.destacado) || left.nombre.localeCompare(right.nombre));
+    .sort(
+      (left, right) =>
+        right.score - left.score ||
+        Number(right.destacado) - Number(left.destacado) ||
+        left.nombre.localeCompare(right.nombre)
+    );
 
   const filtered = options.sellableOnly
     ? scored.filter((product) => product.disponible_para_venta)
@@ -323,7 +356,9 @@ function findProductMatch(db, query) {
 
   const [top, second] = results;
   const normalizedQuery = normalizeText(query);
-  const topIsExact = normalizeText(top.nombre) === normalizedQuery || expandAliasTerms(top.nombre).includes(normalizedQuery);
+  const topIsExact =
+    normalizeText(top.nombre) === normalizedQuery ||
+    expandAliasTerms(top.nombre).includes(normalizedQuery);
 
   if (topIsExact && top.score >= second.score + 10) {
     return {
@@ -358,10 +393,14 @@ function lookupProductsByNames(db, categoryId, names = []) {
   return names
     .map((name) => {
       const searchTerms = expandAliasTerms(name);
-      return products.find((product) => {
-        const productTerms = expandAliasTerms(product.nombre);
-        return searchTerms.some((term) => productTerms.includes(term) || normalizeText(product.nombre).includes(term));
-      }) || null;
+      return (
+        products.find((product) => {
+          const productTerms = expandAliasTerms(product.nombre);
+          return searchTerms.some(
+            (term) => productTerms.includes(term) || normalizeText(product.nombre).includes(term)
+          );
+        }) || null
+      );
     })
     .filter(Boolean);
 }
@@ -393,7 +432,9 @@ function getFlavorSuggestions(db, product) {
       id: item.id,
       nombre: item.nombre,
       precio: Number(item.precio || 0),
-      aliases: expandAliasTerms(item.nombre).filter((alias) => alias !== normalizeText(item.nombre)),
+      aliases: expandAliasTerms(item.nombre).filter(
+        (alias) => alias !== normalizeText(item.nombre)
+      ),
     }));
 }
 
@@ -407,8 +448,13 @@ function getOrderRules(product, variantGroups = []) {
     type,
     allows_halves: type === 'pizza',
     supports_flavor_mix: type === 'empanada',
-    available_presentations: optionNames.filter((name) =>
-      name.includes('unidad') || name.includes('media docena') || name.includes('docena') || name.includes('mitad') || name.includes('entera')
+    available_presentations: optionNames.filter(
+      (name) =>
+        name.includes('unidad') ||
+        name.includes('media docena') ||
+        name.includes('docena') ||
+        name.includes('mitad') ||
+        name.includes('entera')
     ),
   };
 }
@@ -472,22 +518,32 @@ function matchVariantSelection(group, selectedOptionName) {
       return { option, score };
     })
     .filter((entry) => entry.score > 0)
-    .sort((left, right) => right.score - left.score || String(left.option?.nombre || '').localeCompare(String(right.option?.nombre || '')));
+    .sort(
+      (left, right) =>
+        right.score - left.score ||
+        String(left.option?.nombre || '').localeCompare(String(right.option?.nombre || ''))
+    );
 
   return scored[0]?.option || null;
 }
 
 function matchExtraSelection(extras, name) {
   const normalizedName = normalizeText(name);
-  return extras.find((extra) => {
-    const extraTerms = expandAliasTerms(extra?.nombre || '');
-    return extraTerms.includes(normalizedName)
-      || extraTerms.some((term) => normalizedName.includes(term) || term.includes(normalizedName));
-  }) || null;
+  return (
+    extras.find((extra) => {
+      const extraTerms = expandAliasTerms(extra?.nombre || '');
+      return (
+        extraTerms.includes(normalizedName) ||
+        extraTerms.some((term) => normalizedName.includes(term) || term.includes(normalizedName))
+      );
+    }) || null
+  );
 }
 
 function getPresentationCount(selectedVariants) {
-  const values = Object.values(selectedVariants || {}).map((option) => normalizeText(option?.nombre || ''));
+  const values = Object.values(selectedVariants || {}).map((option) =>
+    normalizeText(option?.nombre || '')
+  );
   if (values.some((value) => value.includes('media docena'))) return 6;
   if (values.some((value) => value.includes('docena'))) return 12;
   if (values.some((value) => value.includes('unidad'))) return 1;
@@ -507,7 +563,13 @@ function resolveFlavorNames(db, product, names = []) {
   return matched.map((item) => item.nombre);
 }
 
-function normalizeFlavorCounts(db, product, flavorCounts = [], sabores = [], selectedVariants = {}) {
+function normalizeFlavorCounts(
+  db,
+  product,
+  flavorCounts = [],
+  sabores = [],
+  selectedVariants = {}
+) {
   const fromCounts = parseJsonArray(flavorCounts)
     .map((entry) => ({
       sabor: cleanText(entry?.sabor || entry?.nombre || ''),
@@ -556,7 +618,9 @@ function validateConfiguredSelection(product, selectedVariants, mitadSabores, fl
       throw new Error(`Faltan definir los sabores para completar ${requiredFlavorCount} empanadas`);
     }
     if (totalRequested !== requiredFlavorCount) {
-      throw new Error(`La seleccion debe sumar ${requiredFlavorCount} empanadas y hoy suma ${totalRequested}`);
+      throw new Error(
+        `La seleccion debe sumar ${requiredFlavorCount} empanadas y hoy suma ${totalRequested}`
+      );
     }
   }
 }
@@ -604,7 +668,9 @@ function buildConfiguredDescription({
   }
 
   if (Array.isArray(flavorCounts) && flavorCounts.length > 0) {
-    parts.push(`Sabores: ${flavorCounts.map((item) => `${item.cantidad} ${item.sabor}`).join(', ')}`);
+    parts.push(
+      `Sabores: ${flavorCounts.map((item) => `${item.cantidad} ${item.sabor}`).join(', ')}`
+    );
   } else if (Array.isArray(sabores) && sabores.length > 0) {
     parts.push(`Sabores: ${sabores.join(', ')}`);
   }
@@ -622,18 +688,23 @@ function buildConfiguredDescription({
 
 function configuredItemName(product, mitadSabores, sabores, selectedVariants, flavorCounts) {
   const type = detectProductType(product);
-  const variantValues = Object.values(selectedVariants || {}).map((option) => option?.nombre).filter(Boolean);
+  const variantValues = Object.values(selectedVariants || {})
+    .map((option) => option?.nombre)
+    .filter(Boolean);
   const normalizedVariants = variantValues.map((value) => normalizeText(value));
 
   if (type === 'pizza' && Array.isArray(mitadSabores) && mitadSabores.length >= 2) {
     return 'Pizza mitad y mitad';
   }
 
-  const hasPackVariant = normalizedVariants.some((value) => value.includes('docena') || value.includes('media'));
+  const hasPackVariant = normalizedVariants.some(
+    (value) => value.includes('docena') || value.includes('media')
+  );
   if (
-    type === 'empanada'
-    && ((Array.isArray(sabores) && sabores.length > 1) || (Array.isArray(flavorCounts) && flavorCounts.length > 1))
-    && hasPackVariant
+    type === 'empanada' &&
+    ((Array.isArray(sabores) && sabores.length > 1) ||
+      (Array.isArray(flavorCounts) && flavorCounts.length > 1)) &&
+    hasPackVariant
   ) {
     return 'Empanadas surtidas';
   }
@@ -661,7 +732,9 @@ function resolveSelectionsFromText(db, product, query) {
     if (parseJsonArray(group?.opciones).length > 1) {
       missingGroups.push({
         grupo: group?.nombre || '',
-        opciones: parseJsonArray(group?.opciones).map((option) => option?.nombre || '').filter(Boolean),
+        opciones: parseJsonArray(group?.opciones)
+          .map((option) => option?.nombre || '')
+          .filter(Boolean),
       });
     }
   });
@@ -669,19 +742,39 @@ function resolveSelectionsFromText(db, product, query) {
   const selectedExtras = extrasCatalog
     .map((extra) => matchExtraSelection(extrasCatalog, extra?.nombre || ''))
     .filter(Boolean)
-    .filter((extra) => expandAliasTerms(query).some((term) => expandAliasTerms(extra.nombre).includes(term)));
+    .filter((extra) =>
+      expandAliasTerms(query).some((term) => expandAliasTerms(extra.nombre).includes(term))
+    );
 
   const wantsHalves = detectProductType(product) === 'pizza' && normalizedQuery.includes('mitad');
   const normalizedMitades = wantsHalves
-    ? resolveFlavorNames(db, product, getFlavorSuggestions(db, product)
-      .filter((item) => expandAliasTerms(query).some((term) => expandAliasTerms(item.nombre).includes(term)))
-      .map((item) => item.nombre))
+    ? resolveFlavorNames(
+        db,
+        product,
+        getFlavorSuggestions(db, product)
+          .filter((item) =>
+            expandAliasTerms(query).some((term) => expandAliasTerms(item.nombre).includes(term))
+          )
+          .map((item) => item.nombre)
+      )
     : [];
 
-  const normalizedSabores = resolveFlavorNames(db, product, getFlavorSuggestions(db, product)
-    .filter((item) => expandAliasTerms(query).some((term) => expandAliasTerms(item.nombre).includes(term)))
-    .map((item) => item.nombre));
-  const normalizedFlavorCounts = normalizeFlavorCounts(db, product, [], normalizedSabores, selectedVariants);
+  const normalizedSabores = resolveFlavorNames(
+    db,
+    product,
+    getFlavorSuggestions(db, product)
+      .filter((item) =>
+        expandAliasTerms(query).some((term) => expandAliasTerms(item.nombre).includes(term))
+      )
+      .map((item) => item.nombre)
+  );
+  const normalizedFlavorCounts = normalizeFlavorCounts(
+    db,
+    product,
+    [],
+    normalizedSabores,
+    selectedVariants
+  );
 
   return {
     selectedVariants,
@@ -802,7 +895,9 @@ function buildProductPreview(product) {
   const variantGroups = parseJsonArray(product.variantes);
   const optionsSummary = variantGroups
     .map((group) => {
-      const options = parseJsonArray(group?.opciones).map((option) => option?.nombre || '').filter(Boolean);
+      const options = parseJsonArray(group?.opciones)
+        .map((option) => option?.nombre || '')
+        .filter(Boolean);
       if (!options.length) return '';
       return `${group?.nombre || 'Opciones'}: ${options.join(', ')}`;
     })
@@ -898,25 +993,33 @@ function pickBestPhoneRow(rows, phoneField, phone) {
 function findClienteByPhone(db, phone) {
   const comparable = comparablePhone(phone);
   if (!comparable) return null;
-  const rows = db.prepare(`
+  const rows = db
+    .prepare(
+      `
     SELECT *
     FROM clientes
     WHERE REPLACE(REPLACE(REPLACE(telefono, ' ', ''), '+', ''), '-', '') LIKE ?
     ORDER BY id DESC
-  `).all(`%${comparable}`);
+  `
+    )
+    .all(`%${comparable}`);
   return pickBestPhoneRow(rows, 'telefono', phone);
 }
 
 function getLastOrderByPhone(db, phone) {
   const comparable = comparablePhone(phone);
   if (!comparable) return null;
-  const rows = db.prepare(`
+  const rows = db
+    .prepare(
+      `
     SELECT *
     FROM pedidos
     WHERE REPLACE(REPLACE(REPLACE(cliente_telefono, ' ', ''), '+', ''), '-', '') LIKE ?
       AND estado != 'cancelado'
     ORDER BY datetime(creado_en) DESC, id DESC
-  `).all(`%${comparable}`);
+  `
+    )
+    .all(`%${comparable}`);
   return pickBestPhoneRow(rows, 'cliente_telefono', phone);
 }
 
@@ -943,28 +1046,65 @@ function getCustomerSnapshot(db, phone) {
   const cliente = findClienteByPhone(db, phone);
   const lastOrder = getLastOrderByPhone(db, phone);
   const direcciones = cliente
-    ? db.prepare(`
+    ? db
+        .prepare(
+          `
       SELECT id, etiqueta, direccion, referencia, departamento, principal, activa
       FROM cliente_direcciones
       WHERE cliente_id = ? AND activa = 1
       ORDER BY principal DESC, updated_at DESC, id DESC
-    `).all(cliente.id)
+    `
+        )
+        .all(cliente.id)
     : [];
 
   return {
     cliente: cliente
       ? {
-        id: cliente.id,
-        nombre: cliente.nombre || '',
-        telefono: cliente.telefono || '',
-        direccion: cliente.direccion || '',
-        total_pedidos: Number(cliente.total_pedidos || 0),
-        total_gastado: Number(cliente.total_gastado || 0),
-      }
+          id: cliente.id,
+          nombre: cliente.nombre || '',
+          telefono: cliente.telefono || '',
+          direccion: cliente.direccion || '',
+          total_pedidos: Number(cliente.total_pedidos || 0),
+          total_gastado: Number(cliente.total_gastado || 0),
+        }
       : null,
     direcciones,
     ultimo_pedido: summarizeOrder(lastOrder),
   };
+}
+
+// Recalcula el precio unitario SIEMPRE desde el catalogo cuando hay
+// producto_id, matcheando variantes/extras por nombre contra lo que el
+// producto realmente tiene configurado. Nunca confia en un precio_unitario
+// que venga de afuera (agente de IA, o cualquier llamador) para un producto
+// conocido - eso evita que un pedido quede cargado con un precio inventado o
+// mal calculado. Solo se acepta precio_unitario "a ciegas" para items sin
+// producto_id (caso raro, no deberia usarse desde el agente de WhatsApp).
+function resolvePriceFromCatalog(product, variantes = {}, extras = []) {
+  let total = Number(product?.precio || 0);
+
+  const variantGroups = parseJsonArray(product?.variantes);
+  Object.entries(variantes || {}).forEach(([groupName, selected]) => {
+    const group = variantGroups.find(
+      (g) => normalizeText(g?.nombre || '') === normalizeText(groupName)
+    );
+    const options = group ? parseJsonArray(group?.opciones) : [];
+    const option = options.find(
+      (o) => normalizeText(o?.nombre || '') === normalizeText(selected?.nombre || '')
+    );
+    if (option) total += Number(option.precio_extra || 0);
+  });
+
+  const extrasCatalog = parseJsonArray(product?.extras);
+  (extras || []).forEach((extra) => {
+    const match = extrasCatalog.find(
+      (e) => normalizeText(e?.nombre || '') === normalizeText(extra?.nombre || '')
+    );
+    if (match) total += Number(match.precio || 0);
+  });
+
+  return total;
 }
 
 function enrichOrderItemsWithCatalog(db, items = []) {
@@ -976,9 +1116,13 @@ function enrichOrderItemsWithCatalog(db, items = []) {
     }
 
     const quantity = Math.max(1, Number(item?.cantidad || 1));
-    const unitPrice = Number(item?.precio_unitario ?? product?.precio ?? 0);
+    const unitPrice = product
+      ? resolvePriceFromCatalog(product, item?.variantes, item?.extras)
+      : Number(item?.precio_unitario ?? 0);
     if (!Number.isFinite(unitPrice) || unitPrice <= 0) {
-      throw new Error(`Todavia no tengo un precio validado para ${item?.nombre || product?.nombre || 'ese item'}`);
+      throw new Error(
+        `Todavia no tengo un precio validado para ${item?.nombre || product?.nombre || 'ese item'}`
+      );
     }
 
     return {
@@ -994,7 +1138,7 @@ function enrichOrderItemsWithCatalog(db, items = []) {
   });
 }
 
-function createRealOrder(db, body = {}) {
+async function createRealOrder(db, body = {}) {
   const existingCustomer = findClienteByPhone(db, body.cliente_telefono || '');
   const normalizedBody = {
     ...body,
@@ -1005,7 +1149,7 @@ function createRealOrder(db, body = {}) {
     origen: cleanText(body.origen || 'whatsapp') || 'whatsapp',
   };
 
-  const payload = buildPedidoPayload(normalizedBody, { config: getConfigMap(db) });
+  const payload = await buildPedidoPayload(normalizedBody, { config: getConfigMap(db) });
   const pedido = createPedidoWithInventory({
     ...payload,
     pago_estado: resolveInitialPagoEstado({

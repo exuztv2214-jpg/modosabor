@@ -75,20 +75,22 @@ function normalizeCliente(row) {
 }
 
 function buildCampaignMessage(template, payload) {
-  return String(template || '').replace(/\{\{(.*?)\}\}/g, (_, key) => {
-    const clean = String(key || '').trim();
-    return payload[clean] ?? '';
-  }).replace(/\s{2,}/g, ' ').trim();
+  return String(template || '')
+    .replace(/\{\{(.*?)\}\}/g, (_, key) => {
+      const clean = String(key || '').trim();
+      return payload[clean] ?? '';
+    })
+    .replace(/\s{2,}/g, ' ')
+    .trim();
 }
 
 function buildCampaignPayload(cliente, config = {}) {
   const codigo = cliente?.codigo_tarjeta || `MS-${String(cliente?.id || '').padStart(6, '0')}`;
   const telefono = normalizePhone(cliente?.telefono);
-  const pedidoUrl = String(
-    config.public_app_url ||
-    config.crm_link_campanas ||
+  const pedidoUrl = String(config.public_app_url || config.crm_link_campanas || '').replace(
+    /\/$/,
     ''
-  ).replace(/\/$/, '');
+  );
 
   return {
     cliente: cliente?.nombre || 'cliente',
@@ -120,7 +122,8 @@ function summarizeCampaignResults(results = [], totalClientes = 0) {
   const enviadosLocal = safeResults.filter((item) => item?.mode === 'local').length;
   const total = Number(totalClientes || safeResults.length || 0);
   const cobertura = total > 0 ? Number(((safeResults.length / total) * 100).toFixed(1)) : 0;
-  const tasaEnvio = safeResults.length > 0 ? Number(((enviadosOk / safeResults.length) * 100).toFixed(1)) : 0;
+  const tasaEnvio =
+    safeResults.length > 0 ? Number(((enviadosOk / safeResults.length) * 100).toFixed(1)) : 0;
 
   return {
     total_clientes: total,
@@ -136,7 +139,9 @@ function summarizeCampaignResults(results = [], totalClientes = 0) {
 }
 
 function summarizeCampaignConversion(item) {
-  const clienteIds = Array.isArray(item?.cliente_ids) ? item.cliente_ids.map((id) => Number(id)).filter((id) => Number.isFinite(id)) : [];
+  const clienteIds = Array.isArray(item?.cliente_ids)
+    ? item.cliente_ids.map((id) => Number(id)).filter((id) => Number.isFinite(id))
+    : [];
   const createdAt = item?.creado_en || new Date().toISOString();
   const windowDays = 30;
 
@@ -151,7 +156,9 @@ function summarizeCampaignConversion(item) {
   }
 
   const placeholders = clienteIds.map(() => '?').join(', ');
-  const rows = db.prepare(`
+  const rows = db
+    .prepare(
+      `
     SELECT
       p.cliente_id,
       COUNT(*) AS pedidos_generados,
@@ -162,7 +169,9 @@ function summarizeCampaignConversion(item) {
       AND datetime(p.creado_en) >= datetime(?)
       AND datetime(p.creado_en) <= datetime(?, '+${windowDays} days')
     GROUP BY p.cliente_id
-  `).all(...clienteIds, createdAt, createdAt);
+  `
+    )
+    .all(...clienteIds, createdAt, createdAt);
 
   const clientesConvertidos = rows.length;
   const pedidosGenerados = rows.reduce((acc, row) => acc + Number(row.pedidos_generados || 0), 0);
@@ -173,7 +182,10 @@ function summarizeCampaignConversion(item) {
     clientes_convertidos: clientesConvertidos,
     pedidos_generados: pedidosGenerados,
     ingreso_generado: Number(ingresoGenerado.toFixed(2)),
-    tasa_conversion: clienteIds.length > 0 ? Number(((clientesConvertidos / clienteIds.length) * 100).toFixed(1)) : 0,
+    tasa_conversion:
+      clienteIds.length > 0
+        ? Number(((clientesConvertidos / clienteIds.length) * 100).toFixed(1))
+        : 0,
   };
 }
 
@@ -193,7 +205,9 @@ function getRecompraCandidates() {
   recalculateAllClientes(db);
   const config = getConfigMap(db);
   const dias = Math.max(1, Number(config.crm_dias_inactividad || 15));
-  const rows = db.prepare(`
+  const rows = db
+    .prepare(
+      `
     SELECT
       c.*,
       COALESCE(MAX(p.creado_en), '') AS ultima_compra
@@ -203,21 +217,28 @@ function getRecompraCandidates() {
     GROUP BY c.id
     HAVING MAX(p.creado_en) IS NOT NULL
     ORDER BY datetime(MAX(p.creado_en)) ASC
-  `).all();
+  `
+    )
+    .all();
 
   return rows
     .map(normalizeCliente)
     .map((cliente) => ({
       ...cliente,
       dias_inactivo: cliente.ultima_compra
-        ? Math.max(0, Math.floor((Date.now() - new Date(cliente.ultima_compra).getTime()) / 86400000))
+        ? Math.max(
+            0,
+            Math.floor((Date.now() - new Date(cliente.ultima_compra).getTime()) / 86400000)
+          )
         : 999,
     }))
     .filter((cliente) => cliente.dias_inactivo >= dias);
 }
 
 function getBirthdayCandidates() {
-  return db.prepare(`
+  return db
+    .prepare(
+      `
     SELECT
       c.*,
       COALESCE(MAX(p.creado_en), '') AS ultima_compra
@@ -228,23 +249,33 @@ function getBirthdayCandidates() {
       AND strftime('%m', c.fecha_nacimiento) = strftime('%m', 'now')
     GROUP BY c.id
     ORDER BY strftime('%d', c.fecha_nacimiento) ASC, c.total_gastado DESC
-  `).all().map(normalizeCliente);
+  `
+    )
+    .all()
+    .map(normalizeCliente);
 }
 
 function classifyCliente(cliente) {
   const ultimaCompra = cliente.ultima_compra ? new Date(cliente.ultima_compra).getTime() : 0;
-  const diasInactivo = ultimaCompra ? Math.max(0, Math.floor((Date.now() - ultimaCompra) / 86400000)) : null;
+  const diasInactivo = ultimaCompra
+    ? Math.max(0, Math.floor((Date.now() - ultimaCompra) / 86400000))
+    : null;
   const totalPedidos = Number(cliente.total_pedidos || 0);
   const totalGastado = Number(cliente.total_gastado || 0);
   const recompensasPendientes = Number(cliente.recompensas_pendientes || 0);
 
   let estado = 'activo';
   if (recompensasPendientes > 0) estado = 'premio-listo';
-  else if (totalPedidos >= 10 || ['Oro', 'Platino'].includes(cliente.nivel) || totalGastado >= 120000) estado = 'vip';
-  else if (diasInactivo != null && diasInactivo >= 60) estado = 'perdido';
-  else if (diasInactivo != null && diasInactivo >= 30) estado = 'riesgo';
+  else if (
+    totalPedidos >= 10 ||
+    ['Oro', 'Platino'].includes(cliente.nivel) ||
+    totalGastado >= 120000
+  )
+    estado = 'vip';
+  else if (diasInactivo !== null && diasInactivo >= 60) estado = 'perdido';
+  else if (diasInactivo !== null && diasInactivo >= 30) estado = 'riesgo';
   else if (totalPedidos <= 1 || !cliente.ultima_compra) estado = 'nuevo';
-  else if (totalPedidos >= 5 && (diasInactivo == null || diasInactivo < 30)) estado = 'recurrente';
+  else if (totalPedidos >= 5 && (diasInactivo === null || diasInactivo < 30)) estado = 'recurrente';
 
   return {
     ...cliente,
@@ -272,7 +303,9 @@ function getClienteRow(clienteId) {
 function getClientesByIds(clienteIds = []) {
   if (!Array.isArray(clienteIds) || !clienteIds.length) return [];
   const placeholders = clienteIds.map(() => '?').join(', ');
-  return db.prepare(`
+  return db
+    .prepare(
+      `
     SELECT
       c.*,
       COALESCE(MAX(p.creado_en), '') AS ultima_compra
@@ -280,7 +313,11 @@ function getClientesByIds(clienteIds = []) {
     LEFT JOIN pedidos p ON p.cliente_id = c.id AND p.estado = 'entregado'
     WHERE c.id IN (${placeholders})
     GROUP BY c.id
-  `).all(...clienteIds).map(normalizeCliente).map(classifyCliente);
+  `
+    )
+    .all(...clienteIds)
+    .map(normalizeCliente)
+    .map(classifyCliente);
 }
 
 function getClienteDetail(clienteId) {
@@ -288,7 +325,10 @@ function getClienteDetail(clienteId) {
   const cliente = getClienteRow(clienteId);
   if (!cliente) return null;
 
-  const pedidos = db.prepare('SELECT * FROM pedidos WHERE cliente_id = ? ORDER BY creado_en DESC LIMIT 50').all(clienteId).map(hydratePedido);
+  const pedidos = db
+    .prepare('SELECT * FROM pedidos WHERE cliente_id = ? ORDER BY creado_en DESC LIMIT 50')
+    .all(clienteId)
+    .map(hydratePedido);
   const direcciones = getClienteDirecciones(db, clienteId);
   const timeline = [
     ...pedidos.slice(0, 10).map((pedido) => ({
@@ -299,34 +339,49 @@ function getClienteDetail(clienteId) {
       title: `Pedido #${pedido.numero}`,
       subtitle: `${pedido.estado || 'sin estado'} · ${Number(pedido.total || 0).toLocaleString('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 })}`,
     })),
-    ...db.prepare(`
+    ...db
+      .prepare(
+        `
       SELECT id, tipo, puntos, descripcion, fecha
       FROM puntos_transacciones
       WHERE cliente_id = ?
       ORDER BY datetime(fecha) DESC
       LIMIT 10
-    `).all(clienteId).map((movimiento) => ({
-      id: `puntos-${movimiento.id}`,
-      fecha: movimiento.fecha,
-      tipo: 'puntos',
-      tone: movimiento.tipo === 'canje' ? 'amber' : movimiento.tipo === 'expiracion' ? 'rose' : 'emerald',
-      title: movimiento.tipo === 'canje' ? 'Canje de puntos' : 'Movimiento de puntos',
-      subtitle: `${Number(movimiento.puntos || 0)} pts${movimiento.descripcion ? ` · ${movimiento.descripcion}` : ''}`,
-    })),
-    ...db.prepare(`
+    `
+      )
+      .all(clienteId)
+      .map((movimiento) => ({
+        id: `puntos-${movimiento.id}`,
+        fecha: movimiento.fecha,
+        tipo: 'puntos',
+        tone:
+          movimiento.tipo === 'canje'
+            ? 'amber'
+            : movimiento.tipo === 'expiracion'
+              ? 'rose'
+              : 'emerald',
+        title: movimiento.tipo === 'canje' ? 'Canje de puntos' : 'Movimiento de puntos',
+        subtitle: `${Number(movimiento.puntos || 0)} pts${movimiento.descripcion ? ` · ${movimiento.descripcion}` : ''}`,
+      })),
+    ...db
+      .prepare(
+        `
       SELECT id, nivel_anterior, nivel_nuevo, fecha_cambio
       FROM cliente_niveles_historial
       WHERE cliente_id = ?
       ORDER BY datetime(fecha_cambio) DESC
       LIMIT 5
-    `).all(clienteId).map((cambio) => ({
-      id: `nivel-${cambio.id}`,
-      fecha: cambio.fecha_cambio,
-      tipo: 'nivel',
-      tone: 'sky',
-      title: 'Cambio de nivel',
-      subtitle: `${cambio.nivel_anterior || 'Sin nivel'} -> ${cambio.nivel_nuevo}`,
-    })),
+    `
+      )
+      .all(clienteId)
+      .map((cambio) => ({
+        id: `nivel-${cambio.id}`,
+        fecha: cambio.fecha_cambio,
+        tipo: 'nivel',
+        tone: 'sky',
+        title: 'Cambio de nivel',
+        subtitle: `${cambio.nivel_anterior || 'Sin nivel'} -> ${cambio.nivel_nuevo}`,
+      })),
   ]
     .filter((item) => item.fecha)
     .sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime())
@@ -357,7 +412,11 @@ function resolveDireccionesInput(body, fallbackDirecciones = []) {
 
 router.get('/', auth, requirePermission('clientes.view'), (req, res) => {
   recalculateAllClientes(db);
-  const { search } = req.query;
+  const { search, page = 1, limit = 50 } = req.query;
+  const pageNum = Math.max(1, Number(page) || 1);
+  const limitNum = Math.min(200, Math.max(1, Number(limit) || 50));
+  const offset = (pageNum - 1) * limitNum;
+
   let q = `
     SELECT
       c.*,
@@ -374,6 +433,7 @@ router.get('/', auth, requirePermission('clientes.view'), (req, res) => {
         c.nombre LIKE ?
         OR c.telefono LIKE ?
         OR c.direccion LIKE ?
+        OR c.codigo_tarjeta LIKE ?
         OR EXISTS (
           SELECT 1
           FROM cliente_direcciones cd
@@ -386,10 +446,20 @@ router.get('/', auth, requirePermission('clientes.view'), (req, res) => {
         )
       )
     `;
-    params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
+    params.push(
+      `%${search}%`,
+      `%${search}%`,
+      `%${search}%`,
+      `%${search}%`,
+      `%${search}%`,
+      `%${search}%`,
+      `%${search}%`
+    );
   }
 
   q += ' GROUP BY c.id ORDER BY c.total_pedidos DESC, c.nombre ASC';
+  q += ' LIMIT ? OFFSET ?';
+  params.push(limitNum, offset);
   const rows = db.prepare(q).all(...params);
   res.json(rows.map(normalizeCliente).map(classifyCliente));
 });
@@ -442,7 +512,9 @@ router.get('/campanas/cumpleanos', auth, requirePermission('clientes.edit'), (re
 
 router.get('/segmentos', auth, requirePermission('clientes.view'), (req, res) => {
   recalculateAllClientes(db);
-  const rows = db.prepare(`
+  const rows = db
+    .prepare(
+      `
     SELECT
       c.*,
       COALESCE(MAX(p.creado_en), '') AS ultima_compra
@@ -450,28 +522,42 @@ router.get('/segmentos', auth, requirePermission('clientes.view'), (req, res) =>
     LEFT JOIN pedidos p ON p.cliente_id = c.id AND p.estado = 'entregado'
     GROUP BY c.id
     ORDER BY c.total_gastado DESC, c.total_pedidos DESC
-  `).all().map(normalizeCliente).map(classifyCliente);
+  `
+    )
+    .all()
+    .map(normalizeCliente)
+    .map(classifyCliente);
 
-  const summary = rows.reduce((acc, cliente) => {
-    acc.total += 1;
-    if (cliente.estado_segmento === 'vip') acc.vip += 1;
-    if (cliente.estado_segmento === 'riesgo') acc.riesgo += 1;
-    if (cliente.estado_segmento === 'perdido') acc.perdidos += 1;
-    if (cliente.dias_inactivo >= 30) acc.inactivos += 1;
-    if ((cliente.total_pedidos || 0) >= 5) acc.recurrentes += 1;
-    if (cliente.cumpleEsteMes || (cliente.fecha_nacimiento && String(cliente.fecha_nacimiento).slice(5, 7) === new Date().toISOString().slice(5, 7))) acc.cumpleMes += 1;
-    return acc;
-  }, {
-    total: 0,
-    vip: 0,
-    riesgo: 0,
-    perdidos: 0,
-    inactivos: 0,
-    recurrentes: 0,
-    cumpleMes: 0,
-  });
+  const summary = rows.reduce(
+    (acc, cliente) => {
+      acc.total += 1;
+      if (cliente.estado_segmento === 'vip') acc.vip += 1;
+      if (cliente.estado_segmento === 'riesgo') acc.riesgo += 1;
+      if (cliente.estado_segmento === 'perdido') acc.perdidos += 1;
+      if (cliente.dias_inactivo >= 30) acc.inactivos += 1;
+      if ((cliente.total_pedidos || 0) >= 5) acc.recurrentes += 1;
+      if (
+        cliente.cumpleEsteMes ||
+        (cliente.fecha_nacimiento &&
+          String(cliente.fecha_nacimiento).slice(5, 7) === new Date().toISOString().slice(5, 7))
+      )
+        acc.cumpleMes += 1;
+      return acc;
+    },
+    {
+      total: 0,
+      vip: 0,
+      riesgo: 0,
+      perdidos: 0,
+      inactivos: 0,
+      recurrentes: 0,
+      cumpleMes: 0,
+    }
+  );
 
-  const favoritos = db.prepare(`
+  const favoritos = db
+    .prepare(
+      `
     SELECT
       TRIM(pi.nombre) AS nombre,
       COUNT(*) AS veces
@@ -482,7 +568,9 @@ router.get('/segmentos', auth, requirePermission('clientes.view'), (req, res) =>
     HAVING nombre IS NOT NULL AND nombre != ''
     ORDER BY veces DESC, nombre ASC
     LIMIT 8
-  `).all();
+  `
+    )
+    .all();
 
   res.json({
     summary,
@@ -493,174 +581,235 @@ router.get('/segmentos', auth, requirePermission('clientes.view'), (req, res) =>
   });
 });
 
-router.get('/campanas/personalizadas/config', auth, requirePermission('clientes.view'), (req, res) => {
-  const config = getConfigMap(db);
-  const templates = Object.entries(SEGMENT_TEMPLATE_KEYS).reduce((acc, [segmento, clave]) => {
-    const row = db.prepare('SELECT valor FROM configuracion WHERE clave = ?').get(clave);
-    acc[segmento] = row?.valor || '';
-    return acc;
-  }, {});
+router.get(
+  '/campanas/personalizadas/config',
+  auth,
+  requirePermission('clientes.view'),
+  (req, res) => {
+    const config = getConfigMap(db);
+    const templates = Object.entries(SEGMENT_TEMPLATE_KEYS).reduce((acc, [segmento, clave]) => {
+      const row = db.prepare('SELECT valor FROM configuracion WHERE clave = ?').get(clave);
+      acc[segmento] = row?.valor || '';
+      return acc;
+    }, {});
 
-  const history = db.prepare(`
+    const history = db
+      .prepare(
+        `
     SELECT id, segmento, titulo, mensaje, total_clientes, cliente_ids, enviados_ok, enviados_error, ultimo_resultado, actor_nombre, creado_en
     FROM crm_campanas_historial
     ORDER BY datetime(creado_en) DESC
     LIMIT 12
-  `).all().map((item) => ({
-    ...item,
-    cliente_ids: parseJsonArray(item.cliente_ids),
-    total_clientes: Number(item.total_clientes || 0),
-    enviados_ok: Number(item.enviados_ok || 0),
-    enviados_error: Number(item.enviados_error || 0),
-    ultimo_resultado: parseJsonArray(item.ultimo_resultado),
-  })).map(buildCampaignInsights);
+  `
+      )
+      .all()
+      .map((item) => ({
+        ...item,
+        cliente_ids: parseJsonArray(item.cliente_ids),
+        total_clientes: Number(item.total_clientes || 0),
+        enviados_ok: Number(item.enviados_ok || 0),
+        enviados_error: Number(item.enviados_error || 0),
+        ultimo_resultado: parseJsonArray(item.ultimo_resultado),
+      }))
+      .map(buildCampaignInsights);
 
-  const dashboard = history.reduce((acc, item) => {
-    acc.campanas += 1;
-    acc.clientes += Number(item.metricas?.total_clientes || 0);
-    acc.enviados_ok += Number(item.metricas?.enviados_ok || 0);
-    acc.convertidos += Number(item.metricas?.clientes_convertidos || 0);
-    acc.ingreso += Number(item.metricas?.ingreso_generado || 0);
-    return acc;
-  }, {
-    campanas: 0,
-    clientes: 0,
-    enviados_ok: 0,
-    convertidos: 0,
-    ingreso: 0,
-  });
-
-  dashboard.tasa_conversion = dashboard.clientes > 0
-    ? Number(((dashboard.convertidos / dashboard.clientes) * 100).toFixed(1))
-    : 0;
-  dashboard.tasa_envio = dashboard.clientes > 0
-    ? Number(((dashboard.enviados_ok / dashboard.clientes) * 100).toFixed(1))
-    : 0;
-
-  const segmentos = Object.values(history.reduce((acc, item) => {
-    const key = item.segmento || 'otro';
-    if (!acc[key]) {
-      acc[key] = {
-        segmento: key,
+    const dashboard = history.reduce(
+      (acc, item) => {
+        acc.campanas += 1;
+        acc.clientes += Number(item.metricas?.total_clientes || 0);
+        acc.enviados_ok += Number(item.metricas?.enviados_ok || 0);
+        acc.convertidos += Number(item.metricas?.clientes_convertidos || 0);
+        acc.ingreso += Number(item.metricas?.ingreso_generado || 0);
+        return acc;
+      },
+      {
         campanas: 0,
         clientes: 0,
+        enviados_ok: 0,
         convertidos: 0,
         ingreso: 0,
-      };
+      }
+    );
+
+    dashboard.tasa_conversion =
+      dashboard.clientes > 0
+        ? Number(((dashboard.convertidos / dashboard.clientes) * 100).toFixed(1))
+        : 0;
+    dashboard.tasa_envio =
+      dashboard.clientes > 0
+        ? Number(((dashboard.enviados_ok / dashboard.clientes) * 100).toFixed(1))
+        : 0;
+
+    const segmentos = Object.values(
+      history.reduce((acc, item) => {
+        const key = item.segmento || 'otro';
+        if (!acc[key]) {
+          acc[key] = {
+            segmento: key,
+            campanas: 0,
+            clientes: 0,
+            convertidos: 0,
+            ingreso: 0,
+          };
+        }
+
+        acc[key].campanas += 1;
+        acc[key].clientes += Number(item.metricas?.total_clientes || 0);
+        acc[key].convertidos += Number(item.metricas?.clientes_convertidos || 0);
+        acc[key].ingreso += Number(item.metricas?.ingreso_generado || 0);
+        return acc;
+      }, {})
+    )
+      .map((item) => ({
+        ...item,
+        tasa_conversion:
+          item.clientes > 0 ? Number(((item.convertidos / item.clientes) * 100).toFixed(1)) : 0,
+      }))
+      .sort((a, b) => {
+        if (b.tasa_conversion !== a.tasa_conversion) return b.tasa_conversion - a.tasa_conversion;
+        return b.ingreso - a.ingreso;
+      });
+
+    const topCampaign =
+      [...history].sort((a, b) => {
+        const conversionDiff =
+          Number(b.metricas?.tasa_conversion || 0) - Number(a.metricas?.tasa_conversion || 0);
+        if (conversionDiff !== 0) return conversionDiff;
+        return (
+          Number(b.metricas?.ingreso_generado || 0) - Number(a.metricas?.ingreso_generado || 0)
+        );
+      })[0] || null;
+
+    res.json({
+      templates,
+      history,
+      dashboard,
+      segmentos,
+      top_campaign: topCampaign,
+      variables: [
+        { key: 'cliente', label: 'Cliente', example: 'Juan Perez' },
+        { key: 'negocio', label: 'Negocio', example: config.negocio_nombre || 'Modo Sabor' },
+        { key: 'telefono', label: 'Telefono', example: '1122334455' },
+        { key: 'codigo', label: 'Codigo', example: 'MS-000123' },
+        { key: 'nivel', label: 'Nivel', example: 'Oro' },
+        { key: 'puntos', label: 'Puntos', example: '120' },
+        { key: 'sellos', label: 'Sellos', example: '4' },
+        { key: 'premios', label: 'Premios', example: '1' },
+        { key: 'total_pedidos', label: 'Pedidos', example: '8' },
+        { key: 'total_gastado', label: 'Gastado', example: '84500' },
+        { key: 'pedido_url', label: 'Link pedido', example: config.public_app_url || '' },
+        { key: 'contacto_link', label: 'Link contacto', example: 'tel:54...' },
+      ],
+    });
+  }
+);
+
+router.put(
+  '/campanas/personalizadas/template/:segmento',
+  auth,
+  requirePermission('clientes.edit'),
+  (req, res) => {
+    const segmento = String(req.params.segmento || '').trim();
+    const clave = SEGMENT_TEMPLATE_KEYS[segmento];
+    if (!clave) return res.status(400).json({ error: 'Segmento de plantilla no valido' });
+
+    const mensaje = String(req.body?.mensaje || '').trim();
+    db.prepare('INSERT OR REPLACE INTO configuracion (clave, valor) VALUES (?, ?)').run(
+      clave,
+      mensaje
+    );
+    res.json({ ok: true, segmento, mensaje });
+  }
+);
+
+router.post(
+  '/campanas/personalizadas/historial',
+  auth,
+  requirePermission('clientes.edit'),
+  (req, res) => {
+    const segmento = String(req.body?.segmento || '').trim();
+    if (!SEGMENT_TEMPLATE_KEYS[segmento]) {
+      return res.status(400).json({ error: 'Segmento de campaña no valido' });
     }
 
-    acc[key].campanas += 1;
-    acc[key].clientes += Number(item.metricas?.total_clientes || 0);
-    acc[key].convertidos += Number(item.metricas?.clientes_convertidos || 0);
-    acc[key].ingreso += Number(item.metricas?.ingreso_generado || 0);
-    return acc;
-  }, {})).map((item) => ({
-    ...item,
-    tasa_conversion: item.clientes > 0 ? Number(((item.convertidos / item.clientes) * 100).toFixed(1)) : 0,
-  })).sort((a, b) => {
-    if (b.tasa_conversion !== a.tasa_conversion) return b.tasa_conversion - a.tasa_conversion;
-    return b.ingreso - a.ingreso;
-  });
+    const clienteIds = Array.isArray(req.body?.cliente_ids)
+      ? req.body.cliente_ids.map((id) => Number(id)).filter((id) => Number.isFinite(id))
+      : [];
 
-  const topCampaign = [...history].sort((a, b) => {
-    const conversionDiff = Number(b.metricas?.tasa_conversion || 0) - Number(a.metricas?.tasa_conversion || 0);
-    if (conversionDiff !== 0) return conversionDiff;
-    return Number(b.metricas?.ingreso_generado || 0) - Number(a.metricas?.ingreso_generado || 0);
-  })[0] || null;
+    const titulo = String(req.body?.titulo || '').trim() || segmento;
+    const mensaje = String(req.body?.mensaje || '').trim();
+    const totalClientes = Number(req.body?.total_clientes || clienteIds.length || 0);
 
-  res.json({
-    templates,
-    history,
-    dashboard,
-    segmentos,
-    top_campaign: topCampaign,
-    variables: [
-      { key: 'cliente', label: 'Cliente', example: 'Juan Perez' },
-      { key: 'negocio', label: 'Negocio', example: config.negocio_nombre || 'Modo Sabor' },
-      { key: 'telefono', label: 'Telefono', example: '1122334455' },
-      { key: 'codigo', label: 'Codigo', example: 'MS-000123' },
-      { key: 'nivel', label: 'Nivel', example: 'Oro' },
-      { key: 'puntos', label: 'Puntos', example: '120' },
-      { key: 'sellos', label: 'Sellos', example: '4' },
-      { key: 'premios', label: 'Premios', example: '1' },
-      { key: 'total_pedidos', label: 'Pedidos', example: '8' },
-      { key: 'total_gastado', label: 'Gastado', example: '84500' },
-      { key: 'pedido_url', label: 'Link pedido', example: config.public_app_url || '' },
-      { key: 'contacto_link', label: 'Link contacto', example: 'tel:54...' },
-    ],
-  });
-});
-
-router.put('/campanas/personalizadas/template/:segmento', auth, requirePermission('clientes.edit'), (req, res) => {
-  const segmento = String(req.params.segmento || '').trim();
-  const clave = SEGMENT_TEMPLATE_KEYS[segmento];
-  if (!clave) return res.status(400).json({ error: 'Segmento de plantilla no valido' });
-
-  const mensaje = String(req.body?.mensaje || '').trim();
-  db.prepare('INSERT OR REPLACE INTO configuracion (clave, valor) VALUES (?, ?)').run(clave, mensaje);
-  res.json({ ok: true, segmento, mensaje });
-});
-
-router.post('/campanas/personalizadas/historial', auth, requirePermission('clientes.edit'), (req, res) => {
-  const segmento = String(req.body?.segmento || '').trim();
-  if (!SEGMENT_TEMPLATE_KEYS[segmento]) {
-    return res.status(400).json({ error: 'Segmento de campaña no valido' });
-  }
-
-  const clienteIds = Array.isArray(req.body?.cliente_ids)
-    ? req.body.cliente_ids.map((id) => Number(id)).filter((id) => Number.isFinite(id))
-    : [];
-
-  const titulo = String(req.body?.titulo || '').trim() || segmento;
-  const mensaje = String(req.body?.mensaje || '').trim();
-  const totalClientes = Number(req.body?.total_clientes || clienteIds.length || 0);
-
-  const result = db.prepare(`
+    const result = db
+      .prepare(
+        `
     INSERT INTO crm_campanas_historial (segmento, titulo, mensaje, total_clientes, cliente_ids, actor_id, actor_nombre)
     VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    segmento,
-    titulo,
-    mensaje,
-    totalClientes,
-    JSON.stringify(clienteIds),
-    req.user?.id || null,
-    req.user?.nombre || req.user?.email || 'Sistema'
-  );
+  `
+      )
+      .run(
+        segmento,
+        titulo,
+        mensaje,
+        totalClientes,
+        JSON.stringify(clienteIds),
+        req.user?.id || null,
+        req.user?.nombre || req.user?.email || 'Sistema'
+      );
 
-  const item = db.prepare(`
+    const item = db
+      .prepare(
+        `
     SELECT id, segmento, titulo, mensaje, total_clientes, cliente_ids, enviados_ok, enviados_error, ultimo_resultado, actor_nombre, creado_en
     FROM crm_campanas_historial
     WHERE id = ?
-  `).get(result.lastInsertRowid);
+  `
+      )
+      .get(result.lastInsertRowid);
 
-  res.json({
-    ...item,
-    cliente_ids: parseJsonArray(item?.cliente_ids),
-    total_clientes: Number(item?.total_clientes || 0),
-    enviados_ok: Number(item?.enviados_ok || 0),
-    enviados_error: Number(item?.enviados_error || 0),
-    ultimo_resultado: parseJsonArray(item?.ultimo_resultado),
-    metricas: buildCampaignInsights({
+    res.json({
       ...item,
       cliente_ids: parseJsonArray(item?.cliente_ids),
       total_clientes: Number(item?.total_clientes || 0),
+      enviados_ok: Number(item?.enviados_ok || 0),
+      enviados_error: Number(item?.enviados_error || 0),
       ultimo_resultado: parseJsonArray(item?.ultimo_resultado),
-    }).metricas,
-  });
-});
+      metricas: buildCampaignInsights({
+        ...item,
+        cliente_ids: parseJsonArray(item?.cliente_ids),
+        total_clientes: Number(item?.total_clientes || 0),
+        ultimo_resultado: parseJsonArray(item?.ultimo_resultado),
+      }).metricas,
+    });
+  }
+);
 
-router.post('/campanas/personalizadas/enviar', auth, requirePermission('clientes.edit'), async (_req, res) => {
-  return res.status(410).json({ error: 'Las campanas automaticas fueron removidas del sistema' });
-});
+router.post(
+  '/campanas/personalizadas/enviar',
+  auth,
+  requirePermission('clientes.edit'),
+  async (_req, res) => {
+    return res.status(410).json({ error: 'Las campanas automaticas fueron removidas del sistema' });
+  }
+);
 
-router.post('/campanas/recompra/enviar', auth, requirePermission('clientes.edit'), async (_req, res) => {
-  return res.status(410).json({ error: 'Las campanas automaticas fueron removidas del sistema' });
-});
+router.post(
+  '/campanas/recompra/enviar',
+  auth,
+  requirePermission('clientes.edit'),
+  async (_req, res) => {
+    return res.status(410).json({ error: 'Las campanas automaticas fueron removidas del sistema' });
+  }
+);
 
-router.post('/campanas/cumpleanos/enviar', auth, requirePermission('clientes.edit'), async (_req, res) => {
-  return res.status(410).json({ error: 'Las campanas automaticas fueron removidas del sistema' });
-});
+router.post(
+  '/campanas/cumpleanos/enviar',
+  auth,
+  requirePermission('clientes.edit'),
+  async (_req, res) => {
+    return res.status(410).json({ error: 'Las campanas automaticas fueron removidas del sistema' });
+  }
+);
 
 router.get('/:id', auth, requirePermission('clientes.view'), (req, res) => {
   const cliente = getClienteDetail(req.params.id);
@@ -686,27 +835,42 @@ router.post('/:id/direcciones', auth, requirePermission('clientes.edit'), (req, 
   }
 });
 
-router.put('/:id/direcciones/:direccionId', auth, requirePermission('clientes.edit'), (req, res) => {
-  const cliente = db.prepare('SELECT id FROM clientes WHERE id = ?').get(req.params.id);
-  if (!cliente) return res.status(404).json({ error: 'Cliente no encontrado' });
+router.put(
+  '/:id/direcciones/:direccionId',
+  auth,
+  requirePermission('clientes.edit'),
+  (req, res) => {
+    const cliente = db.prepare('SELECT id FROM clientes WHERE id = ?').get(req.params.id);
+    if (!cliente) return res.status(404).json({ error: 'Cliente no encontrado' });
 
-  try {
-    const updated = updateClienteDireccion(db, req.params.id, req.params.direccionId, req.body || {});
-    if (!updated) return res.status(404).json({ error: 'Direccion no encontrada' });
-    res.json(updated);
-  } catch (error) {
-    res.status(400).json({ error: error.message || 'No se pudo actualizar la direccion' });
+    try {
+      const updated = updateClienteDireccion(
+        db,
+        req.params.id,
+        req.params.direccionId,
+        req.body || {}
+      );
+      if (!updated) return res.status(404).json({ error: 'Direccion no encontrada' });
+      res.json(updated);
+    } catch (error) {
+      res.status(400).json({ error: error.message || 'No se pudo actualizar la direccion' });
+    }
   }
-});
+);
 
-router.delete('/:id/direcciones/:direccionId', auth, requirePermission('clientes.edit'), (req, res) => {
-  const cliente = db.prepare('SELECT id FROM clientes WHERE id = ?').get(req.params.id);
-  if (!cliente) return res.status(404).json({ error: 'Cliente no encontrado' });
+router.delete(
+  '/:id/direcciones/:direccionId',
+  auth,
+  requirePermission('clientes.edit'),
+  (req, res) => {
+    const cliente = db.prepare('SELECT id FROM clientes WHERE id = ?').get(req.params.id);
+    if (!cliente) return res.status(404).json({ error: 'Cliente no encontrado' });
 
-  const removed = deleteClienteDireccion(db, req.params.id, req.params.direccionId);
-  if (!removed) return res.status(404).json({ error: 'Direccion no encontrada' });
-  res.json({ success: true });
-});
+    const removed = deleteClienteDireccion(db, req.params.id, req.params.direccionId);
+    if (!removed) return res.status(404).json({ error: 'Direccion no encontrada' });
+    res.json({ success: true });
+  }
+);
 
 router.post('/', auth, requirePermission('clientes.edit'), (req, res) => {
   const {
@@ -770,7 +934,12 @@ router.put('/:id', auth, requirePermission('clientes.edit'), (req, res) => {
     tags: tagsToString(req.body.tags ?? existing.tags),
     fecha_nacimiento: req.body.fecha_nacimiento ?? existing.fecha_nacimiento ?? '',
     avatar_url: req.body.avatar_url ?? existing.avatar_url ?? '',
-    fidelizacion_activa: req.body.fidelizacion_activa !== undefined ? (req.body.fidelizacion_activa ? 1 : 0) : existing.fidelizacion_activa,
+    fidelizacion_activa:
+      req.body.fidelizacion_activa !== undefined
+        ? req.body.fidelizacion_activa
+          ? 1
+          : 0
+        : existing.fidelizacion_activa,
   };
 
   db.prepare(

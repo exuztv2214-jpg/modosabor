@@ -508,8 +508,8 @@ class ModoSaborLauncher:
             messagebox.showerror("Modo Sabor", f"No pude abrir la carpeta de logs.\n\n{exc}")
 
     def open_dashboard(self):
-        if not self.is_port_open(5173):
-            self.log("El panel web todavía no está listo en el puerto 5173.")
+        if not self.url_available(CLIENT_URL):
+            self.log("El panel web todavía no está listo (no responde en el puerto 5173).")
             messagebox.showinfo("Modo Sabor", "El panel web todavía no está levantado.")
             return
         webbrowser.open(CLIENT_URL)
@@ -704,7 +704,7 @@ class ModoSaborLauncher:
         if service == "server":
             return self.url_available(SERVER_URL)
         if service == "client":
-            return self.is_port_open(5173)
+            return self.url_available(CLIENT_URL)
         return False
 
     def update_service_ui(self, service, status):
@@ -726,7 +726,7 @@ class ModoSaborLauncher:
             if service == "server":
                 status = "on" if self.url_available(SERVER_URL) else "off"
             else:
-                status = "on" if self.is_port_open(5173) else "off"
+                status = "on" if self.url_available(CLIENT_URL) else "off"
             status_map[service] = status
         return status_map
 
@@ -767,11 +767,32 @@ class ModoSaborLauncher:
 
         threading.Thread(target=worker, daemon=True).start()
 
+    def free_stale_port(self, port, service_label):
+        """Si algo está escuchando en el puerto pero no responde como se espera
+        (proceso zombie de una sesión anterior mal cerrada), lo libera antes de
+        intentar levantar el servicio de nuevo. Esto evita que el lanzador crea
+        que el sistema "ya está listo" cuando en realidad apunta a un proceso
+        muerto, que es lo que produce la pantalla en blanco al abrir el panel."""
+        if not self.is_port_open(port):
+            return
+        self.dispatch(
+            self.log,
+            f"Puerto {port} ocupado por un proceso que no responde ({service_label}). Liberando...",
+        )
+        pids = set(self.pids_by_port(port))
+        for pid in pids:
+            if self.is_process_running(pid):
+                self.terminate_pid(pid)
+        if pids:
+            time.sleep(1.5)
+
     def ensure_server(self):
         if self.url_available(SERVER_URL):
             self.dispatch(self.update_service_ui, "server", "on")
             self.dispatch(self.log, "La API ya estaba activa.")
             return True
+
+        self.free_stale_port(3001, "API")
 
         self.dispatch(self.log, "Levantando la API en segundo plano...")
         self.dispatch(self.update_service_ui, "server", "busy")
@@ -786,14 +807,19 @@ class ModoSaborLauncher:
             return True
 
         self.dispatch(self.update_service_ui, "server", "error")
-        self.dispatch(self.log, "La API no respondió en el puerto 3001.")
+        self.dispatch(
+            self.log,
+            "La API no respondió en el puerto 3001. Revisá .launcher/logs/server.log para más detalle.",
+        )
         return False
 
     def ensure_client(self):
-        if self.is_port_open(5173):
+        if self.url_available(CLIENT_URL):
             self.dispatch(self.update_service_ui, "client", "on")
             self.dispatch(self.log, "El panel web ya estaba levantado.")
             return True
+
+        self.free_stale_port(5173, "Panel Web")
 
         self.dispatch(self.log, "Iniciando Vite en segundo plano...")
         self.dispatch(self.update_service_ui, "client", "busy")
@@ -803,12 +829,15 @@ class ModoSaborLauncher:
             CLIENT_DIR,
         )
 
-        if self.wait_for(lambda: self.is_port_open(5173), timeout=45):
+        if self.wait_for(lambda: self.url_available(CLIENT_URL), timeout=45):
             self.dispatch(self.update_service_ui, "client", "on")
             return True
 
         self.dispatch(self.update_service_ui, "client", "error")
-        self.dispatch(self.log, "La interfaz web no respondió en el puerto 5173.")
+        self.dispatch(
+            self.log,
+            "La interfaz web no respondió en el puerto 5173. Revisá .launcher/logs/client.log para más detalle.",
+        )
         return False
 
     def start_orchestration(self):

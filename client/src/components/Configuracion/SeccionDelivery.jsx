@@ -1,5 +1,6 @@
 import React from 'react';
 import { Clock, MapPin, Truck } from 'lucide-react';
+
 import { SectionCard, InputField, ToggleSwitch } from './ConfigComponents.jsx';
 
 export default function SeccionDelivery({
@@ -21,12 +22,19 @@ export default function SeccionDelivery({
           </div>
           <div>
             <h2 className="text-xl font-bold text-gray-900">Delivery y tiempos</h2>
-            <p className="text-sm text-gray-500">Configuracion de zonas, tiempos y reparto automatico.</p>
+            <p className="text-sm text-gray-500">
+              Configuración de zonas, tiempos y reparto automático.
+            </p>
           </div>
         </div>
       </div>
 
-      <SectionCard icon={Clock} tone="orange" title="Operacion general" subtitle="Ajustes de despacho para web, TPV y panel de delivery">
+      <SectionCard
+        icon={Clock}
+        tone="orange"
+        title="Operacion general"
+        subtitle="Ajustes de despacho para web, TPV y panel de delivery"
+      >
         <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
           <InputField label="Costo envio base ($)" type="number" {...f('costo_envio_base')} />
           <InputField label="Tiempo delivery (min)" type="number" {...f('tiempo_delivery')} />
@@ -38,14 +46,14 @@ export default function SeccionDelivery({
             checked={config.delivery_activo !== '0'}
             onChange={(value) => setToggle('delivery_activo', value)}
             label="Delivery habilitado"
-            description="Mostrar la opcion de delivery en la carta web publica."
+            description="Mostrar la opción de delivery en la carta web pública."
             color="orange"
           />
           <ToggleSwitch
             checked={config.retiro_activo !== '0'}
             onChange={(value) => setToggle('retiro_activo', value)}
             label="Retiro en local habilitado"
-            description="Mostrar la opcion de retiro en la carta web publica."
+            description="Mostrar la opción de retiro en la carta web pública."
             color="orange"
           />
         </div>
@@ -54,7 +62,7 @@ export default function SeccionDelivery({
           <ToggleSwitch
             checked={config.delivery_validacion_activa === '1'}
             onChange={(value) => setToggle('delivery_validacion_activa', value)}
-            label="Validar direccion por zona"
+            label="Validar dirección por zona"
             description="Solo acepta direcciones dentro de zonas activas."
             color="orange"
           />
@@ -68,15 +76,21 @@ export default function SeccionDelivery({
         </div>
 
         <div className="mt-6 rounded-2xl border border-orange-200 bg-orange-50 px-5 py-4 text-sm text-orange-800">
-          <p className="font-semibold">Asignacion de riders</p>
+          <p className="font-semibold">Asignación de riders</p>
           <p className="mt-1">
-            En ventas delivery el sistema intenta asignar automaticamente el rider activo mas conveniente. Si trabajas con un solo rider por turno,
-            quedara asignado aunque ya este llevando otros pedidos.
+            En ventas delivery el sistema intenta asignar automáticamente el rider activo más
+            conveniente. Si trabajas con un solo rider por turno, quedará asignado aunque ya esté
+            llevando otros pedidos.
           </p>
         </div>
       </SectionCard>
 
-      <SectionCard icon={MapPin} tone="orange" title="Zonas de delivery" subtitle="Define costos y palabras clave por zona">
+      <SectionCard
+        icon={MapPin}
+        tone="orange"
+        title="Zonas de delivery"
+        subtitle="Define costos y palabras clave por zona"
+      >
         <div className="flex flex-wrap gap-2 mb-6">
           <button
             onClick={applyMonterosPreset}
@@ -94,12 +108,17 @@ export default function SeccionDelivery({
 
         <div className="space-y-4">
           {deliveryZones.map((zone, index) => (
-            <div key={zone.id || index} className="rounded-2xl border border-gray-200 p-6 bg-gray-50/30 transition-all hover:border-orange-200">
+            <div
+              key={zone.id || index}
+              className="rounded-2xl border border-gray-200 p-6 bg-gray-50/30 transition-all hover:border-orange-200"
+            >
               <div className="mb-4 flex items-center justify-between gap-3">
-                <p className="text-sm font-bold text-gray-900">Zona {index + 1}: {zone.nombre || 'Sin nombre'}</p>
+                <p className="text-sm font-bold text-gray-900">
+                  Zona {index + 1}: {zone.nombre || 'Sin nombre'}
+                </p>
                 <button
                   onClick={() => removeZone(index)}
-                  className="rounded-xl border border-rose-200 px-3 py-1.5 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-50"
+                  className="rounded-xl border border-rose-200 px-3 py-1.5 text-xs font-semibold text-danger-600 transition-colors hover:bg-danger-50"
                 >
                   Eliminar
                 </button>
@@ -123,24 +142,41 @@ export default function SeccionDelivery({
                   label="Costo envio ($)"
                   type="number"
                   value={zone.costo_envio ?? 0}
-                  onChange={(event) => updateZone(index, 'costo_envio', Number(event.target.value || 0))}
+                  onChange={(event) =>
+                    updateZone(index, 'costo_envio', Number(event.target.value || 0))
+                  }
                 />
                 <InputField
                   label="Tiempo estimado (min)"
                   type="number"
                   value={zone.tiempo_estimado_min ?? 0}
-                  onChange={(event) => updateZone(index, 'tiempo_estimado_min', Number(event.target.value || 0))}
+                  onChange={(event) =>
+                    updateZone(index, 'tiempo_estimado_min', Number(event.target.value || 0))
+                  }
                 />
                 <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Palabras clave</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Palabras clave
+                  </label>
                   <textarea
                     value={Array.isArray(zone.keywords) ? zone.keywords.join(', ') : ''}
-                    onChange={(event) => updateZone(index, 'keywords', event.target.value.split(',').map((item) => item.trim()).filter(Boolean))}
+                    onChange={(event) =>
+                      updateZone(
+                        index,
+                        'keywords',
+                        event.target.value
+                          .split(',')
+                          .map((item) => item.trim())
+                          .filter(Boolean)
+                      )
+                    }
                     rows={2}
                     className="w-full resize-none rounded-xl border border-gray-300 px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-orange-500"
                     placeholder="centro, plaza, barrio norte..."
                   />
-                  <p className="mt-2 text-xs text-gray-500">Se usan para reconocer la zona desde la direccion del cliente.</p>
+                  <p className="mt-2 text-xs text-gray-500">
+                    Se usan para reconocer la zona desde la dirección del cliente.
+                  </p>
                 </div>
               </div>
             </div>

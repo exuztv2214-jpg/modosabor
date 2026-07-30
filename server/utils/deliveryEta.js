@@ -39,7 +39,10 @@ function zoneProfile(zone) {
 }
 
 function estimateFromState(pedido, config = {}) {
-  const baseDelivery = Math.max(5, Number(pedido?.tiempo_estimado_min || config.tiempo_delivery || 30));
+  const baseDelivery = Math.max(
+    5,
+    Number(pedido?.tiempo_estimado_min || config.tiempo_delivery || 30)
+  );
   const baseRetiro = Math.max(5, Number(config.tiempo_retiro || 20));
   const base = pedido?.tipo_entrega === 'retiro' ? baseRetiro : baseDelivery;
 
@@ -61,7 +64,10 @@ function estimateFromState(pedido, config = {}) {
     return { minutes: Math.max(base - elapsed, 6), source: 'estado' };
   }
   if (pedido.estado === 'listo') {
-    return { minutes: pedido.tipo_entrega === 'delivery' ? Math.max(Math.round(base * 0.35), 8) : 5, source: 'estado' };
+    return {
+      minutes: pedido.tipo_entrega === 'delivery' ? Math.max(Math.round(base * 0.35), 8) : 5,
+      source: 'estado',
+    };
   }
   if (pedido.estado === 'en_camino') {
     return { minutes: Math.max(Math.round(base * 0.3), 6), source: 'estado' };

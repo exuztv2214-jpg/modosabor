@@ -24,7 +24,7 @@ async function withFacebookContext(callback, options = {}) {
   const context = await createFacebookContext(options);
 
   try {
-    const page = context.pages()[0] || await context.newPage();
+    const page = context.pages()[0] || (await context.newPage());
     return await callback(page, context);
   } finally {
     await context.close();
@@ -55,7 +55,9 @@ async function ensureLoggedIn(page) {
   await page.waitForTimeout(2500);
   const loginNeeded = await page.locator('input[name="email"]').count();
   if (loginNeeded) {
-    throw new Error('Facebook no esta logueado en Chrome. Se abrio la ventana para que inicies sesion. Despues vuelve a probar.');
+    throw new Error(
+      'Facebook no esta logueado en Chrome. Se abrio la ventana para que inicies sesion. Despues vuelve a probar.'
+    );
   }
 }
 
@@ -130,8 +132,12 @@ async function fillPostText(page, text) {
 async function attachMedia(page, mediaFile) {
   if (!mediaFile) return true;
   const input = page.locator('input[type="file"]').first();
-  if (!await input.count()) {
-    const addPhotoButton = page.locator('div[role="button"]:has-text("Foto"), div[role="button"]:has-text("Photo"), div[role="button"]:has-text("Video")').first();
+  if (!(await input.count())) {
+    const addPhotoButton = page
+      .locator(
+        'div[role="button"]:has-text("Foto"), div[role="button"]:has-text("Photo"), div[role="button"]:has-text("Video")'
+      )
+      .first();
     if (await addPhotoButton.count()) {
       try {
         await addPhotoButton.click({ timeout: 3000 });
@@ -140,7 +146,7 @@ async function attachMedia(page, mediaFile) {
     }
   }
   const fileInput = page.locator('input[type="file"]').first();
-  if (!await fileInput.count()) return false;
+  if (!(await fileInput.count())) return false;
   await fileInput.setInputFiles(mediaFile);
   await page.waitForTimeout(2500);
   return true;
@@ -171,33 +177,36 @@ async function autopublishFacebookGroup({ url, text, mediaPublicPath = '' }) {
     throw new Error('No encontre el adjunto de la publicacion');
   }
 
-  return withFacebookContext(async (page) => {
-    await ensureLoggedIn(page);
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await page.waitForTimeout(3000);
+  return withFacebookContext(
+    async (page) => {
+      await ensureLoggedIn(page);
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+      await page.waitForTimeout(3000);
 
-    const opened = await openComposer(page);
-    if (!opened) {
-      throw new Error('No pude abrir el editor de publicacion en Facebook');
-    }
+      const opened = await openComposer(page);
+      if (!opened) {
+        throw new Error('No pude abrir el editor de publicacion en Facebook');
+      }
 
-    const textOk = await fillPostText(page, text);
-    if (!textOk) {
-      throw new Error('No pude escribir el texto en Facebook');
-    }
+      const textOk = await fillPostText(page, text);
+      if (!textOk) {
+        throw new Error('No pude escribir el texto en Facebook');
+      }
 
-    const mediaOk = await attachMedia(page, mediaFile);
-    if (!mediaOk) {
-      throw new Error('No pude cargar el adjunto en Facebook');
-    }
+      const mediaOk = await attachMedia(page, mediaFile);
+      if (!mediaOk) {
+        throw new Error('No pude cargar el adjunto en Facebook');
+      }
 
-    const published = await publishDialog(page);
-    if (!published) {
-      throw new Error('No pude apretar Publicar en Facebook');
-    }
+      const published = await publishDialog(page);
+      if (!published) {
+        throw new Error('No pude apretar Publicar en Facebook');
+      }
 
-    return { ok: true };
-  }, { background: true });
+      return { ok: true };
+    },
+    { background: true }
+  );
 }
 
 async function autopublishFacebookQueue(items = []) {
@@ -209,7 +218,7 @@ async function autopublishFacebookQueue(items = []) {
   const context = await createFacebookContext({ background: true });
   const results = [];
   try {
-    const bootstrapPage = context.pages()[0] || await context.newPage();
+    const bootstrapPage = context.pages()[0] || (await context.newPage());
     await ensureLoggedIn(bootstrapPage);
 
     for (const item of normalizedItems) {
@@ -261,7 +270,9 @@ async function autopublishFacebookQueue(items = []) {
         } catch {}
         await page.waitForTimeout(1000);
       } finally {
-        try { await page.close(); } catch {}
+        try {
+          await page.close();
+        } catch {}
       }
     }
 
@@ -272,37 +283,51 @@ async function autopublishFacebookQueue(items = []) {
 }
 
 async function captureFacebookGroupPreview({ url, slug = 'grupo' }) {
-  return withFacebookContext(async (page) => {
-    await ensureLoggedIn(page);
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await page.waitForTimeout(3500);
-    const fileName = `${Date.now()}-${String(slug || 'grupo').replace(/[^a-zA-Z0-9_-]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '') || 'grupo'}.jpg`;
-    const filePath = path.join(previewsDir, fileName);
-    await page.screenshot({ path: filePath, type: 'jpeg', quality: 72, fullPage: false });
-    return {
-      ok: true,
-      preview_path: `/uploads/marketing-publicador-grupos/${fileName}`,
-    };
-  }, { background: true });
+  return withFacebookContext(
+    async (page) => {
+      await ensureLoggedIn(page);
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+      await page.waitForTimeout(3500);
+      const fileName = `${Date.now()}-${
+        String(slug || 'grupo')
+          .replace(/[^a-zA-Z0-9_-]+/g, '-')
+          .replace(/-+/g, '-')
+          .replace(/^-|-$/g, '') || 'grupo'
+      }.jpg`;
+      const filePath = path.join(previewsDir, fileName);
+      await page.screenshot({ path: filePath, type: 'jpeg', quality: 72, fullPage: false });
+      return {
+        ok: true,
+        preview_path: `/uploads/marketing-publicador-grupos/${fileName}`,
+      };
+    },
+    { background: true }
+  );
 }
 
 async function openFacebookLoginSession() {
-  return withFacebookContext(async (page) => {
-    await page.goto('https://www.facebook.com/', { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await page.waitForTimeout(1000);
-    const loginNeeded = await page.locator('input[name="email"]').count();
-    if (loginNeeded) {
-      await page.bringToFront();
-      await page.waitForTimeout(60000);
-      const stillNeeded = await page.locator('input[name="email"]').count();
-      if (stillNeeded) {
-        throw new Error('No se completo el login en Chrome a tiempo.');
+  return withFacebookContext(
+    async (page) => {
+      await page.goto('https://www.facebook.com/', {
+        waitUntil: 'domcontentloaded',
+        timeout: 60000,
+      });
+      await page.waitForTimeout(1000);
+      const loginNeeded = await page.locator('input[name="email"]').count();
+      if (loginNeeded) {
+        await page.bringToFront();
+        await page.waitForTimeout(60000);
+        const stillNeeded = await page.locator('input[name="email"]').count();
+        if (stillNeeded) {
+          throw new Error('No se completo el login en Chrome a tiempo.');
+        }
+      } else {
+        await page.waitForTimeout(2000);
       }
-    } else {
-      await page.waitForTimeout(2000);
-    }
-    return { ok: true };
-  }, { headless: false });
+      return { ok: true };
+    },
+    { headless: false }
+  );
 }
 
 module.exports = {

@@ -405,4 +405,3 @@ Una vez cerrado este bloque, el siguiente salto fuerte es:
 1. tracking del pedido para cliente
 2. tracking del delivery
 3. pagos online reales
-

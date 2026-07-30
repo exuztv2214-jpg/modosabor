@@ -11,7 +11,7 @@ function levelFromPoints(points) {
 function computeRewardState(totalPedidos, canjesHistoricos) {
   const delivered = Math.max(0, Number(totalPedidos || 0));
   const canjesRealizados = Math.max(0, Number(canjesHistoricos || 0));
-  
+
   // Las compras que "cuentan" para sellos son el total menos las que ya se usaron para premios
   const comprasConsumidas = canjesRealizados * 6;
   const comprasDisponibles = Math.max(0, delivered - comprasConsumidas);
@@ -48,19 +48,21 @@ function recalculateClienteStats(db, clienteId) {
   if (!existing) return null;
 
   const pedidosEntregados = db
-    .prepare("SELECT total, creado_en FROM pedidos WHERE cliente_id = ? AND estado = 'entregado' ORDER BY datetime(creado_en) ASC")
+    .prepare(
+      "SELECT total, creado_en FROM pedidos WHERE cliente_id = ? AND estado = 'entregado' ORDER BY datetime(creado_en) ASC"
+    )
     .all(clienteId);
 
   const totalPedidos = pedidosEntregados.length;
-  const totalGastado = pedidosEntregados.reduce((acc, pedido) => acc + Number(pedido.total || 0), 0);
+  const totalGastado = pedidosEntregados.reduce(
+    (acc, pedido) => acc + Number(pedido.total || 0),
+    0
+  );
   const puntos = Math.floor(totalGastado / 100);
   const nivel = levelFromPoints(puntos);
   const frecuenciaDias = averageFrequencyDays(pedidosEntregados);
-  
-  
 
   // Detectar si acaba de ganar un premio nuevo (múltiplo de 6 real)
-  
 
   db.prepare(
     `
@@ -69,14 +71,7 @@ function recalculateClienteStats(db, clienteId) {
           frecuencia_dias = ?
       WHERE id = ?
     `
-  ).run(
-    totalPedidos,
-    totalGastado,
-    puntos,
-    nivel,
-    frecuenciaDias,
-    clienteId
-  );
+  ).run(totalPedidos, totalGastado, puntos, nivel, frecuenciaDias, clienteId);
 
   return db.prepare('SELECT * FROM clientes WHERE id = ?').get(clienteId);
 }

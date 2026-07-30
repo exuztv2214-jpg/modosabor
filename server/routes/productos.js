@@ -6,13 +6,32 @@ const multer = require('multer');
 const fs = require('fs');
 const path = require('path');
 const { requirePermission } = require('../utils/permissions');
-const { uploadsDir, uploadPathFromFilename, uploadPublicPathToFile } = require('../utils/storagePaths');
-const { decorateProductsWithInventory, registerManualStockAdjustment, roundStock } = require('../utils/inventory');
-const { createFileFilter, IMAGE_EXTENSIONS, IMAGE_MIME_TYPES } = require('../utils/uploadValidation');
+const {
+  uploadsDir,
+  uploadPathFromFilename,
+  uploadPublicPathToFile,
+} = require('../utils/storagePaths');
+const {
+  decorateProductsWithInventory,
+  registerManualStockAdjustment,
+  roundStock,
+} = require('../utils/inventory');
+const {
+  createFileFilter,
+  IMAGE_EXTENSIONS,
+  IMAGE_MIME_TYPES,
+} = require('../utils/uploadValidation');
+
+const { validateBody } = require('../middleware/validate');
+const { createProductoSchema, updateProductoSchema } = require('../schemas');
 
 const storage = multer.diskStorage({
   destination: uploadsDir,
-  filename: (_req, file, cb) => cb(null, `producto-${Date.now()}${String(path.extname(file.originalname) || '').toLowerCase()}`)
+  filename: (_req, file, cb) =>
+    cb(
+      null,
+      `producto-${Date.now()}${String(path.extname(file.originalname) || '').toLowerCase()}`
+    ),
 });
 const upload = multer({
   storage,
@@ -104,12 +123,21 @@ function buildProductPayload(body, options = {}) {
   const descripcion = cleanText(body?.descripcion ?? existing?.descripcion);
   const precio = parseNonNegativeNumber(body?.precio, existing?.precio);
   const costo = parseNonNegativeNumber(body?.costo, existing?.costo ?? 0);
-  const tiempoPreparacion = parseNonNegativeNumber(body?.tiempo_preparacion, existing?.tiempo_preparacion ?? 15);
+  const tiempoPreparacion = parseNonNegativeNumber(
+    body?.tiempo_preparacion,
+    existing?.tiempo_preparacion ?? 15
+  );
   const categoriaId = parseCategoriaId(body?.categoria_id, existing?.categoria_id ?? null);
   const activo = parseFlag(body?.activo, existing?.activo ?? 1);
   const destacado = parseFlag(body?.destacado, existing?.destacado ?? 0);
-  const variantes = JSON.stringify(normalizeVariantGroups(parseArrayField(body?.variantes ?? existing?.variantes ?? '[]', 'variantes')));
-  const extras = JSON.stringify(normalizeExtras(parseArrayField(body?.extras ?? existing?.extras ?? '[]', 'extras')));
+  const variantes = JSON.stringify(
+    normalizeVariantGroups(
+      parseArrayField(body?.variantes ?? existing?.variantes ?? '[]', 'variantes')
+    )
+  );
+  const extras = JSON.stringify(
+    normalizeExtras(parseArrayField(body?.extras ?? existing?.extras ?? '[]', 'extras'))
+  );
 
   if (!nombre) {
     throw new Error('Nombre requerido');
@@ -130,11 +158,23 @@ function buildProductPayload(body, options = {}) {
     }
   }
 
+  // precio_anterior: nullable, only set if explicitly provided
+  let precioAnterior = existing?.precio_anterior ?? null;
+  if (
+    body?.precio_anterior !== undefined &&
+    body?.precio_anterior !== null &&
+    body?.precio_anterior !== ''
+  ) {
+    const pa = Number(body.precio_anterior);
+    precioAnterior = Number.isFinite(pa) && pa > 0 ? roundStock(pa) : null;
+  }
+
   return {
     nombre,
     descripcion,
     precio,
     costo,
+    precio_anterior: precioAnterior,
     categoria_id: categoriaId,
     variantes,
     extras,
@@ -146,95 +186,181 @@ function buildProductPayload(body, options = {}) {
 
 router.get('/', (req, res) => {
   const { categoria_id, activo } = req.query;
-  let q = 'SELECT p.*, c.nombre as categoria_nombre, c.icono as categoria_icono FROM productos p LEFT JOIN categorias c ON p.categoria_id = c.id WHERE 1=1';
+  let q =
+    'SELECT p.*, c.nombre as categoria_nombre, c.icono as categoria_icono FROM productos p LEFT JOIN categorias c ON p.categoria_id = c.id WHERE 1=1';
   const params = [];
-  if (categoria_id) { q += ' AND p.categoria_id = ?'; params.push(categoria_id); }
-  if (activo !== undefined) { q += ' AND p.activo = ?'; params.push(Number(activo)); }
+  if (categoria_id) {
+    q += ' AND p.categoria_id = ?';
+    params.push(categoria_id);
+  }
+  if (activo !== undefined) {
+    q += ' AND p.activo = ?';
+    params.push(Number(activo));
+  }
   q += ' ORDER BY c.orden ASC, p.nombre ASC';
   res.json(decorateProductsWithInventory(db, db.prepare(q).all(...params)));
 });
 
-router.post('/upload', auth, requirePermission('productos.edit'), upload.single('imagen'), (req, res) => {
-  if (!req.file) return res.status(400).json({ error: 'No se subió ninguna imagen' });
-  res.json({ url: uploadPathFromFilename(req.file.filename) });
-});
+router.post(
+  '/upload',
+  auth,
+  requirePermission('productos.edit'),
+  upload.single('imagen'),
+  (req, res) => {
+    if (!req.file) return res.status(400).json({ error: 'No se subió ninguna imagen' });
+    res.json({ url: uploadPathFromFilename(req.file.filename) });
+  }
+);
 
 router.get('/:id', (req, res) => {
-  const p = db.prepare('SELECT p.*, c.nombre as categoria_nombre FROM productos p LEFT JOIN categorias c ON p.categoria_id = c.id WHERE p.id = ?').get(req.params.id);
+  const p = db
+    .prepare(
+      'SELECT p.*, c.nombre as categoria_nombre FROM productos p LEFT JOIN categorias c ON p.categoria_id = c.id WHERE p.id = ?'
+    )
+    .get(req.params.id);
   if (!p) return res.status(404).json({ error: 'Producto no encontrado' });
   res.json(decorateProductsWithInventory(db, [p])[0]);
 });
 
-router.post('/', auth, requirePermission('productos.edit'), upload.single('imagen'), (req, res) => {
-  try {
-    const payload = buildProductPayload(req.body);
-    const stockDirecto = parseNonNegativeNumber(req.body?.stock, 0);
-    if (stockDirecto === null) {
-      throw new Error('Stock invalido');
-    }
-
-    const imagen = uploadPathFromFilename(req.file?.filename);
-    db.exec('BEGIN');
-    const r = db.prepare('INSERT INTO productos (nombre, descripcion, precio, costo, categoria_id, imagen, variantes, extras, activo, destacado, tiempo_preparacion, stock_directo, stock_mode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(payload.nombre, payload.descripcion, payload.precio, payload.costo, payload.categoria_id, imagen, payload.variantes, payload.extras, payload.activo, payload.destacado, payload.tiempo_preparacion, stockDirecto, 'direct');
-    const created = db.prepare('SELECT * FROM productos WHERE id = ?').get(r.lastInsertRowid);
-
-    if (stockDirecto !== 0) {
-      registerManualStockAdjustment(db, { ...created, stock_directo: 0 }, stockDirecto, `Stock inicial para ${payload.nombre}`);
-    }
-
-    db.exec('COMMIT');
-    res.json(decorateProductsWithInventory(db, [db.prepare('SELECT * FROM productos WHERE id = ?').get(r.lastInsertRowid)])[0]);
-  } catch (error) {
+router.post(
+  '/',
+  auth,
+  requirePermission('productos.edit'),
+  upload.single('imagen'),
+  validateBody(createProductoSchema),
+  (req, res) => {
     try {
-      db.exec('ROLLBACK');
-    } catch {}
-    deleteFileIfExists(imagePathToFile(uploadPathFromFilename(req.file?.filename)));
-    res.status(400).json({ error: error.message || 'No se pudo crear el producto' });
-  }
-});
-
-router.put('/:id', auth, requirePermission('productos.edit'), upload.single('imagen'), (req, res) => {
-  const existing = db.prepare('SELECT * FROM productos WHERE id = ?').get(req.params.id);
-  if (!existing) return res.status(404).json({ error: 'Producto no encontrado' });
-
-  try {
-    const payload = buildProductPayload(req.body, { existing });
-    const wantsRemoveImage = String(req.body.remove_imagen || '0') === '1';
-    const imagen = req.file ? uploadPathFromFilename(req.file.filename) : wantsRemoveImage ? '' : existing.imagen;
-
-    db.exec('BEGIN');
-    db.prepare('UPDATE productos SET nombre=?, descripcion=?, precio=?, costo=?, categoria_id=?, imagen=?, variantes=?, extras=?, activo=?, destacado=?, tiempo_preparacion=? WHERE id=?')
-      .run(payload.nombre, payload.descripcion, payload.precio, payload.costo, payload.categoria_id, imagen, payload.variantes, payload.extras, payload.activo, payload.destacado, payload.tiempo_preparacion, req.params.id);
-
-    if (req.body.stock !== undefined && req.body.stock !== null && req.body.stock !== '' && existing.stock_mode !== 'recipe') {
-      const nextStock = parseNonNegativeNumber(req.body.stock, existing.stock_directo || 0);
-      if (nextStock === null) {
+      const payload = buildProductPayload(req.body);
+      const stockDirecto = parseNonNegativeNumber(req.body?.stock, 0);
+      if (stockDirecto === null) {
         throw new Error('Stock invalido');
       }
 
-      registerManualStockAdjustment(
-        db,
-        db.prepare('SELECT * FROM productos WHERE id = ?').get(req.params.id),
-        nextStock,
-        `Ajuste de stock directo para ${payload.nombre}`
+      const imagen = uploadPathFromFilename(req.file?.filename);
+      db.exec('BEGIN');
+      const r = db
+        .prepare(
+          'INSERT INTO productos (nombre, descripcion, precio, costo, precio_anterior, categoria_id, imagen, variantes, extras, activo, destacado, tiempo_preparacion, stock_directo, stock_mode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        )
+        .run(
+          payload.nombre,
+          payload.descripcion,
+          payload.precio,
+          payload.costo,
+          payload.precio_anterior,
+          payload.categoria_id,
+          imagen,
+          payload.variantes,
+          payload.extras,
+          payload.activo,
+          payload.destacado,
+          payload.tiempo_preparacion,
+          stockDirecto,
+          'direct'
+        );
+      const created = db.prepare('SELECT * FROM productos WHERE id = ?').get(r.lastInsertRowid);
+
+      if (stockDirecto !== 0) {
+        registerManualStockAdjustment(
+          db,
+          { ...created, stock_directo: 0 },
+          stockDirecto,
+          `Stock inicial para ${payload.nombre}`
+        );
+      }
+
+      db.exec('COMMIT');
+      res.json(
+        decorateProductsWithInventory(db, [
+          db.prepare('SELECT * FROM productos WHERE id = ?').get(r.lastInsertRowid),
+        ])[0]
       );
+    } catch (error) {
+      try {
+        db.exec('ROLLBACK');
+      } catch {}
+      deleteFileIfExists(imagePathToFile(uploadPathFromFilename(req.file?.filename)));
+      res.status(400).json({ error: error.message || 'No se pudo crear el producto' });
     }
-
-    db.exec('COMMIT');
-    if (existing.imagen && (req.file || wantsRemoveImage) && existing.imagen !== imagen) {
-      deleteFileIfExists(imagePathToFile(existing.imagen));
-    }
-
-    res.json(decorateProductsWithInventory(db, [db.prepare('SELECT * FROM productos WHERE id = ?').get(req.params.id)])[0]);
-  } catch (error) {
-    try {
-      db.exec('ROLLBACK');
-    } catch {}
-    deleteFileIfExists(imagePathToFile(uploadPathFromFilename(req.file?.filename)));
-    res.status(400).json({ error: error.message || 'No se pudo actualizar el producto' });
   }
-});
+);
+
+router.put(
+  '/:id',
+  auth,
+  requirePermission('productos.edit'),
+  upload.single('imagen'),
+  validateBody(updateProductoSchema),
+  (req, res) => {
+    const existing = db.prepare('SELECT * FROM productos WHERE id = ?').get(req.params.id);
+    if (!existing) return res.status(404).json({ error: 'Producto no encontrado' });
+
+    try {
+      const payload = buildProductPayload(req.body, { existing });
+      const wantsRemoveImage = String(req.body.remove_imagen || '0') === '1';
+      const imagen = req.file
+        ? uploadPathFromFilename(req.file.filename)
+        : wantsRemoveImage
+          ? ''
+          : existing.imagen;
+
+      db.exec('BEGIN');
+      db.prepare(
+        'UPDATE productos SET nombre=?, descripcion=?, precio=?, costo=?, precio_anterior=?, categoria_id=?, imagen=?, variantes=?, extras=?, activo=?, destacado=?, tiempo_preparacion=? WHERE id=?'
+      ).run(
+        payload.nombre,
+        payload.descripcion,
+        payload.precio,
+        payload.costo,
+        payload.precio_anterior,
+        payload.categoria_id,
+        imagen,
+        payload.variantes,
+        payload.extras,
+        payload.activo,
+        payload.destacado,
+        payload.tiempo_preparacion,
+        req.params.id
+      );
+
+      if (
+        req.body.stock !== undefined &&
+        req.body.stock !== null &&
+        req.body.stock !== '' &&
+        existing.stock_mode !== 'recipe'
+      ) {
+        const nextStock = parseNonNegativeNumber(req.body.stock, existing.stock_directo || 0);
+        if (nextStock === null) {
+          throw new Error('Stock invalido');
+        }
+
+        registerManualStockAdjustment(
+          db,
+          db.prepare('SELECT * FROM productos WHERE id = ?').get(req.params.id),
+          nextStock,
+          `Ajuste de stock directo para ${payload.nombre}`
+        );
+      }
+
+      db.exec('COMMIT');
+      if (existing.imagen && (req.file || wantsRemoveImage) && existing.imagen !== imagen) {
+        deleteFileIfExists(imagePathToFile(existing.imagen));
+      }
+
+      res.json(
+        decorateProductsWithInventory(db, [
+          db.prepare('SELECT * FROM productos WHERE id = ?').get(req.params.id),
+        ])[0]
+      );
+    } catch (error) {
+      try {
+        db.exec('ROLLBACK');
+      } catch {}
+      deleteFileIfExists(imagePathToFile(uploadPathFromFilename(req.file?.filename)));
+      res.status(400).json({ error: error.message || 'No se pudo actualizar el producto' });
+    }
+  }
+);
 
 router.delete('/:id', auth, requirePermission('productos.edit'), (req, res) => {
   const p = db.prepare('SELECT imagen FROM productos WHERE id = ?').get(req.params.id);

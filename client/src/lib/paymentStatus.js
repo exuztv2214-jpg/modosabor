@@ -1,11 +1,18 @@
 export function normalizeMetodoPago(value) {
-  return String(value || 'efectivo').trim().toLowerCase() || 'efectivo';
+  return (
+    String(value || 'efectivo')
+      .trim()
+      .toLowerCase() || 'efectivo'
+  );
 }
 
 export function normalizePagoEstado(value) {
-  const normalized = String(value || '').trim().toLowerCase();
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase();
   if (['pagado', 'paid', 'approved'].includes(normalized)) return 'pagado';
-  if (['rechazado', 'rejected', 'cancelled', 'canceled', 'denied', 'failed'].includes(normalized)) return 'rechazado';
+  if (['rechazado', 'rejected', 'cancelled', 'canceled', 'denied', 'failed'].includes(normalized))
+    return 'rechazado';
   if (['devuelto', 'refund', 'refunded', 'charged_back'].includes(normalized)) return 'devuelto';
   return 'pendiente';
 }
@@ -24,9 +31,10 @@ export function paymentStatusLabel(value) {
 
 export function paymentStatusTone(value) {
   const normalized = normalizePagoEstado(value);
-  if (normalized === 'pagado') return 'bg-emerald-50 text-emerald-700';
-  if (normalized === 'rechazado' || normalized === 'devuelto') return 'bg-rose-50 text-rose-700';
-  return 'bg-amber-50 text-amber-700';
+  if (normalized === 'pagado') return 'bg-success-50 text-success-700';
+  if (normalized === 'rechazado' || normalized === 'devuelto')
+    return 'bg-danger-50 text-danger-700';
+  return 'bg-warning-50 text-warning-700';
 }
 
 export function paymentMethodLabel(value) {

@@ -12,7 +12,12 @@ const { quoteDelivery, serializeZones } = require('../utils/deliveryZones');
 const { buildPrintTestDocument } = require('../utils/printTemplates');
 const { getCurrentShiftInfo } = require('../utils/shifts');
 const { mergeRuntimeConfig } = require('../utils/runtimeConfig');
-const { uploadsDir, uploadPathFromFilename, bootstrapUploadsFromBundle } = require('../utils/storagePaths');
+const {
+  uploadsDir,
+  uploadPathFromFilename,
+  bootstrapUploadsFromBundle,
+} = require('../utils/storagePaths');
+const logger = require('../utils/logger');
 const {
   createFileFilter,
   IMAGE_EXTENSIONS,
@@ -31,11 +36,19 @@ const {
 
 const storage = multer.diskStorage({
   destination: uploadsDir,
-  filename: (_req, file, cb) => cb(null, `${file.fieldname}-${Date.now()}${String(path.extname(file.originalname) || '').toLowerCase()}`)
+  filename: (_req, file, cb) =>
+    cb(
+      null,
+      `${file.fieldname}-${Date.now()}${String(path.extname(file.originalname) || '').toLowerCase()}`
+    ),
 });
 const backupStorage = multer.diskStorage({
   destination: backupsDir,
-  filename: (_req, file, cb) => cb(null, `import-${Date.now()}${String(path.extname(file.originalname) || '.sqlite').toLowerCase()}`),
+  filename: (_req, file, cb) =>
+    cb(
+      null,
+      `import-${Date.now()}${String(path.extname(file.originalname) || '.sqlite').toLowerCase()}`
+    ),
 });
 const imageAssetFilter = createFileFilter({
   allowedExtensions: IMAGE_EXTENSIONS,
@@ -47,12 +60,13 @@ const faviconAssetFilter = createFileFilter({
   allowedMimeTypes: ICON_MIME_TYPES,
   message: 'El favicon debe ser ICO, JPG, PNG, WEBP o GIF',
 });
-const configAssetFilter = (req, file, cb) => (
-  file.fieldname === 'favicon' ? faviconAssetFilter(req, file, cb) : imageAssetFilter(req, file, cb)
-);
+const configAssetFilter = (req, file, cb) =>
+  file.fieldname === 'favicon'
+    ? faviconAssetFilter(req, file, cb)
+    : imageAssetFilter(req, file, cb);
 const upload = multer({
   storage,
-  limits: { fileSize: 2 * 1024 * 1024 },
+  limits: { fileSize: 20 * 1024 * 1024 },
   fileFilter: configAssetFilter,
 });
 const backupUpload = multer({
@@ -72,15 +86,18 @@ const uploadRestore = multer({
   limits: { fileSize: 8 * 1024 * 1024, files: 100 },
   fileFilter: createFileFilter({
     allowedExtensions: [...IMAGE_EXTENSIONS, '.jfif', '.svg'],
-    allowedMimeTypes: [...IMAGE_MIME_TYPES, 'image/pjpeg', 'image/svg+xml', 'application/octet-stream'],
+    allowedMimeTypes: [
+      ...IMAGE_MIME_TYPES,
+      'image/pjpeg',
+      'image/svg+xml',
+      'application/octet-stream',
+    ],
     message: 'Los archivos deben ser imagenes validas para restaurar uploads',
   }),
 });
 const bootstrapImportKey = String(process.env.BOOTSTRAP_IMPORT_KEY || '').trim();
 
-const SENSITIVE_KEYS = new Set([
-  'mercadopago_token',
-]);
+const SENSITIVE_KEYS = new Set(['mercadopago_token']);
 const SENSITIVE_PLACEHOLDER = '__CONFIGURED__';
 
 function rowsToConfig(rows) {
@@ -103,7 +120,10 @@ function getFullConfig() {
   };
 }
 
-function sanitizeSensitiveConfig(config, { remove = false, includeFlags = false, placeholder = '' } = {}) {
+function sanitizeSensitiveConfig(
+  config,
+  { remove = false, includeFlags = false, placeholder = '' } = {}
+) {
   const nextConfig = { ...config };
 
   SENSITIVE_KEYS.forEach((key) => {
@@ -129,7 +149,10 @@ function getAdminConfig() {
 }
 
 function getPublicConfig() {
-  return sanitizeSensitiveConfig(getFullConfig(), { remove: true });
+  const full = getFullConfig();
+  const config = sanitizeSensitiveConfig(full, { remove: true });
+  config.mercadopago_token_configured = Boolean(full.mercadopago_token);
+  return config;
 }
 
 function isSensitivePlaceholder(value) {
@@ -147,7 +170,9 @@ function parseJsonArray(value) {
 }
 
 function fallbackShiftName(id) {
-  const normalized = String(id || 'turno').replace(/[_-]+/g, ' ').trim();
+  const normalized = String(id || 'turno')
+    .replace(/[_-]+/g, ' ')
+    .trim();
   return normalized.charAt(0).toUpperCase() + normalized.slice(1);
 }
 
@@ -226,10 +251,10 @@ function normalizeConfigUpdates(rawUpdates = {}) {
 function persistConfigUpdates(rawUpdates, req) {
   const updates = normalizeConfigUpdates(rawUpdates);
   const stmt = db.prepare('INSERT OR REPLACE INTO configuracion (clave, valor) VALUES (?, ?)');
-  
+
   Object.entries(updates).forEach(([key, value]) => {
     // Asegurar que guardamos strings para evitar errores en SQLite
-    const safeValue = (value === null || value === undefined) ? '' : String(value);
+    const safeValue = value === null || value === undefined ? '' : String(value);
     stmt.run(key, safeValue);
   });
 
@@ -261,21 +286,46 @@ router.get('/map', auth, requirePermission('config.manage'), (req, res) => {
 });
 
 router.get('/audit', auth, requirePermission('config.manage'), (req, res) => {
-  const limit = Math.min(200, Math.max(1, Number(req.query.limit || 50)));
-  const rows = db.prepare(`
+  const desde = String(req.query.desde || '').trim();
+  const hasta = String(req.query.hasta || '').trim();
+  const hasDateRange = Boolean(desde || hasta);
+  const maxLimit = hasDateRange ? 500 : 200;
+  const limit = Math.min(maxLimit, Math.max(1, Number(req.query.limit || 50)));
+
+  const conditions = [];
+  const params = [];
+  if (desde) {
+    conditions.push('date(creado_en) >= ?');
+    params.push(desde);
+  }
+  if (hasta) {
+    conditions.push('date(creado_en) <= ?');
+    params.push(hasta);
+  }
+  const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+  params.push(limit);
+
+  const rows = db
+    .prepare(
+      `
     SELECT *
     FROM auditoria_eventos
+    ${whereClause}
     ORDER BY datetime(creado_en) DESC, id DESC
     LIMIT ?
-  `).all(limit);
+  `
+    )
+    .all(...params);
 
-  res.json(rows.map((row) => {
-    try {
-      return { ...row, detalle: JSON.parse(row.detalle || '{}') };
-    } catch {
-      return row;
-    }
-  }));
+  res.json(
+    rows.map((row) => {
+      try {
+        return { ...row, detalle: JSON.parse(row.detalle || '{}') };
+      } catch {
+        return row;
+      }
+    })
+  );
 });
 
 router.get('/mercadopago/status', auth, requirePermission('config.manage'), async (req, res) => {
@@ -291,7 +341,9 @@ router.get('/mercadopago/status', auth, requirePermission('config.manage'), asyn
     configured: Boolean(token),
     app_url: appUrl,
     api_url: apiUrl,
-    webhook_url: apiUrl ? `${String(apiUrl).replace(/\/$/, '')}/api/pedidos/webhook/mercadopago` : '',
+    webhook_url: apiUrl
+      ? `${String(apiUrl).replace(/\/$/, '')}/api/pedidos/webhook/mercadopago`
+      : '',
     checks: {
       token: Boolean(token),
       app_url: appUrlIsHttp,
@@ -332,7 +384,9 @@ router.get('/mercadopago/status', auth, requirePermission('config.manage'), asyn
         email: account.email,
         site_id: account.site_id,
       },
-      message: ready ? 'MercadoPago listo para probar' : 'MercadoPago conectado, pero faltan URLs publicas validas',
+      message: ready
+        ? 'MercadoPago listo para probar'
+        : 'MercadoPago conectado, pero faltan URLs publicas validas',
       production_message: productionReady
         ? 'Listo para produccion'
         : 'Para produccion conviene usar URLs https publicas y webhook accesible desde internet',
@@ -354,12 +408,16 @@ router.get('/mercadopago/status', auth, requirePermission('config.manage'), asyn
 });
 
 router.get('/mercadopago/eventos', auth, requirePermission('config.manage'), (req, res) => {
-  const rows = db.prepare(`
+  const rows = db
+    .prepare(
+      `
     SELECT *
     FROM mercadopago_eventos
     ORDER BY datetime(creado_en) DESC, id DESC
     LIMIT 30
-  `).all();
+  `
+    )
+    .all();
   res.json(rows);
 });
 
@@ -418,7 +476,11 @@ router.get('/backups/:file/download', auth, requirePermission('config.manage'), 
 });
 
 router.post('/backups/:file/restore', auth, requirePermission('config.manage'), (req, res) => {
-  if (String(req.body?.confirmacion || '').trim().toUpperCase() !== 'RESTAURAR') {
+  if (
+    String(req.body?.confirmacion || '')
+      .trim()
+      .toUpperCase() !== 'RESTAURAR'
+  ) {
     return res.status(400).json({ error: 'Debes escribir RESTAURAR para confirmar' });
   }
 
@@ -442,42 +504,48 @@ router.post('/backups/:file/restore', auth, requirePermission('config.manage'), 
   });
 });
 
-router.post('/backup/import', auth, requirePermission('config.manage'), backupUpload.single('backup'), (req, res) => {
-  if (!req.file) {
-    return res.status(400).json({ error: 'Debes adjuntar un backup .sqlite' });
+router.post(
+  '/backup/import',
+  auth,
+  requirePermission('config.manage'),
+  backupUpload.single('backup'),
+  (req, res) => {
+    if (!req.file) {
+      return res.status(400).json({ error: 'Debes adjuntar un backup .sqlite' });
+    }
+
+    if (path.extname(req.file.filename).toLowerCase() !== '.sqlite') {
+      try {
+        fs.unlinkSync(req.file.path);
+      } catch {}
+      return res.status(400).json({ error: 'El archivo debe ser .sqlite' });
+    }
+
+    const safetyBackup = createDatabaseBackup(db, {
+      reason: 'pre-import',
+      maxFiles: Number(getFullConfig().backup_max_archivos || 14),
+    });
+    const restored = restoreDatabaseBackup(db, req.file.filename, { mode: 'full' });
+    const actor = actorFromRequest(req);
+    logAudit(db, {
+      modulo: 'configuracion',
+      accion: 'backup_import',
+      entidad: 'backup',
+      entidad_id: req.file.filename,
+      actor_id: actor.actor_id,
+      actor_nombre: actor.actor_nombre,
+      detalle: { archivo: req.file.filename },
+    });
+
+    return res.json({
+      ok: true,
+      message: 'Backup restaurado correctamente',
+      restored,
+      safety_backup: safetyBackup,
+      backups: listBackups(),
+    });
   }
-
-  if (path.extname(req.file.filename).toLowerCase() !== '.sqlite') {
-    try {
-      fs.unlinkSync(req.file.path);
-    } catch {}
-    return res.status(400).json({ error: 'El archivo debe ser .sqlite' });
-  }
-
-  const safetyBackup = createDatabaseBackup(db, {
-    reason: 'pre-import',
-    maxFiles: Number(getFullConfig().backup_max_archivos || 14),
-  });
-  const restored = restoreDatabaseBackup(db, req.file.filename, { mode: 'full' });
-  const actor = actorFromRequest(req);
-  logAudit(db, {
-    modulo: 'configuracion',
-    accion: 'backup_import',
-    entidad: 'backup',
-    entidad_id: req.file.filename,
-    actor_id: actor.actor_id,
-    actor_nombre: actor.actor_nombre,
-    detalle: { archivo: req.file.filename },
-  });
-
-  return res.json({
-    ok: true,
-    message: 'Backup restaurado correctamente',
-    restored,
-    safety_backup: safetyBackup,
-    backups: listBackups(),
-  });
-});
+);
 
 router.post('/backup/bootstrap-import', backupUpload.single('backup'), (req, res) => {
   if (!bootstrapImportKey) {
@@ -540,32 +608,48 @@ router.post('/uploads/bootstrap-import', (req, res) => {
   });
 });
 
-router.post('/uploads/import', auth, requirePermission('config.manage'), uploadRestore.array('files', 100), (req, res) => {
-  const files = req.files || [];
-  return res.json({
-    ok: true,
-    uploaded: files.map((file) => ({
-      file: file.filename,
-      url: uploadPathFromFilename(file.filename),
-      size: file.size,
-    })),
-  });
-});
-
-router.post('/web-publica/upload', auth, requirePermission('config.manage'), upload.single('asset'), (req, res) => {
-  if (!req.file) {
-    return res.status(400).json({ error: 'Debes adjuntar una imagen' });
+router.post(
+  '/uploads/import',
+  auth,
+  requirePermission('config.manage'),
+  uploadRestore.array('files', 100),
+  (req, res) => {
+    const files = req.files || [];
+    return res.json({
+      ok: true,
+      uploaded: files.map((file) => ({
+        file: file.filename,
+        url: uploadPathFromFilename(file.filename),
+        size: file.size,
+      })),
+    });
   }
+);
 
-  return res.json({
-    ok: true,
-    url: uploadPathFromFilename(req.file.filename),
-    file: req.file.filename,
-  });
-});
+router.post(
+  '/web-publica/upload',
+  auth,
+  requirePermission('config.manage'),
+  upload.single('asset'),
+  (req, res) => {
+    if (!req.file) {
+      return res.status(400).json({ error: 'Debes adjuntar una imagen' });
+    }
+
+    return res.json({
+      ok: true,
+      url: uploadPathFromFilename(req.file.filename),
+      file: req.file.filename,
+    });
+  }
+);
 
 router.post('/reset', auth, requirePermission('config.manage'), (req, res) => {
-  if (String(req.body?.confirmacion || '').trim().toUpperCase() !== 'RESET') {
+  if (
+    String(req.body?.confirmacion || '')
+      .trim()
+      .toUpperCase() !== 'RESET'
+  ) {
     return res.status(400).json({ error: 'Debes escribir RESET para confirmar' });
   }
 
@@ -578,7 +662,8 @@ router.post('/reset', auth, requirePermission('config.manage'), (req, res) => {
 
   return res.json({
     ok: true,
-    message: 'Se resetearon los datos operativos. Configuracion, menu, usuarios y personal se conservaron.',
+    message:
+      'Se resetearon los datos operativos. Configuracion, menu, usuarios y personal se conservaron.',
     backup,
   });
 });
@@ -602,34 +687,50 @@ router.post('/reset-operativo', auth, requirePermission('config.manage'), (req, 
 
   return res.json({
     ok: true,
-    message: 'Se resetearon los datos operativos. Configuracion, menu, usuarios y personal se conservaron.',
+    message:
+      'Se resetearon los datos operativos. Configuracion, menu, usuarios y personal se conservaron.',
     backup,
   });
 });
 
 router.post('/bulk', auth, requirePermission('config.manage'), (req, res) => {
   try {
-    const payload = req.body?.config && typeof req.body.config === 'object'
-      ? req.body.config
-      : req.body;
+    const payload =
+      req.body?.config && typeof req.body.config === 'object' ? req.body.config : req.body;
     return res.json(persistConfigUpdates(payload, req));
   } catch (error) {
-    console.error('[Config Bulk Error]', error.message);
+    logger.error('[Config Bulk Error]', { message: error.message });
     return res.status(400).json({ error: error.message || 'No se pudo guardar la configuracion' });
   }
 });
 
-router.put('/', auth, requirePermission('config.manage'), upload.fields([{ name: 'logo', maxCount: 1 }, { name: 'favicon', maxCount: 1 }]), (req, res) => {
-  const updates = { ...req.body };
-  const logoFile = req.files?.logo?.[0];
-  const faviconFile = req.files?.favicon?.[0];
-  if (logoFile) updates.negocio_logo = uploadPathFromFilename(logoFile.filename);
-  if (faviconFile) updates.negocio_favicon = uploadPathFromFilename(faviconFile.filename);
-  try {
-    return res.json(persistConfigUpdates(updates, req));
-  } catch (error) {
-    return res.status(400).json({ error: error.message || 'No se pudo guardar la configuracion' });
+router.put(
+  '/',
+  auth,
+  requirePermission('config.manage'),
+  upload.fields([
+    { name: 'logo', maxCount: 1 },
+    { name: 'favicon', maxCount: 1 },
+    { name: 'tarjeta_fidelidad_fondo', maxCount: 1 },
+  ]),
+  (req, res) => {
+    const updates = { ...req.body };
+    const logoFile = req.files?.logo?.[0];
+    const faviconFile = req.files?.favicon?.[0];
+    const tarjetaFondoFile = req.files?.tarjeta_fidelidad_fondo?.[0];
+    if (logoFile) updates.negocio_logo = uploadPathFromFilename(logoFile.filename);
+    if (faviconFile) updates.negocio_favicon = uploadPathFromFilename(faviconFile.filename);
+    if (tarjetaFondoFile) {
+      updates.tarjeta_fidelidad_fondo = uploadPathFromFilename(tarjetaFondoFile.filename);
+    }
+    try {
+      return res.json(persistConfigUpdates(updates, req));
+    } catch (error) {
+      return res
+        .status(400)
+        .json({ error: error.message || 'No se pudo guardar la configuracion' });
+    }
   }
-});
+);
 
 module.exports = router;

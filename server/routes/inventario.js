@@ -15,21 +15,27 @@ const {
 router.use(auth, requirePermission('productos.edit'));
 
 router.get('/insumos', (_req, res) => {
-  const rows = db.prepare(`
+  const rows = db
+    .prepare(
+      `
     SELECT *
     FROM inventario_insumos
     ORDER BY activo DESC, nombre ASC, id ASC
-  `).all();
+  `
+    )
+    .all();
 
-  res.json(rows.map((row) => ({
-    ...row,
-    rubro: row.rubro || 'General',
-    nota_compra: row.nota_compra || '',
-    stock_actual: roundStock(row.stock_actual || 0),
-    stock_minimo: roundStock(row.stock_minimo || 0),
-    costo_unitario: roundStock(row.costo_unitario || 0),
-    stock_bajo: roundStock(row.stock_actual || 0) <= roundStock(row.stock_minimo || 0),
-  })));
+  res.json(
+    rows.map((row) => ({
+      ...row,
+      rubro: row.rubro || 'General',
+      nota_compra: row.nota_compra || '',
+      stock_actual: roundStock(row.stock_actual || 0),
+      stock_minimo: roundStock(row.stock_minimo || 0),
+      costo_unitario: roundStock(row.costo_unitario || 0),
+      stock_bajo: roundStock(row.stock_actual || 0) <= roundStock(row.stock_minimo || 0),
+    }))
+  );
 });
 
 router.post('/insumos', (req, res) => {
@@ -46,15 +52,21 @@ router.post('/insumos', (req, res) => {
     return res.status(400).json({ error: 'Nombre requerido' });
   }
 
-  const existing = db.prepare('SELECT id FROM inventario_insumos WHERE lower(nombre) = lower(?)').get(nombre);
+  const existing = db
+    .prepare('SELECT id FROM inventario_insumos WHERE lower(nombre) = lower(?)')
+    .get(nombre);
   if (existing) {
     return res.status(400).json({ error: 'Ya existe un insumo con ese nombre' });
   }
 
-  const result = db.prepare(`
+  const result = db
+    .prepare(
+      `
     INSERT INTO inventario_insumos (nombre, rubro, unidad, stock_actual, stock_minimo, costo_unitario, nota_compra, activo)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(nombre, rubro, unidad, stockActual, stockMinimo, costoUnitario, notaCompra, activo);
+  `
+    )
+    .run(nombre, rubro, unidad, stockActual, stockMinimo, costoUnitario, notaCompra, activo);
 
   if (stockActual !== 0) {
     insertInventoryMovement(db, {
@@ -69,7 +81,9 @@ router.post('/insumos', (req, res) => {
     });
   }
 
-  const created = db.prepare('SELECT * FROM inventario_insumos WHERE id = ?').get(result.lastInsertRowid);
+  const created = db
+    .prepare('SELECT * FROM inventario_insumos WHERE id = ?')
+    .get(result.lastInsertRowid);
   res.json({
     ...created,
     rubro: created.rubro || 'General',
@@ -91,13 +105,20 @@ router.put('/insumos/:id', (req, res) => {
   const stockMinimo = roundStock(req.body?.stock_minimo ?? existing.stock_minimo);
   const costoUnitario = roundStock(req.body?.costo_unitario ?? existing.costo_unitario);
   const notaCompra = cleanText(req.body?.nota_compra ?? existing.nota_compra);
-  const activo = req.body?.activo === undefined ? Number(existing.activo || 1) : (Number(req.body.activo) === 0 ? 0 : 1);
+  const activo =
+    req.body?.activo === undefined
+      ? Number(existing.activo || 1)
+      : Number(req.body.activo) === 0
+        ? 0
+        : 1;
 
   if (!nombre) {
     return res.status(400).json({ error: 'Nombre requerido' });
   }
 
-  const duplicate = db.prepare('SELECT id FROM inventario_insumos WHERE lower(nombre) = lower(?) AND id != ?').get(nombre, req.params.id);
+  const duplicate = db
+    .prepare('SELECT id FROM inventario_insumos WHERE lower(nombre) = lower(?) AND id != ?')
+    .get(nombre, req.params.id);
   if (duplicate) {
     return res.status(400).json({ error: 'Ya existe un insumo con ese nombre' });
   }
@@ -105,11 +126,23 @@ router.put('/insumos/:id', (req, res) => {
   const previousStock = roundStock(existing.stock_actual || 0);
   const delta = roundStock(stockActual - previousStock);
 
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE inventario_insumos
     SET nombre = ?, rubro = ?, unidad = ?, stock_actual = ?, stock_minimo = ?, costo_unitario = ?, nota_compra = ?, activo = ?, actualizado_en = CURRENT_TIMESTAMP
     WHERE id = ?
-  `).run(nombre, rubro, unidad, stockActual, stockMinimo, costoUnitario, notaCompra, activo, req.params.id);
+  `
+  ).run(
+    nombre,
+    rubro,
+    unidad,
+    stockActual,
+    stockMinimo,
+    costoUnitario,
+    notaCompra,
+    activo,
+    req.params.id
+  );
 
   if (delta !== 0) {
     insertInventoryMovement(db, {
@@ -140,9 +173,14 @@ router.delete('/insumos/:id', (req, res) => {
     return res.status(404).json({ error: 'Insumo no encontrado' });
   }
 
-  const recipeUse = db.prepare('SELECT COUNT(*) AS total FROM inventario_recetas WHERE insumo_id = ?').get(req.params.id)?.total || 0;
+  const recipeUse =
+    db
+      .prepare('SELECT COUNT(*) AS total FROM inventario_recetas WHERE insumo_id = ?')
+      .get(req.params.id)?.total || 0;
   if (recipeUse > 0) {
-    return res.status(400).json({ error: 'Ese insumo esta usado en recetas. Quitalo de las recetas antes de eliminarlo.' });
+    return res.status(400).json({
+      error: 'Ese insumo esta usado en recetas. Quitalo de las recetas antes de eliminarlo.',
+    });
   }
 
   db.prepare('DELETE FROM inventario_insumos WHERE id = ?').run(req.params.id);
@@ -168,11 +206,13 @@ router.post('/insumos/:id/movimientos', (req, res) => {
     return res.status(400).json({ error: 'El movimiento deja stock negativo' });
   }
 
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE inventario_insumos
     SET stock_actual = ?, actualizado_en = CURRENT_TIMESTAMP
     WHERE id = ?
-  `).run(nextStock, req.params.id);
+  `
+  ).run(nextStock, req.params.id);
 
   insertInventoryMovement(db, {
     insumo_id: Number(req.params.id),
@@ -196,12 +236,16 @@ router.post('/insumos/:id/movimientos', (req, res) => {
 });
 
 router.get('/productos', (_req, res) => {
-  const rows = db.prepare(`
+  const rows = db
+    .prepare(
+      `
     SELECT p.*, c.nombre AS categoria_nombre, c.icono AS categoria_icono
     FROM productos p
     LEFT JOIN categorias c ON p.categoria_id = c.id
     ORDER BY c.orden ASC, p.nombre ASC
-  `).all();
+  `
+    )
+    .all();
   res.json(decorateProductsWithInventory(db, rows));
 });
 
@@ -235,30 +279,45 @@ function getVariantOptionNames(product, groupName) {
 }
 
 function getCategoryByName(name) {
-  return db.prepare(`
+  return db
+    .prepare(
+      `
     SELECT id, nombre
     FROM categorias
     WHERE lower(nombre) = lower(?)
     LIMIT 1
-  `).get(name);
+  `
+    )
+    .get(name);
 }
 
 function ensureInsumo({ nombre, rubro, unidad, nota_compra }) {
-  let insumo = db.prepare(`
+  let insumo = db
+    .prepare(
+      `
     SELECT *
     FROM inventario_insumos
     WHERE lower(nombre) = lower(?)
     LIMIT 1
-  `).get(nombre);
+  `
+    )
+    .get(nombre);
 
   if (!insumo) {
-    const insert = db.prepare(`
+    const insert = db
+      .prepare(
+        `
       INSERT INTO inventario_insumos (nombre, rubro, unidad, stock_actual, stock_minimo, costo_unitario, nota_compra, activo)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(nombre, rubro || 'General', unidad || 'u', 0, 0, 0, nota_compra || '', 1);
-    insumo = db.prepare('SELECT * FROM inventario_insumos WHERE id = ?').get(insert.lastInsertRowid);
+    `
+      )
+      .run(nombre, rubro || 'General', unidad || 'u', 0, 0, 0, nota_compra || '', 1);
+    insumo = db
+      .prepare('SELECT * FROM inventario_insumos WHERE id = ?')
+      .get(insert.lastInsertRowid);
   } else {
-    db.prepare(`
+    db.prepare(
+      `
       UPDATE inventario_insumos
       SET rubro = ?,
           unidad = ?,
@@ -266,7 +325,13 @@ function ensureInsumo({ nombre, rubro, unidad, nota_compra }) {
           activo = 1,
           actualizado_en = CURRENT_TIMESTAMP
       WHERE id = ?
-    `).run(rubro || insumo.rubro || 'General', unidad || insumo.unidad || 'u', nota_compra || insumo.nota_compra || '', insumo.id);
+    `
+    ).run(
+      rubro || insumo.rubro || 'General',
+      unidad || insumo.unidad || 'u',
+      nota_compra || insumo.nota_compra || '',
+      insumo.id
+    );
     insumo = db.prepare('SELECT * FROM inventario_insumos WHERE id = ?').get(insumo.id);
   }
 
@@ -279,12 +344,16 @@ function syncProductsWithRecipes({ categoryName, buildRows }) {
     return { error: `No existe la categoria ${categoryName}` };
   }
 
-  const products = db.prepare(`
+  const products = db
+    .prepare(
+      `
     SELECT id, nombre, variantes, activo
     FROM productos
     WHERE categoria_id = ? AND activo = 1
     ORDER BY nombre ASC
-  `).all(category.id);
+  `
+    )
+    .all(category.id);
 
   const deleteRecipes = db.prepare('DELETE FROM inventario_recetas WHERE producto_id = ?');
   const updateMode = db.prepare(`
@@ -321,7 +390,10 @@ function syncProductsWithRecipes({ categoryName, buildRows }) {
           Number(row.orden ?? index)
         );
         if (!touchedInsumos.has(row.insumo_id)) {
-          touchedInsumos.set(row.insumo_id, db.prepare('SELECT * FROM inventario_insumos WHERE id = ?').get(row.insumo_id));
+          touchedInsumos.set(
+            row.insumo_id,
+            db.prepare('SELECT * FROM inventario_insumos WHERE id = ?').get(row.insumo_id)
+          );
         }
       });
     });
@@ -333,13 +405,17 @@ function syncProductsWithRecipes({ categoryName, buildRows }) {
     return { error: error.message || `No se pudo sincronizar ${categoryName}` };
   }
 
-  const refreshed = db.prepare(`
+  const refreshed = db
+    .prepare(
+      `
     SELECT p.*, c.nombre AS categoria_nombre, c.icono AS categoria_icono
     FROM productos p
     LEFT JOIN categorias c ON p.categoria_id = c.id
     WHERE p.categoria_id = ? AND p.activo = 1
     ORDER BY p.nombre ASC
-  `).all(category.id);
+  `
+    )
+    .all(category.id);
 
   return {
     success: true,
@@ -386,47 +462,62 @@ router.post('/productos/sync/pizzas-prepizza', (_req, res) => {
       const options = getVariantOptionNames(product, 'Presentacion');
       if (!options.length) {
         return [
-          { insumo_id: prepizza.id, cantidad: 1, condicion_tipo: CONDITION_TYPES.ALWAYS, condicion_grupo: '', condicion_valor: '', orden: 0 },
-          { insumo_id: quesoCremoso.id, cantidad: 1, condicion_tipo: CONDITION_TYPES.ALWAYS, condicion_grupo: '', condicion_valor: '', orden: 1 },
+          {
+            insumo_id: prepizza.id,
+            cantidad: 1,
+            condicion_tipo: CONDITION_TYPES.ALWAYS,
+            condicion_grupo: '',
+            condicion_valor: '',
+            orden: 0,
+          },
+          {
+            insumo_id: quesoCremoso.id,
+            cantidad: 1,
+            condicion_tipo: CONDITION_TYPES.ALWAYS,
+            condicion_grupo: '',
+            condicion_valor: '',
+            orden: 1,
+          },
         ];
       }
 
-      return options
-        .flatMap((option, index) => {
-          const key = normalizeKey(option);
-          const esMedia = key.includes('media') || key.includes('mitad');
-          const cantidad = esMedia ? 0.5 : 1;
-          const rows = [{
+      return options.flatMap((option, index) => {
+        const key = normalizeKey(option);
+        const esMedia = key.includes('media') || key.includes('mitad');
+        const cantidad = esMedia ? 0.5 : 1;
+        const rows = [
+          {
             insumo_id: prepizza.id,
             cantidad,
             condicion_tipo: CONDITION_TYPES.VARIANT,
             condicion_grupo: 'Presentacion',
             condicion_valor: option,
             orden: index * 2,
-          }];
+          },
+        ];
 
-          if (key.includes('cremoso')) {
-            rows.push({
-              insumo_id: quesoCremoso.id,
-              cantidad,
-              condicion_tipo: CONDITION_TYPES.VARIANT,
-              condicion_grupo: 'Presentacion',
-              condicion_valor: option,
-              orden: (index * 2) + 1,
-            });
-          } else if (key.includes('muzza') || key.includes('musa') || key.includes('mozzarella')) {
-            rows.push({
-              insumo_id: muzzarella.id,
-              cantidad,
-              condicion_tipo: CONDITION_TYPES.VARIANT,
-              condicion_grupo: 'Presentacion',
-              condicion_valor: option,
-              orden: (index * 2) + 1,
-            });
-          }
+        if (key.includes('cremoso')) {
+          rows.push({
+            insumo_id: quesoCremoso.id,
+            cantidad,
+            condicion_tipo: CONDITION_TYPES.VARIANT,
+            condicion_grupo: 'Presentacion',
+            condicion_valor: option,
+            orden: index * 2 + 1,
+          });
+        } else if (key.includes('muzza') || key.includes('musa') || key.includes('mozzarella')) {
+          rows.push({
+            insumo_id: muzzarella.id,
+            cantidad,
+            condicion_tipo: CONDITION_TYPES.VARIANT,
+            condicion_grupo: 'Presentacion',
+            condicion_valor: option,
+            orden: index * 2 + 1,
+          });
+        }
 
-          return rows;
-        });
+        return rows;
+      });
     },
   });
 
@@ -451,21 +542,31 @@ router.post('/productos/sync/empanadas-insumos', (_req, res) => {
     return res.status(400).json({ error: 'No existe la categoria Empanadas' });
   }
 
-  const productRows = db.prepare(`
+  const productRows = db
+    .prepare(
+      `
     SELECT id, nombre
     FROM productos
     WHERE categoria_id = ? AND activo = 1
     ORDER BY nombre ASC
-  `).all(empanadasCategory.id);
+  `
+    )
+    .all(empanadasCategory.id);
 
-  const insumos = db.prepare(`
+  const insumos = db
+    .prepare(
+      `
     SELECT *
     FROM inventario_insumos
     WHERE lower(nombre) LIKE 'empanada %'
     ORDER BY nombre ASC
-  `).all();
+  `
+    )
+    .all();
 
-  const insumosMap = new Map(insumos.map((insumo) => [normalizeKey(insumo.nombre.replace(/^empanada\s+/i, '')), insumo]));
+  const insumosMap = new Map(
+    insumos.map((insumo) => [normalizeKey(insumo.nombre.replace(/^empanada\s+/i, '')), insumo])
+  );
 
   const missing = [];
   productRows.forEach((product) => {
@@ -486,8 +587,22 @@ router.post('/productos/sync/empanadas-insumos', (_req, res) => {
     buildRows: (product) => {
       const insumo = insumosMap.get(normalizeKey(product.nombre));
       return [
-        { insumo_id: insumo.id, cantidad: 6, condicion_tipo: CONDITION_TYPES.VARIANT, condicion_grupo: 'Presentacion', condicion_valor: 'Media docena', orden: 0 },
-        { insumo_id: insumo.id, cantidad: 12, condicion_tipo: CONDITION_TYPES.VARIANT, condicion_grupo: 'Presentacion', condicion_valor: 'Docena', orden: 1 },
+        {
+          insumo_id: insumo.id,
+          cantidad: 6,
+          condicion_tipo: CONDITION_TYPES.VARIANT,
+          condicion_grupo: 'Presentacion',
+          condicion_valor: 'Media docena',
+          orden: 0,
+        },
+        {
+          insumo_id: insumo.id,
+          cantidad: 12,
+          condicion_tipo: CONDITION_TYPES.VARIANT,
+          condicion_grupo: 'Presentacion',
+          condicion_valor: 'Docena',
+          orden: 1,
+        },
       ];
     },
   });
@@ -523,7 +638,16 @@ router.post('/productos/sync/milanesas-base', (_req, res) => {
     buildRows: (product) => {
       const options = getVariantOptionNames(product, 'Tipo');
       if (!options.length) {
-        return [{ insumo_id: carne.id, cantidad: 1, condicion_tipo: CONDITION_TYPES.ALWAYS, condicion_grupo: '', condicion_valor: '', orden: 0 }];
+        return [
+          {
+            insumo_id: carne.id,
+            cantidad: 1,
+            condicion_tipo: CONDITION_TYPES.ALWAYS,
+            condicion_grupo: '',
+            condicion_valor: '',
+            orden: 0,
+          },
+        ];
       }
 
       return options.map((option, index) => ({
@@ -573,10 +697,24 @@ router.post('/productos/sync/hamburguesas-base', (_req, res) => {
 
   const result = syncProductsWithRecipes({
     categoryName: 'Hamburguesas',
-    buildRows: (product) => ([
-      { insumo_id: pan.id, cantidad: 1, condicion_tipo: CONDITION_TYPES.ALWAYS, condicion_grupo: '', condicion_valor: '', orden: 0 },
-      { insumo_id: medallon.id, cantidad: inferSmashCount(product), condicion_tipo: CONDITION_TYPES.ALWAYS, condicion_grupo: '', condicion_valor: '', orden: 1 },
-    ]),
+    buildRows: (product) => [
+      {
+        insumo_id: pan.id,
+        cantidad: 1,
+        condicion_tipo: CONDITION_TYPES.ALWAYS,
+        condicion_grupo: '',
+        condicion_valor: '',
+        orden: 0,
+      },
+      {
+        insumo_id: medallon.id,
+        cantidad: inferSmashCount(product),
+        condicion_tipo: CONDITION_TYPES.ALWAYS,
+        condicion_grupo: '',
+        condicion_valor: '',
+        orden: 1,
+      },
+    ],
   });
 
   if (result.error) {
@@ -622,10 +760,38 @@ router.post('/productos/sync/papas-full-cheddar', (_req, res) => {
     buildRows: (product) => {
       if (normalizeKey(product.nombre) !== normalizeKey('Papas Full Cheddar')) return [];
       return [
-        { insumo_id: papas.id, cantidad: 0.5, condicion_tipo: CONDITION_TYPES.ALWAYS, condicion_grupo: '', condicion_valor: '', orden: 0 },
-        { insumo_id: cheddar.id, cantidad: 0.2, condicion_tipo: CONDITION_TYPES.ALWAYS, condicion_grupo: '', condicion_valor: '', orden: 1 },
-        { insumo_id: panceta.id, cantidad: 0.05, condicion_tipo: CONDITION_TYPES.ALWAYS, condicion_grupo: '', condicion_valor: '', orden: 2 },
-        { insumo_id: verdeo.id, cantidad: 1, condicion_tipo: CONDITION_TYPES.ALWAYS, condicion_grupo: '', condicion_valor: '', orden: 3 },
+        {
+          insumo_id: papas.id,
+          cantidad: 0.5,
+          condicion_tipo: CONDITION_TYPES.ALWAYS,
+          condicion_grupo: '',
+          condicion_valor: '',
+          orden: 0,
+        },
+        {
+          insumo_id: cheddar.id,
+          cantidad: 0.2,
+          condicion_tipo: CONDITION_TYPES.ALWAYS,
+          condicion_grupo: '',
+          condicion_valor: '',
+          orden: 1,
+        },
+        {
+          insumo_id: panceta.id,
+          cantidad: 0.05,
+          condicion_tipo: CONDITION_TYPES.ALWAYS,
+          condicion_grupo: '',
+          condicion_valor: '',
+          orden: 2,
+        },
+        {
+          insumo_id: verdeo.id,
+          cantidad: 1,
+          condicion_tipo: CONDITION_TYPES.ALWAYS,
+          condicion_grupo: '',
+          condicion_valor: '',
+          orden: 3,
+        },
       ];
     },
   });
@@ -650,14 +816,23 @@ router.put('/productos/:id/config', (req, res) => {
 
   const nextDirectStock = roundStock(req.body?.stock_directo ?? product.stock_directo ?? 0);
   db.prepare('UPDATE productos SET stock_mode = ? WHERE id = ?').run(stockMode, req.params.id);
-  registerManualStockAdjustment(db, product, nextDirectStock, `Ajuste de stock directo para ${product.nombre}`);
+  registerManualStockAdjustment(
+    db,
+    product,
+    nextDirectStock,
+    `Ajuste de stock directo para ${product.nombre}`
+  );
 
-  const updated = db.prepare(`
+  const updated = db
+    .prepare(
+      `
     SELECT p.*, c.nombre AS categoria_nombre, c.icono AS categoria_icono
     FROM productos p
     LEFT JOIN categorias c ON p.categoria_id = c.id
     WHERE p.id = ?
-  `).get(req.params.id);
+  `
+    )
+    .get(req.params.id);
   res.json(decorateProductsWithInventory(db, [updated])[0]);
 });
 
@@ -677,13 +852,17 @@ router.put('/productos/:id/receta', (req, res) => {
     orden: Number(recipe?.orden ?? index),
   }));
 
-  const invalid = normalized.find((recipe) => (
-    !Number.isFinite(recipe.insumo_id)
-    || recipe.cantidad <= 0
-    || ![CONDITION_TYPES.ALWAYS, CONDITION_TYPES.VARIANT, CONDITION_TYPES.EXTRA].includes(recipe.condicion_tipo)
-    || (recipe.condicion_tipo === CONDITION_TYPES.VARIANT && (!recipe.condicion_grupo || !recipe.condicion_valor))
-    || (recipe.condicion_tipo === CONDITION_TYPES.EXTRA && !recipe.condicion_valor)
-  ));
+  const invalid = normalized.find(
+    (recipe) =>
+      !Number.isFinite(recipe.insumo_id) ||
+      recipe.cantidad <= 0 ||
+      ![CONDITION_TYPES.ALWAYS, CONDITION_TYPES.VARIANT, CONDITION_TYPES.EXTRA].includes(
+        recipe.condicion_tipo
+      ) ||
+      (recipe.condicion_tipo === CONDITION_TYPES.VARIANT &&
+        (!recipe.condicion_grupo || !recipe.condicion_valor)) ||
+      (recipe.condicion_tipo === CONDITION_TYPES.EXTRA && !recipe.condicion_valor)
+  );
   if (invalid) {
     return res.status(400).json({ error: 'Hay lineas de receta incompletas o invalidas' });
   }
@@ -691,7 +870,9 @@ router.put('/productos/:id/receta', (req, res) => {
   const insumoIds = Array.from(new Set(normalized.map((recipe) => recipe.insumo_id)));
   if (insumoIds.length > 0) {
     const placeholders = insumoIds.map(() => '?').join(', ');
-    const rows = db.prepare(`SELECT id FROM inventario_insumos WHERE id IN (${placeholders})`).all(...insumoIds);
+    const rows = db
+      .prepare(`SELECT id FROM inventario_insumos WHERE id IN (${placeholders})`)
+      .all(...insumoIds);
     if (rows.length !== insumoIds.length) {
       return res.status(400).json({ error: 'Algunos insumos ya no existen' });
     }
@@ -716,18 +897,24 @@ router.put('/productos/:id/receta', (req, res) => {
     );
   });
 
-  const updated = db.prepare(`
+  const updated = db
+    .prepare(
+      `
     SELECT p.*, c.nombre AS categoria_nombre, c.icono AS categoria_icono
     FROM productos p
     LEFT JOIN categorias c ON p.categoria_id = c.id
     WHERE p.id = ?
-  `).get(req.params.id);
+  `
+    )
+    .get(req.params.id);
   res.json(decorateProductsWithInventory(db, [updated])[0]);
 });
 
 router.get('/movimientos', (req, res) => {
-  const limit = Math.max(1, Math.min(200, Number(req.query?.limit || 80)));
-  const rows = db.prepare(`
+  const limit = Math.max(1, Math.min(300, Number(req.query?.limit || 80)));
+  const rows = db
+    .prepare(
+      `
     SELECT
       m.*,
       i.nombre AS insumo_nombre,
@@ -740,12 +927,16 @@ router.get('/movimientos', (req, res) => {
     LEFT JOIN pedidos pe ON pe.id = m.pedido_id
     ORDER BY datetime(m.creado_en) DESC, m.id DESC
     LIMIT ?
-  `).all(limit);
+  `
+    )
+    .all(limit);
 
-  res.json(rows.map((row) => ({
-    ...row,
-    cantidad: roundStock(row.cantidad || 0),
-  })));
+  res.json(
+    rows.map((row) => ({
+      ...row,
+      cantidad: roundStock(row.cantidad || 0),
+    }))
+  );
 });
 
 module.exports = router;

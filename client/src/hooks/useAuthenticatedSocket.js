@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+
 import { socketManager } from '../lib/socket.js';
 import { useAuth } from '../context/AuthContext.jsx';
 
@@ -21,7 +22,7 @@ export function useAuthenticatedSocket(events = {}) {
       try {
         await socketManager.connectAuthenticated(token);
         if (!mounted) return;
-        
+
         setConnected(true);
         setAuthenticated(true);
 
@@ -31,10 +32,11 @@ export function useAuthenticatedSocket(events = {}) {
           unsubscribersRef.current.push(unsubscribe);
         });
 
-        // Listener de conexión/desconexión
+        // Listener de conexión/desconexión con optional chaining
+        socketManager.socket?.on('connect', () => setConnected(true));
+        socketManager.socket?.on('disconnect', () => setConnected(false));
         socketManager.socket.on('connect', () => setConnected(true));
         socketManager.socket.on('disconnect', () => setConnected(false));
-        
       } catch (error) {
         console.error('Error conectando socket:', error);
         setConnected(false);
@@ -47,7 +49,7 @@ export function useAuthenticatedSocket(events = {}) {
     return () => {
       mounted = false;
       // Limpiar todos los listeners registrados
-      unsubscribersRef.current.forEach(unsubscribe => unsubscribe());
+      unsubscribersRef.current.forEach((unsubscribe) => unsubscribe());
       unsubscribersRef.current = [];
       socketManager.disconnect();
       setConnected(false);

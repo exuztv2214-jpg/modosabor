@@ -163,11 +163,38 @@ function canUserTransitionWithContext(user, fromState, toState, tipoEntrega, con
   if (hasPermission(user, 'pedidos.kitchen')) {
     if (fromState === PedidoState.CONFIRMADO && toState === PedidoState.PREPARANDO) return true;
     if (fromState === PedidoState.PREPARANDO && toState === PedidoState.LISTO) return true;
-    if (fromState === PedidoState.LISTO && tipoEntrega !== 'delivery' && toState === PedidoState.ENTREGADO) return true;
-    if (fromState === PedidoState.LISTO && tipoEntrega === 'delivery' && toState === PedidoState.EN_CAMINO) return true;
-    if (isSimpleFlow(context) && fromState === PedidoState.NUEVO && toState === PedidoState.PREPARANDO) return true;
-    if (isSimpleFlow(context) && fromState === PedidoState.PREPARANDO && tipoEntrega === 'delivery' && toState === PedidoState.EN_CAMINO) return true;
-    if (isSimpleFlow(context) && fromState === PedidoState.PREPARANDO && tipoEntrega !== 'delivery' && toState === PedidoState.ENTREGADO) return true;
+    if (
+      fromState === PedidoState.LISTO &&
+      tipoEntrega !== 'delivery' &&
+      toState === PedidoState.ENTREGADO
+    )
+      return true;
+    if (
+      fromState === PedidoState.LISTO &&
+      tipoEntrega === 'delivery' &&
+      toState === PedidoState.EN_CAMINO
+    )
+      return true;
+    if (
+      isSimpleFlow(context) &&
+      fromState === PedidoState.NUEVO &&
+      toState === PedidoState.PREPARANDO
+    )
+      return true;
+    if (
+      isSimpleFlow(context) &&
+      fromState === PedidoState.PREPARANDO &&
+      tipoEntrega === 'delivery' &&
+      toState === PedidoState.EN_CAMINO
+    )
+      return true;
+    if (
+      isSimpleFlow(context) &&
+      fromState === PedidoState.PREPARANDO &&
+      tipoEntrega !== 'delivery' &&
+      toState === PedidoState.ENTREGADO
+    )
+      return true;
     return false;
   }
 
@@ -175,7 +202,12 @@ function canUserTransitionWithContext(user, fromState, toState, tipoEntrega, con
     if (tipoEntrega !== 'delivery') return false;
     if (fromState === PedidoState.LISTO && toState === PedidoState.EN_CAMINO) return true;
     if (fromState === PedidoState.EN_CAMINO && toState === PedidoState.ENTREGADO) return true;
-    if (isSimpleFlow(context) && fromState === PedidoState.PREPARANDO && toState === PedidoState.EN_CAMINO) return true;
+    if (
+      isSimpleFlow(context) &&
+      fromState === PedidoState.PREPARANDO &&
+      toState === PedidoState.EN_CAMINO
+    )
+      return true;
     return false;
   }
 

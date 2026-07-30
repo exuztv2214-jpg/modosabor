@@ -1,5 +1,6 @@
 import { io } from 'socket.io-client';
 import { useEffect } from 'react';
+
 import { SOCKET_URL } from './runtime';
 
 /**
@@ -28,6 +29,7 @@ class SocketManager {
       reconnection: true,
       reconnectionAttempts: this.maxReconnectAttempts,
       reconnectionDelay: 1000,
+      withCredentials: true,
     });
 
     this.setupBaseListeners();
@@ -37,6 +39,10 @@ class SocketManager {
   connectAuthenticated(token) {
     if (token) {
       this.authToken = token;
+    }
+
+    if (!this.authToken) {
+      return Promise.reject(new Error('Token de autenticacion faltante'));
     }
 
     if (this.socket?.connected && this.authenticated) {
@@ -50,23 +56,55 @@ class SocketManager {
     this.connect();
 
     this.authPromise = new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        this.authPromise = null;
-        reject(new Error('Timeout en autenticacion'));
-      }, 5000);
+      const cleanup = () => {
+        this.socket?.off('authenticated', handleAuthenticated);
+        this.socket?.off('connect', handleConnect);
+        this.socket?.off('connect_error', handleConnectError);
+      };
 
-      this.socket.emit('authenticate', this.authToken);
-
-      this.socket.once('authenticated', (response) => {
+      const finishWithError = (error) => {
         clearTimeout(timeout);
+        cleanup();
+        this.authPromise = null;
+        this.authenticated = false;
+        reject(error);
+      };
+
+      const handleAuthenticated = (response) => {
+        clearTimeout(timeout);
+        cleanup();
         this.authPromise = null;
         if (response?.success) {
           this.authenticated = true;
           resolve(this.socket);
         } else {
+          this.authenticated = false;
           reject(new Error(response?.error || 'Autenticacion fallida'));
         }
-      });
+      };
+
+      const handleConnect = () => {
+        this.socket?.emit('authenticate', this.authToken);
+      };
+
+      const handleConnectError = (error) => {
+        finishWithError(
+          error instanceof Error ? error : new Error('No se pudo conectar el socket')
+        );
+      };
+
+      const timeout = setTimeout(() => {
+        finishWithError(new Error('Timeout en autenticacion'));
+      }, 5000);
+
+      this.socket.on('authenticated', handleAuthenticated);
+      this.socket.once('connect_error', handleConnectError);
+
+      if (this.socket.connected) {
+        handleConnect();
+      } else {
+        this.socket.once('connect', handleConnect);
+      }
     });
 
     return this.authPromise;

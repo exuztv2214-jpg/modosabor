@@ -14,8 +14,10 @@ function fallbackShiftName(id) {
 }
 
 function parseMinutes(value) {
-  const [hours, minutes] = String(value || '00:00').split(':').map((part) => Number(part || 0));
-  return (hours * 60) + minutes;
+  const [hours, minutes] = String(value || '00:00')
+    .split(':')
+    .map((part) => Number(part || 0));
+  return hours * 60 + minutes;
 }
 
 function getBusinessTimeParts(date = new Date()) {
@@ -25,7 +27,9 @@ function getBusinessTimeParts(date = new Date()) {
     minute: '2-digit',
     hour12: false,
   });
-  const parts = Object.fromEntries(formatter.formatToParts(date).map((part) => [part.type, part.value]));
+  const parts = Object.fromEntries(
+    formatter.formatToParts(date).map((part) => [part.type, part.value])
+  );
   return {
     hours: Number(parts.hour || 0),
     minutes: Number(parts.minute || 0),
@@ -45,7 +49,7 @@ function isNowInShift(shift, nowMinutes) {
 function getCurrentShiftInfo(config) {
   const turnos = parseTurnos(config.turnos_negocio).filter((shift) => shift?.activo !== false);
   const now = getBusinessTimeParts(new Date());
-  const nowMinutes = (now.hours * 60) + now.minutes;
+  const nowMinutes = now.hours * 60 + now.minutes;
   const turnoActual = turnos.find((shift) => isNowInShift(shift, nowMinutes)) || null;
 
   return {
@@ -58,7 +62,7 @@ function getCurrentShiftInfo(config) {
 function getShiftForDate(config, date = new Date()) {
   const turnos = parseTurnos(config.turnos_negocio).filter((shift) => shift?.activo !== false);
   const businessTime = getBusinessTimeParts(date);
-  const minutes = (businessTime.hours * 60) + businessTime.minutes;
+  const minutes = businessTime.hours * 60 + businessTime.minutes;
   return turnos.find((shift) => isNowInShift(shift, minutes)) || null;
 }
 
@@ -79,8 +83,12 @@ function shiftIdForDate(config, date = new Date()) {
 }
 
 function matchesPreferredShift(turnoPreferido, shiftId) {
-  const preferred = String(turnoPreferido || '').trim().toLowerCase();
-  const current = String(shiftId || '').trim().toLowerCase();
+  const preferred = String(turnoPreferido || '')
+    .trim()
+    .toLowerCase();
+  const current = String(shiftId || '')
+    .trim()
+    .toLowerCase();
   if (!preferred || preferred === 'doble') return true;
   if (!current) return false;
   return preferred === current;

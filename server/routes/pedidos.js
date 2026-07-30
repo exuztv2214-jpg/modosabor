@@ -7,9 +7,15 @@ const { getConfigMap, createPreference, getPayment } = require('../utils/mercado
 const { logAudit, actorFromRequest } = require('../utils/audit');
 const { autoAssignPedido } = require('../utils/deliveryAssignment');
 const { recalculateClienteStats } = require('../utils/loyalty');
-const { procesarFidelidadPedido, getConfig: getFidelizacionConfig } = require('../services/fidelizacionService');
+const {
+  procesarFidelidadPedido,
+  getConfig: getFidelizacionConfig,
+} = require('../services/fidelizacionService');
 const { restoreInventoryForPedido } = require('../utils/inventory');
 const { createRateLimiter } = require('../utils/rateLimit');
+const logger = require('../utils/logger');
+const { validateBody } = require('../middleware/validate');
+const { createPedidoSchema, updatePedidoSchema } = require('../schemas');
 const {
   emitPedidoActualizado,
   emitDeliveryAssignment,
@@ -112,7 +118,7 @@ function publicPedidoError(error) {
   }
 
   if (technicalPatterns.some((pattern) => lower.includes(pattern))) {
-    console.error('[pedidos] Error interno al crear pedido publico:', message);
+    logger.error('[pedidos] Error interno al crear pedido publico', { message });
     return 'Perdon, hubo un problema al tomar ese pedido. Revisalo y mandalo de nuevo.';
   }
 
@@ -134,6 +140,7 @@ function buildCheckoutPayload(pedido, extra = {}) {
     delivery_zona: hydrated.delivery_zona,
     tiempo_estimado_min: hydrated.tiempo_estimado_min,
     tracking_token: hydrated.tracking_token,
+    hora_entrega: hydrated.hora_entrega,
     ...extra,
   };
 }
@@ -154,12 +161,7 @@ router.post('/webhook/mercadopago', async (req, res) => {
 
   // MercadoPago puede notificar via querystring o body dependiendo del tipo
   const topic = String(req.query.topic || req.query.type || req.body?.type || '').trim();
-  const id = String(
-    req.query.id
-      || req.body?.data?.id
-      || req.body?.id
-      || ''
-  ).trim();
+  const id = String(req.query.id || req.body?.data?.id || req.body?.id || '').trim();
 
   if (!id) {
     return res.status(200).json({ ok: true, ignored: true, reason: 'missing_id' });
@@ -188,28 +190,43 @@ router.post('/webhook/mercadopago', async (req, res) => {
     }
   } catch (error) {
     // Siempre 200 para que MP no entre en retry infinito
-    console.error('MercadoPago webhook error:', error.message || error);
+    logger.error('MercadoPago webhook error', { message: error.message || String(error) });
   }
 
   return res.status(200).json({ ok: true });
 });
 
 router.get('/', auth, requirePermission('pedidos.view'), (req, res) => {
-  const { estado, fecha_desde, fecha_hasta, limit = 200 } = req.query;
+  const { estado, fecha_desde, fecha_hasta, page = 1, limit = 200 } = req.query;
+  const pageNum = Math.max(1, Number(page) || 1);
+  const limitNum = Math.min(200, Math.max(1, Number(limit) || 200));
+  const offset = (pageNum - 1) * limitNum;
+
   let q = 'SELECT * FROM pedidos WHERE 1=1';
   const params = [];
-  if (estado) { q += ' AND estado = ?'; params.push(estado); }
-  if (fecha_desde) { q += ' AND DATE(creado_en) >= ?'; params.push(fecha_desde); }
-  if (fecha_hasta) { q += ' AND DATE(creado_en) <= ?'; params.push(fecha_hasta); }
-  q += ' ORDER BY creado_en DESC LIMIT ?';
-  params.push(Number(limit));
+  if (estado) {
+    q += ' AND estado = ?';
+    params.push(estado);
+  }
+  if (fecha_desde) {
+    q += ' AND DATE(creado_en) >= ?';
+    params.push(fecha_desde);
+  }
+  if (fecha_hasta) {
+    q += ' AND DATE(creado_en) <= ?';
+    params.push(fecha_hasta);
+  }
+  q += ' ORDER BY creado_en DESC LIMIT ? OFFSET ?';
+  params.push(limitNum, offset);
   res.json(listPedidosHydrated(q, params));
 });
 
 router.get('/activos', auth, requirePermission('pedidos.view'), (req, res) => {
-  res.json(listPedidosHydrated(
-    "SELECT * FROM pedidos WHERE estado NOT IN ('entregado','cancelado') ORDER BY creado_en ASC"
-  ));
+  res.json(
+    listPedidosHydrated(
+      "SELECT * FROM pedidos WHERE estado NOT IN ('entregado','cancelado') ORDER BY creado_en ASC"
+    )
+  );
 });
 
 router.post('/mesa/:mesa/precuenta', auth, requirePermission('pedidos.print'), (req, res) => {
@@ -224,7 +241,14 @@ router.post('/mesa/:mesa/precuenta', auth, requirePermission('pedidos.print'), (
 
   const document = buildMesaPrecuentaDocument(db, mesa, pedidosMesa);
   const copias = Math.max(1, Number(req.body?.copias || configuredCopies('ticket_cliente')));
-  const impresion = registerPrintJob(pedidosMesa[0].id, document.tipo, document.area, copias, document.payload, true);
+  const impresion = registerPrintJob(
+    pedidosMesa[0].id,
+    document.tipo,
+    document.area,
+    copias,
+    document.payload,
+    true
+  );
   const actor = actorFromRequest(req);
   logAudit(db, {
     modulo: 'impresiones',
@@ -267,13 +291,15 @@ router.put('/mesa/:mesa/mover', auth, requirePermission('pedidos.edit'), (req, r
     return res.status(404).json({ error: 'No hay pedidos abiertos para esa mesa' });
   }
 
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE pedidos
     SET mesa = ?, actualizado_en = CURRENT_TIMESTAMP
     WHERE tipo_entrega = 'mesa'
       AND TRIM(COALESCE(mesa, '')) = ?
       AND estado NOT IN ('entregado', 'cancelado')
-  `).run(destino, origen);
+  `
+  ).run(destino, origen);
 
   const actualizados = getMesaPedidosAbiertos(destino);
   const actor = actorFromRequest(req);
@@ -386,12 +412,18 @@ router.post('/mesas/reservas', auth, requirePermission('pedidos.edit'), (req, re
     return res.status(400).json({ error: 'Mesa, cliente y horario son obligatorios' });
   }
 
-  const result = db.prepare(`
+  const result = db
+    .prepare(
+      `
     INSERT INTO mesa_reservas (mesa, cliente_nombre, cliente_telefono, cantidad_personas, horario_reserva, notas)
     VALUES (?, ?, ?, ?, ?, ?)
-  `).run(mesa, clienteNombre, clienteTelefono, cantidadPersonas, horarioReserva, notas);
+  `
+    )
+    .run(mesa, clienteNombre, clienteTelefono, cantidadPersonas, horarioReserva, notas);
 
-  const reserva = db.prepare('SELECT * FROM mesa_reservas WHERE id = ?').get(result.lastInsertRowid);
+  const reserva = db
+    .prepare('SELECT * FROM mesa_reservas WHERE id = ?')
+    .get(result.lastInsertRowid);
   const actor = actorFromRequest(req);
   logAudit(db, {
     modulo: 'mesas',
@@ -400,7 +432,12 @@ router.post('/mesas/reservas', auth, requirePermission('pedidos.edit'), (req, re
     entidad_id: reserva.id,
     actor_id: actor.actor_id,
     actor_nombre: actor.actor_nombre,
-    detalle: { mesa, cliente_nombre: clienteNombre, horario_reserva: horarioReserva, cantidad_personas: cantidadPersonas },
+    detalle: {
+      mesa,
+      cliente_nombre: clienteNombre,
+      horario_reserva: horarioReserva,
+      cantidad_personas: cantidadPersonas,
+    },
   });
 
   res.json(reserva);
@@ -416,7 +453,9 @@ router.put('/mesas/reservas/:id', auth, requirePermission('pedidos.edit'), (req,
     return res.status(400).json({ error: 'Estado de reserva invalido' });
   }
 
-  db.prepare('UPDATE mesa_reservas SET estado = ?, actualizado_en = CURRENT_TIMESTAMP WHERE id = ?').run(estado, reserva.id);
+  db.prepare(
+    'UPDATE mesa_reservas SET estado = ?, actualizado_en = CURRENT_TIMESTAMP WHERE id = ?'
+  ).run(estado, reserva.id);
 
   const updated = db.prepare('SELECT * FROM mesa_reservas WHERE id = ?').get(reserva.id);
   const actor = actorFromRequest(req);
@@ -444,16 +483,16 @@ router.get('/:id/pago/mercadopago', async (req, res) => {
   const paymentId = String(req.query.payment_id || '').trim();
 
   if (!config.mercadopago_token) {
-    return res.json(buildCheckoutPayload(pedido, {
-      ok: false,
-      message: 'MercadoPago no esta configurado para sincronizacion',
-    }));
+    return res.json(
+      buildCheckoutPayload(pedido, {
+        ok: false,
+        message: 'MercadoPago no esta configurado para sincronizacion',
+      })
+    );
   }
 
   try {
-    const syncTarget = paymentId && !pedido.pago_id
-      ? { ...pedido, pago_id: paymentId }
-      : pedido;
+    const syncTarget = paymentId && !pedido.pago_id ? { ...pedido, pago_id: paymentId } : pedido;
     const synced = await syncPedidoMercadoPago(db, syncTarget, config);
     const finalPedido = synced.pedido || hydratePedido(pedido);
 
@@ -462,10 +501,12 @@ router.get('/:id/pago/mercadopago', async (req, res) => {
       if (io) emitPedidoActualizado(io, finalPedido);
     }
 
-    return res.json(buildCheckoutPayload(finalPedido, {
-      ok: synced.ok,
-      message: synced.message,
-    }));
+    return res.json(
+      buildCheckoutPayload(finalPedido, {
+        ok: synced.ok,
+        message: synced.message,
+      })
+    );
   } catch (error) {
     return res.status(500).json({ error: error.message || 'No se pudo verificar el pago' });
   }
@@ -474,7 +515,7 @@ router.get('/:id/pago/mercadopago', async (req, res) => {
 router.get('/:id', async (req, res) => {
   const pedido = db.prepare('SELECT * FROM pedidos WHERE id = ?').get(req.params.id);
   if (!pedido) return res.status(404).json({ error: 'Pedido no encontrado' });
-  
+
   const trackingToken = req.query.token;
   const authHeader = req.headers.authorization;
   let isAuthenticated = false;
@@ -490,7 +531,7 @@ router.get('/:id', async (req, res) => {
       isAuthenticated = false;
     }
   }
-  
+
   let isTrackingValid = false;
   if (trackingToken) {
     const { validateTrackingToken } = require('../utils/socketRooms');
@@ -498,7 +539,7 @@ router.get('/:id', async (req, res) => {
       isTrackingValid = true;
     }
   }
-  
+
   if (!isAuthenticated && !isTrackingValid) {
     return res.json({
       id: pedido.id,
@@ -508,18 +549,22 @@ router.get('/:id', async (req, res) => {
       creado_en: pedido.creado_en,
     });
   }
-  
+
   const hydrated = hydratePedido(pedido);
-  
+
   if (!isAuthenticated && isTrackingValid) {
     return res.json(buildTrackingPayload(hydrated));
   }
-  
+
   res.json(hydrated);
 });
 
 router.get('/:id/impresiones', auth, requirePermission('pedidos.print'), (req, res) => {
-  res.json(db.prepare('SELECT * FROM impresiones WHERE pedido_id = ? ORDER BY creado_en DESC, id DESC').all(req.params.id));
+  res.json(
+    db
+      .prepare('SELECT * FROM impresiones WHERE pedido_id = ? ORDER BY creado_en DESC, id DESC')
+      .all(req.params.id)
+  );
 });
 
 router.get('/:id/impresion/:tipo', auth, requirePermission('pedidos.print'), (req, res) => {
@@ -527,9 +572,14 @@ router.get('/:id/impresion/:tipo', auth, requirePermission('pedidos.print'), (re
   const pedido = getPedidoOr404(req.params.id, res);
   if (!pedido) return;
 
-  const tipo = req.params.tipo === 'comanda' ? 'comanda_cocina' : 
-               req.params.tipo === 'delivery' ? 'delivery_ticket' : 
-               req.params.tipo === 'pack' ? 'tpv_pack' : 'ticket_cliente';
+  const tipo =
+    req.params.tipo === 'comanda'
+      ? 'comanda_cocina'
+      : req.params.tipo === 'delivery'
+        ? 'delivery_ticket'
+        : req.params.tipo === 'pack'
+          ? 'tpv_pack'
+          : 'ticket_cliente';
   const document = buildPrintDocument(db, pedido, tipo);
   res.type('html').send(document.html);
 });
@@ -538,41 +588,68 @@ router.get('/:id/notificacion/:tipo', auth, (req, res) => {
   if (!hasPermission(req.user, 'pedidos.edit') && !hasPermission(req.user, 'delivery.manage')) {
     return res.status(403).json({ error: 'Sin permisos' });
   }
-  return res.status(410).json({ error: 'Las notificaciones automaticas fueron removidas del sistema' });
+  return res
+    .status(410)
+    .json({ error: 'Las notificaciones automaticas fueron removidas del sistema' });
 });
 
 router.get('/pagos/mercadopago/pendientes', auth, requirePermission('pedidos.view'), (req, res) => {
-  const rows = db.prepare("SELECT * FROM pedidos WHERE metodo_pago = 'mercadopago' ORDER BY creado_en DESC LIMIT 100").all();
-  res.json(
-    rows
-      .map(hydratePedido)
-      .filter((pedido) => pedido.pago_estado === 'pendiente')
-  );
+  const rows = db
+    .prepare(
+      "SELECT * FROM pedidos WHERE metodo_pago = 'mercadopago' ORDER BY creado_en DESC LIMIT 100"
+    )
+    .all();
+  res.json(rows.map(hydratePedido).filter((pedido) => pedido.pago_estado === 'pendiente'));
 });
 
-router.post('/pagos/mercadopago/sync-pendientes', auth, requirePermission('pedidos.edit'), async (req, res) => {
-  const config = getConfigMap(db);
-  const pendingOrders = db.prepare("SELECT * FROM pedidos WHERE metodo_pago = 'mercadopago' ORDER BY creado_en DESC LIMIT 100").all()
-    .filter((pedido) => normalizePagoEstado(pedido.pago_estado, { metodoPago: pedido.metodo_pago, origen: pedido.origen }) === 'pendiente')
-    .slice(0, 30);
+router.post(
+  '/pagos/mercadopago/sync-pendientes',
+  auth,
+  requirePermission('pedidos.edit'),
+  async (req, res) => {
+    const config = getConfigMap(db);
+    const pendingOrders = db
+      .prepare(
+        "SELECT * FROM pedidos WHERE metodo_pago = 'mercadopago' ORDER BY creado_en DESC LIMIT 100"
+      )
+      .all()
+      .filter(
+        (pedido) =>
+          normalizePagoEstado(pedido.pago_estado, {
+            metodoPago: pedido.metodo_pago,
+            origen: pedido.origen,
+          }) === 'pendiente'
+      )
+      .slice(0, 30);
 
-  const results = [];
-  for (const pedido of pendingOrders) {
-    try {
-      const synced = await syncPedidoMercadoPago(db, pedido, config);
-      results.push({ pedido_id: pedido.id, numero: pedido.numero, ok: synced.ok, message: synced.message });
-      if (synced.ok) {
-        const io = req.app.get('io');
-        if (io) emitPedidoActualizado(io, synced.pedido);
-        if (pedido.estado !== synced.pedido.estado) {
+    const results = [];
+    for (const pedido of pendingOrders) {
+      try {
+        const synced = await syncPedidoMercadoPago(db, pedido, config);
+        results.push({
+          pedido_id: pedido.id,
+          numero: pedido.numero,
+          ok: synced.ok,
+          message: synced.message,
+        });
+        if (synced.ok) {
+          const io = req.app.get('io');
+          if (io) emitPedidoActualizado(io, synced.pedido);
+          if (pedido.estado !== synced.pedido.estado) {
+          }
         }
+      } catch (error) {
+        results.push({
+          pedido_id: pedido.id,
+          numero: pedido.numero,
+          ok: false,
+          message: error.message,
+        });
       }
-    } catch (error) {
-      results.push({ pedido_id: pedido.id, numero: pedido.numero, ok: false, message: error.message });
     }
+    res.json({ total: pendingOrders.length, synced: results.filter((r) => r.ok).length, results });
   }
-  res.json({ total: pendingOrders.length, synced: results.filter(r => r.ok).length, results });
-});
+);
 
 router.put('/:id/pago', auth, requirePermission('pedidos.edit'), (req, res) => {
   const pedido = getPedidoOr404(req.params.id, res);
@@ -580,7 +657,9 @@ router.put('/:id/pago', auth, requirePermission('pedidos.edit'), (req, res) => {
 
   const metodoPago = normalizeMetodoPago(pedido.metodo_pago);
   if (metodoPago === 'mercadopago') {
-    return res.status(400).json({ error: 'Los pagos de MercadoPago se sincronizan desde el proveedor' });
+    return res
+      .status(400)
+      .json({ error: 'Los pagos de MercadoPago se sincronizan desde el proveedor' });
   }
 
   const nextPagoEstado = normalizePagoEstado(req.body?.pago_estado, {
@@ -619,42 +698,62 @@ router.post('/:id/notificacion/:tipo/enviar', auth, async (req, res) => {
   if (!hasPermission(req.user, 'pedidos.edit') && !hasPermission(req.user, 'delivery.manage')) {
     return res.status(403).json({ error: 'Sin permisos' });
   }
-  return res.status(410).json({ error: 'Las notificaciones automaticas fueron removidas del sistema' });
+  return res
+    .status(410)
+    .json({ error: 'Las notificaciones automaticas fueron removidas del sistema' });
 });
 
-router.post('/:id/pago/mercadopago/sync', auth, requirePermission('pedidos.edit'), async (req, res) => {
-  const pedido = getPedidoOr404(req.params.id, res);
-  if (!pedido || pedido.metodo_pago !== 'mercadopago') return res.status(400).json({ error: 'Invalido' });
+router.post(
+  '/:id/pago/mercadopago/sync',
+  auth,
+  requirePermission('pedidos.edit'),
+  async (req, res) => {
+    const pedido = getPedidoOr404(req.params.id, res);
+    if (!pedido || pedido.metodo_pago !== 'mercadopago')
+      return res.status(400).json({ error: 'Invalido' });
 
-  const config = getConfigMap(db);
-  try {
-    const synced = await syncPedidoMercadoPago(db, pedido, config);
-    const actor = actorFromRequest(req);
-    logAudit(db, {
-      modulo: 'pagos', accion: 'sync_mercadopago', entidad: 'pedido', entidad_id: pedido.id,
-      actor_id: actor.actor_id, actor_nombre: actor.actor_nombre,
-      detalle: { numero: pedido.numero, pago_estado: synced.pedido?.pago_estado, source: synced.source },
-    });
-    if (synced.ok) {
-      const io = req.app.get('io');
-      if (io) emitPedidoActualizado(io, synced.pedido);
-      if (pedido.estado !== synced.pedido.estado) {
+    const config = getConfigMap(db);
+    try {
+      const synced = await syncPedidoMercadoPago(db, pedido, config);
+      const actor = actorFromRequest(req);
+      logAudit(db, {
+        modulo: 'pagos',
+        accion: 'sync_mercadopago',
+        entidad: 'pedido',
+        entidad_id: pedido.id,
+        actor_id: actor.actor_id,
+        actor_nombre: actor.actor_nombre,
+        detalle: {
+          numero: pedido.numero,
+          pago_estado: synced.pedido?.pago_estado,
+          source: synced.source,
+        },
+      });
+      if (synced.ok) {
+        const io = req.app.get('io');
+        if (io) emitPedidoActualizado(io, synced.pedido);
+        if (pedido.estado !== synced.pedido.estado) {
+        }
       }
+      res.json(synced);
+    } catch (error) {
+      res.status(400).json({ error: publicPedidoError(error) });
     }
-    res.json(synced);
-  } catch (error) {
-    res.status(400).json({ error: publicPedidoError(error) });
   }
-});
+);
 
 router.post('/checkout/mercadopago', publicOrderRateLimit, async (req, res) => {
   const config = getConfigMap(db);
-  if (!config.mercadopago_token) return res.status(400).json({ error: 'MercadoPago no configurado' });
+  if (!config.mercadopago_token)
+    return res.status(400).json({ error: 'MercadoPago no configurado' });
   if (!req.body?.items) return res.status(400).json({ error: 'Items requeridos' });
 
   let pedido = null;
   try {
-    const normalized = buildPedidoPayload({ ...req.body, metodo_pago: 'mercadopago' }, { config });
+    const normalized = await buildPedidoPayload(
+      { ...req.body, metodo_pago: 'mercadopago' },
+      { config }
+    );
     pedido = createPedidoWithInventory({
       ...normalized,
       pago_estado: resolveInitialPagoEstado({
@@ -664,9 +763,12 @@ router.post('/checkout/mercadopago', publicOrderRateLimit, async (req, res) => {
     });
 
     const appUrl = String(config.public_app_url || req.headers.origin || '').replace(/\/$/, '');
-    const apiUrl = String(config.public_api_url || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
-    
-    const mpItems = normalized.items.map(item => ({
+    const apiUrl = String(config.public_api_url || `${req.protocol}://${req.get('host')}`).replace(
+      /\/$/,
+      ''
+    );
+
+    const mpItems = normalized.items.map((item) => ({
       id: String(item.producto_id || item.id),
       title: item.nombre,
       quantity: Number(item.cantidad || 1),
@@ -674,7 +776,12 @@ router.post('/checkout/mercadopago', publicOrderRateLimit, async (req, res) => {
       unit_price: Number(item.precio_unitario || 0),
     }));
     if (normalized.costo_envio > 0) {
-      mpItems.push({ title: 'Envio', quantity: 1, currency_id: 'ARS', unit_price: normalized.costo_envio });
+      mpItems.push({
+        title: 'Envio',
+        quantity: 1,
+        currency_id: 'ARS',
+        unit_price: normalized.costo_envio,
+      });
     }
 
     const preference = await createPreference({
@@ -693,9 +800,12 @@ router.post('/checkout/mercadopago', publicOrderRateLimit, async (req, res) => {
     });
 
     logMercadoPagoEvent({ pedidoId: pedido.id, tipo: 'preference_created', payload: preference });
-    db.prepare('UPDATE pedidos SET mp_preference_id = ? WHERE id = ?').run(preference.id, pedido.id);
+    db.prepare('UPDATE pedidos SET mp_preference_id = ? WHERE id = ?').run(
+      preference.id,
+      pedido.id
+    );
 
-  const hydrated = getPedidoHydratedById(pedido.id);
+    const hydrated = getPedidoHydratedById(pedido.id);
     const io = req.app.get('io');
     if (io) emitNuevoPedido(io, hydrated);
 
@@ -711,42 +821,54 @@ router.post('/checkout/mercadopago', publicOrderRateLimit, async (req, res) => {
   }
 });
 
-router.post('/interno', auth, requirePermission('tpv.use'), async (req, res) => {
-  if (!req.body?.items) return res.status(400).json({ error: 'Items requeridos' });
-  if (!getActiveCaja()) return res.status(400).json({ error: 'Caja cerrada' });
+router.post(
+  '/interno',
+  auth,
+  requirePermission('tpv.use'),
+  validateBody(createPedidoSchema),
+  async (req, res) => {
+    if (!req.body?.items) return res.status(400).json({ error: 'Items requeridos' });
+    if (!getActiveCaja()) return res.status(400).json({ error: 'Caja cerrada' });
 
-  try {
-    const normalized = buildPedidoPayload(req.body);
-    const pedido = createPedidoWithInventory({
-      ...normalized,
-      pago_estado: resolveInitialPagoEstado({
-        metodoPago: normalized.metodo_pago,
-        origen: normalized.origen,
-      }),
-    });
-    const actor = actorFromRequest(req, 'Caja');
-    logAudit(db, {
-      modulo: 'pedidos', accion: 'crear', entidad: 'pedido', entidad_id: pedido.id,
-      actor_id: actor.actor_id, actor_nombre: actor.actor_nombre,
-      detalle: { numero: pedido.numero, total: pedido.total, tipo_entrega: pedido.tipo_entrega },
-    });
-    const io = req.app.get('io');
-    const hydrated = hydratePedido(pedido);
-    if (io) emitNuevoPedido(io, hydrated);
-    res.json(hydrated);
-  } catch (error) {
-    console.error('[pedidos] Error al crear pedido interno:', error);
-    res.status(400).json({ error: normalizePedidoCreationError(error) });
+    try {
+      const normalized = await buildPedidoPayload(req.body);
+      const pedido = createPedidoWithInventory({
+        ...normalized,
+        pago_estado: resolveInitialPagoEstado({
+          metodoPago: normalized.metodo_pago,
+          origen: normalized.origen,
+        }),
+      });
+      const actor = actorFromRequest(req, 'Caja');
+      logAudit(db, {
+        modulo: 'pedidos',
+        accion: 'crear',
+        entidad: 'pedido',
+        entidad_id: pedido.id,
+        actor_id: actor.actor_id,
+        actor_nombre: actor.actor_nombre,
+        detalle: { numero: pedido.numero, total: pedido.total, tipo_entrega: pedido.tipo_entrega },
+      });
+      const io = req.app.get('io');
+      const hydrated = hydratePedido(pedido);
+      if (io) emitNuevoPedido(io, hydrated);
+      res.json(hydrated);
+    } catch (error) {
+      logger.error('[pedidos] Error al crear pedido interno', {
+        message: error.message || String(error),
+      });
+      res.status(400).json({ error: normalizePedidoCreationError(error) });
+    }
   }
-});
+);
 
-router.post('/', publicOrderRateLimit, async (req, res) => {
+router.post('/', publicOrderRateLimit, validateBody(createPedidoSchema), async (req, res) => {
   if (!req.body?.items) return res.status(400).json({ error: 'Items requeridos' });
 
   try {
     // Respetar el origen que viene en el body para flujos publicos compatibles.
     const origen = req.body.origen || 'web';
-    const normalized = buildPedidoPayload({ ...req.body, origen });
+    const normalized = await buildPedidoPayload({ ...req.body, origen });
     const pedido = createPedidoWithInventory({
       ...normalized,
       pago_estado: resolveInitialPagoEstado({
@@ -756,8 +878,12 @@ router.post('/', publicOrderRateLimit, async (req, res) => {
     });
     const actor = actorFromRequest(req, origen === 'web' ? 'Web publica' : 'Canal publico');
     logAudit(db, {
-      modulo: 'pedidos', accion: 'crear', entidad: 'pedido', entidad_id: pedido.id,
-      actor_id: actor.actor_id, actor_nombre: actor.actor_nombre,
+      modulo: 'pedidos',
+      accion: 'crear',
+      entidad: 'pedido',
+      entidad_id: pedido.id,
+      actor_id: actor.actor_id,
+      actor_nombre: actor.actor_nombre,
       detalle: { numero: pedido.numero, total: pedido.total, origen },
     });
     const io = req.app.get('io');
@@ -768,14 +894,18 @@ router.post('/', publicOrderRateLimit, async (req, res) => {
         emitNuevoPedido(io, hydrated);
         // También emitir como actualización admin para redundancia
         emitPedidoActualizado(io, hydrated);
-        console.log(`[pedidos] Nuevo pedido #${hydrated.numero} emitido via socket (origen: ${origen})`);
+        logger.info(
+          `[pedidos] Nuevo pedido #${hydrated.numero} emitido via socket (origen: ${origen})`
+        );
       }, 500);
     } else {
-      console.error('[pedidos] ERROR: io no disponible para emitir nuevo pedido');
+      logger.error('[pedidos] ERROR: io no disponible para emitir nuevo pedido');
     }
     res.json(hydrated);
   } catch (error) {
-    console.error('[pedidos] Error al crear pedido publico:', error);
+    logger.error('[pedidos] Error al crear pedido publico', {
+      message: error.message || String(error),
+    });
     res.status(400).json({ error: publicPedidoError(error) });
   }
 });
@@ -788,12 +918,23 @@ router.post('/:id/imprimir', auth, requirePermission('pedidos.print'), (req, res
   const tipo = req.body.tipo || 'ticket_cliente';
   const copias = Math.max(1, Number(req.body.copias || configuredCopies(tipo)));
   const document = buildPrintDocument(db, pedido, tipo);
-  const impresion = registerPrintJob(pedido.id, document.tipo, document.area, copias, document.payload, true);
-  
+  const impresion = registerPrintJob(
+    pedido.id,
+    document.tipo,
+    document.area,
+    copias,
+    document.payload,
+    true
+  );
+
   const actor = actorFromRequest(req);
   logAudit(db, {
-    modulo: 'impresiones', accion: 'imprimir', entidad: 'pedido', entidad_id: pedido.id,
-    actor_id: actor.actor_id, actor_nombre: actor.actor_nombre,
+    modulo: 'impresiones',
+    accion: 'imprimir',
+    entidad: 'pedido',
+    entidad_id: pedido.id,
+    actor_id: actor.actor_id,
+    actor_nombre: actor.actor_nombre,
     detalle: { tipo, copias, impresion_id: impresion.id },
   });
   res.json({ impresion, html: document.html });
@@ -822,12 +963,26 @@ router.put('/:id/estado', auth, async (req, res) => {
 
   if (!validation.valid) return res.status(400).json({ error: validation.reason });
 
-  if (!canUserTransitionWithContext(req.user, existing.estado, nuevoEstado, existing.tipo_entrega, transitionContext)) {
-    return res.status(403).json({ 
+  if (
+    !canUserTransitionWithContext(
+      req.user,
+      existing.estado,
+      nuevoEstado,
+      existing.tipo_entrega,
+      transitionContext
+    )
+  ) {
+    return res.status(403).json({
       error: 'Sin permisos',
-      validTransitions: getAvailableTransitions(existing.estado, transitionContext).filter(
-        (t) => canUserTransitionWithContext(req.user, existing.estado, t, existing.tipo_entrega, transitionContext)
-      )
+      validTransitions: getAvailableTransitions(existing.estado, transitionContext).filter((t) =>
+        canUserTransitionWithContext(
+          req.user,
+          existing.estado,
+          t,
+          existing.tipo_entrega,
+          transitionContext
+        )
+      ),
     });
   }
 
@@ -853,8 +1008,10 @@ router.put('/:id/estado', auth, async (req, res) => {
 
   try {
     db.exec('BEGIN');
-    const settleOnEntrega = nuevoEstado === PedidoState.ENTREGADO && shouldAutoSettleOnEntrega(existing);
-    db.prepare(`
+    const settleOnEntrega =
+      nuevoEstado === PedidoState.ENTREGADO && shouldAutoSettleOnEntrega(existing);
+    db.prepare(
+      `
       UPDATE pedidos
       SET estado = ?,
           pago_estado = CASE WHEN ? THEN 'pagado' ELSE pago_estado END,
@@ -864,8 +1021,10 @@ router.put('/:id/estado', auth, async (req, res) => {
           END,
           actualizado_en = CURRENT_TIMESTAMP
       WHERE id = ?
-    `).run(nuevoEstado, settleOnEntrega ? 1 : 0, settleOnEntrega ? 1 : 0, req.params.id);
-    if (nuevoEstado === PedidoState.CANCELADO) restoreInventoryForPedido(db, existing, { motivo: 'Cancelacion' });
+    `
+    ).run(nuevoEstado, settleOnEntrega ? 1 : 0, settleOnEntrega ? 1 : 0, req.params.id);
+    if (nuevoEstado === PedidoState.CANCELADO)
+      restoreInventoryForPedido(db, existing, { motivo: 'Cancelacion' });
     db.exec('COMMIT');
   } catch (error) {
     db.exec('ROLLBACK');
@@ -875,17 +1034,21 @@ router.put('/:id/estado', auth, async (req, res) => {
   let pedido = db.prepare('SELECT * FROM pedidos WHERE id = ?').get(req.params.id);
   const actor = actorFromRequest(req);
   logAudit(db, {
-    modulo: 'pedidos', accion: 'cambiar_estado', entidad: 'pedido', entidad_id: pedido.id,
-    actor_id: actor.actor_id, actor_nombre: actor.actor_nombre,
+    modulo: 'pedidos',
+    accion: 'cambiar_estado',
+    entidad: 'pedido',
+    entidad_id: pedido.id,
+    actor_id: actor.actor_id,
+    actor_nombre: actor.actor_nombre,
     detalle: { numero: pedido.numero, desde: existing.estado, hacia: nuevoEstado },
   });
 
   let autoAssignedRepartidor = null;
   if (
-    nuevoEstado === PedidoState.LISTO
-    && pedido.tipo_entrega === 'delivery'
-    && !pedido.repartidor_id
-    && config.delivery_autoasignar_activo === '1'
+    nuevoEstado === PedidoState.LISTO &&
+    pedido.tipo_entrega === 'delivery' &&
+    !pedido.repartidor_id &&
+    config.delivery_autoasignar_activo === '1'
   ) {
     const autoAssigned = autoAssignPedido(db, pedido.id, {
       onlyIfSingleAvailable: true,
@@ -902,30 +1065,30 @@ router.put('/:id/estado', auth, async (req, res) => {
       recalculateClienteStats(db, pedido.cliente_id);
     }
   } catch (loyaltyError) {
-    console.error('[Loyalty Error]', loyaltyError.message);
+    logger.error('[Loyalty Error]', { message: loyaltyError.message });
     // No bloqueamos el cambio de estado si falla la lealtad
   }
 
   // Acumular fidelidad (puntos y sellos) cuando se entrega un pedido
   let fidelidadActualizada = null;
-  if (nuevoEstado === PedidoState.ENTREGADO && 
-      existing.estado !== PedidoState.ENTREGADO && 
-      pedido.cliente_id && 
-      pedido.total > 0) {
+  if (
+    nuevoEstado === PedidoState.ENTREGADO &&
+    existing.estado !== PedidoState.ENTREGADO &&
+    pedido.cliente_id &&
+    pedido.total > 0
+  ) {
     try {
       const fidelizacionConfig = getFidelizacionConfig();
       if (fidelizacionConfig.activo) {
-        fidelidadActualizada = procesarFidelidadPedido(
-          pedido.cliente_id, 
-          pedido.id, 
-          pedido.total
-        );
+        fidelidadActualizada = procesarFidelidadPedido(pedido.cliente_id, pedido.id, pedido.total);
         if (fidelidadActualizada) {
-          console.log(`[Fidelizacion] Cliente #${pedido.cliente_id} actualizó fidelidad por pedido #${pedido.numero}`);
+          logger.info(
+            `[Fidelizacion] Cliente #${pedido.cliente_id} actualizó fidelidad por pedido #${pedido.numero}`
+          );
         }
       }
     } catch (fidelidadError) {
-      console.error('[Fidelizacion Error]', fidelidadError.message);
+      logger.error('[Fidelizacion Error]', { message: fidelidadError.message });
       // No bloqueamos el cambio de estado si falla la fidelización
     }
   }
@@ -959,25 +1122,37 @@ router.put('/:id/estado', auth, async (req, res) => {
     }
     if (releasedRepartidorId) {
       emitDeliveryAssignment(io, {
-        previousRepartidor: db.prepare('SELECT * FROM repartidores WHERE id = ?').get(releasedRepartidorId),
+        previousRepartidor: db
+          .prepare('SELECT * FROM repartidores WHERE id = ?')
+          .get(releasedRepartidorId),
         emitPedido: false,
       });
     }
   }
-  
+
   if (fidelidadActualizada) {
     // La fidelizacion queda registrada en el sistema; no se envian avisos automaticos.
   }
-  
+
   // Incluir info de fidelización en la respuesta si se actualizó
-  const respuesta = fidelidadActualizada 
-    ? { ...hydrated, fidelizacion: fidelidadActualizada } 
+  const respuesta = fidelidadActualizada
+    ? { ...hydrated, fidelizacion: fidelidadActualizada }
     : hydrated;
   res.json(respuesta);
 });
 
 router.put('/:id', auth, requirePermission('pedidos.edit'), (req, res) => {
-  const { cliente_nombre, cliente_telefono, cliente_direccion, notas, metodo_pago, tipo_entrega, mesa, descuento } = req.body;
+  const {
+    cliente_nombre,
+    cliente_telefono,
+    cliente_direccion,
+    notas,
+    metodo_pago,
+    tipo_entrega,
+    mesa,
+    hora_entrega,
+    descuento,
+  } = req.body;
   const existing = getPedidoOr404(req.params.id, res);
   if (!existing) return;
   const nextMetodoPago = normalizeMetodoPago(metodo_pago ?? existing.metodo_pago);
@@ -986,7 +1161,8 @@ router.put('/:id', auth, requirePermission('pedidos.edit'), (req, res) => {
     origen: existing.origen,
   });
 
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE pedidos
     SET cliente_nombre=?,
         cliente_telefono=?,
@@ -996,10 +1172,12 @@ router.put('/:id', auth, requirePermission('pedidos.edit'), (req, res) => {
         pago_estado=?,
         tipo_entrega=?,
         mesa=?,
+        hora_entrega=?,
         descuento=?,
         actualizado_en=CURRENT_TIMESTAMP
     WHERE id=?
-  `).run(
+  `
+  ).run(
     cliente_nombre,
     cliente_telefono,
     cliente_direccion,
@@ -1008,15 +1186,20 @@ router.put('/:id', auth, requirePermission('pedidos.edit'), (req, res) => {
     nextPagoEstado,
     tipo_entrega,
     mesa,
+    hora_entrega ?? existing.hora_entrega ?? '',
     descuento,
     req.params.id
   );
-  
+
   const updated = getPedidoHydratedById(req.params.id);
   const actor = actorFromRequest(req);
   logAudit(db, {
-    modulo: 'pedidos', accion: 'editar', entidad: 'pedido', entidad_id: updated.id,
-    actor_id: actor.actor_id, actor_nombre: actor.actor_nombre,
+    modulo: 'pedidos',
+    accion: 'editar',
+    entidad: 'pedido',
+    entidad_id: updated.id,
+    actor_id: actor.actor_id,
+    actor_nombre: actor.actor_nombre,
     detalle: { numero: updated.numero },
   });
   res.json(updated);

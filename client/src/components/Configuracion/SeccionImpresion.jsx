@@ -1,6 +1,5 @@
 import React, { useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
-import api from '../../lib/api.js';
 import {
   ChefHat,
   Eye,
@@ -18,14 +17,62 @@ import {
   CheckSquare,
   Square,
 } from 'lucide-react';
+
+import api from '../../lib/api.js';
+
 import { SectionCard, InputField, ToggleSwitch, SelectField } from './ConfigComponents.jsx';
 
 const FORMATOS_IMPRESION = {
-  a4: { key: 'a4', nombre: 'A4', detalle: 'Factura o carta', ancho: '210mm', alto: '297mm', tipo: 'hoja', pxAncho: 794, pxAlto: 1123 },
-  a5: { key: 'a5', nombre: 'A5', detalle: 'Media carta', ancho: '148mm', alto: '210mm', tipo: 'hoja', pxAncho: 559, pxAlto: 794 },
-  a6: { key: 'a6', nombre: 'A6', detalle: 'Comanda pequeña', ancho: '105mm', alto: '148mm', tipo: 'hoja', pxAncho: 397, pxAlto: 559 },
-  ticket80: { key: 'ticket80', nombre: 'Ticket 80mm', detalle: 'Térmica estándar', ancho: '80mm', alto: 'auto', tipo: 'rollo', pxAncho: 302, pxAlto: 640 },
-  ticket58: { key: 'ticket58', nombre: 'Ticket 58mm', detalle: 'Térmica angosta', ancho: '58mm', alto: 'auto', tipo: 'rollo', pxAncho: 219, pxAlto: 640 },
+  a4: {
+    key: 'a4',
+    nombre: 'A4',
+    detalle: 'Factura o carta',
+    ancho: '210mm',
+    alto: '297mm',
+    tipo: 'hoja',
+    pxAncho: 794,
+    pxAlto: 1123,
+  },
+  a5: {
+    key: 'a5',
+    nombre: 'A5',
+    detalle: 'Media carta',
+    ancho: '148mm',
+    alto: '210mm',
+    tipo: 'hoja',
+    pxAncho: 559,
+    pxAlto: 794,
+  },
+  a6: {
+    key: 'a6',
+    nombre: 'A6',
+    detalle: 'Comanda pequeña',
+    ancho: '105mm',
+    alto: '148mm',
+    tipo: 'hoja',
+    pxAncho: 397,
+    pxAlto: 559,
+  },
+  ticket80: {
+    key: 'ticket80',
+    nombre: 'Ticket 80mm',
+    detalle: 'Térmica estándar',
+    ancho: '80mm',
+    alto: 'auto',
+    tipo: 'rollo',
+    pxAncho: 302,
+    pxAlto: 640,
+  },
+  ticket58: {
+    key: 'ticket58',
+    nombre: 'Ticket 58mm',
+    detalle: 'Térmica angosta',
+    ancho: '58mm',
+    alto: 'auto',
+    tipo: 'rollo',
+    pxAncho: 219,
+    pxAlto: 640,
+  },
 };
 
 const DOCUMENTOS = [
@@ -35,8 +82,20 @@ const DOCUMENTOS = [
 ];
 
 const PREVIEW_ITEMS = [
-  { id: 1, cantidad: 1, nombre: 'Pizza especial', detalle: 'Mitades: muzza / napolitana', precio: 12000 },
-  { id: 2, cantidad: 1, nombre: 'Empanadas surtidas', detalle: 'Docena · carne, pollo y jyq', precio: 8500 },
+  {
+    id: 1,
+    cantidad: 1,
+    nombre: 'Pizza especial',
+    detalle: 'Mitades: muzza / napolitana',
+    precio: 12000,
+  },
+  {
+    id: 2,
+    cantidad: 1,
+    nombre: 'Empanadas surtidas',
+    detalle: 'Docena · carne, pollo y jyq',
+    precio: 8500,
+  },
   { id: 3, cantidad: 2, nombre: 'Gaseosa 1.5L', detalle: '', precio: 1800 },
 ];
 
@@ -91,7 +150,7 @@ function PreviewHeader({ config, showMetaDefault = true }) {
           {config.negocio_nombre || 'Modo Sabor'}
         </div>
       )}
-      {(showAddress || showPhone) ? (
+      {showAddress || showPhone ? (
         <div className="mt-2 space-y-1 text-[0.88em] text-slate-500">
           {showAddress && config.negocio_direccion ? <div>{config.negocio_direccion}</div> : null}
           {showPhone && config.negocio_telefono ? <div>{config.negocio_telefono}</div> : null}
@@ -102,7 +161,7 @@ function PreviewHeader({ config, showMetaDefault = true }) {
 }
 
 function TicketPreview({ config, format }) {
-  const subtotal = PREVIEW_ITEMS.reduce((acc, item) => acc + (item.cantidad * item.precio), 0);
+  const subtotal = PREVIEW_ITEMS.reduce((acc, item) => acc + item.cantidad * item.precio, 0);
   const envio = isEnabled(config, 'impresion_mostrar_envio') ? 500 : 0;
   const total = subtotal + envio;
   const showPrices = isEnabled(config, 'impresion_mostrar_precios_ticket', true);
@@ -116,10 +175,24 @@ function TicketPreview({ config, format }) {
       <PreviewHeader config={config} />
 
       <div className={`text-[0.9em] ${isCompact ? 'space-y-0.5' : 'space-y-1.5'}`}>
-        <div className="flex justify-between"><span>Pedido</span><strong>#0001</strong></div>
-        {showDate && <div className="flex justify-between"><span>Fecha</span><span>{new Date().toLocaleString('es-AR')}</span></div>}
-        <div className="flex justify-between"><span>Entrega</span><span>Delivery</span></div>
-        <div className="flex justify-between"><span>Cliente</span><span>Juan Perez</span></div>
+        <div className="flex justify-between">
+          <span>Pedido</span>
+          <strong>#0001</strong>
+        </div>
+        {showDate && (
+          <div className="flex justify-between">
+            <span>Fecha</span>
+            <span>{new Date().toLocaleString('es-AR')}</span>
+          </div>
+        )}
+        <div className="flex justify-between">
+          <span>Entrega</span>
+          <span>Delivery</span>
+        </div>
+        <div className="flex justify-between">
+          <span>Cliente</span>
+          <span>Juan Perez</span>
+        </div>
       </div>
 
       <div className={`border-y border-dashed border-slate-300 ${isCompact ? 'py-1.5' : 'py-3'}`}>
@@ -132,10 +205,18 @@ function TicketPreview({ config, format }) {
             <div key={item.id}>
               <div className="flex items-start justify-between gap-3">
                 <div className="flex-1">
-                  <div className="font-bold text-slate-900">{item.cantidad}x {item.nombre}</div>
-                  {showDetails && item.detalle ? <div className="mt-1 text-[0.88em] text-slate-500">{item.detalle}</div> : null}
+                  <div className="font-bold text-slate-900">
+                    {item.cantidad}x {item.nombre}
+                  </div>
+                  {showDetails && item.detalle ? (
+                    <div className="mt-1 text-[0.88em] text-slate-500">{item.detalle}</div>
+                  ) : null}
                 </div>
-                {showPrices ? <div className="whitespace-nowrap font-bold text-slate-900">{money(item.cantidad * item.precio)}</div> : null}
+                {showPrices ? (
+                  <div className="whitespace-nowrap font-bold text-slate-900">
+                    {money(item.cantidad * item.precio)}
+                  </div>
+                ) : null}
               </div>
             </div>
           ))}
@@ -143,9 +224,19 @@ function TicketPreview({ config, format }) {
       </div>
 
       <div className={`text-[0.92em] ${isCompact ? 'space-y-0.5' : 'space-y-1.5'}`}>
-        <div className="flex justify-between"><span>Subtotal</span><span>{money(subtotal)}</span></div>
-        {envio > 0 ? <div className="flex justify-between"><span>Envío</span><span>{money(envio)}</span></div> : null}
-        <div className={`flex justify-between border-t border-slate-900 text-[1.08em] font-black text-slate-900 ${isCompact ? 'pt-1' : 'pt-2'}`}>
+        <div className="flex justify-between">
+          <span>Subtotal</span>
+          <span>{money(subtotal)}</span>
+        </div>
+        {envio > 0 ? (
+          <div className="flex justify-between">
+            <span>Envío</span>
+            <span>{money(envio)}</span>
+          </div>
+        ) : null}
+        <div
+          className={`flex justify-between border-t border-slate-900 text-[1.08em] font-black text-slate-900 ${isCompact ? 'pt-1' : 'pt-2'}`}
+        >
           <span>Total</span>
           <span>{money(total)}</span>
         </div>
@@ -194,22 +285,46 @@ function ComandaPreview({ config }) {
       </div>
 
       <div className={`text-[0.9em] ${isCompact ? 'space-y-0.5' : 'space-y-1.5'}`}>
-        <div className="flex justify-between"><span>Pedido</span><strong>#0001</strong></div>
-        <div className="flex justify-between"><span>Tipo</span><span>Delivery</span></div>
-        {showDate && <div className="flex justify-between"><span>Hora</span><span>{new Date().toLocaleTimeString('es-AR')}</span></div>}
-        {showClient && <div className="flex justify-between"><span>Cliente</span><span>Juan Perez</span></div>}
+        <div className="flex justify-between">
+          <span>Pedido</span>
+          <strong>#0001</strong>
+        </div>
+        <div className="flex justify-between">
+          <span>Tipo</span>
+          <span>Delivery</span>
+        </div>
+        {showDate && (
+          <div className="flex justify-between">
+            <span>Hora</span>
+            <span>{new Date().toLocaleTimeString('es-AR')}</span>
+          </div>
+        )}
+        {showClient && (
+          <div className="flex justify-between">
+            <span>Cliente</span>
+            <span>Juan Perez</span>
+          </div>
+        )}
       </div>
 
       <div className={`border-y border-dashed border-slate-300 ${isCompact ? 'py-1.5' : 'py-3'}`}>
-        <div className="mb-2 text-[0.78em] font-black uppercase tracking-[0.18em] text-slate-500">Producción</div>
+        <div className="mb-2 text-[0.78em] font-black uppercase tracking-[0.18em] text-slate-500">
+          Producción
+        </div>
         <div className={isCompact ? 'space-y-1.5' : 'space-y-3'}>
           {PREVIEW_ITEMS.map((item) => (
             <div key={item.id} className="flex justify-between items-start">
               <div>
-                <div className="font-black text-slate-900">{item.cantidad}x {item.nombre}</div>
-                {showDetails && item.detalle ? <div className="mt-1 text-[0.88em] text-slate-500">{item.detalle}</div> : null}
+                <div className="font-black text-slate-900">
+                  {item.cantidad}x {item.nombre}
+                </div>
+                {showDetails && item.detalle ? (
+                  <div className="mt-1 text-[0.88em] text-slate-500">{item.detalle}</div>
+                ) : null}
               </div>
-              {showPrices && <div className="font-bold text-slate-900">{money(item.cantidad * item.precio)}</div>}
+              {showPrices && (
+                <div className="font-bold text-slate-900">{money(item.cantidad * item.precio)}</div>
+              )}
             </div>
           ))}
         </div>
@@ -233,16 +348,31 @@ function DeliverySheetPreview({ config }) {
       <div className="rounded-2xl border border-slate-200 px-3 py-3 text-[0.9em]">
         <div className="mb-2 flex items-center justify-between">
           <strong>Pedido #0001</strong>
-          <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-[0.72em] font-black uppercase tracking-wider text-emerald-700">
+          <span className="rounded-full bg-success-100 px-2.5 py-1 text-[0.72em] font-black uppercase tracking-wider text-success-700">
             Delivery
           </span>
         </div>
         <div className="space-y-1.5 text-slate-600">
-          <div className="flex justify-between"><span>Cliente</span><span>Juan Perez</span></div>
-          <div className="flex justify-between"><span>Teléfono</span><span>3811234567</span></div>
-          <div className="flex justify-between"><span>Zona</span><span>Centro</span></div>
-          <div className="flex justify-between"><span>ETA</span><span>30 min</span></div>
-          <div className="flex justify-between"><span>PIN</span><strong>4821</strong></div>
+          <div className="flex justify-between">
+            <span>Cliente</span>
+            <span>Juan Perez</span>
+          </div>
+          <div className="flex justify-between">
+            <span>Teléfono</span>
+            <span>3811234567</span>
+          </div>
+          <div className="flex justify-between">
+            <span>Zona</span>
+            <span>Centro</span>
+          </div>
+          <div className="flex justify-between">
+            <span>ETA</span>
+            <span>30 min</span>
+          </div>
+          <div className="flex justify-between">
+            <span>PIN</span>
+            <strong>4821</strong>
+          </div>
         </div>
       </div>
 
@@ -252,11 +382,15 @@ function DeliverySheetPreview({ config }) {
       </div>
 
       <div className={`border-y border-dashed border-slate-300 ${isCompact ? 'py-1.5' : 'py-3'}`}>
-        <div className="mb-2 text-[0.78em] font-black uppercase tracking-[0.18em] text-slate-500">Carga</div>
+        <div className="mb-2 text-[0.78em] font-black uppercase tracking-[0.18em] text-slate-500">
+          Carga
+        </div>
         <div className={isCompact ? 'space-y-1.5' : 'space-y-2.5'}>
           {PREVIEW_ITEMS.map((item) => (
             <div key={item.id} className="flex justify-between gap-3 text-[0.9em]">
-              <span className="font-bold">{item.cantidad}x {item.nombre}</span>
+              <span className="font-bold">
+                {item.cantidad}x {item.nombre}
+              </span>
               <span className="font-bold text-slate-900">{money(item.cantidad * item.precio)}</span>
             </div>
           ))}
@@ -265,22 +399,30 @@ function DeliverySheetPreview({ config }) {
 
       <div className="flex justify-between border-t border-slate-900 pt-2 text-[1.02em] font-black text-slate-900">
         <span>Total a cobrar</span>
-        <span>{money(PREVIEW_ITEMS.reduce((acc, item) => acc + (item.cantidad * item.precio), 0) + 500)}</span>
+        <span>
+          {money(PREVIEW_ITEMS.reduce((acc, item) => acc + item.cantidad * item.precio, 0) + 500)}
+        </span>
       </div>
     </div>
   );
 }
 
 function PreviewDocument({ previewDoc, config, format }) {
-  const style = useMemo(() => ({
-    fontFamily: getFontFamily(config.impresion_tipo_letra || 'mono'),
-    fontSize: getFontSize(config.impresion_tamano_fuente || '12px'),
-    lineHeight: 1.45,
-    color: '#0f172a',
-  }), [config.impresion_tamano_fuente, config.impresion_tipo_letra]);
+  const style = useMemo(
+    () => ({
+      fontFamily: getFontFamily(config.impresion_tipo_letra || 'mono'),
+      fontSize: getFontSize(config.impresion_tamano_fuente || '12px'),
+      lineHeight: 1.45,
+      color: '#0f172a',
+    }),
+    [config.impresion_tamano_fuente, config.impresion_tipo_letra]
+  );
 
   return (
-    <div style={style} className="rounded-[28px] border border-slate-200 bg-white px-5 py-5 shadow-sm">
+    <div
+      style={style}
+      className="rounded-[28px] border border-slate-200 bg-white px-5 py-5 shadow-sm"
+    >
       {previewDoc === 'comanda' ? <ComandaPreview config={config} format={format} /> : null}
       {previewDoc === 'ticket' ? <TicketPreview config={config} format={format} /> : null}
       {previewDoc === 'delivery' ? <DeliverySheetPreview config={config} format={format} /> : null}
@@ -324,7 +466,9 @@ export default function SeccionImpresion({ config, f, setToggle, setConfig }) {
           </div>
           <div>
             <h2 className="text-xl font-bold text-gray-900">Configuración de impresión</h2>
-            <p className="text-sm text-gray-500">Ajusta el contenido, estilo y automatización de tus tickets.</p>
+            <p className="text-sm text-gray-500">
+              Ajusta el contenido, estilo y automatización de tus tickets.
+            </p>
           </div>
         </div>
 
@@ -341,13 +485,20 @@ export default function SeccionImpresion({ config, f, setToggle, setConfig }) {
 
       <div className="grid gap-8 xl:grid-cols-[1.1fr_0.9fr]">
         <div className="space-y-8">
-          <SectionCard icon={Layout} tone="violet" title="Formato y Papel" subtitle="Selecciona el tamaño base de tus impresiones">
+          <SectionCard
+            icon={Layout}
+            tone="violet"
+            title="Formato y Papel"
+            subtitle="Selecciona el tamaño base de tus impresiones"
+          >
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {Object.values(FORMATOS_IMPRESION).map((fmt) => (
                 <label
                   key={fmt.key}
                   className={`flex cursor-pointer flex-col gap-2 rounded-2xl border p-4 transition-all ${
-                    config.impresion_formato === fmt.key ? 'border-violet-500 bg-violet-50 ring-1 ring-violet-500' : 'border-gray-200 bg-white hover:border-gray-300'
+                    config.impresion_formato === fmt.key
+                      ? 'border-violet-500 bg-violet-50 ring-1 ring-violet-500'
+                      : 'border-gray-200 bg-white hover:border-gray-300'
                   }`}
                 >
                   <input
@@ -359,21 +510,34 @@ export default function SeccionImpresion({ config, f, setToggle, setConfig }) {
                   />
                   <div className="flex items-center justify-between">
                     <span className="text-sm font-bold text-gray-900">{fmt.nombre}</span>
-                    <div className={`h-4 w-4 rounded-full border-2 ${config.impresion_formato === fmt.key ? 'border-violet-500 bg-violet-500' : 'border-gray-300'}`}>
-                      {config.impresion_formato === fmt.key ? <div className="m-0.5 h-1.5 w-1.5 rounded-full bg-white" /> : null}
+                    <div
+                      className={`h-4 w-4 rounded-full border-2 ${config.impresion_formato === fmt.key ? 'border-violet-500 bg-violet-500' : 'border-gray-300'}`}
+                    >
+                      {config.impresion_formato === fmt.key ? (
+                        <div className="m-0.5 h-1.5 w-1.5 rounded-full bg-white" />
+                      ) : null}
                     </div>
                   </div>
                   <p className="text-xs text-gray-500">{fmt.detalle}</p>
                   <div className="mt-2 flex items-center gap-2">
-                    <span className="rounded-md bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-600 uppercase">{fmt.tipo}</span>
-                    <span className="text-[10px] text-gray-400">{fmt.ancho} x {fmt.alto}</span>
+                    <span className="rounded-md bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-600 uppercase">
+                      {fmt.tipo}
+                    </span>
+                    <span className="text-[10px] text-gray-400">
+                      {fmt.ancho} x {fmt.alto}
+                    </span>
                   </div>
                 </label>
               ))}
             </div>
           </SectionCard>
 
-          <SectionCard icon={AlignJustify} tone="violet" title="Contenido de Impresión" subtitle="Habilita o deshabilita secciones de los documentos">
+          <SectionCard
+            icon={AlignJustify}
+            tone="violet"
+            title="Contenido de Impresión"
+            subtitle="Habilita o deshabilita secciones de los documentos"
+          >
             <div className="grid grid-cols-1 gap-x-8 gap-y-6 md:grid-cols-2">
               <ToggleSwitch
                 checked={isEnabled(config, 'impresion_mostrar_logo', true)}
@@ -448,12 +612,19 @@ export default function SeccionImpresion({ config, f, setToggle, setConfig }) {
             </div>
           </SectionCard>
 
-          <SectionCard icon={Type} tone="violet" title="Estilo y Tipografía" subtitle="Ajusta la fuente y el tamaño de letra">
+          <SectionCard
+            icon={Type}
+            tone="violet"
+            title="Estilo y Tipografía"
+            subtitle="Ajusta la fuente y el tamaño de letra"
+          >
             <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
               <SelectField
                 label="Tipo de letra"
                 value={config.impresion_tipo_letra || 'mono'}
-                onChange={(event) => setConfig((prev) => ({ ...prev, impresion_tipo_letra: event.target.value }))}
+                onChange={(event) =>
+                  setConfig((prev) => ({ ...prev, impresion_tipo_letra: event.target.value }))
+                }
                 options={[
                   { value: 'mono', label: 'Monospace (ticket clásico)' },
                   { value: 'sans', label: 'Sans Serif (moderna)' },
@@ -463,7 +634,9 @@ export default function SeccionImpresion({ config, f, setToggle, setConfig }) {
               <SelectField
                 label="Tamaño de fuente base"
                 value={config.impresion_tamano_fuente || '12px'}
-                onChange={(event) => setConfig((prev) => ({ ...prev, impresion_tamano_fuente: event.target.value }))}
+                onChange={(event) =>
+                  setConfig((prev) => ({ ...prev, impresion_tamano_fuente: event.target.value }))
+                }
                 options={[
                   { value: '10px', label: 'Pequeña (10px)' },
                   { value: '12px', label: 'Normal (12px)' },
@@ -471,12 +644,30 @@ export default function SeccionImpresion({ config, f, setToggle, setConfig }) {
                   { value: '16px', label: 'Extra grande (16px)' },
                 ]}
               />
-              <InputField label="Margen (mm)" type="number" min="2" max="20" {...f('impresion_margen_mm')} />
-              <InputField label="Escala de fuente" type="number" min="0.8" max="1.4" step="0.05" {...f('impresion_escala_fuente')} />
+              <InputField
+                label="Margen (mm)"
+                type="number"
+                min="2"
+                max="20"
+                {...f('impresion_margen_mm')}
+              />
+              <InputField
+                label="Escala de fuente"
+                type="number"
+                min="0.8"
+                max="1.4"
+                step="0.05"
+                {...f('impresion_escala_fuente')}
+              />
             </div>
           </SectionCard>
 
-          <SectionCard icon={Zap} tone="violet" title="Automatización" subtitle="Decide cuándo sale la impresión automáticamente">
+          <SectionCard
+            icon={Zap}
+            tone="violet"
+            title="Automatización"
+            subtitle="Decide cuándo sale la impresión automáticamente"
+          >
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <ToggleSwitch
                 checked={isEnabled(config, 'impresion_auto_tpv')}
@@ -495,10 +686,25 @@ export default function SeccionImpresion({ config, f, setToggle, setConfig }) {
             </div>
           </SectionCard>
 
-          <SectionCard icon={Layers} tone="violet" title="Copias por Defecto" subtitle="Cuántas copias se preparan automáticamente">
+          <SectionCard
+            icon={Layers}
+            tone="violet"
+            title="Copias por Defecto"
+            subtitle="Cuántas copias se preparan automáticamente"
+          >
             <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-              <InputField label="Copias de comanda (cocina)" type="number" min="1" {...f('impresion_copias_comanda')} />
-              <InputField label="Copias de ticket (cliente)" type="number" min="1" {...f('impresion_copias_ticket')} />
+              <InputField
+                label="Copias de comanda (cocina)"
+                type="number"
+                min="1"
+                {...f('impresion_copias_comanda')}
+              />
+              <InputField
+                label="Copias de ticket (cliente)"
+                type="number"
+                min="1"
+                {...f('impresion_copias_ticket')}
+              />
               <ToggleSwitch
                 checked={isEnabled(config, 'impresion_ticket_duplicado')}
                 onChange={(value) => setToggle('impresion_ticket_duplicado', value)}
@@ -511,7 +717,12 @@ export default function SeccionImpresion({ config, f, setToggle, setConfig }) {
         </div>
 
         <div className="xl:sticky xl:top-24 h-fit">
-          <SectionCard icon={Eye} tone="violet" title="Vista Previa Real" subtitle="Visualiza cómo quedará el documento físico">
+          <SectionCard
+            icon={Eye}
+            tone="violet"
+            title="Vista Previa Real"
+            subtitle="Visualiza cómo quedará el documento físico"
+          >
             <div className="space-y-5">
               <div className="flex flex-wrap gap-2">
                 {DOCUMENTOS.map((doc) => {
@@ -523,7 +734,9 @@ export default function SeccionImpresion({ config, f, setToggle, setConfig }) {
                       type="button"
                       onClick={() => setPreviewDoc(doc.key)}
                       className={`flex items-center gap-2 rounded-2xl px-4 py-2.5 text-xs font-black uppercase tracking-widest transition-all ${
-                        active ? 'bg-violet-600 text-white shadow-lg shadow-violet-100' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                        active
+                          ? 'bg-violet-600 text-white shadow-lg shadow-violet-100'
+                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                       }`}
                     >
                       <Icon size={15} />
@@ -535,11 +748,16 @@ export default function SeccionImpresion({ config, f, setToggle, setConfig }) {
 
               <div className="rounded-3xl bg-slate-100 p-4">
                 <div className="mb-3 flex items-center justify-between gap-3 text-xs font-semibold text-slate-500">
-                  <span>{formatoActual.nombre} · {formatoActual.ancho} x {formatoActual.alto}</span>
+                  <span>
+                    {formatoActual.nombre} · {formatoActual.ancho} x {formatoActual.alto}
+                  </span>
                   <span>Escala {Math.round(escalaPreview * 100)}%</span>
                 </div>
 
-                <div className="overflow-auto rounded-[28px] border border-slate-200 bg-slate-200/60 p-4" style={{ maxHeight: '72vh' }}>
+                <div
+                  className="overflow-auto rounded-[28px] border border-slate-200 bg-slate-200/60 p-4"
+                  style={{ maxHeight: '72vh' }}
+                >
                   <div
                     className="mx-auto origin-top"
                     style={{
@@ -556,16 +774,23 @@ export default function SeccionImpresion({ config, f, setToggle, setConfig }) {
                         marginBottom: `-${formatoActual.pxAlto * (1 - escalaPreview)}px`,
                       }}
                     >
-                      <PreviewDocument previewDoc={previewDoc} config={config} format={formatoActual} />
+                      <PreviewDocument
+                        previewDoc={previewDoc}
+                        config={config}
+                        format={formatoActual}
+                      />
                     </div>
                   </div>
                 </div>
               </div>
 
-              <div className="rounded-2xl bg-amber-50 px-4 py-3 text-sm text-amber-700">
-                <strong className="font-black uppercase tracking-wider flex items-center gap-2"><Zap size={14} /> Recomendación</strong>
+              <div className="rounded-2xl bg-warning-50 px-4 py-3 text-sm text-warning-700">
+                <strong className="font-black uppercase tracking-wider flex items-center gap-2">
+                  <Zap size={14} /> Recomendación
+                </strong>
                 <p className="mt-1">
-                  Usa el <strong>Modo Compacto</strong> si tu impresora térmica tiene poco papel o si quieres reducir el largo del ticket.
+                  Usa el <strong>Modo Compacto</strong> si tu impresora térmica tiene poco papel o
+                  si quieres reducir el largo del ticket.
                 </p>
               </div>
             </div>

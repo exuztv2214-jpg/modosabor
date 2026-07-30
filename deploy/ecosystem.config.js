@@ -13,7 +13,7 @@ module.exports = {
         NODE_ENV: 'production',
       },
       error_file: '/opt/modosabor/data/logs/server-err.log',
-      out_file:   '/opt/modosabor/data/logs/server-out.log',
+      out_file: '/opt/modosabor/data/logs/server-out.log',
       log_date_format: 'YYYY-MM-DD HH:mm:ss',
     },
   ],
