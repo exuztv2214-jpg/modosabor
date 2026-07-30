@@ -33,6 +33,7 @@ const {
   resetOperationalData,
   restoreDatabaseBackup,
 } = require('../utils/backupManager');
+const { importBaseDataPackage } = require('../utils/dataPackage');
 
 const storage = multer.diskStorage({
   destination: uploadsDir,
@@ -76,6 +77,10 @@ const backupUpload = multer({
     allowedExtensions: SQLITE_EXTENSIONS,
     message: 'El backup debe ser un archivo .sqlite',
   }),
+});
+const baseDataUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
 });
 const uploadRestoreStorage = multer.diskStorage({
   destination: uploadsDir,
@@ -543,6 +548,50 @@ router.post(
       restored,
       safety_backup: safetyBackup,
       backups: listBackups(),
+    });
+  }
+);
+
+router.post(
+  '/base-data/import',
+  auth,
+  requirePermission('config.manage'),
+  baseDataUpload.single('data'),
+  (req, res) => {
+    if (!req.file) {
+      return res.status(400).json({ error: 'Debes adjuntar un paquete JSON de datos base' });
+    }
+
+    let payload;
+    try {
+      payload = JSON.parse(req.file.buffer.toString('utf-8'));
+    } catch {
+      return res.status(400).json({ error: 'El paquete de datos base no es JSON valido' });
+    }
+
+    const safetyBackup = createDatabaseBackup(db, {
+      reason: 'pre-base-data-import',
+      maxFiles: Number(getFullConfig().backup_max_archivos || 14),
+    });
+    const imported = importBaseDataPackage(db, payload);
+    const actor = actorFromRequest(req);
+    logAudit(db, {
+      modulo: 'configuracion',
+      accion: 'base_data_import',
+      entidad: 'base_data',
+      entidad_id: imported.imported_at,
+      actor_id: actor.actor_id,
+      actor_nombre: actor.actor_nombre,
+      detalle: {
+        source: payload.source || '',
+        exported_at: payload.exported_at || '',
+        results: imported.results,
+      },
+    });
+
+    return res.json({
+      ...imported,
+      safety_backup: safetyBackup,
     });
   }
 );

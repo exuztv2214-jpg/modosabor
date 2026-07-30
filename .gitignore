@@ -30,6 +30,8 @@ client/build.log
 client/client-live.log
 client/vite.log
 deploy/catalog-export.json
+deploy/base-data-export.json
+deploy/railway-cookies.txt
 deploy/railway-vars.bat
 server/scripts/reset-admin-password.*
 test-tracking-result.json
