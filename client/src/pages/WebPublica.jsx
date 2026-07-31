@@ -641,8 +641,19 @@ export default function WebPublica() {
       Object.values(sel || {}).reduce((acc, o) => acc + Number(o?.precio_extra || 0), 0) +
       (extrasSel || []).reduce((acc, e) => acc + Number(e.precio || 0), 0);
     const notaLimpia = String(notas || '').trim();
+    const extrasKey = JSON.stringify(
+      (extrasSel || [])
+        .map((extra) => ({
+          nombre: String(extra?.nombre || '')
+            .trim()
+            .toLowerCase(),
+          precio: Number(extra?.precio || 0),
+        }))
+        .sort((a, b) => `${a.nombre}:${a.precio}`.localeCompare(`${b.nombre}:${b.precio}`))
+    );
+    const lineKey = `${varKey}::${extrasKey}::${notaLimpia.toLowerCase() || 'sin-nota'}`;
 
-    const existing = carrito.find((i) => i.producto_id === producto.id && i.varKey === varKey);
+    const existing = carrito.find((i) => i.producto_id === producto.id && i.varKey === lineKey);
     if (existing) {
       setCarrito((prev) =>
         prev.map((i) => (i.id === existing.id ? { ...i, cantidad: i.cantidad + 1 } : i))
@@ -656,7 +667,7 @@ export default function WebPublica() {
           nombre: producto.nombre,
           precio_unitario: Number(producto.precio) + precioExtra,
           cantidad: 1,
-          varKey,
+          varKey: lineKey,
           variantes: sel || {},
           extras: extrasSel || [],
           notas: notaLimpia,

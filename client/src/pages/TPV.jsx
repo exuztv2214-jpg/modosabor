@@ -1002,7 +1002,9 @@ export default function TPV() {
 
   const addToCart = (producto, variantes, extras, variantGroups = [], options = {}) => {
     playBeep();
-    const cartKey = `${buildCartKey(variantes, extras)}::${options.cartKeySuffix || 'normal'}`;
+    const notas = String(options.notas || '').trim();
+    const noteKey = notas ? `nota:${notas.toLowerCase()}` : 'sin-nota';
+    const cartKey = `${buildCartKey(variantes, extras)}::${noteKey}::${options.cartKeySuffix || 'normal'}`;
     const precioExtra =
       Object.values(variantes).reduce((sum, option) => sum + Number(option?.precio_extra || 0), 0) +
       extras.reduce((sum, extra) => sum + Number(extra.precio || 0), 0);
@@ -1027,7 +1029,6 @@ export default function TPV() {
       const descripcionVariantes = buildVariantDescription(variantes, variantGroups);
       const descripcionExtras = extras.map((extra) => extra.nombre).join(', ');
       const descripcionReward = options.rewardTag ? `Premio: ${options.rewardTag}` : '';
-      const notas = String(options.notas || '').trim();
       const descripcionNotas = notas ? `Nota: ${notas}` : '';
       const newId = `${producto.id}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
       setItems((previous) => [
