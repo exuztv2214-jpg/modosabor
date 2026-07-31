@@ -186,6 +186,7 @@ function buildAllowedOrigins() {
 // lista configurada.
 const LOCAL_DEV_ORIGIN_RE =
   /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0|(10|172|192)\.\d+\.\d+\.\d+)(:\d+)?$/i;
+const NATIVE_APP_ORIGINS = new Set(['capacitor://localhost', 'ionic://localhost']);
 
 function isLocalDevOrigin(origin) {
   return LOCAL_DEV_ORIGIN_RE.test(String(origin || ''));
@@ -196,6 +197,7 @@ function createOriginValidator(allowedOrigins, { allowLocalDev }) {
     // Sin header Origin (curl, health checks, same-origin) -> permitir.
     if (!origin) return callback(null, true);
     if (allowedOrigins.includes(origin)) return callback(null, true);
+    if (NATIVE_APP_ORIGINS.has(origin)) return callback(null, true);
     if (allowLocalDev && isLocalDevOrigin(origin)) return callback(null, true);
     return callback(new Error(`Origen no permitido por CORS: ${origin}`));
   };

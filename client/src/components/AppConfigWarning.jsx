@@ -1,11 +1,15 @@
 import { AlertTriangle, RefreshCw } from 'lucide-react';
+import { useLocation } from 'react-router-dom';
 
 import { useAppConfig } from '../context/AppConfigContext.jsx';
+import { isNativeRiderApp } from '../lib/nativeRiderGps.js';
 
 export default function AppConfigWarning() {
   const { loading, configError, refreshConfig } = useAppConfig();
+  const location = useLocation();
+  const isRiderRoute = location.pathname.startsWith('/rider');
 
-  if (loading || !configError) return null;
+  if (loading || !configError || isNativeRiderApp() || isRiderRoute) return null;
 
   return (
     <div className="sticky top-0 z-[200] border-b border-amber-200 bg-warning-50/95 px-4 py-3 backdrop-blur">
