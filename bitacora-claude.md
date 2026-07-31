@@ -650,3 +650,72 @@ Estado DonWeb al intentar backup remoto:
 - `149.50.133.118:5942` no respondio por SSH.
 - `https://modosabor.com.ar/api/health` no respondio dentro del timeout.
 - Queda pendiente correr `deploy\backup-donweb.ps1` cuando DonWeb vuelva a responder para bajar una copia exacta del VPS con DB, uploads, backups internos, nginx, PM2 y `.env`.
+
+### Railway nuevo, sincronizacion segura y diagnostico rider (30/07)
+
+Motivo: se creo una cuenta nueva de GitHub/Railway para probar hosting barato y dejar el sistema levantado fuera de DonWeb.
+
+Hecho en GitHub/Railway:
+
+- Repo nuevo usado: `exuztv-modosabor/modosabor`.
+- Railway CLI quedó logueado en la cuenta nueva y enlazado al proyecto `celebrated-smile`.
+- Servicio Railway usado: `modosabor-api`.
+- URL Railway: `https://modosabor-api-production.up.railway.app`.
+- Se corrigió el deploy en Railway:
+  - start command sin `cd` roto.
+  - arranque de base fresca con migraciones antes de indices dependientes.
+  - `playwright-core` movido a dependencias runtime del server.
+  - variables de volumen ajustadas a `/opt/render/project/src/server/data`.
+- Commits subidos:
+  - `Prepare Modo Sabor for Railway deployment`
+  - `Fix Railway start command`
+  - `Fix Railway fresh database startup`
+  - `Install server runtime browser dependency`
+  - `Add safe Railway base data import`
+  - `Deactivate stale products on base data import`
+
+Sincronizacion de datos:
+
+- No se subio la base completa para no arrastrar pedidos, caja, clientes ni datos operativos viejos.
+- Se agrego importador seguro de datos base:
+  - categorias
+  - productos
+  - inventario_insumos
+  - inventario_recetas
+  - personal
+  - repartidores
+  - configuracion no sensible
+- Export local generado con:
+  - 9 categorias
+  - 71 productos
+  - 7 insumos
+  - 140 recetas
+  - 4 empleados
+  - 3 repartidores
+  - 116 configuraciones seguras
+- Railway importo esos datos y creo backup automatico antes de tocar la base.
+- Se desactivaron 2 productos viejos que existian solo en Railway. No se borraron para no romper referencias historicas.
+- Validacion final:
+  - Railway health OK.
+  - 9 categorias OK.
+  - 4 empleados OK.
+  - 3 repartidores OK.
+  - 66 productos activos, igual que local.
+
+Credenciales:
+
+- Admin remoto reseteado para `admin@modosabor.com`.
+- No dejar claves sensibles escritas en bitacora ni repo.
+
+Rider / Maps:
+
+- El rider mostro ruta hacia zona Bella Vista/Rio Colorado al abrir una direccion de Monteros.
+- Causa encontrada: el fallback de geocodificacion y la zona visual de delivery usaban `-26.975,-65.275`, que no corresponde al centro real de Monteros.
+- Correccion aplicada:
+  - bounds de Monteros corregidos a la zona real de la ciudad.
+  - si Nominatim devuelve coordenadas fuera de Monteros, ya no se guarda un fallback falso.
+  - la app rider y el tracking publico ignoran coordenadas de cliente fuera de Monteros y abren Maps con la direccion completa: calle + Monteros + Tucuman + Argentina.
+  - se corrigio la zona visual de delivery en los mapas embebidos.
+- Prueba tecnica:
+  - `-26.975,-65.275` ahora se considera fuera de zona.
+  - el link de ruta para `las piedras 736` se arma como direccion textual completa y no como coordenada falsa.

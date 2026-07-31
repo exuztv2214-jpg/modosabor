@@ -15,12 +15,53 @@ function includesToken(base, token) {
   return normalizeToken(base).includes(normalizedToken);
 }
 
+const DEFAULT_MONTEROS_BOUNDS = {
+  minLat: -27.23,
+  maxLat: -27.1,
+  minLng: -65.57,
+  maxLng: -65.42,
+};
+
 function resolveLocationConfig(config = {}) {
   return {
     localidad: cleanText(config.localidad || config.negocio_localidad || 'Monteros'),
     provincia: cleanText(config.provincia || config.negocio_provincia || 'Tucuman'),
     pais: cleanText(config.pais || 'Argentina'),
   };
+}
+
+function resolveServiceBounds(config = {}) {
+  return {
+    minLat: Number(
+      config.monteros_min_lat ?? config.delivery_min_lat ?? DEFAULT_MONTEROS_BOUNDS.minLat
+    ),
+    maxLat: Number(
+      config.monteros_max_lat ?? config.delivery_max_lat ?? DEFAULT_MONTEROS_BOUNDS.maxLat
+    ),
+    minLng: Number(
+      config.monteros_min_lng ?? config.delivery_min_lng ?? DEFAULT_MONTEROS_BOUNDS.minLng
+    ),
+    maxLng: Number(
+      config.monteros_max_lng ?? config.delivery_max_lng ?? DEFAULT_MONTEROS_BOUNDS.maxLng
+    ),
+  };
+}
+
+export function isInsideServiceArea(latitud, longitud, config = {}) {
+  if (!hasCoordinates(latitud, longitud)) return false;
+  const lat = Number(latitud);
+  const lng = Number(longitud);
+  const bounds = resolveServiceBounds(config);
+  return (
+    Number.isFinite(bounds.minLat) &&
+    Number.isFinite(bounds.maxLat) &&
+    Number.isFinite(bounds.minLng) &&
+    Number.isFinite(bounds.maxLng) &&
+    lat >= bounds.minLat &&
+    lat <= bounds.maxLat &&
+    lng >= bounds.minLng &&
+    lng <= bounds.maxLng
+  );
 }
 
 export function buildAddressForMaps(address, config = {}) {
@@ -59,14 +100,14 @@ export function hasCoordinates(latitud, longitud) {
 }
 
 export function buildMapsDestination({ latitud, longitud, direccion }, config = {}) {
-  if (hasCoordinates(latitud, longitud)) {
+  if (hasCoordinates(latitud, longitud) && isInsideServiceArea(latitud, longitud, config)) {
     return `${Number(latitud)},${Number(longitud)}`;
   }
   return buildAddressForMaps(direccion, config);
 }
 
 function buildNavigationDestination({ latitud, longitud, direccion }, config = {}) {
-  if (hasCoordinates(latitud, longitud)) {
+  if (hasCoordinates(latitud, longitud) && isInsideServiceArea(latitud, longitud, config)) {
     return `${Number(latitud)},${Number(longitud)}`;
   }
   const addressDestination = buildAddressForMaps(direccion, config);

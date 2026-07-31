@@ -1,7 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { MapPin, Phone, Clock, AlertTriangle, Bike, Route } from 'lucide-react';
 
-import { buildGoogleMapsDirectionsUrl, buildGoogleMapsSearchUrl } from '../lib/maps.js';
+import {
+  buildGoogleMapsDirectionsUrl,
+  buildGoogleMapsSearchUrl,
+  isInsideServiceArea,
+} from '../lib/maps.js';
 
 // ── Leaflet dinámico ──
 function loadLeafletCSS() {
@@ -137,13 +141,19 @@ export default function LiveTrackingMap({
   const [distance, setDistance] = useState(null);
   const [isArriving, setIsArriving] = useState(false);
   const prevRiderRef = useRef({ lat: null, lng: null });
+  const hasClientCoordinates =
+    Number.isFinite(Number(clientLat)) &&
+    Number.isFinite(Number(clientLng)) &&
+    isInsideServiceArea(clientLat, clientLng, mapConfig);
+  const effectiveClientLat = hasClientCoordinates ? Number(clientLat) : null;
+  const effectiveClientLng = hasClientCoordinates ? Number(clientLng) : null;
 
   // ETA dinámico basado en velocidad real del rider
   const { etaMinutes: dynamicEta, speedKmh } = useDynamicEta(
     riderLat,
     riderLng,
-    clientLat,
-    clientLng,
+    effectiveClientLat,
+    effectiveClientLng,
     externalEtaMinutes
   );
 
@@ -191,7 +201,9 @@ export default function LiveTrackingMap({
 
     const L = window.L;
     const center =
-      clientLat && clientLng ? [clientLat, clientLng] : [riderLat || -26.95, riderLng || -65.3];
+      effectiveClientLat && effectiveClientLng
+        ? [effectiveClientLat, effectiveClientLng]
+        : [riderLat || -27.16471, riderLng || -65.496712];
 
     const map = L.map(mapRef.current, {
       zoomControl: true,
@@ -206,7 +218,7 @@ export default function LiveTrackingMap({
     mapInstanceRef.current = map;
 
     // Zona de delivery (Monteros)
-    const zoneCenter = [-26.975, -65.275];
+    const zoneCenter = [-27.16471, -65.496712];
     const deliveryZone = L.circle(zoneCenter, {
       color: '#93C5FD',
       fillColor: '#93C5FD',
@@ -234,8 +246,8 @@ export default function LiveTrackingMap({
       iconAnchor: [24, 24],
     });
 
-    if (clientLat && clientLng) {
-      clientMarkerRef.current = L.marker([clientLat, clientLng], {
+    if (effectiveClientLat && effectiveClientLng) {
+      clientMarkerRef.current = L.marker([effectiveClientLat, effectiveClientLng], {
         icon: clientIcon,
       })
         .addTo(map)
@@ -250,11 +262,11 @@ export default function LiveTrackingMap({
         .bindPopup(riderName || 'Repartidor');
     }
 
-    if (riderLat && riderLng && clientLat && clientLng) {
+    if (riderLat && riderLng && effectiveClientLat && effectiveClientLng) {
       const routeLine = L.polyline(
         [
           [riderLat, riderLng],
-          [clientLat, clientLng],
+          [effectiveClientLat, effectiveClientLng],
         ],
         {
           color: '#2563eb',
@@ -265,11 +277,11 @@ export default function LiveTrackingMap({
       ).addTo(map);
       routeLineRef.current = routeLine;
 
-      const bounds = L.latLngBounds([riderLat, riderLng], [clientLat, clientLng]);
+      const bounds = L.latLngBounds([riderLat, riderLng], [effectiveClientLat, effectiveClientLng]);
       map.fitBounds(bounds, { padding: [80, 80] });
 
       // Calcular distancia inicial
-      const dist = calculateDistance(riderLat, riderLng, clientLat, clientLng);
+      const dist = calculateDistance(riderLat, riderLng, effectiveClientLat, effectiveClientLng);
       setDistance(Math.round(dist));
       setIsArriving(dist < 150);
     }
@@ -282,7 +294,7 @@ export default function LiveTrackingMap({
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mapLoaded, clientLat, clientLng, clientAddress, riderName]);
+  }, [mapLoaded, effectiveClientLat, effectiveClientLng, clientAddress, riderName]);
 
   // Actualizar posición del repartidor + distancia
   useEffect(() => {
@@ -297,20 +309,20 @@ export default function LiveTrackingMap({
       riderMarkerRef.current.setLatLng(newLatLng);
       mapInstanceRef.current.panTo(newLatLng, { animate: true, duration: 1 });
 
-      if (routeLineRef.current && clientLat && clientLng) {
-        routeLineRef.current.setLatLngs([newLatLng, [clientLat, clientLng]]);
+      if (routeLineRef.current && effectiveClientLat && effectiveClientLng) {
+        routeLineRef.current.setLatLngs([newLatLng, [effectiveClientLat, effectiveClientLng]]);
       }
 
       prevRiderRef.current = { lat: riderLat, lng: riderLng };
 
       // Recalcular distancia
-      if (clientLat && clientLng) {
-        const dist = calculateDistance(riderLat, riderLng, clientLat, clientLng);
+      if (effectiveClientLat && effectiveClientLng) {
+        const dist = calculateDistance(riderLat, riderLng, effectiveClientLat, effectiveClientLng);
         setDistance(Math.round(dist));
         setIsArriving(dist < 150);
       }
     }
-  }, [riderLat, riderLng, clientLat, clientLng]);
+  }, [riderLat, riderLng, effectiveClientLat, effectiveClientLng]);
 
   if (loadError) {
     return (

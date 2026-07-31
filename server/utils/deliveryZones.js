@@ -11,13 +11,14 @@ function toNumber(value, fallback = 0) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-// Bounding box de Monteros, Tucumán
-// Coordenadas aproximadas que cubren toda la ciudad
+// Bounding box de Monteros, Tucuman.
+// La zona anterior apuntaba cerca de Bella Vista/Rio Colorado y hacia que Maps
+// enviara al rider fuera de Monteros cuando una direccion no tenia GPS exacto.
 const MONTEROS_BOUNDS = {
-  minLat: -27.05,
-  maxLat: -26.9,
-  minLng: -65.35,
-  maxLng: -65.2,
+  minLat: -27.23,
+  maxLat: -27.1,
+  minLng: -65.57,
+  maxLng: -65.42,
 };
 
 function isInsideMonteros(latitud, longitud) {

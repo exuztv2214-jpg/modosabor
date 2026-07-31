@@ -12,9 +12,6 @@ const { isInsideMonteros } = require('./deliveryZones');
 const NOMINATIM_HOST = 'nominatim.openstreetmap.org';
 const NOMINATIM_TIMEOUT = 8000;
 
-// Centro aproximado de Monteros para fallback cuando Nominatim devuelve otra ciudad
-const MONTEROS_CENTER = { lat: -26.975, lng: -65.275 };
-
 // ── CACHE EN MEMORIA ──
 // Evita llamadas repetidas a Nominatim para la misma dirección
 const geocodeCache = new Map();
@@ -135,19 +132,18 @@ async function geocodeAddress(address, options = {}) {
     }
 
     // ── VALIDACIÓN CRÍTICA: forzar Monteros ──
-    // Si Nominatim devuelve otra ciudad (ej: Concepción), corregimos al centro de Monteros
-    // y logueamos el error para debugging. NUNCA aceptamos coordenadas fuera de Monteros.
+    // Si Nominatim devuelve otra ciudad, no guardamos coordenadas falsas.
+    // El pedido queda con direccion textual y la app rider abre Maps con
+    // "direccion, Monteros, Tucuman, Argentina".
     const insideMonteros = isInsideMonteros(lat, lng);
     if (!insideMonteros) {
       logger.warn(
         `[geocode] Nominatim devolvió coords fuera de Monteros para "${cleanAddress}":`,
         lat,
         lng,
-        '- forzando a centro de Monteros'
+        '- se ignoran coordenadas'
       );
-      // Usamos el centro de Monteros como fallback (el rider ajustará con GPS)
-      lat = MONTEROS_CENTER.lat;
-      lng = MONTEROS_CENTER.lng;
+      return null;
     }
 
     const geoResult = {

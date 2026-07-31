@@ -1,7 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { Navigation, AlertTriangle, MapPin } from 'lucide-react';
 
-import { buildAddressForMaps, buildGoogleMapsDirectionsUrl, buildWazeUrl } from '../lib/maps.js';
+import {
+  buildAddressForMaps,
+  buildGoogleMapsDirectionsUrl,
+  buildWazeUrl,
+  isInsideServiceArea,
+} from '../lib/maps.js';
 
 function loadLeafletCSS() {
   if (document.getElementById('leaflet-css-rider')) return Promise.resolve();
@@ -74,7 +79,11 @@ export default function RiderRouteMap({
   const prevRiderRef = useRef({ lat: null, lng: null });
   const arrivingNotifiedRef = useRef(false);
   const hasClientCoordinates =
-    Number.isFinite(Number(clientLat)) && Number.isFinite(Number(clientLng));
+    Number.isFinite(Number(clientLat)) &&
+    Number.isFinite(Number(clientLng)) &&
+    isInsideServiceArea(clientLat, clientLng, mapConfig);
+  const effectiveClientLat = hasClientCoordinates ? Number(clientLat) : null;
+  const effectiveClientLng = hasClientCoordinates ? Number(clientLng) : null;
   const safeAddress = buildAddressForMaps(clientAddress, mapConfig);
   const googleUrl = buildGoogleMapsDirectionsUrl(
     {
@@ -134,7 +143,9 @@ export default function RiderRouteMap({
 
     const L = window.L;
     const center =
-      riderLat && riderLng ? [riderLat, riderLng] : [clientLat || -26.95, clientLng || -65.3];
+      riderLat && riderLng
+        ? [riderLat, riderLng]
+        : [effectiveClientLat || -27.16471, effectiveClientLng || -65.496712];
 
     const map = L.map(mapRef.current, {
       zoomControl: true,
@@ -149,8 +160,8 @@ export default function RiderRouteMap({
     mapInstanceRef.current = map;
 
     // ── Zona de delivery (Monteros) ──
-    const zoneCenter = [-26.975, -65.275]; // Centro del bounding box
-    // Radio ~8.3km para cubrir el área de Monteros (bounds: -27.05 a -26.90, -65.35 a -65.20)
+    const zoneCenter = [-27.16471, -65.496712]; // Monteros, Tucuman
+    // Radio amplio para cubrir la ciudad y barrios cercanos de reparto.
     const deliveryZone = L.circle(zoneCenter, {
       color: '#93C5FD',
       fillColor: '#93C5FD',
@@ -176,8 +187,8 @@ export default function RiderRouteMap({
       iconAnchor: [24, 24],
     });
 
-    if (clientLat && clientLng) {
-      const clientMarker = L.marker([clientLat, clientLng], { icon: clientIcon })
+    if (effectiveClientLat && effectiveClientLng) {
+      const clientMarker = L.marker([effectiveClientLat, effectiveClientLng], { icon: clientIcon })
         .addTo(map)
         .bindPopup(clientAddress || 'Destino');
       clientMarkerRef.current = clientMarker;
@@ -190,9 +201,9 @@ export default function RiderRouteMap({
       riderMarkerRef.current = riderMarker;
     }
 
-    if (riderLat && riderLng && clientLat && clientLng) {
+    if (riderLat && riderLng && effectiveClientLat && effectiveClientLng) {
       // Intentar ruta real por OSRM, fallback a línea recta
-      fetchRoute(riderLat, riderLng, clientLat, clientLng)
+      fetchRoute(riderLat, riderLng, effectiveClientLat, effectiveClientLng)
         .then((coords) => {
           cachedRouteRef.current = coords;
           const routeLine = L.polyline(coords, {
@@ -208,12 +219,19 @@ export default function RiderRouteMap({
         })
         .catch(() => {
           // Fallback: línea recta
-          const routeLine = drawStraightLine(L, riderLat, riderLng, clientLat, clientLng).addTo(
-            map
-          );
+          const routeLine = drawStraightLine(
+            L,
+            riderLat,
+            riderLng,
+            effectiveClientLat,
+            effectiveClientLng
+          ).addTo(map);
           routeLineRef.current = routeLine;
 
-          const bounds = L.latLngBounds([riderLat, riderLng], [clientLat, clientLng]);
+          const bounds = L.latLngBounds(
+            [riderLat, riderLng],
+            [effectiveClientLat, effectiveClientLng]
+          );
           map.fitBounds(bounds, { padding: [80, 80] });
         });
     }
@@ -225,7 +243,7 @@ export default function RiderRouteMap({
         deliveryZoneRef.current = null;
       }
     };
-  }, [mapLoaded, clientLat, clientLng, clientAddress]);
+  }, [mapLoaded, effectiveClientLat, effectiveClientLng, clientAddress]);
 
   useEffect(() => {
     if (!mapInstanceRef.current || !riderMarkerRef.current) return;
@@ -240,8 +258,8 @@ export default function RiderRouteMap({
       prevRiderRef.current = { lat: riderLat, lng: riderLng };
 
       // Calcular distancia y verificar si está llegando
-      if (clientLat && clientLng) {
-        const dist = calculateDistance(riderLat, riderLng, clientLat, clientLng);
+      if (effectiveClientLat && effectiveClientLng) {
+        const dist = calculateDistance(riderLat, riderLng, effectiveClientLat, effectiveClientLng);
         setDistance(Math.round(dist));
         const arriving = dist < 150;
         setIsArriving(arriving);
@@ -283,7 +301,7 @@ export default function RiderRouteMap({
           if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
           debounceTimerRef.current = setTimeout(() => {
             if (!mapInstanceRef.current) return;
-            fetchRoute(riderLat, riderLng, clientLat, clientLng)
+            fetchRoute(riderLat, riderLng, effectiveClientLat, effectiveClientLng)
               .then((coords) => {
                 cachedRouteRef.current = coords;
                 if (routeLineRef.current) {
@@ -301,23 +319,26 @@ export default function RiderRouteMap({
               .catch(() => {
                 // Fallback a línea recta
                 if (routeLineRef.current) {
-                  routeLineRef.current.setLatLngs([newLatLng, [clientLat, clientLng]]);
+                  routeLineRef.current.setLatLngs([
+                    newLatLng,
+                    [effectiveClientLat, effectiveClientLng],
+                  ]);
                 }
               });
           }, 2000);
-        } else if (routeLineRef.current && clientLat && clientLng) {
+        } else if (routeLineRef.current && effectiveClientLat && effectiveClientLng) {
           // Movimiento menor: actualizar solo la primera coordenada de la ruta cacheada
           const cached = cachedRouteRef.current;
           if (cached && cached.length > 0) {
             cached[0] = newLatLng;
             routeLineRef.current.setLatLngs(cached);
           } else {
-            routeLineRef.current.setLatLngs([newLatLng, [clientLat, clientLng]]);
+            routeLineRef.current.setLatLngs([newLatLng, [effectiveClientLat, effectiveClientLng]]);
           }
         }
       }
     }
-  }, [riderLat, riderLng, clientLat, clientLng]);
+  }, [riderLat, riderLng, effectiveClientLat, effectiveClientLng]);
 
   if (!hasClientCoordinates && clientAddress) {
     return (
