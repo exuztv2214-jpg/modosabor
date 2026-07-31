@@ -41,6 +41,7 @@ function runSeed(db) {
     ['rider_app_color_secundario', '#49BEFF'],
     ['rider_app_bienvenida', '¡Hola! Revisa tus pedidos asignados para hoy.'],
     ['rider_app_logo', ''],
+    ['rider_app_mostrar_logo', '1'],
     ['impresion_mostrar_logo', '1'],
     ['impresion_mostrar_nombre_negocio', '1'],
     ['impresion_mostrar_direccion', '1'],

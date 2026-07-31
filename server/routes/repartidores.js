@@ -327,7 +327,26 @@ router.get('/:id/rider/:codigo', (req, res) => {
 
   const configRows = db
     .prepare(
-      "SELECT clave, valor FROM configuracion WHERE clave LIKE 'rider_app_%' OR clave IN ('delivery_requiere_foto_entrega', 'delivery_validacion_activa')"
+      `SELECT clave, valor
+       FROM configuracion
+       WHERE clave LIKE 'rider_app_%'
+          OR clave IN (
+            'delivery_requiere_foto_entrega',
+            'delivery_validacion_activa',
+            'negocio_nombre',
+            'negocio_logo',
+            'negocio_telefono',
+            'negocio_localidad',
+            'negocio_provincia',
+            'monteros_min_lat',
+            'monteros_max_lat',
+            'monteros_min_lng',
+            'monteros_max_lng',
+            'delivery_min_lat',
+            'delivery_max_lat',
+            'delivery_min_lng',
+            'delivery_max_lng'
+          )`
     )
     .all();
   const settings = Object.fromEntries(configRows.map((r) => [r.clave, r.valor]));

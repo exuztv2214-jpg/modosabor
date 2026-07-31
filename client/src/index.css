@@ -310,3 +310,21 @@
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+
+/* Rider siempre usa una interfaz clara, incluso si el sistema operativo está en modo oscuro. */
+.rider-shell {
+  color-scheme: light;
+  background: #f7f9fc;
+}
+
+.rider-primary-button {
+  background: var(--rider-primary, #5d87ff);
+}
+
+.rider-primary-button:hover {
+  filter: brightness(0.96);
+}
+
+.rider-primary-button:active {
+  filter: brightness(0.9);
+}

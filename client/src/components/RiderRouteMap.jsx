@@ -4,7 +4,6 @@ import { Navigation, AlertTriangle, MapPin } from 'lucide-react';
 import {
   buildAddressForMaps,
   buildGoogleMapsDirectionsUrl,
-  buildWazeUrl,
   isInsideServiceArea,
 } from '../lib/maps.js';
 
@@ -93,15 +92,6 @@ export default function RiderRouteMap({
     },
     mapConfig
   );
-  const wazeUrl = buildWazeUrl(
-    {
-      latitud: clientLat,
-      longitud: clientLng,
-      direccion: clientAddress,
-    },
-    mapConfig
-  );
-
   // Cache de ruta + debounce
   const cachedRouteRef = useRef(null);
   const debounceTimerRef = useRef(null);
@@ -342,38 +332,23 @@ export default function RiderRouteMap({
 
   if (!hasClientCoordinates && clientAddress) {
     return (
-      <div className="flex h-full flex-col justify-between rounded-2xl border border-gray-200 bg-white p-5">
-        <div>
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600">
-            <MapPin size={22} />
+      <div className="flex h-full flex-col justify-center rounded-2xl bg-white p-5 sm:p-6">
+        <div className="flex items-start gap-4">
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600">
+            <MapPin size={22} strokeWidth={2.4} />
           </div>
-          <p className="mt-4 text-[10px] font-black uppercase tracking-[0.18em] text-gray-400">
-            Destino sin GPS exacto
-          </p>
-          <p className="mt-2 text-base font-black leading-snug text-gray-900">{safeAddress}</p>
-          <p className="mt-2 text-xs font-semibold leading-5 text-gray-500">
-            Abrí la ruta con la dirección completa de Monteros. Al llegar, confirmá la ubicación si
-            el cliente comparte GPS.
-          </p>
-        </div>
-        <div className="mt-4 grid grid-cols-2 gap-2">
-          <a
-            href={googleUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-primary-500 px-3 text-[11px] font-black uppercase tracking-wider text-white"
-          >
-            <Navigation size={15} />
-            Maps
-          </a>
-          <a
-            href={wazeUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-gray-200 bg-white px-3 text-[11px] font-black uppercase tracking-wider text-gray-700"
-          >
-            Waze
-          </a>
+          <div className="min-w-0">
+            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-700">
+              Navegación por dirección
+            </p>
+            <p className="mt-2 break-words text-lg font-black leading-snug text-gray-900">
+              {safeAddress}
+            </p>
+            <p className="mt-3 text-xs font-semibold leading-5 text-gray-500">
+              El cliente no compartió un punto GPS exacto. Maps abrirá la dirección completa en
+              Monteros.
+            </p>
+          </div>
         </div>
       </div>
     );

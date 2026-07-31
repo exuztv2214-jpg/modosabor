@@ -33,8 +33,13 @@ import { es } from 'date-fns/locale';
 
 import { paymentMethodLabel, paymentStatusLabel, paymentStatusTone } from '../lib/paymentStatus.js';
 import { normalizePedidoItems } from '../lib/pedidoItems.js';
-import { buildGoogleMapsDirectionsUrl, buildGoogleMapsEmbedUrl } from '../lib/maps.js';
+import {
+  buildGoogleMapsDirectionsUrl,
+  buildGoogleMapsEmbedUrl,
+  buildWazeUrl,
+} from '../lib/maps.js';
 import { filterRiderGpsPosition } from '../lib/riderGps.js';
+import { resolveAssetUrl } from '../lib/assets.js';
 import {
   isNativeRiderApp,
   openNativeLocationSettings,
@@ -951,23 +956,31 @@ export default function RiderPanel() {
   // RENDER: app principal
   // ─────────────────────────────────────────────────────────────────
   const primaryColor = data?.settings?.rider_app_color_primario || '#5D87FF';
+  const secondaryColor = data?.settings?.rider_app_color_secundario || '#49BEFF';
   const appName = data?.settings?.rider_app_nombre || 'Modo Sabor Delivery';
-  const telefonoLocal = data?.settings?.telefono || data?.settings?.telefono_local || '';
+  const telefonoLocal = data?.settings?.negocio_telefono || '';
+  const showRiderLogo = String(data?.settings?.rider_app_mostrar_logo ?? '1') === '1';
+  const riderLogoUrl = resolveAssetUrl(
+    data?.settings?.rider_app_logo || data?.settings?.negocio_logo || ''
+  );
   const inTransitOrder = data?.pedidos?.find((p) => p.estado === 'en_camino');
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col font-sans overflow-x-hidden">
+    <div
+      className="rider-shell min-h-screen bg-gray-50 flex flex-col font-sans overflow-x-hidden"
+      style={{ '--rider-primary': primaryColor, '--rider-secondary': secondaryColor }}
+    >
       {/* ── Header ──────────────────────────────────────────────── */}
       <header
         className="sticky top-0 z-20 px-5 py-4 flex items-center justify-between border-b border-gray-100 bg-white shadow-sm"
         style={{ borderTop: `4px solid ${primaryColor}` }}
       >
         <div className="flex items-center gap-3">
-          {data?.settings?.rider_app_logo ? (
+          {showRiderLogo && riderLogoUrl ? (
             <img
-              src={data.settings.rider_app_logo}
-              alt=""
-              className="h-9 w-9 object-contain rounded-xl"
+              src={riderLogoUrl}
+              alt={appName}
+              className="h-10 w-10 rounded-xl bg-white object-contain p-0.5"
             />
           ) : (
             <div className="h-10 w-10 rounded-xl bg-primary-50 flex items-center justify-center text-primary-600">
@@ -1018,7 +1031,7 @@ export default function RiderPanel() {
       </header>
 
       {/* ── Main ────────────────────────────────────────────────── */}
-      <main className="flex-1 flex flex-col p-4 md:p-6 space-y-5">
+      <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col space-y-5 p-4 md:p-6">
         {loading && !data && (
           <div className="flex flex-col items-center justify-center py-20 opacity-40 animate-pulse">
             <RefreshCw className="animate-spin mb-4" size={32} />
@@ -1418,19 +1431,22 @@ export default function RiderPanel() {
           </>
         ) : (
           /* ── Detalle de pedido ──────────────────────────────── */
-          <div className="flex flex-col flex-1 animate-in slide-in-from-right duration-300">
+          <div className="flex flex-1 flex-col animate-in slide-in-from-right duration-300">
             <button
               onClick={() => setSelectedPedido(null)}
-              className="mb-4 flex items-center gap-2 text-gray-400 hover:text-gray-900 font-bold text-sm uppercase tracking-widest"
+              className="mb-3 flex w-fit items-center gap-2 rounded-xl px-2 py-2 text-xs font-black uppercase tracking-wider text-gray-500 transition hover:bg-white hover:text-gray-900"
             >
               <X size={18} /> Volver
             </button>
 
-            <div className="flex-1 bg-white rounded-[40px] shadow-xl border border-gray-100 overflow-hidden flex flex-col">
+            <div className="flex flex-1 flex-col overflow-hidden rounded-[28px] border border-gray-100 bg-white shadow-lg shadow-gray-200/60">
               {/* Info cliente */}
-              <div className="p-7 border-b border-gray-50">
-                <div className="flex items-center justify-between mb-5">
-                  <div className="px-4 py-1.5 rounded-full bg-blue-600 text-white text-[10px] font-black uppercase tracking-widest">
+              <div className="border-b border-gray-100 p-5 sm:p-6">
+                <div className="mb-4 flex items-center justify-between gap-3">
+                  <div
+                    className="rounded-full px-4 py-1.5 text-[10px] font-black uppercase tracking-wider text-white"
+                    style={{ backgroundColor: primaryColor }}
+                  >
                     #{selectedPedido.numero}
                   </div>
                   <div className="flex items-center gap-3">
@@ -1449,16 +1465,16 @@ export default function RiderPanel() {
                   </div>
                 </div>
 
-                <h3 className="text-2xl font-black text-gray-900 uppercase tracking-tight">
+                <h3 className="break-words text-xl font-black uppercase leading-tight text-gray-900 sm:text-2xl">
                   {selectedPedido.cliente_nombre}
                 </h3>
-                <div className="mt-4 space-y-3">
+                <div className="mt-5 space-y-4">
                   {selectedPedido.hora_entrega ? (
                     <div className="flex items-start gap-3">
                       <div className="mt-1 h-8 w-8 rounded-xl bg-violet-50 flex items-center justify-center text-violet-600 shrink-0">
                         <Clock size={15} />
                       </div>
-                      <div>
+                      <div className="min-w-0">
                         <p className="text-xs font-black text-gray-400 uppercase tracking-widest">
                           Hora de entrega
                         </p>
@@ -1468,25 +1484,25 @@ export default function RiderPanel() {
                       </div>
                     </div>
                   ) : null}
-                  <div className="flex items-start gap-3">
+                  <div className="flex min-w-0 items-start gap-3">
                     <div className="mt-1 h-8 w-8 rounded-xl bg-gray-50 flex items-center justify-center text-gray-400 shrink-0">
                       <MapPin size={15} />
                     </div>
-                    <div>
+                    <div className="min-w-0">
                       <p className="text-xs font-black text-gray-400 uppercase tracking-widest">
                         Dirección
                       </p>
-                      <p className="text-sm font-bold text-gray-700 leading-tight">
+                      <p className="break-words text-sm font-bold leading-snug text-gray-700">
                         {selectedPedido.cliente_direccion}
                       </p>
                     </div>
                   </div>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-start gap-3">
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex min-w-0 items-start gap-3">
                       <div className="mt-1 h-8 w-8 rounded-xl bg-gray-50 flex items-center justify-center text-gray-400 shrink-0">
                         <Phone size={15} />
                       </div>
-                      <div>
+                      <div className="min-w-0">
                         <p className="text-xs font-black text-gray-400 uppercase tracking-widest">
                           Teléfono
                         </p>
@@ -1498,7 +1514,7 @@ export default function RiderPanel() {
                     {selectedPedido.cliente_telefono && (
                       <a
                         href={`tel:${selectedPedido.cliente_telefono}`}
-                        className="h-12 w-12 rounded-full bg-success-500 text-white flex items-center justify-center shadow-lg shadow-success-100 active:scale-90 transition-all"
+                        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-success-500 text-white shadow-md shadow-success-100 transition-all active:scale-90"
                       >
                         <Phone size={20} fill="currentColor" />
                       </a>
@@ -1508,9 +1524,9 @@ export default function RiderPanel() {
               </div>
 
               {/* Mapa interactivo */}
-              <div className="px-4 pb-2">
-                <div className="overflow-hidden rounded-[24px] border border-gray-100 shadow-sm">
-                  <div className="aspect-[16/9] bg-gray-100">
+              <div className="px-5 py-5 sm:px-6">
+                <div className="overflow-hidden rounded-[22px] border border-gray-200 bg-white shadow-sm">
+                  <div className="h-[230px] bg-gray-50 sm:h-[270px]">
                     {selectedPedido.cliente_direccion ? (
                       <RiderRouteMap
                         riderLat={selectedPedido.repartidor?.latitud}
@@ -1570,25 +1586,13 @@ export default function RiderPanel() {
                     </div>
                   )}
 
-                  <div className="flex flex-wrap gap-2 p-3">
+                  <div className="grid grid-cols-2 gap-2 border-t border-gray-100 bg-white p-3">
                     <button
                       onClick={() => openNav(selectedPedido)}
-                      className="inline-flex h-11 items-center gap-2 rounded-2xl bg-gray-900 px-5 text-[11px] font-black uppercase tracking-widest text-white"
+                      className="rider-primary-button inline-flex h-12 items-center justify-center gap-2 rounded-2xl px-3 text-xs font-black uppercase tracking-wide text-white shadow-sm"
                     >
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        width="15"
-                        height="15"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2.5"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      >
-                        <polygon points="3 11 22 2 13 21 11 13 3 11" />
-                      </svg>
-                      Navegar
+                      <Navigation size={16} />
+                      Maps
                     </button>
                     <button
                       onClick={() =>
@@ -1597,7 +1601,7 @@ export default function RiderPanel() {
                           .then(() => toast.success('Dirección copiada'))
                           .catch(() => toast.error('No se pudo copiar'))
                       }
-                      className="inline-flex h-11 items-center gap-2 rounded-2xl border border-gray-200 bg-white px-4 text-[11px] font-black uppercase tracking-widest text-gray-700"
+                      className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-gray-200 bg-white px-3 text-xs font-black uppercase tracking-wide text-gray-700"
                     >
                       <Copy size={14} /> Copiar
                     </button>
@@ -1606,53 +1610,70 @@ export default function RiderPanel() {
                         href={`https://wa.me/${String(selectedPedido.cliente_telefono).replace(/\D/g, '')}`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="inline-flex h-11 items-center gap-2 rounded-2xl border border-emerald-200 bg-success-50 px-4 text-[11px] font-black uppercase tracking-widest text-success-700"
+                        className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-emerald-200 bg-success-50 px-3 text-xs font-black uppercase tracking-wide text-success-700"
                       >
                         <Phone size={14} /> WhatsApp
                       </a>
                     )}
+                    <a
+                      href={buildWazeUrl(
+                        {
+                          latitud: selectedPedido.cliente_latitud,
+                          longitud: selectedPedido.cliente_longitud,
+                          direccion: selectedPedido.cliente_direccion,
+                        },
+                        mapConfig
+                      )}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-sky-200 bg-sky-50 px-3 text-xs font-black uppercase tracking-wide text-sky-700"
+                    >
+                      <Route size={15} /> Waze
+                    </a>
                   </div>
                 </div>
               </div>
 
               {/* Resumen */}
-              <div className="px-7 pb-4 bg-gray-50/50 flex-1">
-                <div className="flex items-center justify-between mb-3 mt-4">
+              <div className="mx-5 mb-5 flex-1 rounded-[22px] bg-gray-50 p-5 sm:mx-6">
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
                   <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
                     Resumen del pedido
                   </span>
                   <span
-                    className={`text-[10px] font-black px-2 py-1 rounded-lg ${paymentStatusTone(selectedPedido.pago_estado)}`}
+                    className={`rounded-lg px-2.5 py-1 text-[10px] font-black ${paymentStatusTone(selectedPedido.pago_estado)}`}
                   >
                     {paymentMethodLabel(selectedPedido.metodo_pago)} ·{' '}
                     {paymentStatusLabel(selectedPedido.pago_estado)}
                   </span>
                 </div>
-                <div className="space-y-2 mb-5">
+                <div className="mb-5 space-y-3">
                   {selectedItems.map((it, idx) => (
-                    <div key={idx} className="flex justify-between text-sm">
-                      <p className="font-bold text-gray-700">
+                    <div key={idx} className="flex justify-between gap-4 text-sm">
+                      <p className="min-w-0 break-words font-bold text-gray-700">
                         {it.cantidad}x {it.nombre}
                       </p>
-                      <p className="font-black text-gray-900">
+                      <p className="shrink-0 font-black text-gray-900">
                         {fmt(it.precio_unitario * it.cantidad)}
                       </p>
                     </div>
                   ))}
                 </div>
                 <div className="flex justify-between items-center pt-4 border-t border-gray-200">
-                  <p className="text-xs font-black text-gray-400 uppercase">Total a cobrar</p>
+                  <p className="text-[11px] font-black uppercase tracking-wide text-gray-400">
+                    Total a cobrar
+                  </p>
                   <p className="text-2xl font-black text-gray-900">{fmt(selectedPedido.total)}</p>
                 </div>
               </div>
 
               {/* Acciones */}
-              <div className="p-5 bg-white border-t border-gray-50 flex flex-col gap-3">
+              <div className="flex flex-col gap-3 border-t border-gray-100 bg-white p-5 sm:p-6">
                 {/* Comenzar reparto */}
                 {['confirmado', 'listo', 'preparando'].includes(selectedPedido.estado) && (
                   <button
                     onClick={() => updateEstado(selectedPedido.id, 'en_camino')}
-                    className="h-16 w-full rounded-2xl bg-blue-600 text-white flex items-center justify-center gap-3 text-base font-black uppercase tracking-widest shadow-xl shadow-primary-100 active:scale-95 transition-all"
+                    className="rider-primary-button flex h-14 w-full items-center justify-center gap-3 rounded-2xl text-sm font-black uppercase tracking-wide text-white shadow-lg transition-all active:scale-[0.98]"
                   >
                     <Truck size={22} /> Comenzar reparto
                   </button>
@@ -1669,13 +1690,13 @@ export default function RiderPanel() {
                 <div className="grid grid-cols-2 gap-3">
                   <button
                     onClick={() => updateEstado(selectedPedido.id, 'incidencia')}
-                    className="h-12 rounded-xl bg-warning-50 text-warning-600 flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest"
+                    className="flex h-12 items-center justify-center gap-2 rounded-2xl border border-amber-200 bg-warning-50 text-[11px] font-black uppercase tracking-wide text-warning-700"
                   >
                     <AlertCircle size={15} /> Incidencia
                   </button>
                   <button
                     onClick={() => updateEstado(selectedPedido.id, 'cancelado')}
-                    className="h-12 rounded-xl bg-danger-50 text-danger-600 flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest"
+                    className="flex h-12 items-center justify-center gap-2 rounded-2xl border border-rose-200 bg-danger-50 text-[11px] font-black uppercase tracking-wide text-danger-700"
                   >
                     <X size={15} /> Cancelar
                   </button>
@@ -1694,7 +1715,7 @@ export default function RiderPanel() {
           />
           {isOnline ? `Sincronizado ${nowTime}` : 'Sin conexión'}
         </div>
-        <p>Modo Sabor v2.0</p>
+        <p>{appName}</p>
       </footer>
 
       {/* ── NEW: PIN Modal ──────────────────────────────────────── */}

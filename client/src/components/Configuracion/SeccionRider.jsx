@@ -5,10 +5,14 @@ import toast from 'react-hot-toast';
 import api from '../../lib/api.js';
 import { buildPublicAppUrl } from '../../lib/publicUrls.js';
 
-import { SectionCard, InputField } from './ConfigComponents.jsx';
+import { resolveAssetUrl } from '../../lib/assets.js';
+
+import { SectionCard, InputField, ToggleSwitch } from './ConfigComponents.jsx';
 
 export default function SeccionRider({ config, f, setConfig }) {
   const riderBaseUrl = buildPublicAppUrl('/rider', config);
+  const riderLogoUrl = resolveAssetUrl(config.rider_app_logo || config.negocio_logo || '');
+  const showLogo = String(config.rider_app_mostrar_logo ?? '1') === '1';
   const handleLogoUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -159,19 +163,36 @@ export default function SeccionRider({ config, f, setConfig }) {
             icon={ImageIcon}
             tone="blue"
             title="Logo y marca"
-            subtitle="Imagen principal de la app"
+            subtitle="Identidad que verá el repartidor en el celular"
           >
-            <div className="flex flex-col items-center justify-center p-6 border-2 border-dashed border-gray-200 rounded-3xl bg-gray-50">
-              {config.rider_app_logo ? (
+            <div className="mb-5">
+              <ToggleSwitch
+                checked={showLogo}
+                onChange={(checked) =>
+                  setConfig((prev) => ({
+                    ...prev,
+                    rider_app_mostrar_logo: checked ? '1' : '0',
+                  }))
+                }
+                label="Mostrar logo en Rider"
+                description="Podés ocultarlo sin borrar la imagen cargada."
+                color="blue"
+              />
+            </div>
+
+            <div className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-gray-200 bg-gray-50 p-6">
+              {riderLogoUrl ? (
                 <div className="relative group">
                   <img
-                    src={config.rider_app_logo}
+                    src={riderLogoUrl}
                     alt="Rider App Logo"
-                    className="h-32 w-32 object-contain rounded-2xl bg-white p-2 shadow-sm"
+                    className="h-28 w-28 rounded-2xl bg-white object-contain p-2 shadow-sm"
                   />
                   <button
+                    type="button"
                     onClick={() => setConfig((p) => ({ ...p, rider_app_logo: '' }))}
-                    className="absolute -top-2 -right-2 bg-danger-500 text-white rounded-full p-1 shadow-lg opacity-0 group-hover:opacity-100 transition-opacity"
+                    className="absolute -right-2 -top-2 rounded-full bg-danger-500 p-1.5 text-white shadow-lg"
+                    title="Quitar logo personalizado"
                   >
                     <X size={14} />
                   </button>
@@ -192,8 +213,13 @@ export default function SeccionRider({ config, f, setConfig }) {
                 />
               </label>
               <p className="mt-3 text-[10px] font-black uppercase text-gray-400">
-                PNG o JPG recomendado (512x512)
+                PNG o JPG cuadrado · recomendado 512 × 512
               </p>
+              {!config.rider_app_logo && config.negocio_logo ? (
+                <p className="mt-2 text-center text-xs font-semibold text-gray-500">
+                  Se está usando el logo general del negocio.
+                </p>
+              ) : null}
             </div>
           </SectionCard>
 
@@ -208,12 +234,16 @@ export default function SeccionRider({ config, f, setConfig }) {
                 <div className="h-2 w-12 rounded-full bg-white/20"></div>
               </div>
               <div className="p-4 space-y-4">
-                <div className="h-10 w-full rounded-xl bg-gray-100 flex items-center justify-center">
-                  <img
-                    src={config.rider_app_logo}
-                    alt="Logo de la app de repartidores"
-                    className="h-6 object-contain opacity-50"
-                  />
+                <div className="flex h-10 w-full items-center justify-center rounded-xl bg-gray-100">
+                  {showLogo && riderLogoUrl ? (
+                    <img
+                      src={riderLogoUrl}
+                      alt="Logo de la app de repartidores"
+                      className="h-7 max-w-[80%] object-contain"
+                    />
+                  ) : (
+                    <Smartphone size={18} className="text-gray-400" />
+                  )}
                 </div>
                 <div className="space-y-2">
                   <div className="h-3 w-3/4 rounded-full bg-gray-200"></div>
