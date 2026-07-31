@@ -1,20 +1,38 @@
+import { useEffect, useState } from 'react';
 import { AlertTriangle, ArrowLeft, Maximize, Minimize2, ShoppingCart, X } from 'lucide-react';
 
 export default function TpvHeader({
   cajaAbierta,
   isBrowserFullscreen,
+  negocioLogo,
+  negocioNombre,
   onBack,
   onGoCaja,
   onToggleFullscreen,
 }) {
+  const [logoError, setLogoError] = useState(false);
+
+  useEffect(() => {
+    setLogoError(false);
+  }, [negocioLogo]);
+
   return (
     <>
       <header className="sticky top-0 z-30 border-b border-gray-100 bg-white px-6 py-4 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex min-w-0 items-center gap-4">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary-500 text-white shadow-lg shadow-primary-200">
-              <ShoppingCart size={20} />
-            </div>
+            {negocioLogo && !logoError ? (
+              <img
+                src={negocioLogo}
+                alt={negocioNombre || 'Logo de Modo Sabor'}
+                className="h-14 w-20 shrink-0 object-contain object-left"
+                onError={() => setLogoError(true)}
+              />
+            ) : (
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary-500 text-white shadow-lg shadow-primary-200">
+                <ShoppingCart size={21} />
+              </div>
+            )}
             <div className="min-w-0">
               <h1 className="text-xl font-black tracking-tight text-gray-900">Punto de Venta</h1>
               {!cajaAbierta ? (

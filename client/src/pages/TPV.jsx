@@ -3,6 +3,8 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 
 import api from '../lib/api.js';
+import { resolveAssetUrl } from '../lib/assets.js';
+import { DEFAULT_BRAND_LOGO } from '../lib/webPublicaHelpers.js';
 import {
   buildPedidoPayload,
   calculatePedidoSummary,
@@ -1511,6 +1513,8 @@ export default function TPV() {
         <TpvHeader
           cajaAbierta={cajaAbierta}
           isBrowserFullscreen={isBrowserFullscreen}
+          negocioLogo={resolveAssetUrl(config?.negocio_logo || DEFAULT_BRAND_LOGO)}
+          negocioNombre={config?.negocio_nombre || 'Modo Sabor'}
           onBack={volverAlPanel}
           onGoCaja={() => navigate('/admin/caja')}
           onToggleFullscreen={toggleBrowserFullscreen}
