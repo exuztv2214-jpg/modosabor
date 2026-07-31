@@ -453,7 +453,7 @@ export default function Operacion() {
           </div>
         </Section>
 
-        <div className="grid gap-6 xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.65fr)]">
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
           <Section
             title="Stock diario rápido"
             subtitle="Cargá acá lo que hay al empezar el día. Pizzas, hamburguesas y milanesas comparten estos insumos."
@@ -664,7 +664,7 @@ export default function Operacion() {
                           </button>
                         </div>
 
-                        <div className="grid gap-3 md:grid-cols-4">
+                        <div className="grid gap-3 grid-cols-2 xl:grid-cols-4">
                           <label className="rounded-[18px] bg-primary-50 p-3">
                             <span className="block text-[10px] font-black uppercase tracking-[0.18em] text-gray-400">
                               Precio
@@ -695,9 +695,10 @@ export default function Operacion() {
                               className="mt-2 h-10 w-full rounded-2xl border border-gray-200 bg-white px-3 text-sm font-black text-gray-900 outline-none focus:border-primary-500 focus:ring-4 focus:ring-blue-100"
                             />
                           </label>
-                          <label className="flex items-center gap-2 rounded-[18px] bg-primary-50 p-3 text-[11px] font-black uppercase tracking-widest text-gray-600">
+                          <label className="flex items-center gap-2 rounded-[18px] bg-primary-50 p-3 text-[10px] font-black uppercase tracking-wider text-gray-600">
                             <input
                               type="checkbox"
+                              className="h-4 w-4 shrink-0"
                               checked={Number(item.destacado_hoy) === 1}
                               onChange={(event) =>
                                 updateMenuDiaItem(
@@ -707,11 +708,12 @@ export default function Operacion() {
                                 )
                               }
                             />
-                            Destacado
+                            <span className="leading-tight">Destacado</span>
                           </label>
-                          <label className="flex items-center gap-2 rounded-[18px] bg-warning-50 p-3 text-[11px] font-black uppercase tracking-widest text-warning-700">
+                          <label className="flex items-center gap-2 rounded-[18px] bg-warning-50 p-3 text-[10px] font-black uppercase tracking-wider text-warning-700">
                             <input
                               type="checkbox"
+                              className="h-4 w-4 shrink-0"
                               checked={Number(item.promo_hoy) === 1}
                               onChange={(event) =>
                                 updateMenuDiaItem(
@@ -721,7 +723,7 @@ export default function Operacion() {
                                 )
                               }
                             />
-                            + Jugo y postre $1.000
+                            <span className="leading-tight">+ Jugo y postre $1.000</span>
                           </label>
                         </div>
 

@@ -18,6 +18,7 @@ const {
   isPagoPagado,
   getPedidoPaymentBreakdown,
 } = require('../utils/paymentStatus');
+const { centsToPesos } = require('../utils/moneyConversion');
 
 function safeJsonParse(value, fallback = {}) {
   try {
@@ -361,7 +362,7 @@ router.post('/cierre', auth, requirePermission('caja.manage'), (req, res) => {
 
   const caja = db.prepare('SELECT * FROM cierres_caja WHERE id = ?').get(activa.id);
   const { buildCajaCierreDocument } = require('../utils/printTemplates');
-  const document = buildCajaCierreDocument(db, caja, resumen);
+  const document = buildCajaCierreDocument(db, centsToPesos(caja), centsToPesos(resumen));
 
   res.json({ ...caja, resumen, html: document.html });
 });
@@ -372,7 +373,7 @@ router.get('/cierre/:id/ticket', auth, requirePermission('caja.view'), (req, res
 
   const resumen = safeJsonParse(cierre.resumen_json, {});
   const { buildCajaCierreDocument } = require('../utils/printTemplates');
-  const document = buildCajaCierreDocument(db, cierre, resumen);
+  const document = buildCajaCierreDocument(db, centsToPesos(cierre), centsToPesos(resumen));
 
   res.type('html').send(document.html);
 });

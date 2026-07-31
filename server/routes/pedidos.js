@@ -16,6 +16,7 @@ const { createRateLimiter } = require('../utils/rateLimit');
 const logger = require('../utils/logger');
 const { validateBody } = require('../middleware/validate');
 const { createPedidoSchema, updatePedidoSchema } = require('../schemas');
+const { centsToPesos } = require('../utils/moneyConversion');
 const {
   emitPedidoActualizado,
   emitDeliveryAssignment,
@@ -240,7 +241,10 @@ router.post('/mesa/:mesa/precuenta', auth, requirePermission('pedidos.print'), (
     return res.status(404).json({ error: 'No hay pedidos abiertos para esa mesa' });
   }
 
-  const document = buildMesaPrecuentaDocument(db, mesa, pedidosMesa);
+  // Igual que en /:id/imprimir: convertir de centavos a pesos antes de
+  // renderizar el HTML, porque el middleware global solo actua sobre JSON.
+  const pedidosEnPesos = pedidosMesa.map((pedido) => centsToPesos(pedido));
+  const document = buildMesaPrecuentaDocument(db, mesa, pedidosEnPesos);
   const copias = Math.max(1, Number(req.body?.copias || configuredCopies('ticket_cliente')));
   const impresion = registerPrintJob(
     pedidosMesa[0].id,
@@ -581,7 +585,7 @@ router.get('/:id/impresion/:tipo', auth, requirePermission('pedidos.print'), (re
         : req.params.tipo === 'pack'
           ? 'tpv_pack'
           : 'ticket_cliente';
-  const document = buildPrintDocument(db, pedido, tipo);
+  const document = buildPrintDocument(db, centsToPesos(pedido), tipo);
   res.type('html').send(document.html);
 });
 
@@ -918,7 +922,11 @@ router.post('/:id/imprimir', auth, requirePermission('pedidos.print'), (req, res
 
   const tipo = req.body.tipo || 'ticket_cliente';
   const copias = Math.max(1, Number(req.body.copias || configuredCopies(tipo)));
-  const document = buildPrintDocument(db, pedido, tipo);
+  // Convertir pedido de centavos a pesos antes de renderizar el HTML.
+  // El middleware global centsToPesos solo actua sobre respuestas JSON —
+  // el HTML del ticket se construye aca directamente y por eso no lo alcanza.
+  const pedidoEnPesos = centsToPesos(pedido);
+  const document = buildPrintDocument(db, pedidoEnPesos, tipo);
   const impresion = registerPrintJob(
     pedido.id,
     document.tipo,
