@@ -163,16 +163,16 @@ export default function Sidebar({ onCloseMobile }) {
   }
 
   const LogoSection = () => (
-    <div className="flex items-center gap-3 px-6 py-6 border-b border-gray-50/50 mb-4">
+    <div className="mb-4 flex min-h-[88px] items-center gap-3 border-b border-gray-50/50 px-5 py-4">
       {branding.negocio_logo ? (
         <img
           src={branding.negocio_logo}
-          alt="logo"
-          className="h-10 w-10 shrink-0 rounded-xl object-contain bg-primary-50/50 p-1.5 border border-primary-100/50 shadow-sm"
+          alt={branding.negocio_nombre || 'Logo del negocio'}
+          className="h-14 w-16 shrink-0 object-contain object-left"
         />
       ) : (
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary-500 text-white shadow-lg shadow-primary-200">
-          <UtensilsCrossed size={20} />
+        <div className="flex h-14 w-16 shrink-0 items-center justify-center text-primary-500">
+          <UtensilsCrossed size={30} />
         </div>
       )}
 
