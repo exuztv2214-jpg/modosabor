@@ -186,7 +186,14 @@ function buildAllowedOrigins() {
 // lista configurada.
 const LOCAL_DEV_ORIGIN_RE =
   /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0|(10|172|192)\.\d+\.\d+\.\d+)(:\d+)?$/i;
-const NATIVE_APP_ORIGINS = new Set(['capacitor://localhost', 'ionic://localhost']);
+const NATIVE_APP_ORIGINS = new Set([
+  // Capacitor Android usa http://localhost como origen del WebView.
+  'http://localhost',
+  'https://localhost',
+  // Capacitor iOS y proyectos Ionic pueden usar estos esquemas.
+  'capacitor://localhost',
+  'ionic://localhost',
+]);
 
 function isLocalDevOrigin(origin) {
   return LOCAL_DEV_ORIGIN_RE.test(String(origin || ''));
