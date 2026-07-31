@@ -585,8 +585,15 @@ export default function RiderPanel() {
       if (status === 401 || status === 403) {
         toast.error('Código de acceso incorrecto.');
         handleLogout();
+      } else if (status === 404) {
+        toast.error('Rider no encontrado. Cerrá sesión e ingresá de nuevo.');
+        handleLogout();
+      } else if (err?.offline) {
+        toast.error('Sin internet en el celular.');
+      } else if (err?.message === 'Network Error' || !status) {
+        toast.error('No se pudo conectar con la API. Cerrá la app y abrila de nuevo.');
       } else {
-        toast.error('Error de conexión con el servidor.');
+        toast.error(`Servidor respondió con error ${status}.`);
       }
     } finally {
       setLoading(false);
