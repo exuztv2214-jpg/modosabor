@@ -1,6 +1,11 @@
-const CACHE_NAME = 'modo-sabor-rider-v3';
+const CACHE_NAME = 'modo-sabor-rider-v4';
 const FALLBACK_INDEX = '/index.html';
-const STATIC_ASSETS = ['/manifest-rider.json', '/rider-icon.svg', '/rider-icon-maskable.svg'];
+const STATIC_ASSETS = [
+  '/manifest-rider.json',
+  '/rider-icon-192.png',
+  '/rider-icon-512.png',
+  '/rider-icon-maskable-512.png',
+];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(

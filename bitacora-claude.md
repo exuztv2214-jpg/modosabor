@@ -858,3 +858,23 @@ Limite tecnico:
 - Si Android fuerza el cierre completo de la app o el usuario la detiene, Socket.IO y el
   sondeo dejan de ejecutarse. Para avisar incluso con la app totalmente cerrada hace falta
   incorporar push remoto con Firebase Cloud Messaging.
+
+### Icono rojo de la app Rider (31/07)
+
+Hecho:
+
+- Se preparo una version roja y limpia de la llama de Modo Sabor.
+- Se reemplazaron los iconos del launcher de Android en todas las densidades, incluyendo
+  variante redonda e icono adaptativo.
+- Se actualizo el icono de iOS.
+- La PWA Rider ahora declara iconos PNG de 192 px, 512 px y una variante `maskable`.
+- Se cambio el color de tema del manifiesto al rojo de marca.
+- Se incremento la version de la cache del service worker para distribuir los iconos nuevos.
+
+Validado:
+
+- Dimensiones y formatos de los recursos Android, iOS y PWA correctos.
+- `npm run build` OK.
+- `npm run native:android:debug` OK.
+- APK actualizado:
+  - `client\android\app\build\outputs\apk\debug\app-debug.apk`
