@@ -1,9 +1,33 @@
+import { useState } from 'react';
 import { ListPlus, Plus, Search, ShoppingCart, UtensilsCrossed } from 'lucide-react';
 
 import { getPrimaryDisplayPrice, safeParseArray } from '../../lib/pedidoForm.js';
 import { resolveAssetUrl } from '../../lib/assets.js';
 
 const fmt = (value) => `$${Number(value || 0).toLocaleString('es-AR')}`;
+
+// Si el archivo de la imagen no existe (borrado del servidor, ruta vieja,
+// etc.) el <img> nativo se queda con el icono roto del navegador. Con este
+// componente, en cuanto el navegador dispara onError caemos al icono de
+// categoria o al plato generico, igual que cuando el producto nunca tuvo foto.
+function ProductThumb({ producto, imageUrl }) {
+  const [broken, setBroken] = useState(false);
+
+  if (imageUrl && !broken) {
+    return (
+      <img
+        src={imageUrl}
+        alt={producto.nombre}
+        className="h-full w-full object-cover"
+        onError={() => setBroken(true)}
+      />
+    );
+  }
+  if (producto.categoria_icono) {
+    return <span className="text-3xl opacity-40 grayscale">{producto.categoria_icono}</span>;
+  }
+  return <UtensilsCrossed size={28} className="text-gray-300" strokeWidth={1.75} />;
+}
 
 function stockLabel(producto) {
   const available = Number(
@@ -34,7 +58,7 @@ export default function TpvCatalog({
   totalItems,
 }) {
   return (
-    <section className="flex min-h-0 flex-1 flex-col overflow-hidden">
+    <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
       <div className="border-b border-gray-100 bg-white px-6 py-4">
         <div className="relative mb-4">
           <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -132,19 +156,7 @@ export default function TpvCatalog({
                   </button>
                 ) : null}
                 <div className="relative mb-4 flex aspect-square items-center justify-center overflow-hidden rounded-[20px] bg-[#F2F6FA] transition-all group-hover:scale-105">
-                  {imageUrl ? (
-                    <img
-                      src={imageUrl}
-                      alt={producto.nombre}
-                      className="h-full w-full object-cover"
-                    />
-                  ) : producto.categoria_icono ? (
-                    <span className="text-3xl opacity-40 grayscale">
-                      {producto.categoria_icono}
-                    </span>
-                  ) : (
-                    <UtensilsCrossed size={28} className="text-gray-300" strokeWidth={1.75} />
-                  )}
+                  <ProductThumb producto={producto} imageUrl={imageUrl} />
 
                   {qtyInCart > 0 ? (
                     <div className="absolute left-2 top-2 flex h-7 min-w-[28px] items-center justify-center rounded-lg bg-primary-500 px-1.5 text-xs font-black text-white shadow-lg animate-in zoom-in duration-300">

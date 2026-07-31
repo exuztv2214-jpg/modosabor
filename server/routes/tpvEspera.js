@@ -35,42 +35,61 @@ router.get('/espera', (req, res) => {
   res.json(rows.map(rowToOrder));
 });
 
-// Reemplaza la lista completa de pedidos en espera. El cliente maneja el
-// arreglo en memoria (crear, restaurar, duplicar, borrar) y sincroniza el
-// estado final acá para que se comparta entre terminales del TPV.
-router.put('/espera', (req, res) => {
-  const orders = Array.isArray(req.body?.orders) ? req.body.orders : [];
-
-  const insert = db.prepare(`
-    INSERT INTO tpv_pedidos_espera (id, label, total, total_items, snapshot, creado_en)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `);
-
-  const trx = db.transaction((items) => {
-    db.prepare('DELETE FROM tpv_pedidos_espera').run();
-    items.slice(0, MAX_ORDERS).forEach((item) => {
-      const id = String(item?.id || '').trim();
-      if (!id) return;
-      insert.run(
-        id,
-        String(item?.label || '').slice(0, 200),
-        Number(item?.total || 0),
-        Number(item?.totalItems || 0),
-        JSON.stringify(item?.snapshot || {}),
-        String(item?.createdAt || new Date().toISOString())
-      );
-    });
-  });
+// Guarda (o actualiza si ya existe el mismo id) UN pedido en espera. Se usa
+// una operacion por item -en vez de reemplazar la lista completa- para que
+// dos terminales de TPV puedan guardar/borrar pedidos en espera al mismo
+// tiempo sin pisarse: si mandaramos la lista entera en cada sync, una
+// terminal con datos un poco viejos podia resucitar un pedido que la otra
+// ya habia borrado momentos antes.
+router.post('/espera', (req, res) => {
+  const item = req.body || {};
+  const id = String(item?.id || '').trim();
+  if (!id) return res.status(400).json({ error: 'Falta id del pedido en espera' });
 
   try {
-    trx(orders);
-    const rows = db
-      .prepare('SELECT * FROM tpv_pedidos_espera ORDER BY creado_en DESC LIMIT ?')
+    db.prepare(
+      `
+      INSERT INTO tpv_pedidos_espera (id, label, total, total_items, snapshot, creado_en)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        label = excluded.label,
+        total = excluded.total,
+        total_items = excluded.total_items,
+        snapshot = excluded.snapshot
+    `
+    ).run(
+      id,
+      String(item?.label || '').slice(0, 200),
+      Number(item?.total || 0),
+      Number(item?.totalItems || 0),
+      JSON.stringify(item?.snapshot || {}),
+      String(item?.createdAt || new Date().toISOString())
+    );
+
+    // Mantenemos como maximo MAX_ORDERS pedidos en espera; si se paso el
+    // limite, se descartan los mas viejos.
+    const excedentes = db
+      .prepare(
+        'SELECT id FROM tpv_pedidos_espera ORDER BY creado_en DESC, rowid DESC LIMIT -1 OFFSET ?'
+      )
       .all(MAX_ORDERS);
-    res.json(rows.map(rowToOrder));
+    if (excedentes.length > 0) {
+      const del = db.prepare('DELETE FROM tpv_pedidos_espera WHERE id = ?');
+      excedentes.forEach((row) => del.run(row.id));
+    }
+
+    const saved = db.prepare('SELECT * FROM tpv_pedidos_espera WHERE id = ?').get(id);
+    res.json(rowToOrder(saved));
   } catch (error) {
     res.status(400).json({ error: error.message || 'No se pudo guardar la venta en espera' });
   }
+});
+
+router.delete('/espera/:id', (req, res) => {
+  const id = String(req.params.id || '').trim();
+  if (!id) return res.status(400).json({ error: 'Falta id del pedido en espera' });
+  db.prepare('DELETE FROM tpv_pedidos_espera WHERE id = ?').run(id);
+  res.json({ ok: true });
 });
 
 module.exports = router;

@@ -107,6 +107,14 @@ function buildVariantDescription(variantes, variantGroups = []) {
     .join(', ');
 }
 
+function formatTurnoLabel(shiftName) {
+  const name = String(shiftName || '').trim();
+  if (!name) return 'Sin turno';
+  // El nombre del turno ya suele incluir la palabra "Turno" (ej: "Turno
+  // Noche"), asi que anteponerla de nuevo mostraba "Turno Turno Noche".
+  return /^turno\b/i.test(name) ? name : `Turno ${name}`;
+}
+
 function isEditableTarget(target) {
   const tag = target?.tagName?.toLowerCase();
   return tag === 'input' || tag === 'textarea' || tag === 'select' || target?.isContentEditable;
@@ -119,7 +127,6 @@ export default function TPV() {
   const cartItemsRef = useRef(null);
   const customerLocationRequestRef = useRef(0);
   const customerLocationBusyRef = useRef(false);
-  const parkedHydratedRef = useRef(false);
 
   const [config, setConfig] = useState({});
   const [categorias, setCategorias] = useState([]);
@@ -132,6 +139,7 @@ export default function TPV() {
   const [tipoEntrega, setTipoEntrega] = useState('retiro');
   const [mesa, setMesa] = useState('');
   const [horaEntrega, setHoraEntrega] = useState('');
+  const [programarHora, setProgramarHora] = useState(false);
   const [metodoPago, setMetodoPago] = useState('efectivo');
   const [descuentoTipo, setDescuentoTipo] = useState('monto');
   const [cliente, setCliente] = useState(createEmptyCustomer);
@@ -303,35 +311,47 @@ export default function TPV() {
   }, []);
 
   useEffect(() => {
-    let cancelled = false;
-    api
-      .get('/tpv/espera')
-      .then((serverOrders) => {
-        if (cancelled) return;
-        if (Array.isArray(serverOrders) && serverOrders.length > 0) {
-          setParkedOrders(serverOrders);
-        }
-      })
-      .catch(() => {
-        // Sin conexion o sin permiso: seguimos con lo que haya en este dispositivo
-      })
-      .finally(() => {
-        if (!cancelled) parkedHydratedRef.current = true;
-      });
-    return () => {
-      cancelled = true;
+    const onBeforeUnload = (event) => {
+      if (items.length === 0) return;
+      event.preventDefault();
+      event.returnValue = '';
     };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [items.length]);
+
+  // Los pedidos en espera se sincronizan por operacion individual (guardar
+  // uno, borrar uno) en vez de mandar la lista completa en cada cambio.
+  // Antes, dos terminales de TPV podian pisarse: si la Terminal A borraba
+  // un pedido y la Terminal B todavia tenia en memoria una lista un poco
+  // vieja, el proximo cambio de B (por ejemplo guardar uno nuevo) mandaba
+  // su lista completa -que todavia incluia el que A acababa de borrar- y
+  // lo resucitaba. Con operaciones por item eso ya no puede pasar.
+  const fetchParkedOrders = useCallback(async () => {
+    try {
+      const serverOrders = await api.get('/tpv/espera');
+      if (!Array.isArray(serverOrders)) return;
+      setParkedOrders(serverOrders);
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem(TPV_PARKED_KEY, JSON.stringify(serverOrders.slice(0, 12)));
+      }
+    } catch {
+      // Sin conexion: seguimos mostrando lo que haya en este dispositivo
+    }
   }, []);
 
   useEffect(() => {
-    if (typeof window === 'undefined') return;
-    window.localStorage.setItem(TPV_PARKED_KEY, JSON.stringify(parkedOrders.slice(0, 12)));
-    if (!parkedHydratedRef.current) return;
-    api.put('/tpv/espera', { orders: parkedOrders.slice(0, 12) }).catch(() => {
-      // Si falla la sincronizacion, el pedido en espera igual queda guardado
-      // en este dispositivo y se reintenta en el proximo cambio.
-    });
-  }, [parkedOrders]);
+    fetchParkedOrders();
+    const intervalId = window.setInterval(fetchParkedOrders, 20000);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') fetchParkedOrders();
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      window.clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, [fetchParkedOrders]);
 
   useEffect(() => {
     const tipo = searchParams.get('tipo');
@@ -350,12 +370,15 @@ export default function TPV() {
   }, [tipoEntrega]);
 
   useEffect(() => {
+    // La hora de entrega ya no se autocompleta para todos los pedidos: solo
+    // aplica cuando el cliente pide explicitamente un horario puntual (ver
+    // toggleProgramarHora). La mayoria de los pedidos salen apenas estan
+    // listos, sin un horario cargado.
     if (tipoEntrega === 'mesa') {
+      setProgramarHora(false);
       setHoraEntrega('');
-      return;
     }
-    setHoraEntrega((previous) => previous || buildSuggestedHoraEntrega(tipoEntrega, config));
-  }, [tipoEntrega, config]);
+  }, [tipoEntrega]);
 
   const repartidoresActivos = useMemo(
     () => repartidores.filter((item) => item.activo),
@@ -616,12 +639,6 @@ export default function TPV() {
           detail: cliente?.direccion || 'Falta direccion',
         },
         {
-          key: 'hora',
-          label: 'Horario',
-          status: horaEntrega ? 'ok' : 'warn',
-          detail: horaEntrega || 'Sin horario cargado',
-        },
-        {
           key: 'rider',
           label: 'Rider',
           status: selectedRider || repartidoresActivos.length > 0 ? 'ok' : 'warn',
@@ -645,6 +662,18 @@ export default function TPV() {
       });
     }
 
+    // El horario solo se pide (y solo se chequea) cuando el pedido en si
+    // necesita salir a una hora puntual. La mayoria de los pedidos no la
+    // usan: salen apenas estan listos.
+    if (tipoEntrega !== 'mesa' && programarHora) {
+      checks.push({
+        key: 'hora',
+        label: 'Horario',
+        status: horaEntrega ? 'ok' : 'warn',
+        detail: horaEntrega || 'Sin horario cargado',
+      });
+    }
+
     if (metodoPago === 'mixto') {
       checks.push({
         key: 'pago',
@@ -655,21 +684,21 @@ export default function TPV() {
             ? 'Cobro mixto completo'
             : `Faltan ${Math.abs(splitRemaining).toLocaleString('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 })}`,
       });
+    } else if (metodoPago === 'efectivo') {
+      const efectivoCargado =
+        String(efectivoRecibido || '').trim() !== '' && efectivoRecibidoNumero >= total;
+      checks.push({
+        key: 'pago',
+        label: 'Pago',
+        status: efectivoCargado ? 'ok' : 'block',
+        detail: efectivoCargado ? 'Efectivo cargado' : 'Falta cargar el efectivo recibido',
+      });
     } else {
       checks.push({
         key: 'pago',
         label: 'Pago',
         status: 'ok',
         detail: metodoPago,
-      });
-    }
-
-    if (tipoEntrega === 'retiro') {
-      checks.push({
-        key: 'hora',
-        label: 'Horario',
-        status: horaEntrega ? 'ok' : 'warn',
-        detail: horaEntrega || 'Sin horario cargado',
       });
     }
 
@@ -682,12 +711,16 @@ export default function TPV() {
     tipoEntrega,
     cliente,
     horaEntrega,
+    programarHora,
     selectedRider,
     repartidoresActivos,
     mesa,
     metodoPago,
     splitPaymentEntries,
     splitRemaining,
+    efectivoRecibido,
+    efectivoRecibidoNumero,
+    total,
   ]);
   const preflightBlockingCount = preflightChecklist.filter(
     (item) => item.status === 'block'
@@ -717,9 +750,24 @@ export default function TPV() {
     setNotas('');
     setParkedLabel('');
     setMesa('');
-    setHoraEntrega(tipoEntrega === 'mesa' ? '' : buildSuggestedHoraEntrega(tipoEntrega, config));
+    setProgramarHora(false);
+    setHoraEntrega('');
     setSelectedRiderId('');
     setDeliveryQuote(createDeliveryQuoteState({ tipoEntrega, config }));
+  };
+
+  const toggleProgramarHora = () => {
+    setProgramarHora((previous) => {
+      const next = !previous;
+      if (next) {
+        setHoraEntrega(
+          (currentHora) => currentHora || buildSuggestedHoraEntrega(tipoEntrega, config)
+        );
+      } else {
+        setHoraEntrega('');
+      }
+      return next;
+    });
   };
 
   const saveCurrentAsParked = () => {
@@ -745,6 +793,7 @@ export default function TPV() {
         tipoEntrega,
         mesa,
         horaEntrega,
+        programarHora,
         metodoPago,
         cliente,
         selectedRiderId,
@@ -759,6 +808,9 @@ export default function TPV() {
     toast.success('Pedido guardado en espera');
     limpiar();
     setCartMobileOpen(false);
+    api.post('/tpv/espera', record).catch(() => {
+      toast.error('Se guardo en este dispositivo pero no se pudo sincronizar con las demas cajas');
+    });
   };
 
   const restoreParkedOrder = (parkedId) => {
@@ -768,6 +820,7 @@ export default function TPV() {
     setItems(snapshot.items || []);
     setTipoEntrega(snapshot.tipoEntrega || 'retiro');
     setMesa(snapshot.mesa || '');
+    setProgramarHora(Boolean(snapshot.programarHora ?? snapshot.horaEntrega));
     setHoraEntrega(snapshot.horaEntrega || '');
     setMetodoPago(snapshot.metodoPago || 'efectivo');
     setCliente(snapshot.cliente || createEmptyCustomer());
@@ -786,12 +839,21 @@ export default function TPV() {
     );
     setNotas(snapshot.notas || '');
     setCartMobileOpen(false);
+    // Al abrir un pedido en espera lo sacamos de la lista: queda "en curso"
+    // en el carrito. Antes se quedaba tambien en la lista de espera, lo que
+    // permitia volver a abrirlo (o que otra caja lo abriera) y vender el
+    // mismo pedido dos veces.
+    setParkedOrders((previous) => previous.filter((item) => item.id !== parkedId));
+    api.delete(`/tpv/espera/${encodeURIComponent(parkedId)}`).catch(() => {});
     toast.success('Pedido recuperado desde espera');
   };
 
   const deleteParkedOrder = (parkedId) => {
     setParkedOrders((previous) => previous.filter((item) => item.id !== parkedId));
     toast.success('Pedido en espera eliminado');
+    api.delete(`/tpv/espera/${encodeURIComponent(parkedId)}`).catch(() => {
+      toast.error('No se pudo borrar en el servidor, puede reaparecer en otra caja');
+    });
   };
 
   const duplicateParkedOrder = (parkedId) => {
@@ -805,6 +867,9 @@ export default function TPV() {
     };
     setParkedOrders((previous) => [copy, ...previous].slice(0, 12));
     toast.success('Pedido en espera duplicado');
+    api.post('/tpv/espera', copy).catch(() => {
+      toast.error('La copia se guardo en este dispositivo pero no se sincronizo');
+    });
   };
 
   const aplicarCliente = (match) => {
@@ -917,6 +982,14 @@ export default function TPV() {
   };
 
   const volverAlPanel = async () => {
+    if (
+      items.length > 0 &&
+      !window.confirm(
+        `Tenes un pedido cargado (${totalItems} item${totalItems === 1 ? '' : 's'}) sin guardar. Si volves al panel se pierde. ¿Volver igual?`
+      )
+    ) {
+      return;
+    }
     if (document.fullscreenElement) {
       try {
         await document.exitFullscreen();
@@ -1002,6 +1075,7 @@ export default function TPV() {
     setItems(nextItems);
     setTipoEntrega(pedido.tipo_entrega || 'retiro');
     setMesa(pedido.mesa || '');
+    setProgramarHora(Boolean(pedido.hora_entrega));
     setHoraEntrega(pedido.hora_entrega || '');
     setMetodoPago(pedido.metodo_pago || 'efectivo');
     setDescuento(0);
@@ -1432,7 +1506,7 @@ export default function TPV() {
 
   return (
     <div className="flex h-[100dvh] min-h-0 bg-background text-gray-900 font-sans">
-      <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {/* ── Header Estilo Modernize ── */}
         <TpvHeader
           cajaAbierta={cajaAbierta}
@@ -1458,7 +1532,7 @@ export default function TPV() {
               })}
             </span>
             <span className="rounded-full bg-slate-100 px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-slate-600">
-              Turno {cajaEstado?.turno_operativo?.shiftName || 'sin turno'}
+              {formatTurnoLabel(cajaEstado?.turno_operativo?.shiftName)}
             </span>
             <span
               className={`rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em] ${preflightBlockingCount > 0 ? 'bg-rose-50 text-rose-700' : 'bg-emerald-50 text-emerald-700'}`}
@@ -1524,6 +1598,14 @@ export default function TPV() {
             onCerrarCartMobile={() => setCartMobileOpen(false)}
             onClearCliente={() => setCliente(createEmptyCustomer())}
             onClearOrder={() => {
+              if (
+                items.length > 0 &&
+                !window.confirm(
+                  `¿Vaciar el pedido? Se van a perder los ${totalItems} item${totalItems === 1 ? '' : 's'} cargados.`
+                )
+              ) {
+                return;
+              }
               limpiar();
               setCartMobileOpen(false);
             }}
@@ -1533,6 +1615,8 @@ export default function TPV() {
             onDescuentoTipoChange={setDescuentoTipo}
             onEfectivoRecibidoChange={setEfectivoRecibido}
             onHoraEntregaChange={setHoraEntrega}
+            programarHora={programarHora}
+            onToggleProgramarHora={toggleProgramarHora}
             onImprimirMesa={imprimirPrecuentaMesa}
             onMetodoPagoChange={setMetodoPago}
             onNotasChange={setNotas}

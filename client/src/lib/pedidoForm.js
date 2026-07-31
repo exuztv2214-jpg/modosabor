@@ -259,8 +259,10 @@ export function getTpvSubmitError({
       : metodoPago === 'efectivo'
         ? Number(total || 0)
         : 0;
-  if (efectivoObjetivo > 0 && efectivoRecibido && efectivoRecibidoNumero < efectivoObjetivo) {
-    return 'El efectivo recibido no alcanza el total';
+  if (efectivoObjetivo > 0) {
+    if (!String(efectivoRecibido ?? '').trim()) return 'Ingresa el efectivo recibido';
+    if (efectivoRecibidoNumero < efectivoObjetivo)
+      return 'El efectivo recibido no alcanza el total';
   }
   return '';
 }

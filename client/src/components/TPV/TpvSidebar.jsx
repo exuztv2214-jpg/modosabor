@@ -97,6 +97,8 @@ export default function TpvSidebar({
   onDescuentoTipoChange,
   onEfectivoRecibidoChange,
   onHoraEntregaChange,
+  programarHora,
+  onToggleProgramarHora,
   onImprimirMesa,
   onMetodoPagoChange,
   onNotasChange,
@@ -142,7 +144,7 @@ export default function TpvSidebar({
 }) {
   return (
     <aside
-      className={`fixed inset-y-0 right-0 z-50 flex w-full flex-col border-l border-gray-100 bg-white shadow-[0_0_40px_rgba(0,0,0,0.02)] transition-transform duration-300 lg:static lg:z-auto lg:w-[380px] lg:translate-x-0 xl:w-[440px] ${cartMobileOpen ? 'translate-x-0' : 'translate-x-full'}`}
+      className={`fixed inset-y-0 right-0 z-50 flex w-full shrink-0 flex-col border-l border-gray-100 bg-white shadow-[0_0_40px_rgba(0,0,0,0.02)] transition-transform duration-300 lg:static lg:z-auto lg:w-[380px] lg:translate-x-0 xl:w-[440px] ${cartMobileOpen ? 'translate-x-0' : 'translate-x-full'}`}
     >
       <div className="flex shrink-0 items-center justify-between border-b border-gray-100 px-6 py-4 lg:hidden">
         <h2 className="text-lg font-black uppercase tracking-tight text-gray-900">Tu Pedido</h2>
@@ -218,14 +220,16 @@ export default function TpvSidebar({
                     value={cliente.telefono}
                     onChange={(event) => onSetCliente({ ...cliente, telefono: event.target.value })}
                     placeholder="Teléfono"
-                    className="h-12 w-full rounded-xl border-none bg-white px-4 text-sm font-bold shadow-sm focus:ring-2 focus:ring-[#5D87FF]/20"
+                    className="h-12 w-full rounded-xl border-none bg-white py-0 pl-4 pr-12 text-sm font-bold shadow-sm focus:ring-2 focus:ring-[#5D87FF]/20"
                   />
                   <button
                     type="button"
                     onClick={onAbrirSelectorClientes}
-                    className="absolute right-3 top-1/2 rounded-lg p-1.5 text-primary-500 transition-colors hover:bg-primary-50"
+                    title="Buscar cliente"
+                    aria-label="Buscar cliente"
+                    className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-primary-50 text-primary-500 transition-colors hover:bg-primary-500 hover:text-white"
                   >
-                    <UserSearch size={18} />
+                    <UserSearch size={16} />
                   </button>
                 </div>
                 <input
@@ -236,15 +240,36 @@ export default function TpvSidebar({
                 />
 
                 <div className="rounded-2xl border border-white/70 bg-white p-3 shadow-sm">
-                  <p className="mb-2 text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">
-                    Hora de entrega
-                  </p>
-                  <input
-                    type="time"
-                    value={horaEntrega}
-                    onChange={(event) => onHoraEntregaChange(event.target.value)}
-                    className="h-11 w-full rounded-xl border border-slate-100 bg-slate-50 px-4 text-sm font-black text-slate-800 shadow-sm outline-none transition focus:border-primary-200 focus:bg-white focus:ring-2 focus:ring-primary-100"
-                  />
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">
+                        Hora de entrega
+                      </p>
+                      <p className="mt-0.5 text-[10px] font-bold text-slate-400">
+                        {programarHora
+                          ? 'Pedido para un horario puntual'
+                          : 'Sale apenas este listo'}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={onToggleProgramarHora}
+                      aria-pressed={programarHora}
+                      className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${programarHora ? 'bg-primary-500' : 'bg-gray-200'}`}
+                    >
+                      <span
+                        className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${programarHora ? 'translate-x-5' : 'translate-x-0.5'}`}
+                      />
+                    </button>
+                  </div>
+                  {programarHora ? (
+                    <input
+                      type="time"
+                      value={horaEntrega}
+                      onChange={(event) => onHoraEntregaChange(event.target.value)}
+                      className="mt-3 h-11 w-full rounded-xl border border-slate-100 bg-slate-50 px-4 text-sm font-black text-slate-800 shadow-sm outline-none transition focus:border-primary-200 focus:bg-white focus:ring-2 focus:ring-primary-100"
+                    />
+                  ) : null}
                 </div>
 
                 {cliente.id ? (
