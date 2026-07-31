@@ -27,6 +27,13 @@ const { getPedidoHydratedById } = require('../services/pedidoService');
 const { syncPersonalFromDeliveryRepartidor } = require('../utils/deliveryPersonnelSync');
 const { checkAndNotifyLlegando } = require('../utils/deliveryNotifications');
 const { getConfigMap } = require('../utils/mercadoPago');
+const { logAudit } = require('../utils/audit');
+const {
+  isPagoPagado,
+  normalizeMetodoPago,
+  normalizePagoEstado,
+  shouldAutoSettleOnEntrega,
+} = require('../utils/paymentStatus');
 
 const storage = multer.diskStorage({
   destination: uploadsDir,
@@ -324,6 +331,19 @@ router.get('/:id/rider/:codigo', (req, res) => {
       "SELECT * FROM pedidos WHERE repartidor_id = ? AND estado NOT IN ('entregado', 'cancelado') ORDER BY datetime(actualizado_en) DESC"
     )
     .all(repartidor.id);
+  const historial = db
+    .prepare(
+      `SELECT id
+       FROM pedidos
+       WHERE repartidor_id = ?
+         AND estado = 'entregado'
+         AND date(actualizado_en, '-3 hours') = date('now', '-3 hours')
+       ORDER BY datetime(actualizado_en) DESC
+       LIMIT 50`
+    )
+    .all(repartidor.id)
+    .map((row) => getPedidoHydratedById(row.id))
+    .filter(Boolean);
 
   const configRows = db
     .prepare(
@@ -339,6 +359,7 @@ router.get('/:id/rider/:codigo', (req, res) => {
             'negocio_telefono',
             'negocio_localidad',
             'negocio_provincia',
+            'metodos_pago',
             'monteros_min_lat',
             'monteros_max_lat',
             'monteros_min_lng',
@@ -355,6 +376,7 @@ router.get('/:id/rider/:codigo', (req, res) => {
   res.json({
     repartidor,
     pedidos: pedidos.map((p) => getPedidoHydratedById(p.id)).filter(Boolean),
+    historial,
     settings,
   });
 });
@@ -539,6 +561,73 @@ router.put('/:id/rider/:codigo/pedido/:pedidoId/estado', (req, res) => {
   res.json(updatedPedido);
 });
 
+router.put('/:id/rider/:codigo/pedido/:pedidoId/pago', (req, res) => {
+  const repartidor = validateRiderAccess(req, res);
+  if (!repartidor) return;
+
+  const pedido = db
+    .prepare('SELECT * FROM pedidos WHERE id = ? AND repartidor_id = ?')
+    .get(req.params.pedidoId, repartidor.id);
+  if (!pedido) return res.status(404).json({ error: 'Pedido no encontrado' });
+  if (pedido.estado === 'entregado' || isPagoPagado(pedido.pago_estado)) {
+    return res.status(400).json({ error: 'El cobro ya fue confirmado y no puede modificarse' });
+  }
+
+  const nextMetodo = normalizeMetodoPago(req.body?.metodo_pago);
+  const config = getConfigMap(db);
+  let enabledMethods = [];
+  try {
+    enabledMethods = JSON.parse(config.metodos_pago || '[]').map(normalizeMetodoPago);
+  } catch {
+    enabledMethods = [];
+  }
+  if (!enabledMethods.length) {
+    enabledMethods = ['efectivo', 'transferencia', 'modo', 'uala'];
+  }
+  const riderMethods = enabledMethods.filter((method) => method !== 'mercadopago');
+  if (!riderMethods.includes(nextMetodo)) {
+    return res.status(400).json({ error: 'Ese medio de pago no está habilitado para el rider' });
+  }
+
+  const previousMethod = normalizeMetodoPago(pedido.metodo_pago);
+  db.prepare(
+    `UPDATE pedidos
+     SET metodo_pago = ?, pago_estado = 'pendiente',
+         pago_detalle = ?, actualizado_en = CURRENT_TIMESTAMP
+     WHERE id = ?`
+  ).run(
+    nextMetodo,
+    JSON.stringify({
+      actualizado_por: 'rider',
+      repartidor_id: repartidor.id,
+      repartidor_nombre: repartidor.nombre,
+      metodo_anterior: previousMethod,
+      metodo_nuevo: nextMetodo,
+      actualizado_en: new Date().toISOString(),
+    }),
+    pedido.id
+  );
+
+  const updatedPedido = getPedidoHydratedById(pedido.id);
+  logAudit(db, {
+    modulo: 'pagos',
+    accion: 'cambiar_metodo_rider',
+    entidad: 'pedido',
+    entidad_id: pedido.id,
+    actor_nombre: `Rider ${repartidor.nombre}`,
+    detalle: {
+      numero: pedido.numero,
+      desde: previousMethod,
+      hacia: nextMetodo,
+      pago_estado: 'pendiente',
+    },
+  });
+
+  const io = req.app.get('io');
+  if (io) emitPedidoActualizado(io, updatedPedido);
+  res.json(updatedPedido);
+});
+
 router.post('/:id/rider/:codigo/entregar/:pedidoId', upload.single('foto'), (req, res) => {
   const repartidor = validateRiderAccess(req, res);
   if (!repartidor) return;
@@ -565,21 +654,44 @@ router.post('/:id/rider/:codigo/entregar/:pedidoId', upload.single('foto'), (req
     return res.status(400).json({ error: 'Debes adjuntar una foto de entrega' });
   }
 
+  const pagoEstadoEntrega = shouldAutoSettleOnEntrega(pedido)
+    ? 'pagado'
+    : normalizePagoEstado(pedido.pago_estado, {
+        metodoPago: pedido.metodo_pago,
+        origen: pedido.origen,
+      });
   db.prepare(
     `
     UPDATE pedidos
     SET estado = 'entregado',
+        pago_estado = ?,
         entrega_foto = COALESCE(NULLIF(?, ''), entrega_foto),
         entrega_foto_en = CASE WHEN ? != '' THEN CURRENT_TIMESTAMP ELSE entrega_foto_en END,
         actualizado_en = CURRENT_TIMESTAMP
     WHERE id = ?
   `
   ).run(
+    pagoEstadoEntrega,
     uploadPathFromFilename(req.file?.filename),
     uploadPathFromFilename(req.file?.filename),
     pedido.id
   );
   db.prepare('UPDATE repartidores SET disponible = 1 WHERE id = ?').run(repartidor.id);
+  if (pagoEstadoEntrega !== normalizePagoEstado(pedido.pago_estado)) {
+    logAudit(db, {
+      modulo: 'pagos',
+      accion: 'cobrar_en_entrega',
+      entidad: 'pedido',
+      entidad_id: pedido.id,
+      actor_nombre: `Rider ${repartidor.nombre}`,
+      detalle: {
+        numero: pedido.numero,
+        metodo_pago: normalizeMetodoPago(pedido.metodo_pago),
+        desde: normalizePagoEstado(pedido.pago_estado),
+        hacia: pagoEstadoEntrega,
+      },
+    });
+  }
 
   // Limpiar estado de proximidad del pedido entregado
   proximityState.delete(pedido.id);

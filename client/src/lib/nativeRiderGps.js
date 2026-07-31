@@ -1,11 +1,13 @@
 import { Capacitor, CapacitorHttp, registerPlugin } from '@capacitor/core';
 import { Geolocation } from '@capacitor/geolocation';
 import { LocalNotifications } from '@capacitor/local-notifications';
+import { Preferences } from '@capacitor/preferences';
 
 import { RIDER_GPS_OPTIONS } from './riderGps.js';
 import { API_BASE_URL } from './runtime.js';
 
 const BackgroundGeolocation = registerPlugin('BackgroundGeolocation');
+const RIDER_AUTH_KEY = 'ms_rider_auth_v1';
 
 export function isNativeRiderApp() {
   return Capacitor.isNativePlatform?.() === true;
@@ -34,6 +36,49 @@ async function requestNativeLocationPermission() {
   } catch (error) {
     return Geolocation.requestPermissions({ permissions: ['location'] });
   }
+}
+
+export async function getRiderLocationPermission() {
+  if (isNativeRiderApp()) {
+    try {
+      const current = await Geolocation.checkPermissions();
+      return current?.location || current?.coarseLocation || 'prompt';
+    } catch {
+      return 'prompt';
+    }
+  }
+
+  if (!navigator.permissions?.query) return 'prompt';
+  try {
+    const status = await navigator.permissions.query({ name: 'geolocation' });
+    return status.state;
+  } catch {
+    return 'prompt';
+  }
+}
+
+export async function saveNativeRiderAuth(auth) {
+  const id = String(auth?.id || '').trim();
+  const code = String(auth?.code || '').trim();
+  if (!id || !code) return;
+  await Preferences.set({ key: RIDER_AUTH_KEY, value: JSON.stringify({ id, code }) });
+}
+
+export async function loadNativeRiderAuth() {
+  try {
+    const { value } = await Preferences.get({ key: RIDER_AUTH_KEY });
+    if (!value) return null;
+    const parsed = JSON.parse(value);
+    const id = String(parsed?.id || '').trim();
+    const code = String(parsed?.code || '').trim();
+    return id && code ? { id, code } : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function clearNativeRiderAuth() {
+  await Preferences.remove({ key: RIDER_AUTH_KEY });
 }
 
 async function requestNativeNotificationPermission() {

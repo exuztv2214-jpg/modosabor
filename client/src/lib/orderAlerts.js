@@ -3,6 +3,8 @@ import { useEffect, useRef } from 'react';
 const FALLBACK_ALERT_WAV =
   'data:audio/wav;base64,UklGRlQCAABXQVZFZm10IBAAAAABAAEAIlYAAESsAAACABAAZGF0YTACAACBhYqOkpWTlZaXmpyfoKGio6Sko6GfnJmWk5CPj42MjI2Qk5aZnJ+jo6KgoJ+cmZaTkI+PjYyMjZCTlpmcn6OjoqCgn5yZlpOQj4+NjIyNkJOWmZyfo6OioKCfnJmWk5CPj42MjI2Qk5aZnJ+jo6KgoJ+cmZaTkI+PjYyMjZCTlpmcn6OjoqCgn5yZlpOQj4+NjIyNkJOWmZyfo6OioKCfnJmWk5CPj42MjI2Qk5aZnJ+jo6KgoJ+cmZaTkI+PjYyMjQ==';
 const recentAlertClaims = new Map();
+const PERSISTENT_ALERTS_KEY = 'ms_persistent_order_alerts_v1';
+const DELIVERED_ALERT_TTL_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_NAME_PRONUNCIATIONS = new Map(
   [
     ['cristian', 'Cristián'],
@@ -20,13 +22,38 @@ export function claimAlertKey(key, ttlMs = 4000) {
   const normalized = String(key || '').trim();
   if (!normalized) return true;
   const now = Date.now();
+  const persistent = normalized.startsWith('entregado:');
+  const effectiveTtl = persistent ? Math.max(ttlMs, DELIVERED_ALERT_TTL_MS) : ttlMs;
+
+  if (persistent && typeof window !== 'undefined') {
+    try {
+      const stored = JSON.parse(window.localStorage.getItem(PERSISTENT_ALERTS_KEY) || '{}');
+      const existingStored = Number(stored?.[normalized] || 0);
+      if (existingStored && now - existingStored < effectiveTtl) return false;
+
+      const fresh = Object.fromEntries(
+        Object.entries(stored || {}).filter(([, timestamp]) => {
+          const parsed = Number(timestamp || 0);
+          return parsed && now - parsed < DELIVERED_ALERT_TTL_MS;
+        })
+      );
+      fresh[normalized] = now;
+      window.localStorage.setItem(PERSISTENT_ALERTS_KEY, JSON.stringify(fresh));
+    } catch {
+      // La memoria en proceso sigue evitando duplicados si el almacenamiento no está disponible.
+    }
+  }
+
   const existing = recentAlertClaims.get(normalized);
-  if (existing && now - existing < ttlMs) {
+  if (existing && now - existing < effectiveTtl) {
     return false;
   }
   recentAlertClaims.set(normalized, now);
   if (recentAlertClaims.size > 200) {
-    const fresh = [...recentAlertClaims.entries()].filter(([, ts]) => now - ts < ttlMs);
+    const fresh = [...recentAlertClaims.entries()].filter(
+      ([entryKey, ts]) =>
+        now - ts < (entryKey.startsWith('entregado:') ? DELIVERED_ALERT_TTL_MS : effectiveTtl)
+    );
     recentAlertClaims.clear();
     fresh.forEach(([entryKey, ts]) => recentAlertClaims.set(entryKey, ts));
   }

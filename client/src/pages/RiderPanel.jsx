@@ -19,6 +19,7 @@ import {
   LocateFixed,
   Copy,
   Clock,
+  CreditCard,
   Zap,
   ZapOff,
   History,
@@ -42,10 +43,14 @@ import { filterRiderGpsPosition } from '../lib/riderGps.js';
 import { resolveAssetUrl } from '../lib/assets.js';
 import {
   isNativeRiderApp,
+  clearNativeRiderAuth,
+  getRiderLocationPermission,
+  loadNativeRiderAuth,
   notifyRiderNewOrder,
   openNativeLocationSettings,
   prepareRiderNotifications,
   requestRiderLocationAccess,
+  saveNativeRiderAuth,
   sendRiderLocationUpdate,
   startRiderLocationWatcher,
 } from '../lib/nativeRiderGps.js';
@@ -57,7 +62,8 @@ import RiderRouteMap from '../components/RiderRouteMap.jsx';
 // ── Helpers ────────────────────────────────────────────────────────
 const fmt = (n) => `$${Number(n || 0).toLocaleString('es-AR')}`;
 const parseDate = (str) => parseISO(String(str || '').replace(' ', 'T'));
-const todayStr = () => new Date().toISOString().slice(0, 10);
+const todayStr = () => format(new Date(), 'yyyy-MM-dd');
+const riderHistoryKey = (riderId) => `ms_rider_history_${riderId}_${todayStr()}`;
 
 function fmtTimer(seconds) {
   const m = Math.floor(seconds / 60);
@@ -458,6 +464,7 @@ export default function RiderPanel() {
 
   // ── NEW: historial de sesión (entregas completadas hoy)
   const [historialSesion, setHistorialSesion] = useState([]);
+  const [changingPayment, setChangingPayment] = useState(false);
 
   // ── NEW: PIN modal
   const [pinModal, setPinModal] = useState({ open: false, pedidoId: null });
@@ -487,9 +494,21 @@ export default function RiderPanel() {
     const next = { id: routeId, code: routeCode };
     localStorage.setItem('ms_rider_id', routeId);
     localStorage.setItem('ms_rider_code', routeCode);
+    saveNativeRiderAuth(next).catch(() => {});
     setLoginForm(next);
     setRiderAuth((prev) => (prev?.id === routeId && prev?.code === routeCode ? prev : next));
   }, [params?.codigo, params?.id]);
+
+  useEffect(() => {
+    if (riderAuth) return;
+    loadNativeRiderAuth().then((saved) => {
+      if (!saved) return;
+      localStorage.setItem('ms_rider_id', saved.id);
+      localStorage.setItem('ms_rider_code', saved.code);
+      setLoginForm(saved);
+      setRiderAuth(saved);
+    });
+  }, []);
 
   // ── PWA install prompt ─────────────────────────────────────────
   useEffect(() => {
@@ -524,20 +543,48 @@ export default function RiderPanel() {
 
   // ── Permisos de geolocalización ────────────────────────────────
   useEffect(() => {
-    if (!navigator.permissions?.query) return;
     let cancelled = false;
-    navigator.permissions
-      .query({ name: 'geolocation' })
-      .then((status) => {
-        if (cancelled) return;
-        setLocationPermission(status.state);
-        status.onchange = () => setLocationPermission(status.state);
+    getRiderLocationPermission()
+      .then((state) => {
+        if (!cancelled) setLocationPermission(state);
       })
       .catch(() => {});
+
+    if (navigator.permissions?.query) {
+      navigator.permissions
+        .query({ name: 'geolocation' })
+        .then((status) => {
+          if (cancelled || isNativeRiderApp()) return;
+          setLocationPermission(status.state);
+          status.onchange = () => setLocationPermission(status.state);
+        })
+        .catch(() => {});
+    }
     return () => {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!riderAuth?.id) {
+      setHistorialSesion([]);
+      return;
+    }
+    try {
+      const stored = JSON.parse(localStorage.getItem(riderHistoryKey(riderAuth.id)) || '[]');
+      setHistorialSesion(Array.isArray(stored) ? stored : []);
+    } catch {
+      setHistorialSesion([]);
+    }
+  }, [riderAuth?.id]);
+
+  useEffect(() => {
+    if (!riderAuth?.id) return;
+    localStorage.setItem(
+      riderHistoryKey(riderAuth.id),
+      JSON.stringify(historialSesion.slice(0, 50))
+    );
+  }, [historialSesion, riderAuth?.id]);
 
   // ── Reloj en tiempo real ───────────────────────────────────────
   useEffect(() => {
@@ -657,6 +704,7 @@ export default function RiderPanel() {
         const res = await api.get(`/repartidores/${riderAuth.id}/rider/${riderAuth.code}`);
         setData(res);
         configRef.current = res?.settings || {};
+        setHistorialSesion(Array.isArray(res?.historial) ? res.historial : []);
         setSelectedPedido((current) => {
           if (!current) return current;
           return res.pedidos.find((p) => p.id === current.id) || null;
@@ -667,11 +715,11 @@ export default function RiderPanel() {
       } catch (err) {
         const status = err?._httpStatus || err?.status || err?.statusCode;
         if (status === 401 || status === 403) {
-          toast.error('Código de acceso incorrecto.');
-          handleLogout();
+          toast.error(
+            'No se pudo validar el acceso. Tus datos siguen guardados; probá nuevamente.'
+          );
         } else if (status === 404) {
-          toast.error('Rider no encontrado. Cerrá sesión e ingresá de nuevo.');
-          handleLogout();
+          toast.error('Rider no encontrado. Tus datos siguen guardados para volver a intentar.');
         } else if (!silent && err?.offline) {
           toast.error('Sin internet en el celular.');
         } else if (!silent && (err?.message === 'Network Error' || !status)) {
@@ -697,23 +745,9 @@ export default function RiderPanel() {
     const unsub = socketManager.on('pedido_actualizado', async (pedido) => {
       if (pedido?.estado === 'entregado' && !deliveredSeenRef.current.has(pedido.id)) {
         deliveredSeenRef.current.add(pedido.id);
-        try {
-          await runDeliveredAlert({
-            pedido,
-            config: configRef.current || {},
-            audioContextRef,
-            voiceRef,
-            fallbackAudioRef,
-            scope: 'rider',
-          });
-        } catch {}
-        toast.success(`Pedido #${pedido.numero || pedido.id} entregado`);
+        toast.success(`Pedido #${pedido.numero || pedido.id} actualizado como entregado`);
       } else {
-        const wasNewAssignment = await alertAssignedOrder(pedido);
-        if (!wasNewAssignment) {
-          if (navigator.vibrate) navigator.vibrate([150, 80, 150]);
-          toast('Actualización de pedido', { icon: '🔔' });
-        }
+        await alertAssignedOrder(pedido);
       }
       fetchData({ silent: true });
     });
@@ -862,6 +896,7 @@ export default function RiderPanel() {
     if (!loginForm.id || !loginForm.code) return toast.error('Completá los datos');
     localStorage.setItem('ms_rider_id', loginForm.id);
     localStorage.setItem('ms_rider_code', loginForm.code);
+    saveNativeRiderAuth(loginForm).catch(() => {});
     setRiderAuth({ id: loginForm.id, code: loginForm.code });
   };
 
@@ -869,6 +904,7 @@ export default function RiderPanel() {
     stopTracking();
     localStorage.removeItem('ms_rider_id');
     localStorage.removeItem('ms_rider_code');
+    clearNativeRiderAuth().catch(() => {});
     setRiderAuth(null);
     setData(null);
     setSelectedPedido(null);
@@ -894,6 +930,29 @@ export default function RiderPanel() {
       fetchData();
     } catch {
       toast.error('No se pudo actualizar el estado');
+    }
+  };
+
+  const changePaymentMethod = async (pedidoId, metodoPago) => {
+    if (!riderAuth || changingPayment) return;
+    setChangingPayment(true);
+    try {
+      const updated = await api.put(
+        `/repartidores/${riderAuth.id}/rider/${riderAuth.code}/pedido/${pedidoId}/pago`,
+        { metodo_pago: metodoPago }
+      );
+      setData((current) => ({
+        ...current,
+        pedidos: (current?.pedidos || []).map((pedido) =>
+          pedido.id === updated.id ? updated : pedido
+        ),
+      }));
+      setSelectedPedido(updated);
+      toast.success(`Cobro cambiado a ${paymentMethodLabel(metodoPago)}`);
+    } catch (error) {
+      toast.error(error?.error || 'No se pudo cambiar el medio de pago');
+    } finally {
+      setChangingPayment(false);
     }
   };
 
@@ -1767,6 +1826,50 @@ export default function RiderPanel() {
                   </p>
                   <p className="text-2xl font-black text-gray-900">{fmt(selectedPedido.total)}</p>
                 </div>
+                {paymentStatusLabel(selectedPedido.pago_estado) === 'Pendiente' && (
+                  <div className="mt-5 border-t border-gray-200 pt-4">
+                    <div className="mb-3 flex items-center gap-2">
+                      <CreditCard size={15} className="text-gray-500" />
+                      <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">
+                        Medio que usará el cliente
+                      </p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      {(() => {
+                        let enabled = [];
+                        try {
+                          enabled = JSON.parse(data?.settings?.metodos_pago || '[]');
+                        } catch {
+                          enabled = [];
+                        }
+                        if (!enabled.length) {
+                          enabled = ['efectivo', 'transferencia', 'modo', 'uala'];
+                        }
+                        return enabled
+                          .filter((method) => method !== 'mercadopago')
+                          .map((method) => (
+                            <button
+                              key={method}
+                              type="button"
+                              disabled={changingPayment || selectedPedido.metodo_pago === method}
+                              onClick={() => changePaymentMethod(selectedPedido.id, method)}
+                              className={`min-h-11 rounded-xl border px-3 py-2 text-xs font-black transition ${
+                                selectedPedido.metodo_pago === method
+                                  ? 'border-primary-500 bg-primary-50 text-primary-700'
+                                  : 'border-gray-200 bg-white text-gray-700'
+                              } disabled:opacity-60`}
+                            >
+                              {paymentMethodLabel(method)}
+                            </button>
+                          ));
+                      })()}
+                    </div>
+                    <p className="mt-3 text-[11px] font-semibold leading-relaxed text-gray-500">
+                      Se puede cambiar mientras figure pendiente. Al confirmar la entrega quedará
+                      registrado como cobrado.
+                    </p>
+                  </div>
+                )}
               </div>
 
               {/* Acciones */}
