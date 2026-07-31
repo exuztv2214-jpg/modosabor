@@ -34,7 +34,14 @@ import { es } from 'date-fns/locale';
 import { paymentMethodLabel, paymentStatusLabel, paymentStatusTone } from '../lib/paymentStatus.js';
 import { normalizePedidoItems } from '../lib/pedidoItems.js';
 import { buildGoogleMapsDirectionsUrl, buildGoogleMapsEmbedUrl } from '../lib/maps.js';
-import { RIDER_GPS_OPTIONS, filterRiderGpsPosition } from '../lib/riderGps.js';
+import { filterRiderGpsPosition } from '../lib/riderGps.js';
+import {
+  isNativeRiderApp,
+  openNativeLocationSettings,
+  requestRiderLocationAccess,
+  sendRiderLocationUpdate,
+  startRiderLocationWatcher,
+} from '../lib/nativeRiderGps.js';
 import api from '../lib/api.js';
 import { socketManager } from '../lib/socket.js';
 import { runDeliveredAlert, useOrderAlertPlayback } from '../lib/orderAlerts.js';
@@ -417,7 +424,7 @@ export default function RiderPanel() {
   const [locationPermission, setLocationPermission] = useState('prompt');
   const [locationError, setLocationError] = useState('');
   const [lastPositionAt, setLastPositionAt] = useState('');
-  const watchIdRef = useRef(null);
+  const locationWatcherRef = useRef(null);
   const trackedPedidoIdRef = useRef(null);
 
   // PWA install
@@ -557,7 +564,7 @@ export default function RiderPanel() {
     if (active && trackedPedidoIdRef.current !== active.id) {
       stopTracking();
       startTracking(active.id);
-    } else if (!active && watchIdRef.current) {
+    } else if (!active && locationWatcherRef.current) {
       stopTracking();
     }
   }, [data]);
@@ -630,8 +637,8 @@ export default function RiderPanel() {
   }, [audioContextRef, fallbackAudioRef, riderAuth, voiceRef]);
 
   // ── GPS tracking ───────────────────────────────────────────────
-  const startTracking = (pedidoId) => {
-    if (!navigator.geolocation || !riderAuth) {
+  const startTracking = async (pedidoId) => {
+    if (!riderAuth) {
       setLocationError('Este celular no permite compartir ubicación.');
       return;
     }
@@ -639,83 +646,92 @@ export default function RiderPanel() {
     setLocationError('');
     trackedPedidoIdRef.current = pedidoId;
     lastAcceptedGpsRef.current = null;
-    watchIdRef.current = navigator.geolocation.watchPosition(
-      (pos) => {
-        const filtered = filterRiderGpsPosition(pos, lastAcceptedGpsRef.current);
-        setLocationPermission('granted');
+    try {
+      locationWatcherRef.current = await startRiderLocationWatcher({
+        onPosition: (pos) => {
+          const filtered = filterRiderGpsPosition(pos, lastAcceptedGpsRef.current);
+          setLocationPermission('granted');
 
-        if (!filtered.accepted) {
-          const now = Date.now();
-          if (now - rejectedGpsToastAtRef.current > 30000) {
-            rejectedGpsToastAtRef.current = now;
-            if (filtered.reason === 'precision_baja') {
-              setLocationError(
-                `GPS impreciso (${Math.round(filtered.accuracy || 0)}m). Buscando mejor señal...`
-              );
-            } else {
-              setLocationError('GPS inestable. Ignoramos una lectura rara y seguimos buscando.');
+          if (!filtered.accepted) {
+            const now = Date.now();
+            if (now - rejectedGpsToastAtRef.current > 30000) {
+              rejectedGpsToastAtRef.current = now;
+              if (filtered.reason === 'precision_baja') {
+                setLocationError(
+                  `GPS impreciso (${Math.round(filtered.accuracy || 0)}m). Buscando mejor señal...`
+                );
+              } else {
+                setLocationError('GPS inestable. Ignoramos una lectura rara y seguimos buscando.');
+              }
             }
+            return;
           }
-          return;
-        }
 
-        const { lat, lng, accuracy, speed, smoothed } = filtered.point;
-        lastAcceptedGpsRef.current = filtered.point;
-        setLocationError('');
-        setLastPositionAt(new Date().toISOString());
-        setRiderLocation({ lat, lng, accuracy, smoothed });
-        api
-          .put(`/repartidores/${riderAuth.id}/rider/${riderAuth.code}/ubicacion`, {
-            latitud: lat,
-            longitud: lng,
-            precision: accuracy,
-            velocidad: speed,
-            pedidoId,
-            fuente: 'watchPosition',
-            suavizado: smoothed ? 1 : 0,
-          })
-          .catch(() => {});
-      },
-      (err) => {
-        setTrackingActive(false);
-        if (err?.code === 1) {
-          setLocationPermission('denied');
-          setLocationError('Activá la ubicación para que el cliente pueda seguirte en vivo.');
-        } else setLocationError('No pudimos actualizar tu ubicación en este momento.');
-      },
-      RIDER_GPS_OPTIONS
-    );
+          const { lat, lng, accuracy, speed, smoothed } = filtered.point;
+          lastAcceptedGpsRef.current = filtered.point;
+          setLocationError('');
+          setLastPositionAt(new Date().toISOString());
+          setRiderLocation({ lat, lng, accuracy, smoothed });
+          sendRiderLocationUpdate({
+            riderId: riderAuth.id,
+            riderCode: riderAuth.code,
+            webClient: api,
+            payload: {
+              latitud: lat,
+              longitud: lng,
+              precision: accuracy,
+              velocidad: speed,
+              pedidoId,
+              fuente: 'watchPosition',
+              suavizado: smoothed ? 1 : 0,
+              gps_fuente: isNativeRiderApp() ? 'capacitor-background' : 'web-watch',
+            },
+          }).catch(() => {});
+        },
+        onError: async (err) => {
+          setTrackingActive(false);
+          if (err?.code === 1) {
+            setLocationPermission('denied');
+            setLocationError('Activá la ubicación para que el cliente pueda seguirte en vivo.');
+          } else if (err?.code === 'NOT_AUTHORIZED') {
+            setLocationPermission('denied');
+            setLocationError('Activá ubicación siempre permitida para sostener el tracking.');
+            await openNativeLocationSettings().catch(() => false);
+          } else setLocationError('No pudimos actualizar tu ubicación en este momento.');
+        },
+      });
+    } catch (err) {
+      setTrackingActive(false);
+      trackedPedidoIdRef.current = null;
+      setLocationError('Este celular no permite compartir ubicación.');
+    }
   };
 
   const stopTracking = () => {
-    if (watchIdRef.current) {
-      navigator.geolocation.clearWatch(watchIdRef.current);
-      watchIdRef.current = null;
+    if (locationWatcherRef.current) {
+      locationWatcherRef.current.stop?.();
+      locationWatcherRef.current = null;
     }
     setTrackingActive(false);
     trackedPedidoIdRef.current = null;
     lastAcceptedGpsRef.current = null;
   };
 
-  const requestLocationAccess = () => {
-    if (!navigator.geolocation) {
-      toast.error('Este equipo no soporta ubicación');
-      return;
+  const requestLocationAccess = async () => {
+    try {
+      await requestRiderLocationAccess();
+      setLocationPermission('granted');
+      setLocationError('');
+      const active = data?.pedidos?.find((p) => p.estado === 'en_camino');
+      if (active && !locationWatcherRef.current) startTracking(active.id);
+      toast.success('Ubicación activada');
+    } catch (err) {
+      if (!isNativeRiderApp()) {
+        toast.error('Este equipo no soporta ubicación');
+      }
+      setLocationPermission('denied');
+      setLocationError('Debés permitir ubicación para usar el tracking en vivo.');
     }
-    navigator.geolocation.getCurrentPosition(
-      () => {
-        setLocationPermission('granted');
-        setLocationError('');
-        const active = data?.pedidos?.find((p) => p.estado === 'en_camino');
-        if (active && !watchIdRef.current) startTracking(active.id);
-        toast.success('Ubicación activada');
-      },
-      () => {
-        setLocationPermission('denied');
-        setLocationError('Debés permitir ubicación para usar el tracking en vivo.');
-      },
-      RIDER_GPS_OPTIONS
-    );
   };
 
   // ── PWA install ────────────────────────────────────────────────

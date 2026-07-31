@@ -8,6 +8,7 @@ import PrivateRoute from './components/PrivateRoute.jsx';
 import Layout from './components/Layout.jsx';
 import AppErrorBoundary from './components/AppErrorBoundary.jsx';
 import AppConfigWarning from './components/AppConfigWarning.jsx';
+import { isNativeRiderApp } from './lib/nativeRiderGps.js';
 
 // Componente de carga
 const PageLoader = () => (
@@ -69,7 +70,10 @@ export default function App() {
               }
             >
               <Routes>
-                <Route path="/" element={<WebPublica />} />
+                <Route
+                  path="/"
+                  element={isNativeRiderApp() ? <Navigate to="/rider" replace /> : <WebPublica />}
+                />
                 <Route path="/club" element={<ClubFidelidad />} />
                 <Route path="/club/:codigo" element={<ClubFidelidad />} />
                 <Route path="/personal/reloj" element={<PersonalClock />} />

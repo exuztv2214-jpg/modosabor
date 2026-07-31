@@ -754,3 +754,64 @@ Validado:
   - lectura buena aceptada.
   - lectura con precision baja rechazada.
   - salto brusco rechazado.
+
+### App nativa Rider con Capacitor (31/07)
+
+Motivo: el tracking web/PWA tiene limite de precision y puede cortarse cuando el rider minimiza la pantalla. Se preparo Rider como app nativa para Android/iOS manteniendo el resto del sistema en web.
+
+Hecho:
+
+- Se agrego Capacitor al cliente.
+- App nativa enfocada en Rider:
+  - `appId`: `com.modosabor.rider`
+  - `appName`: `Modo Sabor Rider`
+  - pantalla inicial nativa: `/rider`
+- Se agregaron plataformas:
+  - Android en `client/android`
+  - iOS en `client/ios`
+- Se agregaron plugins:
+  - `@capacitor/core`
+  - `@capacitor/app`
+  - `@capacitor/geolocation`
+  - `@capacitor/local-notifications`
+  - `@capacitor-community/background-geolocation`
+- Se creo capa `nativeRiderGps`:
+  - nativo: usa background geolocation.
+  - nativo: pide permiso de notificacion para sostener el foreground service de Android.
+  - nativo: envia ubicaciones con `CapacitorHttp` para no depender del WebView cuando queda en background.
+  - web: mantiene fallback con `navigator.geolocation`.
+  - conserva filtro de precision/saltos/suavizado antes de enviar al backend.
+- En nativo, la API apunta por defecto a Railway:
+  - `https://modosabor-api-production.up.railway.app`
+- Android configurado:
+  - `ACCESS_FINE_LOCATION`
+  - `ACCESS_COARSE_LOCATION`
+  - `ACCESS_BACKGROUND_LOCATION`
+  - `FOREGROUND_SERVICE`
+  - `FOREGROUND_SERVICE_LOCATION`
+  - `POST_NOTIFICATIONS`
+  - `android.useLegacyBridge: true`
+- iOS configurado:
+  - `NSLocationWhenInUseUsageDescription`
+  - `NSLocationAlwaysAndWhenInUseUsageDescription`
+  - `NSLocationAlwaysUsageDescription`
+  - `UIBackgroundModes: location`
+- Se agrego guia:
+  - `docs/RIDER_NATIVE_APP.md`
+- Se agrego script para generar APK debug usando el JDK de Android Studio:
+  - `deploy/build-rider-apk.ps1`
+  - `npm run native:android:debug`
+
+Validado:
+
+- `npm --prefix client run build:native` OK.
+- APK debug generado correctamente:
+  - `client\android\app\build\outputs\apk\debug\app-debug.apk`
+
+Pendiente real de campo:
+
+- Instalar APK en un celular real.
+- Entrar como rider.
+- Permitir ubicacion precisa y en segundo plano.
+- Iniciar un pedido en camino.
+- Bloquear/minimizar el celular y confirmar que el backend sigue recibiendo ubicacion.
