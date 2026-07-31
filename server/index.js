@@ -40,85 +40,7 @@ const server = http.createServer(app);
 // ============================================
 // MONEY CONVERSION HELPERS
 // ============================================
-const MONEY_PATTERNS = [
-  'precio',
-  'costo',
-  'total',
-  'subtotal',
-  'costo_envio',
-  'descuento',
-  'monto',
-  'efectivo',
-  'diferencia',
-  'valor',
-];
-
-// Claves que matchean algun patron de arriba por el nombre pero NO son plata
-// (son conteos, porcentajes o valores de condicion). Si se agrega un campo
-// nuevo con un nombre parecido a estos, conviene sumarlo aca en vez de
-// convertirlo por accidente.
-const EXCLUDED_KEYS = new Set([
-  'puntos_disponibles',
-  'puntos_reconocimiento',
-  'total_clientes',
-  'total_pedidos',
-  'totalPedidos',
-  'total_items',
-  'totalItems',
-  'total_registros',
-  'total_tables',
-  'total_clientes_con_puntos',
-  'condicion_valor',
-  'descuento_empleado_pct',
-  'descuento_ratio_pct',
-]);
-
-function isMoneyKey(key) {
-  if (EXCLUDED_KEYS.has(key)) return false;
-  const lower = String(key).toLowerCase();
-  return MONEY_PATTERNS.some((pat) => lower.includes(pat));
-}
-
-// parentIsMoneyKey indica si el valor actual esta "colgado" de una clave de
-// plata (ej: el 5000 dentro de items[].precio_unitario). Los objetos/arrays
-// siempre se recorren; solo los numeros sueltos se convierten, y solo si la
-// clave de la que dependen es realmente de plata.
-function pesosToCents(obj, parentIsMoneyKey = false) {
-  if (obj === null || obj === undefined) return obj;
-  if (typeof obj === 'number' && Number.isFinite(obj)) {
-    return parentIsMoneyKey ? Math.round(obj * 100) : obj;
-  }
-  if (Array.isArray(obj)) {
-    return obj.map((item) => pesosToCents(item, parentIsMoneyKey));
-  }
-  if (typeof obj === 'object') {
-    const result = {};
-    for (const [k, v] of Object.entries(obj)) {
-      result[k] = pesosToCents(v, isMoneyKey(k));
-    }
-    return result;
-  }
-  return obj;
-}
-
-function centsToPesos(obj) {
-  if (obj === null || obj === undefined) return obj;
-  if (Array.isArray(obj)) {
-    return obj.map(centsToPesos);
-  }
-  if (typeof obj === 'object') {
-    const result = {};
-    for (const [k, v] of Object.entries(obj)) {
-      if (isMoneyKey(k) && typeof v === 'number' && Number.isInteger(v)) {
-        result[k] = v / 100;
-      } else {
-        result[k] = centsToPesos(v);
-      }
-    }
-    return result;
-  }
-  return obj;
-}
+const { isMoneyKey, pesosToCents, centsToPesos } = require('./utils/moneyConversion');
 
 // pesosToCents/centsToPesos ahora respetan isMoneyKey (antes ese chequeo estaba
 // sin usar y se convertía CUALQUIER número, lo que corrompía ids en JSON con
@@ -421,6 +343,51 @@ app.use((error, _req, res, next) => {
 io.on('connection', () => {});
 
 startAutomaticBackups(db);
+
+// One-time catalog import: if catalog-export.json exists inside the
+// container, import it into the database and delete the file so it only
+// runs once per deploy.
+(() => {
+  const catalogPath = path.join(__dirname, 'scripts', 'catalog-export.json');
+  if (!fs.existsSync(catalogPath)) return;
+  try {
+    const { importBaseDataPackage } = require('./utils/dataPackage');
+    const { createDatabaseBackup } = require('./utils/backupManager');
+    const payload = JSON.parse(fs.readFileSync(catalogPath, 'utf-8'));
+    createDatabaseBackup(db, { reason: 'pre-catalog-sync', maxFiles: 5 });
+    const result = importBaseDataPackage(db, payload);
+    logger.info('Catalog sync on startup:', JSON.stringify(result));
+    fs.unlinkSync(catalogPath);
+  } catch (err) {
+    logger.error('Catalog sync failed:', err.message);
+  }
+})();
+
+// One-time admin reset: if reset-admin-once.json exists, reset the admin
+// user and delete the file.
+(() => {
+  const resetPath = path.join(__dirname, 'scripts', 'reset-admin-once.json');
+  if (!fs.existsSync(resetPath)) return;
+  try {
+    const bcrypt = require('bcryptjs');
+    const { email, password, nombre } = JSON.parse(fs.readFileSync(resetPath, 'utf-8'));
+    const hash = bcrypt.hashSync(password, 10);
+    const existing = db.prepare('SELECT id FROM usuarios WHERE lower(email) = lower(?)').get(email);
+    if (existing) {
+      db.prepare(
+        'UPDATE usuarios SET nombre = ?, email = ?, password_hash = ?, rol = ?, activo = 1 WHERE id = ?'
+      ).run(nombre, email, hash, 'admin', existing.id);
+    } else {
+      db.prepare(
+        'INSERT INTO usuarios (nombre, email, password_hash, rol, activo) VALUES (?, ?, ?, ?, 1)'
+      ).run(nombre, email, hash, 'admin');
+    }
+    logger.info('Admin reset on startup for', email);
+    fs.unlinkSync(resetPath);
+  } catch (err) {
+    logger.error('Admin reset failed:', err.message);
+  }
+})();
 
 const PORT = Number(process.env.PORT || 3001);
 server.listen(PORT, () => {

@@ -24,6 +24,17 @@ const {
 
 const { validateBody } = require('../middleware/validate');
 const { createProductoSchema, updateProductoSchema } = require('../schemas');
+const { pesosToCents } = require('../utils/moneyConversion');
+
+// Multer populates req.body AFTER the global money middleware has already run,
+// so multipart requests skip pesos→centavos conversion.  This route-level
+// middleware applies the conversion after multer.
+function convertMultipartMoney(req, _res, next) {
+  if (req.body && typeof req.body === 'object') {
+    req.body = pesosToCents(req.body);
+  }
+  next();
+}
 
 const storage = multer.diskStorage({
   destination: uploadsDir,
@@ -228,6 +239,7 @@ router.post(
   requirePermission('productos.edit'),
   upload.single('imagen'),
   validateBody(createProductoSchema),
+  convertMultipartMoney,
   (req, res) => {
     try {
       const payload = buildProductPayload(req.body);
@@ -291,6 +303,7 @@ router.put(
   requirePermission('productos.edit'),
   upload.single('imagen'),
   validateBody(updateProductoSchema),
+  convertMultipartMoney,
   (req, res) => {
     const existing = db.prepare('SELECT * FROM productos WHERE id = ?').get(req.params.id);
     if (!existing) return res.status(404).json({ error: 'Producto no encontrado' });

@@ -4,6 +4,7 @@ import {
   Bike,
   Bookmark,
   CheckCircle2,
+  ClipboardPaste,
   Gift,
   MapPin,
   MessageSquare,
@@ -118,6 +119,7 @@ export default function TpvSidebar({
   onSplitPaymentChange,
   onTipoEntregaChange,
   onUbicacionCliente,
+  onPegarUbicacionCliente,
   parkedOrders,
   pagos,
   printingMesa,
@@ -486,19 +488,31 @@ export default function TpvSidebar({
                       </select>
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={onUbicacionCliente}
-                      disabled={sharingLocation}
-                      className={`flex h-11 w-full items-center justify-center gap-2 rounded-xl text-[11px] font-black uppercase tracking-wider transition-all ${cliente.latitud ? 'bg-success-500 text-white' : 'bg-primary-100 text-blue-700'}`}
-                    >
-                      <MapPin size={14} />
-                      {sharingLocation
-                        ? 'Tomando GPS...'
-                        : cliente.latitud
-                          ? 'GPS vinculado'
-                          : 'Guardar ubicación GPS'}
-                    </button>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={onUbicacionCliente}
+                        disabled={sharingLocation}
+                        title="Usa la ubicación de este dispositivo (solo si el cliente está en el local)"
+                        className={`flex h-11 flex-1 items-center justify-center gap-2 rounded-xl text-[11px] font-black uppercase tracking-wider transition-all ${cliente.latitud ? 'bg-success-500 text-white' : 'bg-primary-100 text-blue-700'}`}
+                      >
+                        <MapPin size={14} />
+                        {sharingLocation
+                          ? 'Tomando GPS...'
+                          : cliente.latitud
+                            ? 'GPS vinculado'
+                            : 'Guardar ubicación GPS'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={onPegarUbicacionCliente}
+                        title="Pegá el link de Google Maps o las coordenadas que te mandó el cliente"
+                        className="flex h-11 items-center justify-center gap-2 rounded-xl bg-slate-100 px-4 text-[11px] font-black uppercase tracking-wider text-slate-700 transition-all hover:bg-slate-200"
+                      >
+                        <ClipboardPaste size={14} />
+                        Pegar link
+                      </button>
+                    </div>
                   </div>
                 ) : null}
               </div>

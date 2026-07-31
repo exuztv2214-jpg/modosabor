@@ -963,3 +963,53 @@ Se comparó el mismo producto a través de `/api/productos` (que sí convierte b
 ### 13.7. Nota técnica de esta sesión
 
 Durante todo este tramo, la terminal/sandbox de comandos (`node`, `npm`, `git`) no estuvo disponible (error `HYPERVISOR_VIRT_DISABLED`). Todos los cambios de código se hicieron y revisaron a mano con las herramientas de archivo, y las pruebas en vivo (layout del TPV, ícono, notas/extras, precios) se hicieron conectándose al navegador del propio Hernán contra `localhost:5173`, no contra producción. **Ningún cambio de este tramo está todavía en Donweb** — falta correr `npm run deploy:donweb` para subir todo junto (el TPV, las notas/extras, el catálogo actualizado, el menú del día nuevo, y el fix del middleware de precios).
+
+---
+
+## 14. Sincronización catálogo Railway y fix "Datos inválidos" (31/07)
+
+### 14.1. Sincronización de catálogo local → Railway
+
+La base de Railway (`modosabor-api-production.up.railway.app`) tenía datos viejos: 73 productos (66 activos), precios desactualizados, sin extras en hamburguesas, sin los sandwichs de milanesa nuevos, sin los platos del menú del día nuevos, y Bombita/Suprema todavía activas.
+
+Estrategia usada:
+
+- `railway run` ejecuta comandos localmente con env vars de Railway, no dentro del contenedor. No sirve para tocar la base remota.
+- Se usó un mecanismo de importación on-startup: si `server/scripts/catalog-export.json` existe cuando el servidor arranca, lo importa con `importBaseDataPackage`, hace backup antes, y borra el archivo para no re-importar.
+- Lo mismo para reset de admin: `server/scripts/reset-admin-once.json`.
+- Ambos archivos viajan con el deploy vía Dockerfile (`COPY server ./server`) y se consumen una sola vez.
+
+Resultado después del deploy:
+
+- 82 productos totales (80 locales + 2 viejos de Railway, desactivados).
+- 73 activos (igual que local).
+- Bombita (id 64) y Suprema a la napolitana (id 67): desactivadas.
+- 16 hamburguesas con extras (Queso extra, Medallón, Papas, Huevo).
+- 4 sandwichs de milanesa nuevos (Común $8000, Especial $8500, Modo Sabor $9000, Super Modo $10000).
+- 5 platos del menú del día nuevos (Guiso de lentejas, Tarta de pollo, Costeleta, Albóndigas, Suprema a la suiza).
+- Pepsi lata actualizada a $2000.
+- Smash Simple a $6000, Bacon Cheese a $6000.
+
+### 14.2. Fix "Datos inválidos" al editar precio desde admin
+
+Se encontraron **dos bugs** que se combinaban:
+
+1. **Zod schema rechazaba strings de FormData**: el admin envía PUT /api/productos/:id como `multipart/form-data` (para la imagen). Multer pone todos los campos como strings en `req.body`. El schema Zod usaba `z.number()` que rechaza strings → "Datos inválidos". Fix: se creó un helper `coerceNum` con `z.preprocess` que convierte strings numéricas a numbers antes de validar.
+
+2. **Middleware de conversión pesos↔centavos no veía el body de multipart**: el middleware global `moneyRequestMiddleware` (en `index.js`) corre antes de que multer popule `req.body`, así que para requests multipart el body está vacío cuando el middleware lo procesa. Resultado: el precio se guardaba en pesos en vez de centavos, y la respuesta lo dividía por 100 mostrando 1/100 del valor real. Fix: se agregó `convertMultipartMoney` como middleware de ruta en productos, después de `validateBody` (que ya coercionó los strings a numbers) y antes del handler.
+
+Archivos modificados:
+
+- `server/schemas/index.js`: helper `coerceNum`, aplicado a todos los campos numéricos de `createProductoSchema` y `updateProductoSchema`.
+- `server/utils/moneyConversion.js`: nuevo módulo con `isMoneyKey`, `pesosToCents`, `centsToPesos` extraídos de `index.js` para poder reutilizarlos en rutas.
+- `server/index.js`: usa `require('./utils/moneyConversion')` en vez de funciones inline.
+- `server/routes/productos.js`: `convertMultipartMoney` middleware después de multer+validateBody en POST y PUT.
+
+### 14.3. Verificación final en producción
+
+- **(a)** `/api/productos` devuelve 82 productos (73 activos), precios correctos.
+- **(b)** PUT /api/productos/40 con FormData: precio 6000 → guardó bien → respuesta 6000 (no 60). Probado cambio a 6500 y vuelta a 6000, ambos correctos.
+- **(c)** Pedidos (7), clientes (7) y caja (abierta) intactos. La importación solo tocó categorías, productos, inventario_insumos e inventario_recetas.
+- Admin login con `admin@modosabor.com` funcionando.
+- Tests locales: 6 suites, 0 fallos.
+- Health check: OK.

@@ -1,5 +1,16 @@
 const { z } = require('zod');
 
+// FormData (multipart) sends every field as a string.  This helper coerces
+// numeric strings to numbers so that Zod schemas work for both JSON and
+// FormData payloads.  Empty strings and nullish values become undefined so
+// that .optional() still works.
+const coerceNum = (schema) =>
+  z.preprocess((v) => {
+    if (v === '' || v === undefined || v === null) return undefined;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : v;
+  }, schema);
+
 const emailSchema = z.string().email().min(1).max(255);
 const passwordSchema = z.string().min(1).max(255);
 
@@ -65,29 +76,29 @@ const updatePedidoSchema = z.object({
 const createProductoSchema = z.object({
   nombre: z.string().min(1).max(255),
   descripcion: z.string().max(2000).default(''),
-  precio: z.number().nonnegative(),
-  costo: z.number().nonnegative().default(0),
-  categoria_id: z.number().int().positive().nullable().optional(),
+  precio: coerceNum(z.number().nonnegative()),
+  costo: coerceNum(z.number().nonnegative().default(0)),
+  categoria_id: coerceNum(z.number().int().positive().nullable().optional()),
   imagen: z.string().max(1000).default(''),
   variantes: z.string().max(10000).default('[]'),
   extras: z.string().max(10000).default('[]'),
-  activo: z.number().int().min(0).max(1).default(1),
-  destacado: z.number().int().min(0).max(1).default(0),
-  tiempo_preparacion: z.number().int().positive().default(15),
+  activo: coerceNum(z.number().int().min(0).max(1).default(1)),
+  destacado: coerceNum(z.number().int().min(0).max(1).default(0)),
+  tiempo_preparacion: coerceNum(z.number().int().positive().default(15)),
 });
 
 const updateProductoSchema = z.object({
   nombre: z.string().min(1).max(255).optional(),
   descripcion: z.string().max(2000).optional(),
-  precio: z.number().nonnegative().optional(),
-  costo: z.number().nonnegative().optional(),
-  categoria_id: z.number().int().positive().nullable().optional(),
+  precio: coerceNum(z.number().nonnegative().optional()),
+  costo: coerceNum(z.number().nonnegative().optional()),
+  categoria_id: coerceNum(z.number().int().positive().nullable().optional()),
   imagen: z.string().max(1000).optional(),
   variantes: z.string().max(10000).optional(),
   extras: z.string().max(10000).optional(),
-  activo: z.number().int().min(0).max(1).optional(),
-  destacado: z.number().int().min(0).max(1).optional(),
-  tiempo_preparacion: z.number().int().positive().optional(),
+  activo: coerceNum(z.number().int().min(0).max(1).optional()),
+  destacado: coerceNum(z.number().int().min(0).max(1).optional()),
+  tiempo_preparacion: coerceNum(z.number().int().positive().optional()),
 });
 
 module.exports = {

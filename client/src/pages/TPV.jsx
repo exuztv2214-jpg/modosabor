@@ -5,6 +5,7 @@ import toast from 'react-hot-toast';
 import api from '../lib/api.js';
 import { resolveAssetUrl } from '../lib/assets.js';
 import { DEFAULT_BRAND_LOGO } from '../lib/webPublicaHelpers.js';
+import { parseGpsInput } from '../lib/parseGpsInput.js';
 import {
   buildPedidoPayload,
   calculatePedidoSummary,
@@ -1373,6 +1374,42 @@ export default function TPV() {
     }
   };
 
+  const pegarUbicacionCliente = async () => {
+    let text = '';
+    try {
+      if (navigator.clipboard?.readText) {
+        text = await navigator.clipboard.readText();
+      }
+    } catch {
+      // El navegador puede bloquear la lectura del portapapeles si el TPV
+      // no esta enfocado. Caemos al prompt manual.
+    }
+    if (!text) {
+      text = window.prompt(
+        'Pegá el link de Google Maps que te mandó el cliente\n(o las coordenadas: -27.18, -65.48)',
+        ''
+      );
+    }
+    if (!text) return;
+
+    const result = parseGpsInput(text);
+    if (!result.ok) {
+      toast.error(result.error);
+      return;
+    }
+
+    setCliente((previous) => ({
+      ...previous,
+      latitud: result.lat,
+      longitud: result.lng,
+    }));
+    if (result.warning) {
+      toast(result.warning, { icon: '⚠', duration: 4000 });
+    } else {
+      toast.success('Ubicación del cliente cargada', { id: 'tpv-customer-location' });
+    }
+  };
+
   const compartirUbicacionCliente = () => {
     if (!navigator.geolocation) {
       toast.error('Este dispositivo no permite geolocalizacion');
@@ -1654,6 +1691,7 @@ export default function TPV() {
             }
             onTipoEntregaChange={setTipoEntrega}
             onUbicacionCliente={compartirUbicacionCliente}
+            onPegarUbicacionCliente={pegarUbicacionCliente}
             parkedOrders={parkedOrders}
             pagos={TPV_PAYMENT_OPTIONS}
             printingMesa={printingMesa}
