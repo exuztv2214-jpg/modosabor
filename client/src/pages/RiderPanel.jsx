@@ -42,14 +42,16 @@ import { filterRiderGpsPosition } from '../lib/riderGps.js';
 import { resolveAssetUrl } from '../lib/assets.js';
 import {
   isNativeRiderApp,
+  notifyRiderNewOrder,
   openNativeLocationSettings,
+  prepareRiderNotifications,
   requestRiderLocationAccess,
   sendRiderLocationUpdate,
   startRiderLocationWatcher,
 } from '../lib/nativeRiderGps.js';
 import api from '../lib/api.js';
 import { socketManager } from '../lib/socket.js';
-import { runDeliveredAlert, useOrderAlertPlayback } from '../lib/orderAlerts.js';
+import { runDeliveredAlert, runOrderAlert, useOrderAlertPlayback } from '../lib/orderAlerts.js';
 import RiderRouteMap from '../components/RiderRouteMap.jsx';
 
 // ── Helpers ────────────────────────────────────────────────────────
@@ -467,6 +469,7 @@ export default function RiderPanel() {
 
   // Alerts
   const deliveredSeenRef = useRef(new Set());
+  const notifiedAssignedRef = useRef(new Set());
   const configRef = useRef({});
   const { audioContextRef, voiceRef, fallbackAudioRef } = useOrderAlertPlayback();
 
@@ -576,37 +579,112 @@ export default function RiderPanel() {
     }
   }, [data]);
 
-  // ── Fetch ──────────────────────────────────────────────────────
-  const fetchData = useCallback(async () => {
-    if (!riderAuth) return;
-    setLoading(true);
-    try {
-      const res = await api.get(`/repartidores/${riderAuth.id}/rider/${riderAuth.code}`);
-      setData(res);
-      configRef.current = res?.settings || {};
-      if (selectedPedido) {
-        const updated = res.pedidos.find((p) => p.id === selectedPedido.id);
-        setSelectedPedido(updated || null);
+  const rememberAssignedNotification = useCallback(
+    (pedidoId) => {
+      const normalizedId = String(pedidoId || '').trim();
+      if (!normalizedId || !riderAuth) return;
+      notifiedAssignedRef.current.add(normalizedId);
+      const recent = [...notifiedAssignedRef.current].slice(-100);
+      notifiedAssignedRef.current = new Set(recent);
+      localStorage.setItem(`ms_rider_notified_${riderAuth.id}`, JSON.stringify(recent));
+    },
+    [riderAuth]
+  );
+
+  const alertAssignedOrder = useCallback(
+    async (pedido) => {
+      const pedidoId = String(pedido?.id || '').trim();
+      if (
+        !pedidoId ||
+        ['entregado', 'cancelado'].includes(String(pedido?.estado || '').toLowerCase()) ||
+        notifiedAssignedRef.current.has(pedidoId)
+      ) {
+        return false;
       }
-    } catch (err) {
-      const status = err?._httpStatus || err?.status || err?.statusCode;
-      if (status === 401 || status === 403) {
-        toast.error('Código de acceso incorrecto.');
-        handleLogout();
-      } else if (status === 404) {
-        toast.error('Rider no encontrado. Cerrá sesión e ingresá de nuevo.');
-        handleLogout();
-      } else if (err?.offline) {
-        toast.error('Sin internet en el celular.');
-      } else if (err?.message === 'Network Error' || !status) {
-        toast.error('No se pudo conectar con la API. Cerrá la app y abrila de nuevo.');
-      } else {
-        toast.error(`Servidor respondió con error ${status}.`);
-      }
-    } finally {
-      setLoading(false);
+
+      rememberAssignedNotification(pedidoId);
+      if (navigator.vibrate) navigator.vibrate([300, 120, 300, 120, 500]);
+
+      try {
+        await notifyRiderNewOrder(pedido);
+      } catch {}
+
+      try {
+        await runOrderAlert({
+          pedido,
+          config: {
+            ...(configRef.current || {}),
+            alertas_pedido_sonido: '1',
+            alertas_pedido_voz: '0',
+          },
+          audioContextRef,
+          voiceRef,
+          fallbackAudioRef,
+          delayMs: 0,
+        });
+      } catch {}
+
+      toast.success(`Nuevo pedido asignado #${pedido.numero || pedido.id}`, {
+        duration: 7000,
+      });
+      return true;
+    },
+    [audioContextRef, fallbackAudioRef, rememberAssignedNotification, voiceRef]
+  );
+
+  useEffect(() => {
+    if (!riderAuth) {
+      notifiedAssignedRef.current = new Set();
+      return;
     }
-  }, [riderAuth, selectedPedido]);
+
+    try {
+      const stored = JSON.parse(localStorage.getItem(`ms_rider_notified_${riderAuth.id}`) || '[]');
+      notifiedAssignedRef.current = new Set((Array.isArray(stored) ? stored : []).map(String));
+    } catch {
+      notifiedAssignedRef.current = new Set();
+    }
+
+    prepareRiderNotifications().catch(() => {});
+  }, [riderAuth]);
+
+  // ── Fetch ──────────────────────────────────────────────────────
+  const fetchData = useCallback(
+    async ({ silent = false } = {}) => {
+      if (!riderAuth) return;
+      if (!silent) setLoading(true);
+      try {
+        const res = await api.get(`/repartidores/${riderAuth.id}/rider/${riderAuth.code}`);
+        setData(res);
+        configRef.current = res?.settings || {};
+        setSelectedPedido((current) => {
+          if (!current) return current;
+          return res.pedidos.find((p) => p.id === current.id) || null;
+        });
+        (res?.pedidos || []).forEach((pedido) => {
+          alertAssignedOrder(pedido);
+        });
+      } catch (err) {
+        const status = err?._httpStatus || err?.status || err?.statusCode;
+        if (status === 401 || status === 403) {
+          toast.error('Código de acceso incorrecto.');
+          handleLogout();
+        } else if (status === 404) {
+          toast.error('Rider no encontrado. Cerrá sesión e ingresá de nuevo.');
+          handleLogout();
+        } else if (!silent && err?.offline) {
+          toast.error('Sin internet en el celular.');
+        } else if (!silent && (err?.message === 'Network Error' || !status)) {
+          toast.error('No se pudo conectar con la API. Cerrá la app y abrila de nuevo.');
+        } else if (!silent) {
+          toast.error(`Servidor respondió con error ${status}.`);
+        }
+      } finally {
+        if (!silent) setLoading(false);
+      }
+    },
+    [alertAssignedOrder, riderAuth]
+  );
 
   // ── Sockets ────────────────────────────────────────────────────
   useEffect(() => {
@@ -631,26 +709,43 @@ export default function RiderPanel() {
         } catch {}
         toast.success(`Pedido #${pedido.numero || pedido.id} entregado`);
       } else {
-        // ── NEW: vibración al recibir actualización
-        if (navigator.vibrate) navigator.vibrate([150, 80, 150]);
-        toast('Actualización de pedido', { icon: '🔔' });
+        const wasNewAssignment = await alertAssignedOrder(pedido);
+        if (!wasNewAssignment) {
+          if (navigator.vibrate) navigator.vibrate([150, 80, 150]);
+          toast('Actualización de pedido', { icon: '🔔' });
+        }
       }
-      fetchData();
+      fetchData({ silent: true });
     });
 
-    // ── NEW: vibración en nuevo pedido
-    const unsubNuevo = socketManager.on('nuevo_pedido', (p) => {
-      if (navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 200]);
-      toast.success(`¡Nuevo pedido! #${p.numero}`);
-      fetchData();
+    const unsubAsignado = socketManager.on('pedido_asignado', async (pedido) => {
+      await alertAssignedOrder(pedido);
+      fetchData({ silent: true });
     });
+
+    const syncSilently = () => {
+      socketManager.connect();
+      socketManager.joinRider(riderAuth.id, riderAuth.code).catch(() => {});
+      fetchData({ silent: true });
+    };
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') syncSilently();
+    };
+    const intervalId = window.setInterval(syncSilently, 10000);
+    window.addEventListener('online', syncSilently);
+    window.addEventListener('focus', syncSilently);
+    document.addEventListener('visibilitychange', onVisible);
 
     return () => {
       unsub();
-      unsubNuevo();
+      unsubAsignado();
+      window.clearInterval(intervalId);
+      window.removeEventListener('online', syncSilently);
+      window.removeEventListener('focus', syncSilently);
+      document.removeEventListener('visibilitychange', onVisible);
       socketManager.disconnect();
     };
-  }, [audioContextRef, fallbackAudioRef, riderAuth, voiceRef]);
+  }, [alertAssignedOrder, audioContextRef, fallbackAudioRef, fetchData, riderAuth, voiceRef]);
 
   // ── GPS tracking ───────────────────────────────────────────────
   const startTracking = async (pedidoId) => {

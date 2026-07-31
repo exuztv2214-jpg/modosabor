@@ -815,3 +815,46 @@ Pendiente real de campo:
 - Permitir ubicacion precisa y en segundo plano.
 - Iniciar un pedido en camino.
 - Bloquear/minimizar el celular y confirmar que el backend sigue recibiendo ubicacion.
+
+### Avisos y sincronizacion automatica del Rider (31/07)
+
+Motivo: los pedidos nuevos solo aparecian al tocar Sincronizar y el rider podia no advertir
+una asignacion si la app estaba abierta en otra pantalla o el socket se habia reconectado.
+
+Hecho:
+
+- El backend emite `pedido_asignado` exclusivamente al room del rider correspondiente.
+- El cliente conserva la suscripcion del rider y vuelve a unirse automaticamente despues de
+  una desconexion o cambio de red.
+- La pantalla Rider sincroniza silenciosamente:
+  - cada 10 segundos;
+  - al recuperar internet;
+  - al volver a primer plano;
+  - al recuperar el foco.
+- La sincronizacion silenciosa no activa el estado de carga general, por lo que no hace
+  parpadear ni bloquear la pantalla.
+- Cada pedido nuevo asignado genera una sola alerta:
+  - sonido;
+  - vibracion;
+  - aviso visual;
+  - notificacion local nativa en Android.
+- Los pedidos ya avisados se guardan por rider en el dispositivo para no repetir la alarma
+  durante cada consulta automatica.
+- Android usa el canal de alta prioridad `rider-orders`, con sonido y vibracion.
+
+Validado:
+
+- ESLint de los archivos tocados sin errores.
+- `npm run build` OK.
+- `npm run verify:core` OK.
+- `npm run verify:operacion` OK.
+- Prueba del evento `pedido_asignado` OK: solo se emite a `repartidor_<id>`.
+- `npm run native:android:debug` OK.
+- APK actualizado:
+  - `client\android\app\build\outputs\apk\debug\app-debug.apk`
+
+Limite tecnico:
+
+- Si Android fuerza el cierre completo de la app o el usuario la detiene, Socket.IO y el
+  sondeo dejan de ejecutarse. Para avisar incluso con la app totalmente cerrada hace falta
+  incorporar push remoto con Firebase Cloud Messaging.

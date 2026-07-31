@@ -17,6 +17,8 @@ class SocketManager {
     this.listeners = new Map();
     this.trackingRooms = new Set();
     this.trackingSubscriptions = new Map();
+    this.riderSubscription = null;
+    this.riderJoined = false;
     this.hasConnectedOnce = false;
     this.reconnectAttempts = 0;
     this.maxReconnectAttempts = 5;
@@ -25,6 +27,10 @@ class SocketManager {
 
   connect() {
     if (this.socket?.connected) return this.socket;
+    if (this.socket) {
+      this.socket.connect();
+      return this.socket;
+    }
 
     this.socket = io(SOCKET_URL, {
       transports: ['websocket', 'polling'],
@@ -162,6 +168,9 @@ class SocketManager {
       this.connect();
     }
 
+    this.riderSubscription = { repartidorId, codigo };
+    if (this.riderJoined) return Promise.resolve();
+
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         reject(new Error('Timeout en autenticacion de rider'));
@@ -170,6 +179,7 @@ class SocketManager {
       this.socket.once('rider_joined', ({ repartidorId: joinedId }) => {
         clearTimeout(timeout);
         if (String(joinedId) === String(repartidorId)) {
+          this.riderJoined = true;
           resolve();
         }
       });
@@ -224,6 +234,8 @@ class SocketManager {
 
     this.trackingRooms.clear();
     this.trackingSubscriptions.clear();
+    this.riderSubscription = null;
+    this.riderJoined = false;
     this.hasConnectedOnce = false;
     this.authenticated = false;
     this.authPromise = null;
@@ -242,6 +254,9 @@ class SocketManager {
         this.trackingSubscriptions.forEach(({ pedidoId, token }) => {
           this.socket.emit('join_tracking', { pedidoId, token });
         });
+        if (this.riderSubscription) {
+          this.socket.emit('join_rider', this.riderSubscription);
+        }
       }
       this.hasConnectedOnce = true;
     });
@@ -249,10 +264,15 @@ class SocketManager {
     this.socket.on('disconnect', () => {
       this.authenticated = false;
       this.trackingRooms.clear();
+      this.riderJoined = false;
     });
 
     this.socket.on('tracking_joined', ({ pedidoId }) => {
       this.trackingRooms.add(`tracking_${pedidoId}`);
+    });
+
+    this.socket.on('rider_joined', () => {
+      this.riderJoined = true;
     });
 
     this.socket.on('connect_error', () => {

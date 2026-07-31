@@ -249,6 +249,10 @@ function emitDeliveryAssignment(
     emitPedidoActualizado(io, pedido);
   }
 
+  if (pedido?.repartidor_id) {
+    emitPedidoAsignado(io, pedido);
+  }
+
   if (repartidor) {
     emitRepartidorUbicacion(io, repartidor, pedido?.id);
   }
@@ -256,6 +260,15 @@ function emitDeliveryAssignment(
   if (previousRepartidor) {
     emitRepartidorUbicacion(io, previousRepartidor);
   }
+}
+
+function emitPedidoAsignado(io, pedido) {
+  if (!pedido?.repartidor_id) return;
+  const payload = {
+    ...pedido,
+    items: parsePedidoItems(pedido?.items),
+  };
+  io.to(`repartidor_${pedido.repartidor_id}`).emit('pedido_asignado', payload);
 }
 
 /**
@@ -290,6 +303,7 @@ function emitNuevoPedido(io, pedido) {
   };
   room.emit('nuevo_pedido', payload);
   room.emit('system_nuevo_pedido', payload);
+  emitPedidoAsignado(io, payload);
 
   // Logging para debugging de alarmas
   const stats = getRoomStats(io);
@@ -327,6 +341,7 @@ module.exports = {
   clearTrackingToken,
   emitPedidoActualizado,
   emitDeliveryAssignment,
+  emitPedidoAsignado,
   emitRepartidorUbicacion,
   emitNuevoPedido,
   getRoomStats,

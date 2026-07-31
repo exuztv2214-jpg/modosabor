@@ -47,10 +47,89 @@ async function requestNativeNotificationPermission() {
   }
 }
 
+export async function prepareRiderNotifications() {
+  if (!isNativeRiderApp()) {
+    if ('Notification' in window && Notification.permission === 'default') {
+      try {
+        return Notification.requestPermission();
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  const permission = await requestNativeNotificationPermission();
+  if (permission?.display !== 'granted') return permission;
+
+  if (Capacitor.getPlatform?.() === 'android') {
+    try {
+      await LocalNotifications.createChannel({
+        id: 'rider-orders',
+        name: 'Pedidos del rider',
+        description: 'Avisos de nuevos pedidos asignados',
+        importance: 5,
+        visibility: 1,
+        vibration: true,
+        sound: 'default',
+      });
+    } catch {}
+  }
+
+  return permission;
+}
+
+export async function notifyRiderNewOrder(pedido = {}) {
+  const numero = pedido?.numero || pedido?.id || '';
+  const cliente = String(pedido?.cliente_nombre || '').trim();
+  const body = cliente
+    ? `Pedido #${numero} para ${cliente}`
+    : `Tenés asignado el pedido #${numero}`;
+
+  if (!isNativeRiderApp()) {
+    if ('Notification' in window && Notification.permission === 'granted') {
+      return new Notification('Nuevo pedido asignado', {
+        body,
+        icon: '/icons/icon-192.png',
+        tag: `rider-order-${pedido?.id || numero}`,
+      });
+    }
+    return null;
+  }
+
+  const permission = await prepareRiderNotifications();
+  if (permission?.display !== 'granted') return null;
+
+  const numericId = Math.max(
+    1,
+    Number.parseInt(
+      String(pedido?.id || Date.now())
+        .replace(/\D/g, '')
+        .slice(-8),
+      10
+    ) || 1
+  );
+  return LocalNotifications.schedule({
+    notifications: [
+      {
+        id: numericId,
+        title: 'Nuevo pedido asignado',
+        body,
+        channelId: 'rider-orders',
+        sound: 'default',
+        extra: {
+          pedidoId: pedido?.id,
+          numero,
+        },
+      },
+    ],
+  });
+}
+
 export async function requestRiderLocationAccess() {
   if (isNativeRiderApp()) {
     await requestNativeLocationPermission();
-    await requestNativeNotificationPermission();
+    await prepareRiderNotifications();
     return Geolocation.getCurrentPosition(RIDER_GPS_OPTIONS);
   }
 
@@ -66,7 +145,7 @@ export async function requestRiderLocationAccess() {
 export async function startRiderLocationWatcher({ onPosition, onError }) {
   if (isNativeRiderApp()) {
     await requestNativeLocationPermission();
-    await requestNativeNotificationPermission();
+    await prepareRiderNotifications();
     const watcherId = await BackgroundGeolocation.addWatcher(
       {
         backgroundTitle: 'Modo Sabor Rider',
