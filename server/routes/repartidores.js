@@ -105,6 +105,63 @@ function haversineMeters(lat1, lon1, lat2, lon2) {
   return r * c * 1000; // metros
 }
 
+const RIDER_LOCATION_MAX_ACCURACY_METERS = 100;
+const RIDER_LOCATION_MAX_REALISTIC_SPEED_MPS = 35;
+const RIDER_LOCATION_HARD_JUMP_METERS = 300;
+
+function parseSqliteTimestamp(value) {
+  if (!value) return null;
+  const parsed = Date.parse(String(value).replace(' ', 'T'));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function validateRiderLocationUpdate({ repartidor, latitud, longitud, precision }) {
+  const lat = Number(latitud);
+  const lng = Number(longitud);
+  const accuracy = Number(precision);
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    return { ok: false, reason: 'coords_invalidas' };
+  }
+
+  if (Number.isFinite(accuracy) && accuracy > RIDER_LOCATION_MAX_ACCURACY_METERS) {
+    return {
+      ok: false,
+      reason: 'precision_baja',
+      accuracy,
+    };
+  }
+
+  const prevLat = Number(repartidor.latitud);
+  const prevLng = Number(repartidor.longitud);
+  const prevAt = parseSqliteTimestamp(repartidor.ultima_ubicacion_en);
+  if (Number.isFinite(prevLat) && Number.isFinite(prevLng) && prevAt) {
+    const distance = haversineMeters(prevLat, prevLng, lat, lng);
+    const elapsedSeconds = Math.max(1, (Date.now() - prevAt) / 1000);
+    const requiredSpeed = distance / elapsedSeconds;
+
+    if (
+      distance > RIDER_LOCATION_HARD_JUMP_METERS &&
+      requiredSpeed > RIDER_LOCATION_MAX_REALISTIC_SPEED_MPS
+    ) {
+      return {
+        ok: false,
+        reason: 'salto_brusco',
+        distance,
+        elapsedSeconds,
+        requiredSpeed,
+      };
+    }
+  }
+
+  return {
+    ok: true,
+    lat,
+    lng,
+    accuracy: Number.isFinite(accuracy) ? accuracy : null,
+  };
+}
+
 router.get('/', auth, (req, res) => {
   if (!hasPermission(req.user, 'delivery.view') && !hasPermission(req.user, 'tpv.use')) {
     return res.status(403).json({ error: 'Sin permisos para ver repartidores' });
@@ -297,6 +354,22 @@ router.put('/:id/rider/:codigo/ubicacion', (req, res) => {
   const { latitud, longitud, precision, velocidad, pedidoId } = req.body;
   const now = Date.now();
   const limit = riderRateLimit.get(repartidor.id);
+  const validatedLocation = validateRiderLocationUpdate({
+    repartidor,
+    latitud,
+    longitud,
+    precision,
+  });
+
+  if (!validatedLocation.ok) {
+    return res.status(202).json({
+      success: true,
+      ignored: true,
+      reason: validatedLocation.reason,
+      accuracy: validatedLocation.accuracy,
+      distance: validatedLocation.distance ? Math.round(validatedLocation.distance) : undefined,
+    });
+  }
 
   // Rechazar si viene muy rápido (DoS / batería)
   if (limit && now - limit.lastUpdate < RIDER_UPDATE_MIN_MS) {
@@ -310,13 +383,13 @@ router.put('/:id/rider/:codigo/ubicacion', (req, res) => {
   // Actualizar repartidor
   db.prepare(
     'UPDATE repartidores SET latitud = ?, longitud = ?, ultima_ubicacion_en = CURRENT_TIMESTAMP WHERE id = ?'
-  ).run(Number(latitud), Number(longitud), repartidor.id);
+  ).run(validatedLocation.lat, validatedLocation.lng, repartidor.id);
 
   // Si hay un pedido activo, actualizarlo también para el tracking del cliente
   if (pedidoId) {
     db.prepare(
       'UPDATE pedidos SET repartidor_latitud = ?, repartidor_longitud = ?, repartidor_ubicacion_en = CURRENT_TIMESTAMP WHERE id = ?'
-    ).run(Number(latitud), Number(longitud), pedidoId);
+    ).run(validatedLocation.lat, validatedLocation.lng, pedidoId);
   }
 
   // Log historial (throttled: máximo 1 insert cada 5 segundos por rider)
@@ -327,10 +400,10 @@ router.put('/:id/rider/:codigo/ubicacion', (req, res) => {
     ).run(
       repartidor.id,
       pedidoId || null,
-      Number(latitud),
-      Number(longitud),
-      precision || null,
-      velocidad || null
+      validatedLocation.lat,
+      validatedLocation.lng,
+      validatedLocation.accuracy,
+      Number.isFinite(Number(velocidad)) ? Number(velocidad) : null
     );
   }
 
@@ -346,8 +419,8 @@ router.put('/:id/rider/:codigo/ubicacion', (req, res) => {
   if (pedidoId && io) {
     const pedido = db.prepare('SELECT * FROM pedidos WHERE id = ?').get(pedidoId);
     if (pedido && pedido.estado === 'en_camino') {
-      const rLat = Number(latitud);
-      const rLng = Number(longitud);
+      const rLat = validatedLocation.lat;
+      const rLng = validatedLocation.lng;
       const cLat = Number(pedido.cliente_latitud);
       const cLng = Number(pedido.cliente_longitud);
 
@@ -389,8 +462,8 @@ router.put('/:id/rider/:codigo/ubicacion', (req, res) => {
         pedidoId: pedido.id,
         repartidorId: repartidor.id,
         repartidorNombre: repartidor.nombre,
-        riderLat: latitud,
-        riderLng: longitud,
+        riderLat: validatedLocation.lat,
+        riderLng: validatedLocation.lng,
         clientLat: pedido.cliente_latitud,
         clientLng: pedido.cliente_longitud,
         clienteTelefono: pedido.cliente_telefono,

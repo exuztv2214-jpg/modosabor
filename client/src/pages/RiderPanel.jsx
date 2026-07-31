@@ -34,6 +34,7 @@ import { es } from 'date-fns/locale';
 import { paymentMethodLabel, paymentStatusLabel, paymentStatusTone } from '../lib/paymentStatus.js';
 import { normalizePedidoItems } from '../lib/pedidoItems.js';
 import { buildGoogleMapsDirectionsUrl, buildGoogleMapsEmbedUrl } from '../lib/maps.js';
+import { RIDER_GPS_OPTIONS, filterRiderGpsPosition } from '../lib/riderGps.js';
 import api from '../lib/api.js';
 import { socketManager } from '../lib/socket.js';
 import { runDeliveredAlert, useOrderAlertPlayback } from '../lib/orderAlerts.js';
@@ -447,6 +448,8 @@ export default function RiderPanel() {
 
   // ── NEW: multi-delivery route optimization ──
   const [riderLocation, setRiderLocation] = useState({ lat: null, lng: null });
+  const lastAcceptedGpsRef = useRef(null);
+  const rejectedGpsToastAtRef = useRef(0);
 
   // Alerts
   const deliveredSeenRef = useRef(new Set());
@@ -635,19 +638,41 @@ export default function RiderPanel() {
     setTrackingActive(true);
     setLocationError('');
     trackedPedidoIdRef.current = pedidoId;
+    lastAcceptedGpsRef.current = null;
     watchIdRef.current = navigator.geolocation.watchPosition(
       (pos) => {
-        const { latitude, longitude, accuracy, speed } = pos.coords;
+        const filtered = filterRiderGpsPosition(pos, lastAcceptedGpsRef.current);
         setLocationPermission('granted');
+
+        if (!filtered.accepted) {
+          const now = Date.now();
+          if (now - rejectedGpsToastAtRef.current > 30000) {
+            rejectedGpsToastAtRef.current = now;
+            if (filtered.reason === 'precision_baja') {
+              setLocationError(
+                `GPS impreciso (${Math.round(filtered.accuracy || 0)}m). Buscando mejor señal...`
+              );
+            } else {
+              setLocationError('GPS inestable. Ignoramos una lectura rara y seguimos buscando.');
+            }
+          }
+          return;
+        }
+
+        const { lat, lng, accuracy, speed, smoothed } = filtered.point;
+        lastAcceptedGpsRef.current = filtered.point;
+        setLocationError('');
         setLastPositionAt(new Date().toISOString());
-        setRiderLocation({ lat: latitude, lng: longitude });
+        setRiderLocation({ lat, lng, accuracy, smoothed });
         api
           .put(`/repartidores/${riderAuth.id}/rider/${riderAuth.code}/ubicacion`, {
-            latitud: latitude,
-            longitud: longitude,
+            latitud: lat,
+            longitud: lng,
             precision: accuracy,
             velocidad: speed,
             pedidoId,
+            fuente: 'watchPosition',
+            suavizado: smoothed ? 1 : 0,
           })
           .catch(() => {});
       },
@@ -658,7 +683,7 @@ export default function RiderPanel() {
           setLocationError('Activá la ubicación para que el cliente pueda seguirte en vivo.');
         } else setLocationError('No pudimos actualizar tu ubicación en este momento.');
       },
-      { enableHighAccuracy: true, timeout: 20000, maximumAge: 8000 }
+      RIDER_GPS_OPTIONS
     );
   };
 
@@ -669,6 +694,7 @@ export default function RiderPanel() {
     }
     setTrackingActive(false);
     trackedPedidoIdRef.current = null;
+    lastAcceptedGpsRef.current = null;
   };
 
   const requestLocationAccess = () => {
@@ -688,7 +714,7 @@ export default function RiderPanel() {
         setLocationPermission('denied');
         setLocationError('Debés permitir ubicación para usar el tracking en vivo.');
       },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+      RIDER_GPS_OPTIONS
     );
   };
 

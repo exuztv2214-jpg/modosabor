@@ -719,3 +719,38 @@ Rider / Maps:
 - Prueba tecnica:
   - `-26.975,-65.275` ahora se considera fuera de zona.
   - el link de ruta para `las piedras 736` se arma como direccion textual completa y no como coordenada falsa.
+
+### Tracking rider: precision, descarte y suavizado GPS (31/07)
+
+Motivo: el rider tracking podia mostrar coordenadas imprecisas o saltos de cientos de metros porque la app aceptaba y subia toda lectura del navegador aunque viniera con mala precision.
+
+Hecho:
+
+- Confirmado: la app rider corre como web/PWA, no como app nativa.
+- El tracking del rider ya usa `navigator.geolocation.watchPosition`.
+- Se centralizaron opciones GPS para rider:
+  - `enableHighAccuracy: true`
+  - `timeout: 15000`
+  - `maximumAge: 0`
+- Se agrego filtro en cliente antes de pintar en mapa o subir al servidor:
+  - descarta lecturas con `accuracy` mayor a 100 metros.
+  - descarta saltos bruscos que exigirian velocidad irreal.
+  - suaviza movimientos chicos para que el marcador no pegue saltos visuales.
+- Se agrego validacion equivalente en backend:
+  - si llega precision mala o salto brusco, responde OK ignorado y no actualiza `repartidores`, `pedidos` ni sockets.
+  - evita que el tracking publico quede contaminado por una lectura vieja/mala.
+
+Limitacion importante:
+
+- Al ser web/PWA, la precision real depende del navegador, permisos, GPS del celular, ahorro de bateria, señal y si la app queda en segundo plano.
+- Con estos ajustes se mejora mucho la estabilidad, pero el techo de precision no es igual al de una app nativa Android con tracking en background.
+
+Validado:
+
+- `npm run build` OK.
+- `npm run verify:core` OK.
+- `npm run verify:operacion` OK.
+- Prueba tecnica del filtro GPS:
+  - lectura buena aceptada.
+  - lectura con precision baja rechazada.
+  - salto brusco rechazado.
