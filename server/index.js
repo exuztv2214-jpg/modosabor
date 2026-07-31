@@ -122,11 +122,11 @@ function centsToPesos(obj) {
 
 // pesosToCents/centsToPesos ahora respetan isMoneyKey (antes ese chequeo estaba
 // sin usar y se convertía CUALQUIER número, lo que corrompía ids en JSON con
-// arrays de objetos). Estas dos rutas quedan igual excluidas por prudencia:
-// ya estaban probadas funcionando así y no hay forma de re-verificarlas en
-// caliente ahora mismo. Se pueden sacar de esta lista con confianza en el
-// próximo reinicio si se prueban de nuevo end-to-end.
-const MONEY_MIDDLEWARE_SKIP_PATHS = ['/api/operacion/menu-dia', '/api/tpv/espera'];
+// arrays de objetos). /api/operacion/menu-dia se verificó end-to-end
+// (comparando contra /api/productos, que sí pasa por el middleware) y ya
+// puede sumarse a la conversión normal. /api/tpv/espera sigue afuera por
+// prudencia hasta probarla de nuevo.
+const MONEY_MIDDLEWARE_SKIP_PATHS = ['/api/tpv/espera'];
 function shouldSkipMoneyMiddleware(req) {
   return MONEY_MIDDLEWARE_SKIP_PATHS.some((path) => req.path.startsWith(path));
 }

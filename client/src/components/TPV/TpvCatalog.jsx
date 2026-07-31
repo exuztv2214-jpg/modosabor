@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { ListPlus, Plus, Search, ShoppingCart, UtensilsCrossed } from 'lucide-react';
 
-import { getPrimaryDisplayPrice, safeParseArray } from '../../lib/pedidoForm.js';
+import { getPrimaryDisplayPrice } from '../../lib/pedidoForm.js';
 import { resolveAssetUrl } from '../../lib/assets.js';
 
 const fmt = (value) => `$${Number(value || 0).toLocaleString('es-AR')}`;
@@ -124,7 +124,6 @@ export default function TpvCatalog({
             const primaryPrice = getPrimaryDisplayPrice(producto);
             const qtyInCart = Number(cartQtyByProductId[producto.id] || 0);
             const imageUrl = producto?.imagen ? resolveAssetUrl(producto.imagen) : null;
-            const tieneExtrasOpcionales = safeParseArray(producto.extras).length > 0;
             const puedeVender = cajaAbierta && producto.disponible_para_venta !== false;
 
             return (
@@ -142,14 +141,14 @@ export default function TpvCatalog({
                 }}
                 className={`group relative flex flex-col rounded-[24px] border border-transparent bg-white p-4 text-left transition-all duration-200 hover:-translate-y-1 hover:shadow-[0_12px_30px_rgba(0,0,0,0.08)] active:scale-[0.98] ${!puedeVender ? 'cursor-not-allowed opacity-60 grayscale' : 'cursor-pointer shadow-sm'} ${qtyInCart > 0 ? 'border-primary-500/20 ring-2 ring-[#5D87FF]/50' : ''}`}
               >
-                {tieneExtrasOpcionales && puedeVender ? (
+                {puedeVender ? (
                   <button
                     type="button"
                     onClick={(event) => {
                       event.stopPropagation();
                       onAddItemWithOptions?.(producto);
                     }}
-                    title="Agregar con extras (ej: jugo y postre)"
+                    title="Agregar con extras o nota (ej: sin aceituna)"
                     className="absolute -right-2 -top-2 z-10 flex h-7 w-7 items-center justify-center rounded-full border border-gray-100 bg-white text-gray-500 shadow-md transition hover:bg-primary-50 hover:text-primary-600"
                   >
                     <ListPlus size={14} />

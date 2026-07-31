@@ -166,6 +166,19 @@ export default function VariantModal({ modal, setModal, colorPrimario, onClose, 
                   </div>
                 </div>
               )}
+
+              <div className="space-y-2">
+                <label className="text-xs font-semibold text-gray-500">
+                  Nota <span className="font-normal text-gray-300">(opcional)</span>
+                </label>
+                <textarea
+                  value={modal.notas || ''}
+                  onChange={(event) => setModal((prev) => ({ ...prev, notas: event.target.value }))}
+                  placeholder="Ej: sin aceituna, bien cocida, sin picante..."
+                  rows={2}
+                  className="w-full rounded-xl border-2 border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-800 outline-none transition focus:border-gray-300"
+                />
+              </div>
             </div>
 
             {!variantesCompletas ? (
@@ -174,7 +187,7 @@ export default function VariantModal({ modal, setModal, colorPrimario, onClose, 
               </p>
             ) : null}
             <button
-              onClick={() => onAddToCart(modal.producto, modal.sel, modal.extrasSel)}
+              onClick={() => onAddToCart(modal.producto, modal.sel, modal.extrasSel, modal.notas)}
               disabled={!variantesCompletas}
               className={`mt-4 shrink-0 mx-6 mb-6 h-12 rounded-xl text-sm font-semibold shadow-lg transition-all active:scale-95 ${
                 variantesCompletas

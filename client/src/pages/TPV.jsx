@@ -1027,6 +1027,8 @@ export default function TPV() {
       const descripcionVariantes = buildVariantDescription(variantes, variantGroups);
       const descripcionExtras = extras.map((extra) => extra.nombre).join(', ');
       const descripcionReward = options.rewardTag ? `Premio: ${options.rewardTag}` : '';
+      const notas = String(options.notas || '').trim();
+      const descripcionNotas = notas ? `Nota: ${notas}` : '';
       const newId = `${producto.id}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
       setItems((previous) => [
         ...previous,
@@ -1038,8 +1040,14 @@ export default function TPV() {
           cantidad: 1,
           variantes,
           extras,
+          notas,
           cartKey,
-          descripcion: [descripcionReward, descripcionVariantes, descripcionExtras]
+          descripcion: [
+            descripcionReward,
+            descripcionVariantes,
+            descripcionExtras,
+            descripcionNotas,
+          ]
             .filter(Boolean)
             .join(' | '),
         },
@@ -1114,13 +1122,18 @@ export default function TPV() {
     // Solo se abre el modal si el producto tiene variantes reales para elegir
     // (talle, presentacion, etc). Si únicamente tiene extras opcionales -como la
     // promo de jugo + postre del menú del día- se agrega directo para no
-    // frenar la venta rápida; el extra se puede sumar aparte con "+ opciones".
-    if (variantes.length > 0 || (forceOptions && extras.length > 0)) {
-      setVariantModal({ producto, variantes, extras, sel: {}, extrasSel: [] });
+    // frenar la venta rápida; el extra (o una nota tipo "sin aceituna") se puede
+    // sumar aparte tocando "+ opciones", que ahora siempre está disponible.
+    if (variantes.length > 0 || extras.length > 0 || forceOptions) {
+      setVariantModal({ producto, variantes, extras, sel: {}, extrasSel: [], notas: '' });
       return;
     }
 
     addToCart(producto, {}, []);
+  };
+
+  const actualizarNotasVariante = (value) => {
+    setVariantModal((previous) => (previous ? { ...previous, notas: value } : previous));
   };
 
   const seleccionarVariante = (groupName, option) => {
@@ -1687,12 +1700,14 @@ export default function TPV() {
               variantModal.sel,
               variantModal.extrasSel,
               variantModal.variantes,
-              variantModal.rewardOptions || {}
+              { ...(variantModal.rewardOptions || {}), notas: variantModal.notas }
             )
           }
           onClose={() => setVariantModal(null)}
           onSelectVariant={seleccionarVariante}
           onToggleExtra={toggleExtraVariante}
+          notas={variantModal.notas}
+          onNotasChange={actualizarNotasVariante}
           selectedVariantTotal={selectedVariantTotal}
           variantesCompletas={variantesCompletas}
           variantModal={variantModal}

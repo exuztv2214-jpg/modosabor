@@ -2,7 +2,7 @@
 
 Registro de todo el trabajo hecho sobre el sistema Modo Sabor y sobre el agente de WhatsApp con IA. Se va actualizando a medida que avanzamos, para poder pausar y retomar sin perder el hilo.
 
-Última actualización: 23 de julio de 2026.
+Última actualización: 31 de julio de 2026.
 
 ---
 
@@ -878,3 +878,88 @@ Validado:
 - `npm run native:android:debug` OK.
 - APK actualizado:
   - `client\android\app\build\outputs\apk\debug\app-debug.apk`
+
+---
+
+## 13. TPV: segunda auditoría, rediseño y catálogo del menú (31/07)
+
+Tramo de trabajo separado del de WhatsApp/n8n (que sigue en pausa, ver sección 6). Empezó con una auditoría completa del proyecto pedida por Hernán, con foco después en el módulo TPV.
+
+### 13.1. Segunda auditoría de TPV: 6 bugs corregidos
+
+Se releyó `TPV.jsx` y sus componentes (`TpvCatalog`, `TpvSidebar`, `TpvVariantModal`, `TpvHeader`) y el backend de ventas/pedidos, buscando bugs nuevos más allá de los ya arreglados en la primera auditoría (sección 3).
+
+Encontrados y corregidos:
+
+- **Sincronización de "ventas en espera" (race condition)**: el diseño anterior mandaba la lista completa al servidor en cada cambio (`PUT` de todo el array). Si dos terminales guardaban/borraban casi al mismo tiempo, una terminal con datos un poco viejos podía resucitar un pedido que la otra ya había borrado. Se reemplazó por operaciones por ítem: `POST /api/tpv/espera` (upsert con `INSERT ... ON CONFLICT DO UPDATE`) y `DELETE /api/tpv/espera/:id`, más un polling cada 20s y al volver a la pestaña.
+- **Efectivo recibido sin validar si el campo quedaba vacío**: el mínimo de efectivo solo se chequeaba si el campo tenía algo cargado; si quedaba vacío, se saltaba la validación. Corregido tanto en `pedidoForm.js` (`getTpvSubmitError`) como en el `preflightChecklist` de `TPV.jsx` (que es lo que deshabilita el botón VENDER).
+- **Confirmación antes de perder el pedido**: se agregó `window.confirm` antes de vaciar el carrito manualmente y antes de salir del TPV con ítems cargados, más un aviso del navegador (`beforeunload`) si se intenta cerrar/recargar la pestaña con el pedido sin guardar.
+- **"Hora de entrega" siempre visible**: pedido explícito de Hernán — antes el campo de horario aparecía siempre, aunque la mayoría de los pedidos salen apenas están listos (sin horario pactado). Se reemplazó por un toggle "Programar hora" (apagado por defecto): si está apagado, el pedido sale ni bien está listo; si se prende, recién ahí aparece el selector de hora.
+- **Imágenes rotas en el catálogo**: si la imagen de un producto no existía más en el servidor, el navegador mostraba el ícono roto nativo. Se agregó un componente `ProductThumb` con `onError` que cae al ícono de categoría o a un ícono de plato genérico.
+- **Restaurar un pedido en espera no lo sacaba de la lista**: al tocar "Abrir" en un pedido guardado, quedaba una copia vieja en la lista de espera que se podía volver a vender por error. Ahora "Abrir" saca el pedido de la lista (local y en el servidor).
+- **Bug menor de texto**: el badge de turno mostraba "Turno Turno Noche" (duplicado) porque el nombre del turno ya incluye la palabra "Turno". Corregido con un formateador que evita duplicarla.
+
+### 13.2. Rediseño visual del TPV
+
+Hernán pidió un rediseño de fondo del TPV: partes de la UI se veían cortadas, y había campos que aparecían siempre cuando deberían ser condicionales (el caso de "hora de entrega" de arriba).
+
+Mandó una captura mostrando el sidebar del carrito cortado (el tab "MESA" no se veía). La causa real, encontrada revisando en vivo con las devtools del navegador conectado:
+
+- **Bug de layout en cascada (flexbox sin `min-w-0`)**: varios contenedores flex del TPV (`TpvSidebar`, el contenedor del catálogo, y el `<div>` intermedio que envuelve header + fila catálogo/sidebar en `TPV.jsx`) no tenían `min-w-0`/`shrink-0` explícitos. Un contenedor flex sin `min-w-0` usa el ancho mínimo de su contenido como piso, en vez de respetar el espacio disponible. Esto hacía que la fila completa terminara siendo ~92px más ancha que el viewport real, y como el contenedor exterior recorta con `overflow-hidden` (sin scroll), esos 92px de más quedaban invisibles del lado derecho — cortando el sidebar del carrito.
+- Se corrigió en tres niveles: `TpvSidebar` (el `<aside>`) ahora tiene `shrink-0` para no comprimirse nunca por debajo de su ancho fijo; `TpvCatalog` tiene `min-w-0` para que sea el catálogo el que ceda espacio si hace falta; y el `<div>` intermedio en `TPV.jsx` también sumó `min-w-0`. Verificado en vivo con el navegador conectado: antes se veía el botón "Fullscreen" y el tab "MESA" cortados, después se ven completos.
+- **Ícono del buscador de clientes mal alineado**: el botón con el ícono de "buscar cliente" (al lado del campo Teléfono) no tenía `-translate-y-1/2`, así que quedaba corrido hacia abajo en vez de centrado en el campo. Se corrigió y de paso se le dio forma de botón circular con fondo (antes era un ícono suelto).
+
+### 13.3. Notas por producto y extras (TPV + web pública)
+
+Pedido de Hernán: si un cliente quiere pedir sin aceituna (o cualquier otra aclaración), no había dónde anotarlo; y productos como las hamburguesas no ofrecían extras de la carta (queso, carne, papas) aunque el sistema ya tenía el campo `extras` armado.
+
+- Se agregó un campo "Nota (opcional)" al modal de variantes/extras, tanto en `TpvVariantModal.jsx` (TPV) como en `VariantModal.jsx` (web pública). La nota se guarda en el ítem del carrito y viaja en la `descripcion` que ya se manda al pedido (se ve en ticket/comanda sin tocar el backend).
+- En el TPV, el botón "+ opciones" del catálogo (antes solo aparecía si el producto tenía extras cargados) ahora está siempre disponible, para poder agregar una nota aunque el producto no tenga variantes ni extras.
+- Se cargaron extras en las 16 hamburguesas: Queso extra ($1.000), Medallón de carne extra ($2.500), Papas ($1.500), Huevo ($1.000) — usando los mismos precios que ya existían en la categoría "Agregados".
+- Probado en vivo en la web pública: al elegir "Bacon Cheese", ahora aparecen los 4 extras y el campo de nota; se seleccionó "Queso extra" (el total subió de $6.000 a $7.000), se escribió una nota, y se agregó bien al carrito.
+
+### 13.4. Actualización de precios desde el menú nuevo (PDF/imágenes)
+
+Hernán mandó 5 imágenes del menú impreso (Hamburguesas, Milanesas, Pizzas, Sandwichs, Empanadas). Antes de tocar precios se revisaron las imágenes buscando errores de diseño/contenido:
+
+- Título "Hamburgesas" con error de tipeo (falta la "u"), repetido en dos subtítulos.
+- En Milanesas, "4 Quesos" y "Roquefort" tenían la descripción idéntica copiada y pegada.
+- En Pizzas, la descripción de "4 Quesos" era literalmente la de "Choclo" (mencionaba choclo en crema en vez de los 4 quesos).
+- "Mediterranea" (milanesa) tenía un texto roto: "...rcon un toque lo oliva".
+- "Sfijas" (empanada) probablemente debería llevar h: "Sfihas".
+
+Esos son ajustes del archivo de diseño (Canva/Illustrator), no del sistema — quedaron señalados para Hernán, no se tocan desde acá.
+
+Comparando los 71 productos del sistema contra el menú nuevo, la gran mayoría de los precios ya estaba al día. Se actualizaron 4 que estaban desactualizados:
+
+- Pepsi lata: $1.500 → $2.000.
+- Empanada Jamón y Queso: media $5.000→$5.500, docena $9.000→$10.000.
+- Empanada Mondongo: media $4.500→$5.500, docena $9.000→$10.000.
+- Empanada Verdura: media $4.500→$5.000, docena $8.000→$9.000.
+
+**Sandwichs reestructurado**: el sistema solo tenía 4 productos (Común/Especial/Modo Sabor/Napolitana, todos de lomito), pero el menú nuevo pide 8: los mismos 4 tipos pero separados en línea de Lomito y línea de Milanesa, cada uno con Chico/Grande. Se renombraron los 4 existentes con el prefijo "Lomito" (el que se llamaba "Napolitana" en realidad tenía la descripción exacta de "Super Modo" del menú nuevo, así que se renombró y se corrigió el precio grande de $15.500 a $16.000), y se crearon 4 productos nuevos "Milanesa ..." con los mismos precios ($8.000/$13.000 a $10.000/$16.000 según el tipo).
+
+**Pendiente, no tocado sin confirmar con Hernán**:
+
+- Productos duplicados con precio distinto: "BBQ" (viejo, $13.500/$15.000) vs "Modo Sabor BBQ" (el correcto, $11.500/$13.000); "Suiza" vs "Modo Suiza" (mismo precio, nombre repetido).
+- Una "Clasica" cargada por error dentro de la categoría Pizzas (con opciones Carne/Pollo), duplicado de la Clásica real de Milanesas.
+- La pizza "Pepperoni", que existe en el sistema pero no aparece en ningún menú nuevo.
+
+### 13.5. Menú del día reemplazado por el de mañana
+
+Se desactivaron los 5 platos viejos del menú del día que no correspondían (Bombita de papas y Suprema a la napolitana quedaron desactivados sin borrar, para no romper historial) y se armó el menú que pidió Hernán para el día siguiente, todo cargado pero **apagado** (`disponible_hoy = 0`) hasta que se prenda desde Control Diario:
+
+- **Económico $5.000**: Wok de verduras y pollo (arroz o fideo — reutilizando el producto viejo, ya tenía esa variante), Canelón (salsa blanca/roja/mixta), Guiso de lentejas y arroz, Tarta de pollo y puerro.
+- **Ejecutivo $7.000**: Costeleta de res a caballo (sin guarnición a elección), Costillita de cerdo al horno, Albóndigas rellenas y Suprema a la suiza (estos 3 con guarnición a elección: arroz blanco, arroz a la provenzal, fideo a la provenzal, papas, puré, arroz primavera).
+
+### 13.6. Bug de fondo encontrado: precios ×100 en Control Diario
+
+Mientras se cargaba el menú del día, la pantalla de Control Diario (`/api/operacion/menu-dia`) mostraba precios 100 veces más grandes (ej. $700.000 en vez de $7.000).
+
+Causa real: el sistema tiene un middleware global (`server/index.js`) que guarda la plata en centavos en la base y la convierte a pesos automáticamente en cada respuesta JSON (y viceversa en cada request). Esa ruta específica (`/api/operacion/menu-dia`) había quedado **excluida a propósito** de esa conversión durante un arreglo anterior (el mismo de la sección "Bug global de `pesosToCents`", 23/07), con un comentario en el código diciendo que se podía sacar de la lista de exclusión "con confianza en el próximo reinicio" una vez reverificada — exactamente la tarea que había quedado pendiente sin cerrar.
+
+Se comparó el mismo producto a través de `/api/productos` (que sí convierte bien) contra `/api/operacion/menu-dia` (que no convertía) y se confirmó que los datos guardados están correctos — es solo un problema de visualización en esa pantalla. Se sacó `/api/operacion/menu-dia` de la lista de exclusión en `server/index.js`. Este cambio, como todos los de código en este tramo, **necesita reiniciar/desplegar el servidor para tomar efecto** (no se pudo probar en caliente en este entorno porque el sandbox de comandos no estuvo disponible durante toda la sesión).
+
+### 13.7. Nota técnica de esta sesión
+
+Durante todo este tramo, la terminal/sandbox de comandos (`node`, `npm`, `git`) no estuvo disponible (error `HYPERVISOR_VIRT_DISABLED`). Todos los cambios de código se hicieron y revisaron a mano con las herramientas de archivo, y las pruebas en vivo (layout del TPV, ícono, notas/extras, precios) se hicieron conectándose al navegador del propio Hernán contra `localhost:5173`, no contra producción. **Ningún cambio de este tramo está todavía en Donweb** — falta correr `npm run deploy:donweb` para subir todo junto (el TPV, las notas/extras, el catálogo actualizado, el menú del día nuevo, y el fix del middleware de precios).

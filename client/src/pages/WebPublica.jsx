@@ -629,17 +629,18 @@ export default function WebPublica() {
     const variantes = safeParseArray(producto.variantes);
     const extras = safeParseArray(producto.extras);
     if (variantes.length > 0 || extras.length > 0) {
-      setVariantModal({ producto, variantes, extras, sel: {}, extrasSel: [] });
+      setVariantModal({ producto, variantes, extras, sel: {}, extrasSel: [], notas: '' });
       return;
     }
     addToCart(producto, {}, []);
   };
 
-  const addToCart = (producto, sel, extrasSel) => {
+  const addToCart = (producto, sel, extrasSel, notas) => {
     const varKey = JSON.stringify(sel || {});
     const precioExtra =
       Object.values(sel || {}).reduce((acc, o) => acc + Number(o?.precio_extra || 0), 0) +
       (extrasSel || []).reduce((acc, e) => acc + Number(e.precio || 0), 0);
+    const notaLimpia = String(notas || '').trim();
 
     const existing = carrito.find((i) => i.producto_id === producto.id && i.varKey === varKey);
     if (existing) {
@@ -658,9 +659,11 @@ export default function WebPublica() {
           varKey,
           variantes: sel || {},
           extras: extrasSel || [],
+          notas: notaLimpia,
           descripcion: [
             ...Object.values(sel || {}).map((o) => o.nombre || o),
             ...(extrasSel || []).map((e) => e.nombre),
+            ...(notaLimpia ? [`Nota: ${notaLimpia}`] : []),
           ].join(', '),
         },
       ]);

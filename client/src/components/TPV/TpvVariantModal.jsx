@@ -7,6 +7,8 @@ export default function TpvVariantModal({
   onClose,
   onToggleExtra,
   onSelectVariant,
+  notas,
+  onNotasChange,
   selectedVariantTotal,
   variantesCompletas,
   variantModal,
@@ -91,6 +93,19 @@ export default function TpvVariantModal({
             </div>
           </div>
         ) : null}
+
+        <div className="mb-5">
+          <p className="mb-2 text-sm font-black text-gray-800">
+            Nota <span className="font-normal text-gray-400">(opcional)</span>
+          </p>
+          <textarea
+            value={notas || ''}
+            onChange={(event) => onNotasChange?.(event.target.value)}
+            placeholder="Ej: sin aceituna, bien cocida, sin picante..."
+            rows={2}
+            className="w-full rounded-2xl border-2 border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-800 outline-none transition focus:border-primary-300"
+          />
+        </div>
 
         {!variantesCompletas ? (
           <div className="mb-4 rounded-2xl border border-amber-200 bg-warning-50 px-3 py-2 text-xs font-bold text-warning-700">
