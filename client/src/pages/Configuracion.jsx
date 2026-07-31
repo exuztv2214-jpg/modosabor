@@ -10,6 +10,7 @@ import {
   LayoutGrid,
   Smartphone,
   MonitorSmartphone,
+  BellRing,
 } from 'lucide-react';
 
 import api from '../lib/api.js';
@@ -23,6 +24,7 @@ import SeccionRider from '../components/Configuracion/SeccionRider.jsx';
 import SeccionImpresion from '../components/Configuracion/SeccionImpresion.jsx';
 import SeccionAvanzado from '../components/Configuracion/SeccionAvanzado.jsx';
 import SeccionWebPublica from '../components/Configuracion/SeccionWebPublica.jsx';
+import SeccionAlertas from '../components/Configuracion/SeccionAlertas.jsx';
 import ActionDialog from '../components/ActionDialog.jsx';
 import { safeParseArray } from '../lib/pedidoForm.js';
 
@@ -341,6 +343,13 @@ export default function Configuracion() {
       bg: 'bg-primary-50',
     },
     {
+      id: 'alertas',
+      label: 'Alertas y voz',
+      icon: BellRing,
+      color: 'text-emerald-600',
+      bg: 'bg-emerald-50',
+    },
+    {
       id: 'impresion',
       label: 'Impresión',
       icon: Printer,
@@ -425,6 +434,7 @@ export default function Configuracion() {
           />
         )}
         {activeTab === 'rider' && <SeccionRider config={config} f={f} setConfig={setConfig} />}
+        {activeTab === 'alertas' && <SeccionAlertas config={config} f={f} setConfig={setConfig} />}
         {activeTab === 'impresion' && (
           <SeccionImpresion config={config} f={f} setToggle={setToggle} setConfig={setConfig} />
         )}

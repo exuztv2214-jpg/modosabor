@@ -3,6 +3,18 @@ import { useEffect, useRef } from 'react';
 const FALLBACK_ALERT_WAV =
   'data:audio/wav;base64,UklGRlQCAABXQVZFZm10IBAAAAABAAEAIlYAAESsAAACABAAZGF0YTACAACBhYqOkpWTlZaXmpyfoKGio6Sko6GfnJmWk5CPj42MjI2Qk5aZnJ+jo6KgoJ+cmZaTkI+PjYyMjZCTlpmcn6OjoqCgn5yZlpOQj4+NjIyNkJOWmZyfo6OioKCfnJmWk5CPj42MjI2Qk5aZnJ+jo6KgoJ+cmZaTkI+PjYyMjZCTlpmcn6OjoqCgn5yZlpOQj4+NjIyNkJOWmZyfo6OioKCfnJmWk5CPj42MjI2Qk5aZnJ+jo6KgoJ+cmZaTkI+PjYyMjQ==';
 const recentAlertClaims = new Map();
+const DEFAULT_NAME_PRONUNCIATIONS = new Map(
+  [
+    ['cristian', 'Cristián'],
+    ['galvan', 'Galván'],
+    ['gonzalez', 'González'],
+    ['hernan', 'Hernán'],
+    ['ivan', 'Iván'],
+    ['matias', 'Matías'],
+    ['mathias', 'Matías'],
+    ['maximiliano', 'Maximiliano'],
+  ].map(([source, target]) => [source.toLocaleLowerCase('es'), target])
+);
 
 export function claimAlertKey(key, ttlMs = 4000) {
   const normalized = String(key || '').trim();
@@ -41,8 +53,37 @@ export function normalizeCustomerName(value) {
   return raw.split(/\s+/).slice(0, 2).join(' ');
 }
 
+function parsePronunciationReplacements(value) {
+  const replacements = new Map(DEFAULT_NAME_PRONUNCIATIONS);
+  String(value || '')
+    .split(/\r?\n|,/)
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .forEach((entry) => {
+      const separator = entry.includes('=') ? '=' : ':';
+      const [source, ...targetParts] = entry.split(separator);
+      const target = targetParts.join(separator).trim();
+      if (!source?.trim() || !target) return;
+      replacements.set(source.trim().toLocaleLowerCase('es'), target);
+    });
+  return replacements;
+}
+
+export function prepareNameForSpeech(value, replacements = '') {
+  const name = normalizeCustomerName(value);
+  if (!name) return '';
+  const pronunciationMap = parsePronunciationReplacements(replacements);
+  return name
+    .split(/\s+/)
+    .map((word) => {
+      const clean = word.replace(/[^\p{L}'-]/gu, '');
+      return pronunciationMap.get(clean.toLocaleLowerCase('es')) || word;
+    })
+    .join(' ');
+}
+
 export function buildOrderAnnouncementText(pedido = {}, config = {}) {
-  const customer = normalizeCustomerName(pedido?.cliente_nombre);
+  const customer = prepareNameForSpeech(pedido?.cliente_nombre, config?.alertas_voz_reemplazos);
   const numero = pedido?.numero ? String(pedido.numero) : '';
   const template = String(config?.alertas_pedido_texto || '').trim();
 
@@ -65,9 +106,11 @@ export function buildOrderAnnouncementText(pedido = {}, config = {}) {
 }
 
 export function buildDeliveredAnnouncementText(pedido = {}, options = {}) {
-  const customer = normalizeCustomerName(pedido?.cliente_nombre);
+  const replacements =
+    options?.pronunciationReplacements || options?.config?.alertas_voz_reemplazos || '';
+  const customer = prepareNameForSpeech(pedido?.cliente_nombre, replacements);
   const numero = pedido?.numero ? String(pedido.numero) : '';
-  const rider = normalizeCustomerName(options?.riderName || pedido?.repartidor_nombre);
+  const rider = prepareNameForSpeech(options?.riderName || pedido?.repartidor_nombre, replacements);
   const scope = String(options?.scope || 'admin')
     .trim()
     .toLowerCase();
@@ -94,18 +137,46 @@ export function buildDeliveredAnnouncementText(pedido = {}, options = {}) {
   return 'Se entrego el pedido.';
 }
 
-export function pickSpanishSpeechVoice() {
+function voicePriority(voice) {
+  const lang = String(voice?.lang || '').toLowerCase();
+  const name = String(voice?.name || '').toLowerCase();
+  if (lang === 'es-ar' && /argentin|elena/.test(name)) return 0;
+  if (lang === 'es-ar') return 1;
+  if (/argentin|elena/.test(name)) return 2;
+  if (lang === 'es-419') return 3;
+  if (lang.startsWith('es-mx') || lang.startsWith('es-us')) return 4;
+  if (lang.startsWith('es')) return 5;
+  return 10;
+}
+
+export function listSpanishSpeechVoices() {
   if (!('speechSynthesis' in window)) return null;
-  const voices = window.speechSynthesis.getVoices();
+  return window.speechSynthesis
+    .getVoices()
+    .filter((voice) =>
+      String(voice.lang || '')
+        .toLowerCase()
+        .startsWith('es')
+    )
+    .sort((a, b) => voicePriority(a) - voicePriority(b) || a.name.localeCompare(b.name));
+}
+
+export function pickSpanishSpeechVoice(preferredName = '') {
+  if (!('speechSynthesis' in window)) return null;
+  const voices = listSpanishSpeechVoices() || [];
   if (!voices.length) return null;
 
-  const preferred = ['es-AR', 'es_AR', 'es-419', 'es-MX', 'es-ES', 'es'];
-  for (const lang of preferred) {
-    const found = voices.find((voice) => voice.lang?.toLowerCase().startsWith(lang.toLowerCase()));
-    if (found) return found;
+  const normalizedPreferred = String(preferredName || '')
+    .trim()
+    .toLocaleLowerCase('es');
+  if (normalizedPreferred) {
+    const preferred = voices.find(
+      (voice) => String(voice.name || '').toLocaleLowerCase('es') === normalizedPreferred
+    );
+    if (preferred) return preferred;
   }
 
-  return voices[0] || null;
+  return voices[0];
 }
 
 export function useOrderAlertPlayback() {
@@ -216,17 +287,27 @@ export async function playFallbackOrderAlarm({ fallbackAudioRef, enabled = true 
   await fallbackAudioRef.current.play();
 }
 
-export function speakOrderAnnouncement(text, { voiceRef, enabled = true } = {}) {
+function clampSpeechValue(value, fallback, min, max) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.min(max, Math.max(min, parsed)) : fallback;
+}
+
+export function speakOrderAnnouncement(
+  text,
+  { voiceRef, enabled = true, voiceName = '', rate = 0.92, pitch = 1 } = {}
+) {
   if (!enabled || !text || !('speechSynthesis' in window)) return;
 
   const utterance = new SpeechSynthesisUtterance(text);
-  utterance.lang = voiceRef?.current?.lang || 'es-AR';
-  utterance.rate = 1;
-  utterance.pitch = 1;
+  const selectedVoice = pickSpanishSpeechVoice(voiceName) || voiceRef?.current;
+  utterance.lang = selectedVoice?.lang || 'es-AR';
+  utterance.rate = clampSpeechValue(rate, 0.92, 0.7, 1.3);
+  utterance.pitch = clampSpeechValue(pitch, 1, 0.7, 1.3);
   utterance.volume = 1;
 
-  if (voiceRef?.current) {
-    utterance.voice = voiceRef.current;
+  if (selectedVoice) {
+    utterance.voice = selectedVoice;
+    if (voiceRef) voiceRef.current = selectedVoice;
   }
 
   window.speechSynthesis.cancel();
@@ -264,6 +345,9 @@ export async function runOrderAlert({
       speakOrderAnnouncement(announcementText, {
         voiceRef,
         enabled: voiceEnabled,
+        voiceName: config?.alertas_voz_nombre,
+        rate: config?.alertas_voz_velocidad,
+        pitch: config?.alertas_voz_tono,
       });
     }, delayMs);
   }
@@ -273,6 +357,7 @@ export async function runOrderAlert({
 
 export async function runDeliveredAlert({
   pedido,
+  config = {},
   audioContextRef,
   voiceRef,
   fallbackAudioRef,
@@ -282,6 +367,7 @@ export async function runDeliveredAlert({
   const announcementText = buildDeliveredAnnouncementText(pedido, {
     scope,
     riderName: pedido?.repartidor_nombre,
+    config,
   });
 
   try {
@@ -302,6 +388,9 @@ export async function runDeliveredAlert({
     speakOrderAnnouncement(announcementText, {
       voiceRef,
       enabled: true,
+      voiceName: config?.alertas_voz_nombre,
+      rate: config?.alertas_voz_velocidad,
+      pitch: config?.alertas_voz_tono,
     });
   }, delayMs);
 

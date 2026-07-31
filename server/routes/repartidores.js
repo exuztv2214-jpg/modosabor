@@ -330,6 +330,7 @@ router.get('/:id/rider/:codigo', (req, res) => {
       `SELECT clave, valor
        FROM configuracion
        WHERE clave LIKE 'rider_app_%'
+          OR clave LIKE 'alertas_%'
           OR clave IN (
             'delivery_requiere_foto_entrega',
             'delivery_validacion_activa',

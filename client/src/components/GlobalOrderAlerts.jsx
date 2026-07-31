@@ -144,6 +144,7 @@ export default function GlobalOrderAlerts() {
         try {
           await runDeliveredAlert({
             pedido,
+            config,
             audioContextRef,
             voiceRef,
             fallbackAudioRef,

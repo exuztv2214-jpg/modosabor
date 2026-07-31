@@ -645,6 +645,7 @@ export default function Pedidos() {
         try {
           await runDeliveredAlert({
             pedido: p,
+            config: configRef.current || {},
             audioContextRef,
             voiceRef,
             fallbackAudioRef,
@@ -700,6 +701,7 @@ export default function Pedidos() {
           try {
             await runDeliveredAlert({
               pedido,
+              config: configRef.current || {},
               audioContextRef,
               voiceRef,
               fallbackAudioRef,

@@ -581,6 +581,7 @@ export default function RiderPanel() {
     try {
       const res = await api.get(`/repartidores/${riderAuth.id}/rider/${riderAuth.code}`);
       setData(res);
+      configRef.current = res?.settings || {};
       if (selectedPedido) {
         const updated = res.pedidos.find((p) => p.id === selectedPedido.id);
         setSelectedPedido(updated || null);
@@ -619,6 +620,7 @@ export default function RiderPanel() {
         try {
           await runDeliveredAlert({
             pedido,
+            config: configRef.current || {},
             audioContextRef,
             voiceRef,
             fallbackAudioRef,
@@ -823,6 +825,7 @@ export default function RiderPanel() {
       try {
         await runDeliveredAlert({
           pedido: { ...pedidoActual, estado: 'entregado' },
+          config: data?.settings || configRef.current || {},
           audioContextRef,
           voiceRef,
           fallbackAudioRef,

@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 
 import { useAuth } from '../context/AuthContext.jsx';
+import { useAppConfig } from '../context/AppConfigContext.jsx';
 import api from '../lib/api.js';
 import { socketManager } from '../lib/socket.js';
 import { runOrderAlert, useOrderAlertPlayback } from '../lib/orderAlerts.js';
@@ -29,6 +30,7 @@ const SIDEBAR_WIDTH = 270;
 
 export default function Layout() {
   const { user, logout } = useAuth();
+  const { config } = useAppConfig();
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -235,7 +237,11 @@ export default function Layout() {
     try {
       await runOrderAlert({
         pedido: { id: 'test', numero: 'TEST', cliente_nombre: 'Prueba alarma' },
-        config: { alertas_pedido_sonido: '1', alertas_pedido_voz: '1' },
+        config: {
+          ...config,
+          alertas_pedido_sonido: '1',
+          alertas_pedido_voz: '1',
+        },
         audioContextRef,
         voiceRef,
         fallbackAudioRef,
