@@ -58,10 +58,19 @@ function tipoEntregaLabel(tipo) {
   return 'Pedido';
 }
 
+function parseServerTimestamp(value) {
+  const normalized = String(value || '')
+    .trim()
+    .replace(' ', 'T');
+  if (!normalized) return new Date(NaN);
+  const hasTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(normalized);
+  return parseISO(hasTimezone ? normalized : `${normalized}Z`);
+}
+
 function estimateLabel(pedido) {
   if (!pedido?.creado_en) return 'Sin estimacion';
 
-  const created = parseISO(pedido.creado_en);
+  const created = parseServerTimestamp(pedido.creado_en);
   const nowLabel = formatDistanceToNowStrict(created, { addSuffix: true, locale: es });
 
   if (pedido.estado === 'cancelado') return 'Pedido cancelado';
@@ -86,7 +95,7 @@ function estimateMinutesRemaining(pedido, config) {
   if (!pedido?.creado_en) return null;
   if (pedido.estado === 'cancelado' || pedido.estado === 'entregado') return 0;
 
-  const created = parseISO(pedido.creado_en);
+  const created = parseServerTimestamp(pedido.creado_en);
   const elapsed = Math.max(0, differenceInMinutes(new Date(), created));
   const base = baseMinutes(pedido, config);
 
@@ -101,7 +110,10 @@ function estimateMinutesRemaining(pedido, config) {
 
 function riderLocationAgeMinutes(repartidor) {
   if (!repartidor?.ultima_ubicacion_en) return null;
-  const diff = differenceInMinutes(new Date(), parseISO(repartidor.ultima_ubicacion_en));
+  const diff = differenceInMinutes(
+    new Date(),
+    parseServerTimestamp(repartidor.ultima_ubicacion_en)
+  );
   return Number.isFinite(diff) ? Math.max(0, diff) : null;
 }
 
@@ -716,7 +728,7 @@ export default function SeguimientoPedido() {
                       <p className="mt-2 text-xs text-gray-500">
                         Ultima ubicacion:{' '}
                         {formatDistanceToNowStrict(
-                          parseISO(pedido.repartidor.ultima_ubicacion_en),
+                          parseServerTimestamp(pedido.repartidor.ultima_ubicacion_en),
                           { addSuffix: true, locale: es }
                         )}
                       </p>
