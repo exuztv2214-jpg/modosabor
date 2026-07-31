@@ -317,6 +317,7 @@ function createPedidoRecord(payload) {
     entrega_pin = '',
     cliente_latitud = null,
     cliente_longitud = null,
+    cliente_ubicacion_exacta = 0,
     entrega_foto = '',
     entrega_foto_en = null,
     cupon_id = null,
@@ -418,10 +419,11 @@ function createPedidoRecord(payload) {
         numero, cliente_id, cliente_nombre, cliente_telefono, cliente_direccion, items,
         subtotal, costo_envio, descuento, total, tipo_entrega, mesa, hora_entrega, metodo_pago,
         notas, origen, pago_estado, pago_id, mp_preference_id, pago_detalle, delivery_zona, tiempo_estimado_min,
-        turno_operativo, entrega_pin, cliente_latitud, cliente_longitud, entrega_foto, entrega_foto_en,
+        turno_operativo, entrega_pin, cliente_latitud, cliente_longitud, cliente_ubicacion_exacta,
+        entrega_foto, entrega_foto_en,
         repartidor_id, marketing_campana_id, marketing_promo_id, marketing_origen, marketing_codigo,
         marketing_source, marketing_medium, marketing_campaign, marketing_content
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       numero,
@@ -450,6 +452,7 @@ function createPedidoRecord(payload) {
       entrega_pin || '',
       optionalNumber(cliente_latitud),
       optionalNumber(cliente_longitud),
+      cliente_ubicacion_exacta ? 1 : 0,
       entrega_foto || '',
       entrega_foto_en || null,
       optionalNumber(repartidor_id),
@@ -704,6 +707,10 @@ async function buildPedidoPayload(body, options = {}) {
   // Si no hay coordenadas del cliente pero hay dirección, intentamos geocodificar
   let clienteLatitud = optionalNumber(body.cliente_latitud);
   let clienteLongitud = optionalNumber(body.cliente_longitud);
+  let clienteUbicacionExacta =
+    clienteLatitud !== null &&
+    clienteLongitud !== null &&
+    (body.cliente_ubicacion_exacta === true || Number(body.cliente_ubicacion_exacta) === 1);
 
   if (
     tipoEntrega === 'delivery' &&
@@ -715,6 +722,7 @@ async function buildPedidoPayload(body, options = {}) {
       if (geo && geo.lat && geo.lng) {
         clienteLatitud = geo.lat;
         clienteLongitud = geo.lng;
+        clienteUbicacionExacta = false;
       }
     } catch (e) {
       // Silencioso: si falla la geocodificación, el pedido se crea sin coordenadas
@@ -755,6 +763,7 @@ async function buildPedidoPayload(body, options = {}) {
         : '',
     cliente_latitud: clienteLatitud,
     cliente_longitud: clienteLongitud,
+    cliente_ubicacion_exacta: clienteUbicacionExacta ? 1 : 0,
     cupon_id: cuponData.cupon?.id || null,
     cupon_codigo: cuponData.cupon?.codigo || null,
     cupon_validacion: cuponData,

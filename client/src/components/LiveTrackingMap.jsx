@@ -1,39 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { MapPin, Phone, Clock, AlertTriangle, Bike, Route } from 'lucide-react';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 
 import {
   buildGoogleMapsDirectionsUrl,
   buildGoogleMapsSearchUrl,
   isInsideServiceArea,
 } from '../lib/maps.js';
-
-// ── Leaflet dinámico ──
-function loadLeafletCSS() {
-  if (document.getElementById('leaflet-css')) return Promise.resolve();
-  return new Promise((resolve) => {
-    const link = document.createElement('link');
-    link.id = 'leaflet-css';
-    link.rel = 'stylesheet';
-    link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
-    link.integrity = 'sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=';
-    link.crossOrigin = '';
-    link.onload = resolve;
-    document.head.appendChild(link);
-  });
-}
-
-function loadLeafletJS() {
-  if (window.L) return Promise.resolve(window.L);
-  return new Promise((resolve, reject) => {
-    const script = document.createElement('script');
-    script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
-    script.integrity = 'sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=';
-    script.crossOrigin = '';
-    script.onload = () => resolve(window.L);
-    script.onerror = reject;
-    document.head.appendChild(script);
-  });
-}
 
 // ── Haversine distance ──
 function calculateDistance(lat1, lng1, lat2, lng2) {
@@ -128,6 +102,7 @@ export default function LiveTrackingMap({
   riderPhone,
   etaMinutes: externalEtaMinutes,
   isStale,
+  clientLocationExact = false,
   mapConfig = {},
 }) {
   const mapRef = useRef(null);
@@ -142,6 +117,7 @@ export default function LiveTrackingMap({
   const [isArriving, setIsArriving] = useState(false);
   const prevRiderRef = useRef({ lat: null, lng: null });
   const hasClientCoordinates =
+    clientLocationExact &&
     Number.isFinite(Number(clientLat)) &&
     Number.isFinite(Number(clientLng)) &&
     isInsideServiceArea(clientLat, clientLng, mapConfig);
@@ -157,33 +133,16 @@ export default function LiveTrackingMap({
     externalEtaMinutes
   );
 
-  // Cargar Leaflet
   useEffect(() => {
-    let cancelled = false;
-    const timeout = setTimeout(() => {
-      if (!cancelled && !mapLoaded) {
-        setLoadError('El mapa no respondió a tiempo');
-      }
-    }, 8000);
-
-    Promise.all([loadLeafletCSS(), loadLeafletJS()])
-      .then(() => {
-        if (!cancelled) setMapLoaded(true);
-      })
-      .catch(() => {
-        if (!cancelled) setLoadError('No se pudo cargar el mapa');
-      });
-    return () => {
-      cancelled = true;
-      clearTimeout(timeout);
-    };
-  }, [mapLoaded]);
+    setMapLoaded(true);
+  }, []);
 
   const destinationUrl = buildGoogleMapsDirectionsUrl(
     {
       latitud: clientLat,
       longitud: clientLng,
       direccion: clientAddress,
+      ubicacionExacta: clientLocationExact,
     },
     mapConfig
   );
@@ -199,7 +158,6 @@ export default function LiveTrackingMap({
   useEffect(() => {
     if (!mapLoaded || !mapRef.current || mapInstanceRef.current) return;
 
-    const L = window.L;
     const center =
       effectiveClientLat && effectiveClientLng
         ? [effectiveClientLat, effectiveClientLng]

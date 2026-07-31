@@ -1,38 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { Navigation, AlertTriangle, MapPin } from 'lucide-react';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 
 import {
   buildAddressForMaps,
   buildGoogleMapsDirectionsUrl,
   isInsideServiceArea,
 } from '../lib/maps.js';
-
-function loadLeafletCSS() {
-  if (document.getElementById('leaflet-css-rider')) return Promise.resolve();
-  return new Promise((resolve) => {
-    const link = document.createElement('link');
-    link.id = 'leaflet-css-rider';
-    link.rel = 'stylesheet';
-    link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
-    link.integrity = 'sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=';
-    link.crossOrigin = '';
-    link.onload = resolve;
-    document.head.appendChild(link);
-  });
-}
-
-function loadLeafletJS() {
-  if (window.L) return Promise.resolve(window.L);
-  return new Promise((resolve, reject) => {
-    const script = document.createElement('script');
-    script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
-    script.integrity = 'sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=';
-    script.crossOrigin = '';
-    script.onload = () => resolve(window.L);
-    script.onerror = reject;
-    document.head.appendChild(script);
-  });
-}
 
 // ── OSRM: ruta real por calles ──
 async function fetchRoute(lat1, lng1, lat2, lng2) {
@@ -62,6 +37,7 @@ export default function RiderRouteMap({
   clientLat,
   clientLng,
   clientAddress,
+  clientLocationExact = false,
   onNavigate,
   mapConfig = {},
 }) {
@@ -78,6 +54,7 @@ export default function RiderRouteMap({
   const prevRiderRef = useRef({ lat: null, lng: null });
   const arrivingNotifiedRef = useRef(false);
   const hasClientCoordinates =
+    clientLocationExact &&
     Number.isFinite(Number(clientLat)) &&
     Number.isFinite(Number(clientLng)) &&
     isInsideServiceArea(clientLat, clientLng, mapConfig);
@@ -89,6 +66,7 @@ export default function RiderRouteMap({
       latitud: clientLat,
       longitud: clientLng,
       direccion: clientAddress,
+      ubicacionExacta: clientLocationExact,
     },
     mapConfig
   );
@@ -112,26 +90,13 @@ export default function RiderRouteMap({
   };
 
   useEffect(() => {
-    let cancelled = false;
-    Promise.all([loadLeafletCSS(), loadLeafletJS()])
-      .then(([, L]) => {
-        if (cancelled) return;
-        setMapLoaded(true);
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setLoadError('No se pudo cargar el mapa');
-      });
-    return () => {
-      cancelled = true;
-    };
+    setMapLoaded(true);
   }, []);
 
   useEffect(() => {
     if (!mapLoaded || !mapRef.current) return;
     if (mapInstanceRef.current) return;
 
-    const L = window.L;
     const center =
       riderLat && riderLng
         ? [riderLat, riderLng]
@@ -297,7 +262,6 @@ export default function RiderRouteMap({
                 if (routeLineRef.current) {
                   routeLineRef.current.setLatLngs(coords);
                 } else {
-                  const L = window.L;
                   routeLineRef.current = L.polyline(coords, {
                     color: '#2563eb',
                     weight: 5,

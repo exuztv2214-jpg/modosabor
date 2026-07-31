@@ -203,6 +203,7 @@ function emitPedidoActualizado(io, pedido, options = {}) {
     cliente_direccion: normalizedPedido.cliente_direccion,
     cliente_latitud: normalizedPedido.cliente_latitud,
     cliente_longitud: normalizedPedido.cliente_longitud,
+    cliente_ubicacion_exacta: Boolean(normalizedPedido.cliente_ubicacion_exacta),
     entrega_pin: normalizedPedido.entrega_pin,
     entrega_foto: normalizedPedido.entrega_foto,
     repartidor_id: normalizedPedido.repartidor_id,

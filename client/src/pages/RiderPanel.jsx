@@ -70,6 +70,7 @@ function destinationUrl(pedido, config = {}) {
       latitud: pedido?.cliente_latitud,
       longitud: pedido?.cliente_longitud,
       direccion: pedido?.cliente_direccion,
+      ubicacionExacta: Boolean(pedido?.cliente_ubicacion_exacta),
     },
     config
   );
@@ -81,6 +82,7 @@ function destinationEmbedUrl(pedido, config = {}) {
       latitud: pedido?.cliente_latitud,
       longitud: pedido?.cliente_longitud,
       direccion: pedido?.cliente_direccion,
+      ubicacionExacta: Boolean(pedido?.cliente_ubicacion_exacta),
     },
     config,
     { zoom: 16 }
@@ -1536,6 +1538,7 @@ export default function RiderPanel() {
                         riderLng={selectedPedido.repartidor?.longitud}
                         clientLat={selectedPedido.cliente_latitud}
                         clientLng={selectedPedido.cliente_longitud}
+                        clientLocationExact={Boolean(selectedPedido.cliente_ubicacion_exacta)}
                         clientAddress={selectedPedido.cliente_direccion}
                         onNavigate={() => openNav(selectedPedido)}
                         mapConfig={mapConfig}
@@ -1624,6 +1627,7 @@ export default function RiderPanel() {
                           latitud: selectedPedido.cliente_latitud,
                           longitud: selectedPedido.cliente_longitud,
                           direccion: selectedPedido.cliente_direccion,
+                          ubicacionExacta: Boolean(selectedPedido.cliente_ubicacion_exacta),
                         },
                         mapConfig
                       )}

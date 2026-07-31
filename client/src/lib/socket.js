@@ -16,6 +16,8 @@ class SocketManager {
     this.authPromise = null;
     this.listeners = new Map();
     this.trackingRooms = new Set();
+    this.trackingSubscriptions = new Map();
+    this.hasConnectedOnce = false;
     this.reconnectAttempts = 0;
     this.maxReconnectAttempts = 5;
     this.persistentConnections = 0;
@@ -128,6 +130,7 @@ class SocketManager {
     }
 
     const roomKey = `tracking_${pedidoId}`;
+    this.trackingSubscriptions.set(roomKey, { pedidoId, token });
 
     if (this.trackingRooms.has(roomKey)) return Promise.resolve();
 
@@ -146,6 +149,7 @@ class SocketManager {
 
       this.socket.once('tracking_error', (error) => {
         clearTimeout(timeout);
+        this.trackingSubscriptions.delete(roomKey);
         reject(new Error(error.message || 'Error en tracking'));
       });
 
@@ -219,6 +223,8 @@ class SocketManager {
     this.listeners.clear();
 
     this.trackingRooms.clear();
+    this.trackingSubscriptions.clear();
+    this.hasConnectedOnce = false;
     this.authenticated = false;
     this.authPromise = null;
 
@@ -232,10 +238,21 @@ class SocketManager {
       if (this.authToken && !this.authenticated) {
         this.socket.emit('authenticate', this.authToken);
       }
+      if (this.hasConnectedOnce) {
+        this.trackingSubscriptions.forEach(({ pedidoId, token }) => {
+          this.socket.emit('join_tracking', { pedidoId, token });
+        });
+      }
+      this.hasConnectedOnce = true;
     });
 
     this.socket.on('disconnect', () => {
       this.authenticated = false;
+      this.trackingRooms.clear();
+    });
+
+    this.socket.on('tracking_joined', ({ pedidoId }) => {
+      this.trackingRooms.add(`tracking_${pedidoId}`);
     });
 
     this.socket.on('connect_error', () => {

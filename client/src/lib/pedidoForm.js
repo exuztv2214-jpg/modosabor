@@ -295,6 +295,7 @@ export function buildPedidoPayload({
     cliente_direccion: customer?.direccion || '',
     cliente_latitud: customer?.latitud ?? null,
     cliente_longitud: customer?.longitud ?? null,
+    cliente_ubicacion_exacta: Boolean(customer?.ubicacionExacta),
     items: JSON.stringify(normalizedItems),
     subtotal: Number(summary.subtotal || 0),
     costo_envio: Number(summary.envio || 0),

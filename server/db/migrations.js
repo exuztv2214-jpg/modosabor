@@ -99,6 +99,7 @@ function runMigrations(db) {
   ensureColumn(db, 'pedidos', 'entrega_pin', "TEXT DEFAULT ''");
   ensureColumn(db, 'pedidos', 'cliente_latitud', 'REAL');
   ensureColumn(db, 'pedidos', 'cliente_longitud', 'REAL');
+  ensureColumn(db, 'pedidos', 'cliente_ubicacion_exacta', 'INTEGER DEFAULT 0');
   ensureColumn(db, 'pedidos', 'entrega_foto', "TEXT DEFAULT ''");
   ensureColumn(db, 'pedidos', 'entrega_foto_en', 'TEXT');
   ensureColumn(db, 'pedidos', 'inventario_aplicado', 'INTEGER DEFAULT 0');

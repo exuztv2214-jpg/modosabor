@@ -99,15 +99,29 @@ export function hasCoordinates(latitud, longitud) {
   return Number.isFinite(Number(latitud)) && Number.isFinite(Number(longitud));
 }
 
-export function buildMapsDestination({ latitud, longitud, direccion }, config = {}) {
-  if (hasCoordinates(latitud, longitud) && isInsideServiceArea(latitud, longitud, config)) {
+function canUseExactCoordinates(latitud, longitud, ubicacionExacta, config = {}) {
+  return (
+    ubicacionExacta !== false &&
+    hasCoordinates(latitud, longitud) &&
+    isInsideServiceArea(latitud, longitud, config)
+  );
+}
+
+export function buildMapsDestination(
+  { latitud, longitud, direccion, ubicacionExacta },
+  config = {}
+) {
+  if (canUseExactCoordinates(latitud, longitud, ubicacionExacta, config)) {
     return `${Number(latitud)},${Number(longitud)}`;
   }
   return buildAddressForMaps(direccion, config);
 }
 
-function buildNavigationDestination({ latitud, longitud, direccion }, config = {}) {
-  if (hasCoordinates(latitud, longitud) && isInsideServiceArea(latitud, longitud, config)) {
+function buildNavigationDestination(
+  { latitud, longitud, direccion, ubicacionExacta },
+  config = {}
+) {
+  if (canUseExactCoordinates(latitud, longitud, ubicacionExacta, config)) {
     return `${Number(latitud)},${Number(longitud)}`;
   }
   const addressDestination = buildAddressForMaps(direccion, config);
@@ -116,11 +130,14 @@ function buildNavigationDestination({ latitud, longitud, direccion }, config = {
 }
 
 export function buildGoogleMapsDirectionsUrl(
-  { latitud, longitud, direccion },
+  { latitud, longitud, direccion, ubicacionExacta },
   config = {},
   options = {}
 ) {
-  const destination = buildNavigationDestination({ latitud, longitud, direccion }, config);
+  const destination = buildNavigationDestination(
+    { latitud, longitud, direccion, ubicacionExacta },
+    config
+  );
   if (!destination) return '';
 
   const travelmode = cleanText(options.travelmode || 'driving');
@@ -133,33 +150,51 @@ export function buildGoogleMapsDirectionsUrl(
   return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destination)}&travelmode=${encodeURIComponent(travelmode)}`;
 }
 
-export function buildWazeUrl({ latitud, longitud, direccion }, config = {}) {
-  if (hasCoordinates(latitud, longitud)) {
+export function buildWazeUrl({ latitud, longitud, direccion, ubicacionExacta }, config = {}) {
+  if (ubicacionExacta !== false && hasCoordinates(latitud, longitud)) {
     return `https://waze.com/ul?ll=${Number(latitud)},${Number(longitud)}&navigate=yes`;
   }
-  const destination = buildNavigationDestination({ latitud, longitud, direccion }, config);
+  const destination = buildNavigationDestination(
+    { latitud, longitud, direccion, ubicacionExacta },
+    config
+  );
   if (!destination) return '';
   return `https://waze.com/ul?q=${encodeURIComponent(destination)}&navigate=yes`;
 }
 
-export function buildGoogleMapsSearchUrl({ latitud, longitud, direccion }, config = {}) {
-  const destination = buildNavigationDestination({ latitud, longitud, direccion }, config);
+export function buildGoogleMapsSearchUrl(
+  { latitud, longitud, direccion, ubicacionExacta },
+  config = {}
+) {
+  const destination = buildNavigationDestination(
+    { latitud, longitud, direccion, ubicacionExacta },
+    config
+  );
   if (!destination) return '';
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(destination)}`;
 }
 
-export function buildGoogleMapsQueryUrl({ latitud, longitud, direccion }, config = {}) {
-  const destination = buildNavigationDestination({ latitud, longitud, direccion }, config);
+export function buildGoogleMapsQueryUrl(
+  { latitud, longitud, direccion, ubicacionExacta },
+  config = {}
+) {
+  const destination = buildNavigationDestination(
+    { latitud, longitud, direccion, ubicacionExacta },
+    config
+  );
   if (!destination) return '';
   return `https://www.google.com/maps?q=${encodeURIComponent(destination)}`;
 }
 
 export function buildGoogleMapsEmbedUrl(
-  { latitud, longitud, direccion },
+  { latitud, longitud, direccion, ubicacionExacta },
   config = {},
   options = {}
 ) {
-  const destination = buildMapsDestination({ latitud, longitud, direccion }, config);
+  const destination = buildMapsDestination(
+    { latitud, longitud, direccion, ubicacionExacta },
+    config
+  );
   if (!destination) return '';
   const zoom = Number.isFinite(Number(options.zoom)) ? Number(options.zoom) : 16;
   return `https://maps.google.com/maps?q=${encodeURIComponent(destination)}&t=&z=${zoom}&ie=UTF8&iwloc=&output=embed`;

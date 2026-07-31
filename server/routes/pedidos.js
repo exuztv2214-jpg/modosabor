@@ -90,6 +90,7 @@ function buildTrackingPayload(pedido) {
     cliente_direccion: hydrated.cliente_direccion,
     cliente_latitud: hydrated.cliente_latitud,
     cliente_longitud: hydrated.cliente_longitud,
+    cliente_ubicacion_exacta: Boolean(hydrated.cliente_ubicacion_exacta),
     entrega_pin: hydrated.entrega_pin,
     entrega_foto: hydrated.entrega_foto,
     entrega_foto_en: hydrated.entrega_foto_en,

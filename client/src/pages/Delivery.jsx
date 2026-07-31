@@ -353,6 +353,7 @@ function DispatchCard({
                   latitud: pedido.cliente_latitud,
                   longitud: pedido.cliente_longitud,
                   direccion: pedido.cliente_direccion,
+                  ubicacionExacta: Boolean(pedido.cliente_ubicacion_exacta),
                 },
                 {
                   localidad: mapConfig?.negocio_localidad,
@@ -799,6 +800,7 @@ export default function Delivery() {
                       latitud: selectedRadarPedido.cliente_latitud,
                       longitud: selectedRadarPedido.cliente_longitud,
                       direccion: selectedRadarPedido.cliente_direccion,
+                      ubicacionExacta: Boolean(selectedRadarPedido.cliente_ubicacion_exacta),
                     },
                     {
                       localidad: appConfig?.negocio_localidad,

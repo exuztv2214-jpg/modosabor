@@ -87,6 +87,10 @@ function estimateDeliveryEta(pedido, config = {}) {
     return { ...fallback, distance_km: null, stale_location: false };
   }
 
+  if (!pedido?.cliente_ubicacion_exacta) {
+    return { ...fallback, distance_km: null, stale_location: false };
+  }
+
   if (riderLat === null || riderLng === null || clientLat === null || clientLng === null) {
     return { ...fallback, distance_km: null, stale_location: false };
   }

@@ -757,6 +757,7 @@ export default function WebPublica() {
           direccion: form.direccion,
           latitud: customerGeo.latitud,
           longitud: customerGeo.longitud,
+          ubicacionExacta: customerGeo.ready,
         },
         items: carrito,
         summary,

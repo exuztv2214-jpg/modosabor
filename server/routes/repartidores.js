@@ -444,7 +444,7 @@ router.put('/:id/rider/:codigo/ubicacion', (req, res) => {
       const cLat = Number(pedido.cliente_latitud);
       const cLng = Number(pedido.cliente_longitud);
 
-      if (cLat && cLng) {
+      if (pedido.cliente_ubicacion_exacta && cLat && cLng) {
         distanciaMetros = haversineMeters(rLat, rLng, cLat, cLng);
 
         // Inicializar estado de proximidad para este pedido

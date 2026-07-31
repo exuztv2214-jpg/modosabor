@@ -184,55 +184,63 @@ export default function SeguimientoPedido() {
     load();
     const interval = setInterval(load, 15000);
 
-    let cleanupSocket = null;
+    const cleanupSockets = [];
 
     if (token) {
       socketManager.connect();
       socketManager.joinTracking(id, token).catch(() => {});
 
-      cleanupSocket = socketManager.on('pedido_actualizado', (updated) => {
-        if (String(updated.id) === String(id)) {
-          setPedido(updated);
-        }
-      });
-
-      socketManager.on('repartidor_ubicacion', (repartidor) => {
-        setPedido((prev) => {
-          if (!prev?.repartidor_id || String(prev.repartidor_id) !== String(repartidor.id)) {
-            return prev;
+      cleanupSockets.push(
+        socketManager.on('pedido_actualizado', (updated) => {
+          if (String(updated.id) === String(id)) {
+            setPedido(updated);
           }
-          return { ...prev, repartidor };
-        });
-      });
+        })
+      );
+
+      cleanupSockets.push(
+        socketManager.on('repartidor_ubicacion', (repartidor) => {
+          setPedido((prev) => {
+            if (!prev?.repartidor_id || String(prev.repartidor_id) !== String(repartidor.id)) {
+              return prev;
+            }
+            return { ...prev, repartidor };
+          });
+        })
+      );
 
       // ── Eventos de proximidad desde el backend ──
-      socketManager.on('repartidor_cerca', (data) => {
-        if (!notifiedRef.current.cerca) {
-          notifiedRef.current.cerca = true;
-          sendBrowserNotification(
-            'Tu delivery está cerca',
-            `El repartidor está a ${Math.round(data.distancia || 0)} metros de tu dirección.`,
-            { tag: 'repartidor_cerca', requireInteraction: false }
-          );
-        }
-      });
+      cleanupSockets.push(
+        socketManager.on('repartidor_cerca', (data) => {
+          if (!notifiedRef.current.cerca) {
+            notifiedRef.current.cerca = true;
+            sendBrowserNotification(
+              'Tu delivery está cerca',
+              `El repartidor está a ${Math.round(data.distancia || 0)} metros de tu dirección.`,
+              { tag: 'repartidor_cerca', requireInteraction: false }
+            );
+          }
+        })
+      );
 
-      socketManager.on('repartidor_llegando', (data) => {
-        if (!notifiedRef.current.llegando) {
-          notifiedRef.current.llegando = true;
-          sendBrowserNotification(
-            '¡Tu delivery está llegando!',
-            `El repartidor está a ${Math.round(data.distancia || 0)} metros. Preparate para recibirlo.`,
-            { tag: 'repartidor_llegando', requireInteraction: true }
-          );
-        }
-      });
+      cleanupSockets.push(
+        socketManager.on('repartidor_llegando', (data) => {
+          if (!notifiedRef.current.llegando) {
+            notifiedRef.current.llegando = true;
+            sendBrowserNotification(
+              '¡Tu delivery está llegando!',
+              `El repartidor está a ${Math.round(data.distancia || 0)} metros. Preparate para recibirlo.`,
+              { tag: 'repartidor_llegando', requireInteraction: true }
+            );
+          }
+        })
+      );
     }
 
     return () => {
       mounted = false;
       clearInterval(interval);
-      if (cleanupSocket) cleanupSocket();
+      cleanupSockets.forEach((cleanup) => cleanup());
       socketManager.disconnect();
     };
   }, [id, token]);
@@ -480,6 +488,7 @@ export default function SeguimientoPedido() {
                         riderLng={pedido.repartidor.longitud}
                         clientLat={pedido.cliente_latitud}
                         clientLng={pedido.cliente_longitud}
+                        clientLocationExact={Boolean(pedido.cliente_ubicacion_exacta)}
                         clientAddress={pedido.cliente_direccion}
                         riderName={pedido.repartidor.nombre}
                         riderPhone={pedido.repartidor.telefono}
