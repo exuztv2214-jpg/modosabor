@@ -1674,3 +1674,85 @@ Sesión de ejecución de todos los pendientes de las tandas 16–18. Se completa
 - Cola offline extendida (GPS + cambio estado + reporte).
 - Sentry / Crashlytics para crashes remotos.
 - PIN de bloqueo (en pausa por decisión del usuario).
+
+---
+
+## 22. Deploy v1.1.0 completo: assets, APK release, menú prod, auto-update (01/08/2026)
+
+Sesión de ejecución de los 8 pasos del pipeline de release. Todo ejecutado en orden, con resolución de 2 dependencias faltantes detectadas durante el build.
+
+### 22.1. Dependencias
+
+- `@capacitor/splash-screen`, `@capacitor/camera` ya estaban en dependencies.
+- `@capacitor/assets` ya estaba en devDependencies.
+- **Se instalaron 2 faltantes** detectadas al compilar: `@capacitor/browser` (usada por `riderUpdater.js`) y `@capacitor/push-notifications` (usada por `riderPush.js`). El build no arrancaba sin ellas.
+- Total: 9 plugins Capacitor registrados post-sync.
+
+### 22.2. Assets splash regenerados con SVG del RiderPanel
+
+- Se regeneraron `icon.png` (1024×1024) y `splash.png` (2732×2732) usando el **SVG path de la llamita del RiderPanel.jsx** (no el bitmap `rider-flame-red.png` como en la sesión anterior). Llamita blanca sobre fondo rojo `#dc1f2d`.
+- `npx @capacitor/assets generate --android` → 87 assets (865.96 KB total).
+- `npx cap sync android` → 9 plugins, sync OK.
+
+### 22.3. Menú del día cargado (local + producción)
+
+- `node server/scripts/seedMenuManana.js` corrido en local y en prod via `railway run`.
+- 7 platos cargados: 4 económicos ($5.000) + 3 ejecutivos ($7.000).
+- Cada plato con variante de guarnición (multi-opción) + extras (postre / bebida+postre).
+- 13 guarniciones globales disponibles.
+
+### 22.4. Keystore reutilizado
+
+- Keystore ya existía de la sesión anterior: `client/android/modosabor-rider.jks`.
+- Alias: `rider-key`, RSA 2048, validez 10000 días.
+- Huella SHA-256: `53:97:58:74:7F:A0:1E:1C:34:83:43:BF:EE:66:35:1E:8B:70:D0:D9:42:74:2D:1F:B3:9F:0B:90:E3:73:9A:E7`.
+- Se descomentó `google-services.json` en `.gitignore` para protegerlo preventivamente.
+
+### 22.5. APK release firmado
+
+- **Versión**: 1.1.0 (versionCode 10100).
+- **Path escritorio**: `C:\Users\Exuz\Desktop\ModoSaborRider-v1.1.0-release.apk`.
+- **Tamaño**: ~9.87 MB.
+- **Fecha/hora build**: 01/08/2026 01:54.
+- **Firmado**: keystore `modosabor-rider.jks`, alias `rider-key`.
+- Build: `gradlew assembleRelease` OK (490 tasks, 48s).
+- APK copiado también a `server/uploads/rider-app/modosabor-rider-1.1.0.apk` para auto-update.
+- `manifest.json` actualizado con changelog, `minVersionCode: 10000`, `forceUpdate: false`.
+
+### 22.6. Deploy Railway
+
+- Commit `b25c52d`: "release v1.1.0: menú día v2 (guarniciones+extras) + rider app completa".
+- 71 archivos, +2344/−84 líneas.
+- Push a `main` OK → Railway auto-deploy activado.
+- `/api/health` respondiendo OK.
+- `/api/rider-app/version` disponible post-redeploy (ruta nueva `server/routes/riderApp.js`).
+- `railway run node server/scripts/seedMenuManana.js` ejecutado en prod: 7 platos OK.
+
+### 22.7. Problemas encontrados y resueltos
+
+1. **Build fallaba por `@capacitor/browser` no instalado** — importado por `riderUpdater.js` pero nunca agregado a deps. Fix: `npm --prefix client i @capacitor/browser`.
+2. **Build fallaba por `@capacitor/push-notifications` no instalado** — importado por `riderPush.js` (FCM scaffolding). Fix: `npm --prefix client i @capacitor/push-notifications`.
+3. Ambas dependencias viajaron en el `package.json` del commit final.
+
+### 22.8. Estado post-deploy
+
+Todo lo que se puede hacer sin gestos externos está deployado y funcionando:
+
+- ✅ Splash screen nativo con llamita + fade suave.
+- ✅ Login premium con fondo rojo + blobs + logo animado.
+- ✅ Persistencia de sesión rider (Capacitor Preferences).
+- ✅ Detalle de pedido premium con botones de color.
+- ✅ Meta diaria + confetti + voz TTS.
+- ✅ Foto de entrega + cola offline.
+- ✅ Chat con local + reporte de incidencia.
+- ✅ Dark mode automático.
+- ✅ Auto-update con modal en-app.
+- ✅ Menú del día v2 con guarniciones + extras.
+- ✅ APK release firmado disponible para distribución.
+
+Pendientes que requieren acciones externas:
+
+- Firebase (proyecto + `google-services.json` + `firebase-admin` en server) para push real.
+- `rider_alert.mp3` en `android/app/src/main/res/raw/` para sonido custom fuerte.
+- Sentry / Crashlytics para crash reporting remoto.
+- PIN de bloqueo (en pausa por decisión del usuario).
