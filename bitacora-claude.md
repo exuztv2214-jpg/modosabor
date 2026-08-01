@@ -2,7 +2,7 @@
 
 Registro de todo el trabajo hecho sobre el sistema Modo Sabor y sobre el agente de WhatsApp con IA. Se va actualizando a medida que avanzamos, para poder pausar y retomar sin perder el hilo.
 
-Última actualización: 31 de julio de 2026.
+Última actualización: 31 de julio de 2026 (tarde/noche — pack final rider + splash + login premium).
 
 ---
 
@@ -1193,3 +1193,193 @@ Archivos modificados:
 Archivos nuevos:
 
 - `client/src/components/AnimatedNumber.jsx` — componente reutilizable de counter animado con framer-motion.
+
+---
+
+## 17. Rider súper pack: incidencia, chat, voz, offline queue, foto entrega, autologout, APK release (31/07/2026)
+
+Segunda tanda de mejoras sobre la app rider, después de las de persistencia y rediseño. Todo pedido por el usuario con "ve con todo pero lo del pin todavía no" — se implementaron todas las features grandes menos el PIN de bloqueo (queda para más adelante por decisión explícita).
+
+### 17.1. Detalle de pedido rediseñado (hero card premium)
+
+La pantalla de detalle era plana y sin jerarquía. Se rehizo:
+
+- **Hero card con gradient** (colores primario→secundario del negocio configurables), avatar circular con la inicial del cliente, número de pedido, dirección, teléfono.
+- **4 botones de acción con colores**: Google Maps (azul), Waze (celeste), WhatsApp (verde), Copiar dirección (gris). Cada uno con ícono y color propio para reconocimiento rápido.
+- **Card grande "Total a cobrar"** con banda de color: verde si ya está pagado, ámbar si es efectivo pendiente, primario si es digital. Tipografía enorme para leer al llegar sin sacar la vista de la calle.
+- **Popover "Reportar problema"** con 4 motivos preseteados (cliente no responde, dirección incorrecta, sin cambio, otro) — al elegir uno se abre WhatsApp con mensaje prellenado al local.
+- **Chat directo con el local** vía botón que abre WhatsApp con el número del negocio y contexto del pedido.
+
+### 17.2. Meta diaria + celebración + voz TTS
+
+- **Barra de progreso** en el header hacia la meta diaria configurable (`data?.settings?.rider_meta_diaria`, default 10 entregas). Va llenándose con cada entrega y cambia de color al llegar al 100 %.
+- **Confetti CSS**: 36 partículas coloridas que caen desde arriba cuando el rider marca una entrega. Sin dependencias (solo CSS animations + keyframes). Módulo nuevo `client/src/lib/riderCelebration.js`.
+- **Voz TTS** con Web Speech API (`speechSynthesis`): dice en voz alta "¡Entrega número X completada!" con voz `es-AR` (o la que tenga disponible el dispositivo), rate 1.05. Ayuda al rider a confirmar sin mirar la pantalla mientras maneja.
+
+### 17.3. Cola offline (`riderOfflineQueue.js`)
+
+Cuando el rider está sin señal (bajo tierra, en zona sin cobertura) las acciones críticas ya no se pierden. Nuevo módulo:
+
+- Cola persistente en `@capacitor/preferences` (sobrevive cierres de app y reinicios).
+- `enqueueRiderAction({ kind, url, method, body })` — encola cuando `navigator.onLine === false`.
+- `processRiderQueue(httpClient)` — corre cada 15 s y al disparar el evento `online` del navegador, procesa la cola con retry (MAX_ATTEMPTS=10, MAX_ITEMS=100).
+- **Badge visual en el footer**: "N pend." aparece cuando hay acciones esperando reconexión.
+- Acciones encoladas hoy: **marcar entregado** (`kind: 'mark_delivered'`). Faltan encolar por ahora: envío de GPS, cambio de estado, reporte de incidencia (queda para siguiente tanda).
+
+### 17.4. Foto de entrega
+
+- Nuevo módulo `client/src/lib/riderCamera.js` con `captureDeliveryPhoto()`: usa `@capacitor/camera` en nativo (calidad 65, resolución razonable para no reventar el tamaño), fallback a `<input type="file" capture="environment">` en web.
+- Integrado en `handleSwipeComplete`: si el flag `data?.settings?.delivery_requiere_foto_entrega === '1'` está activo, obliga al rider a sacar foto antes de cerrar el pedido.
+- La foto viaja como `entrega_foto` (dataURL base64) en el body del POST de entrega. El campo ya existía en la tabla `pedidos` (migración vieja) y el handler `POST /repartidores/:id/rider/:code/entregar/:pedidoId` lo persiste.
+- Permiso `CAMERA` + `uses-feature required=false` agregados al `AndroidManifest.xml`.
+
+### 17.5. Autologout 30 días
+
+- Timestamp `ms_rider_last_seen` guardado en Preferences en cada bootstrap y cada acción.
+- Al arrancar la app, si pasaron más de 30 días desde el último uso, se limpia la sesión y se manda al login. Evita que un celular perdido siga logueado indefinidamente.
+
+### 17.6. APK release firmado (auto-versionado)
+
+- **`android/app/build.gradle`** rediseñado: lee `versionName` y `versionCode` desde `client/package.json` usando `JsonSlurper`. Fórmula: `MAJOR*10000 + MINOR*100 + PATCH` (ej. 1.4.0 → 10400). Ya no hay que tocar Gradle a mano nunca más — subir la versión es cambiar el `"version"` del package.json.
+- **`signingConfigs.release`**: lee 4 variables de entorno (`MODOSABOR_KEYSTORE_PATH`, `MODOSABOR_KEYSTORE_PASSWORD`, `MODOSABOR_KEY_ALIAS`, `MODOSABOR_KEY_PASSWORD`). Si están seteadas, firma release; si no, cae a debug para no romper builds de dev.
+- **Nuevo script** `npm run android:release-apk` (además del bundle `.aab` que ya existía). Sale en `android/app/build/outputs/apk/release/app-release.apk`.
+
+Falta que el usuario genere el keystore una única vez con `keytool` — instrucciones detalladas en `docs/RIDER_NATIVE_APP_NEXT_STEPS.md` sección 1.
+
+### 17.7. Documentación operativa nueva
+
+Se creó `docs/RIDER_NATIVE_APP_NEXT_STEPS.md` con 8 secciones:
+
+1. Firma release del APK (keystore, variables de entorno).
+2. Versionado automático (cómo funciona la lectura de `package.json`).
+3. Firebase Cloud Messaging (pasos para push remoto real).
+4. Sonido custom fuerte (`rider_alert.mp3` en `res/raw/`).
+5. Cámara y foto de entrega (ya implementada, cómo prender el flag).
+6. Cola offline (estado actual + qué falta encolar).
+7. Distribución al equipo (Firebase App Distribution vs Play Store vs WhatsApp).
+8. Métricas de crash remoto (Sentry vs Crashlytics).
+
+### 17.8. Archivos creados/modificados en este pack
+
+Nuevos:
+
+- `client/src/lib/riderCelebration.js` — confetti + TTS.
+- `client/src/lib/riderOfflineQueue.js` — cola offline persistente.
+- `client/src/lib/riderCamera.js` — foto de entrega.
+- `docs/RIDER_NATIVE_APP_NEXT_STEPS.md` — guía operativa.
+
+Modificados:
+
+- `client/src/pages/RiderPanel.jsx` — detalle premium, meta diaria, confetti, voz, cola offline, foto entrega, autologout.
+- `client/src/lib/nativeRiderGps.js` — helpers Preferences ya existían de la tanda 16, se usan más ahora.
+- `client/package.json` — versión 1.0.0 → 1.1.0, deps `@capacitor/camera ^8.0.0` + `@capacitor/splash-screen ^8.0.0`, script `android:release-apk`.
+- `client/android/app/build.gradle` — `JsonSlurper` + `signingConfigs.release`.
+- `client/android/app/src/main/AndroidManifest.xml` — permiso CAMERA + uses-feature.
+
+---
+
+## 18. Splash screen + login premium del rider (31/07/2026)
+
+Última pieza visual del rider. Antes: la app abría con un flash blanco y caía al login genérico gris. Ahora tiene splash con logo y login premium al nivel Rappi/PedidosYa.
+
+### 18.1. Splash screen nativo
+
+- Plugin `@capacitor/splash-screen ^8.0.0` agregado a deps.
+- Configurado en `client/capacitor.config.json`:
+  - `backgroundColor: '#dc1f2d'` (rojo Modo Sabor).
+  - `launchAutoHide: false` — se oculta desde la app, no del sistema, para evitar el flash blanco entre splash y login.
+  - `launchShowDuration: 2500` (máximo, por si el bootstrap se cuelga).
+  - `androidScaleType: 'CENTER_CROP'`, `splashFullScreen: true`, `splashImmersive: true`.
+- Bootstrap del `RiderPanel.jsx` cierra el splash en el `finally` con `SplashScreen.hide({ fadeOutDuration: 400 })` una vez que terminó de leer Preferences. Fade suave al login/app.
+
+Falta gesto manual del usuario: generar `client/resources/splash.png` (2732×2732, fondo rojo con logo centrado) e `icon.png` (1024×1024), y correr `npx @capacitor/assets generate --android` para crear todas las densidades. Instrucciones detalladas en `docs/RIDER_NATIVE_APP_NEXT_STEPS.md` sección 8.
+
+### 18.2. Login premium
+
+Se rehízo la pantalla de login del rider (bloque `if (!riderAuth)` en `RiderPanel.jsx`, ~line 1275). Antes: fondo gris, ícono Truck azul, dos inputs blancos. Ahora:
+
+- **Fondo rojo Modo Sabor** (`#dc1f2d`) full-screen con **3 blobs radiales blur** superpuestos (rosa arriba-izq, rojo oscuro abajo-der, ámbar tenue centro) para dar profundidad orgánica.
+- **Logo llamita SVG inline** (mismo SVG del `FlameStamp` de fidelización) en una card blanca 24×24 redondeada con glow blanco alrededor. **Animación float sutil** con framer-motion (`animate={{ y: [0, -8, 0] }}`, loop 3s, easeInOut). Es SVG puro → siempre disponible, no depende de que el backend responda ni de la URL del logo del negocio (que en login todavía no está cargada).
+- **Tipografía Poppins**: kicker "MODO SABOR" con tracking amplio 0.42em, título "Rider" en 4xl black.
+- **Subtítulo**: "Ingresá tu código para arrancar tu turno y empezar a recibir pedidos."
+- **Card blanca de inputs** con shadow-2xl:
+  - ID de repartidor: input numérico con ícono User, tabular-nums, focus border rojo.
+  - Código de acceso: input password con `••••••••`, tracking-widest, mismo estilo.
+- **CTA button** con gradient `from-#dc1f2d to-#b91c1c`, shadow rojo, ícono Zap. Uppercase tracking amplio.
+- **Card "Instalar como app"** con `backdrop-blur-md` sobre fondo blanco/10 (glassmorphism) — se ve premium sobre el rojo. Solo aparece si `installReady || iosInstall`.
+- **Footer**: "Hecho con ❤ en Monteros" con tracking amplio y opacidad baja.
+- Animaciones de entrada `motion` (fade + slide desde abajo) escalonadas: logo → form (delay 0.15s) → card instalar (delay 0.35s).
+
+Look final comparable a apps de delivery premium (Rappi Cartero, PedidosYa Repartidor) sin usar imágenes bitmap ni fonts externas (Poppins ya venía del proyecto).
+
+### 18.3. Archivos tocados en esta tanda
+
+- `client/src/pages/RiderPanel.jsx` — bloque de login rediseñado + hide splash en bootstrap.
+- `client/capacitor.config.json` — plugin SplashScreen configurado.
+- `client/package.json` — dep `@capacitor/splash-screen ^8.0.0` (agregada en tanda anterior).
+- `docs/RIDER_NATIVE_APP_NEXT_STEPS.md` — nueva sección 8 con instrucciones de assets del splash.
+
+### 18.4. Pendientes al cierre del día
+
+- **Instalar deps** en local: `npm --prefix client i @capacitor/splash-screen @capacitor/camera` + `npm --prefix client i -D @capacitor/assets`.
+- **Generar assets del splash**: `splash.png` 2732×2732 + `icon.png` 1024×1024 en `client/resources/`, luego `npx @capacitor/assets generate --android` + `npx cap sync android`.
+- **Rebuild APK release** con keystore firmado (ver `docs/RIDER_NATIVE_APP_NEXT_STEPS.md` sección 1).
+- **Deploy Railway** de todos los cambios de las tandas 16, 17 y 18 (Codex CLI, prompt separado).
+- **FCM**: sigue pendiente para push real con app cerrada (sección 3 de la doc).
+- **Sonido custom** `rider_alert.mp3` en `android/app/src/main/res/raw/`.
+- **Cola offline extendida**: agregar GPS + cambio de estado + reporte de incidencia (hoy solo entrega).
+- **Sentry o Crashlytics** para crashes remotos.
+- **PIN de bloqueo** de la app rider (usuario dijo "todavía no", queda en pausa hasta pedido explícito).
+
+---
+
+## 19. Deploy completo: splash + keystore + APK release firmado + push Railway (01/08/2026)
+
+Sesión de ejecución de todos los pendientes de las tandas 16–18. Se completaron las 4 tareas que habían quedado sin ejecutar al cierre del día anterior.
+
+### 19.1. Dependencias instaladas
+
+- `@capacitor/splash-screen ^8.0.2` (dependencies)
+- `@capacitor/camera ^8.2.2` (dependencies)
+- `@capacitor/assets ^3.0.5` (devDependencies)
+- Verificadas en `client/package.json` y `client/package-lock.json`.
+
+### 19.2. Assets del splash screen generados
+
+- Se creó `client/resources/` con `icon.png` (1024×1024) y `splash.png` (2732×2732).
+- Ambas generadas programáticamente con sharp: llamita blanca (extraída por color de `rider-flame-red.png`) centrada sobre fondo rojo `#dc1f2d`, con anti-aliasing suavizado.
+- Se corrió `npx @capacitor/assets generate --android` → 87 assets generados (mipmaps foreground/background/round en todas las densidades + splash portrait/landscape + dark variants).
+- Se corrió `npx cap sync android` → 7 plugins sincronizados (nuevos: `@capacitor/camera`, `@capacitor/splash-screen`).
+
+### 19.3. Keystore de release generado
+
+- Path: `client/android/modosabor-rider.jks` (gitignored, nunca se sube al repo).
+- Alias: `rider-key`.
+- RSA 2048 bits, validez 10000 días (~27 años, vence ~2053).
+- DN: `CN=Hernan Lorenzo, OU=Modo Sabor, O=Modo Sabor, L=Monteros, ST=Tucuman, C=AR`.
+- Huella SHA-256: `53:97:58:74:7F:A0:1E:1C:34:83:43:BF:EE:66:35:1E:8B:70:D0:D9:42:74:2D:1F:B3:9F:0B:90:E3:73:9A:E7`.
+- Se descomentaron `*.jks` y `*.keystore` en `client/android/.gitignore` para protección.
+- **IMPORTANTE**: este keystore es irrecuperable si se pierde. Hernán debe guardarlo en un lugar seguro fuera de la carpeta del proyecto (USB, nube privada). Sin él no se puede firmar una actualización que Android acepte como upgrade del APK actual.
+
+### 19.4. APK release firmado
+
+- **Versión**: 1.1.0 (leída de `client/package.json` vía JsonSlurper en build.gradle).
+- **versionCode**: 10100 (fórmula MAJOR×10000 + MINOR×100 + PATCH).
+- **Path escritorio**: `C:\Users\Exuz\Desktop\ModoSaborRider-v1.1.0-release.apk`
+- **Tamaño**: ~8.99 MB.
+- **Fecha/hora**: 01/08/2026 00:09.
+- **Firmado**: con keystore `modosabor-rider.jks`, alias `rider-key`.
+- Build: `gradlew assembleRelease` OK (410 tasks, 1m 50s).
+
+### 19.5. Deploy Railway
+
+- Push a `main` con commit que incluye: assets splash, mipmaps, config capacitor, .gitignore keystore, package.json/lock, RiderPanel, build.gradle, docs.
+- Railway auto-despliega desde el push a main.
+
+### 19.6. Pendientes que siguen abiertos
+
+- FCM / push remoto (app cerrada).
+- Sonido custom fuerte (`rider_alert.mp3`).
+- Cola offline extendida (GPS + cambio estado + reporte).
+- Sentry / Crashlytics para crashes remotos.
+- PIN de bloqueo (en pausa por decisión del usuario).

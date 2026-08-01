@@ -571,6 +571,18 @@ export default function RiderPanel() {
         }
       } finally {
         if (!cancelled) setBootstrapping(false);
+        // Ocultar el splash nativo con fadeout suave apenas terminamos el
+        // bootstrap. Si no esta el plugin (web o build sin cap sync), el
+        // import dinamico falla silencioso y no rompe nada.
+        try {
+          const cap = await import('@capacitor/core');
+          if (cap.Capacitor?.isNativePlatform?.()) {
+            const { SplashScreen } = await import('@capacitor/splash-screen');
+            SplashScreen.hide({ fadeOutDuration: 400 }).catch(() => {});
+          }
+        } catch {
+          // sin plugin: continuar
+        }
       }
     })();
     return () => {
@@ -1054,26 +1066,67 @@ export default function RiderPanel() {
   };
 
   // ── NEW: Swipe complete → check PIN o finalizar directo ────────
-  const handleSwipeComplete = (pedidoActual) => {
+  const handleSwipeComplete = async (pedidoActual) => {
     const validacionActiva = String(data?.settings?.delivery_validacion_activa || '0') === '1';
+    const requiereFoto = String(data?.settings?.delivery_requiere_foto_entrega || '0') === '1';
+
+    // Si el negocio activo la foto obligatoria, pedirla antes de cerrar
+    // el pedido. Si el rider cancela la camara, no cierra la entrega.
+    let fotoDataUrl = null;
+    if (requiereFoto) {
+      try {
+        const { captureDeliveryPhoto } = await import('../lib/riderCamera.js');
+        fotoDataUrl = await captureDeliveryPhoto();
+      } catch {
+        fotoDataUrl = null;
+      }
+      if (!fotoDataUrl) {
+        toast.error('Necesitamos una foto de la entrega para cerrar el pedido.');
+        return;
+      }
+    }
+
     if (validacionActiva && pedidoActual?.entrega_pin) {
-      setPinModal({ open: true, pedidoId: pedidoActual.id });
+      setPinModal({ open: true, pedidoId: pedidoActual.id, foto: fotoDataUrl });
     } else {
-      finalizarEntrega(pedidoActual.id, null);
+      finalizarEntrega(pedidoActual.id, null, fotoDataUrl);
     }
   };
 
   // ── Finalizar entrega ──────────────────────────────────────────
-  const finalizarEntrega = async (pedidoId, pin) => {
+  const finalizarEntrega = async (pedidoId, pin, fotoDataUrl = null) => {
     const pedidoActual = data?.pedidos?.find((p) => p.id === pedidoId) || selectedPedido;
     const payload = {};
     if (pin) payload.pin = pin;
+    if (fotoDataUrl) payload.entrega_foto = fotoDataUrl;
+
+    const endpoint = `/repartidores/${riderAuth.id}/rider/${riderAuth.code}/entregar/${pedidoId}`;
+
+    // Si no hay red, encolar la accion y cerrar localmente para que el
+    // rider pueda seguir trabajando. La cola se procesa al reconectar.
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      await enqueueRiderAction({
+        kind: 'mark_delivered',
+        url: endpoint,
+        method: 'POST',
+        body: payload,
+        meta: { pedidoId, numero: pedidoActual?.numero },
+      });
+      deliveredSeenRef.current.add(pedidoId);
+      if (pedidoActual) {
+        setHistorialSesion((prev) => [
+          { ...pedidoActual, entregado_en: new Date().toISOString(), _offline: true },
+          ...prev,
+        ]);
+      }
+      setPinModal({ open: false, pedidoId: null });
+      setSelectedPedido(null);
+      toast.success('Entrega guardada offline — se envía al recuperar señal.');
+      return;
+    }
 
     try {
-      await api.post(
-        `/repartidores/${riderAuth.id}/rider/${riderAuth.code}/entregar/${pedidoId}`,
-        payload
-      );
+      await api.post(endpoint, payload);
       deliveredSeenRef.current.add(pedidoId);
       try {
         await runDeliveredAlert({
@@ -1223,69 +1276,158 @@ export default function RiderPanel() {
   // ─────────────────────────────────────────────────────────────────
   if (!riderAuth) {
     return (
-      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-6">
-        <div className="w-full max-w-md space-y-8 text-center">
-          <div className="mx-auto h-20 w-20 rounded-3xl bg-blue-600 flex items-center justify-center text-white shadow-xl shadow-primary-200">
-            <Truck size={40} />
-          </div>
-          <div>
-            <h1 className="text-3xl font-black text-gray-900 tracking-tight">RIDER APP</h1>
-            <p className="mt-2 text-gray-500 font-medium uppercase tracking-widest text-xs">
-              Acceso exclusivo repartidores
+      <div className="relative min-h-screen overflow-hidden bg-[#dc1f2d] text-white font-sans">
+        {/* Fondo con shapes organicos: 3 blobs blur para dar profundidad
+            + gradient sutil arriba. Sin dependencias, todo CSS puro. */}
+        <div className="pointer-events-none absolute inset-0">
+          <div
+            className="absolute -top-32 -left-16 h-80 w-80 rounded-full opacity-40 blur-3xl"
+            style={{ background: 'radial-gradient(circle,#fca5a5,transparent 70%)' }}
+          />
+          <div
+            className="absolute -bottom-40 -right-20 h-96 w-96 rounded-full opacity-40 blur-3xl"
+            style={{ background: 'radial-gradient(circle,#7f1d1d,transparent 70%)' }}
+          />
+          <div
+            className="absolute top-1/2 left-1/3 h-64 w-64 -translate-y-1/2 rounded-full opacity-20 blur-3xl"
+            style={{ background: 'radial-gradient(circle,#fef3c7,transparent 70%)' }}
+          />
+        </div>
+
+        {/* Container principal - centrado, scrollable si no entra */}
+        <div className="relative z-10 min-h-screen flex flex-col items-center justify-center px-6 py-10">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
+            className="w-full max-w-md"
+          >
+            {/* Logo Modo Sabor grande (llamita SVG inline, siempre disponible
+                sin depender del backend). Con animacion float sutil. */}
+            <div className="flex flex-col items-center">
+              <motion.div
+                animate={{ y: [0, -8, 0] }}
+                transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
+                className="relative"
+              >
+                <div className="absolute inset-0 rounded-full bg-white/20 blur-2xl scale-125" />
+                <div className="relative h-24 w-24 rounded-3xl bg-white flex items-center justify-center shadow-2xl">
+                  <svg
+                    width="52"
+                    height="60"
+                    viewBox="0 0 32 40"
+                    fill="none"
+                    xmlns="http://www.w3.org/2000/svg"
+                  >
+                    <path
+                      d="M16 0 C14 8, 6 10, 6 20 C6 28, 11 34, 16 40 C21 34, 26 28, 26 20 C26 14, 22 12, 20 8 C19 12, 17 12, 16 10 C15 12, 15 6, 16 0 Z"
+                      fill="#dc1f2d"
+                    />
+                  </svg>
+                </div>
+              </motion.div>
+
+              <p
+                className="mt-6 text-[11px] font-black uppercase tracking-[0.42em] text-white/70"
+                style={{ fontFamily: '"Poppins","Inter",sans-serif' }}
+              >
+                Modo Sabor
+              </p>
+              <h1
+                className="mt-1 text-4xl font-black leading-none tracking-tight text-white"
+                style={{ fontFamily: '"Poppins","Inter",sans-serif' }}
+              >
+                Rider
+              </h1>
+              <p className="mt-3 text-center text-sm font-semibold text-white/80 max-w-xs">
+                Ingresá tu código para arrancar tu turno y empezar a recibir pedidos.
+              </p>
+            </div>
+
+            {/* Card blanca con inputs */}
+            <motion.form
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.15, duration: 0.5 }}
+              onSubmit={handleLogin}
+              className="mt-8 rounded-[28px] bg-white p-6 shadow-2xl shadow-black/20"
+            >
+              <div className="space-y-4">
+                <div>
+                  <label className="mb-1.5 flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.22em] text-gray-500">
+                    <User size={12} />
+                    ID de repartidor
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={loginForm.id}
+                    onChange={(e) => setLoginForm({ ...loginForm, id: e.target.value })}
+                    className="h-14 w-full rounded-2xl border-2 border-gray-100 bg-gray-50 px-5 text-xl font-black text-gray-900 tabular-nums outline-none transition focus:border-[#dc1f2d] focus:bg-white"
+                    placeholder="Ej: 1"
+                    autoComplete="off"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1.5 flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.22em] text-gray-500">
+                    <LocateFixed size={12} />
+                    Código de acceso
+                  </label>
+                  <input
+                    type="password"
+                    value={loginForm.code}
+                    onChange={(e) => setLoginForm({ ...loginForm, code: e.target.value })}
+                    className="h-14 w-full rounded-2xl border-2 border-gray-100 bg-gray-50 px-5 text-xl font-black text-gray-900 tracking-widest outline-none transition focus:border-[#dc1f2d] focus:bg-white"
+                    placeholder="••••••••"
+                    autoComplete="current-password"
+                  />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                className="mt-6 flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-[#dc1f2d] to-[#b91c1c] text-sm font-black uppercase tracking-[0.22em] text-white shadow-lg shadow-red-200 transition-all active:scale-[0.98] hover:brightness-110"
+              >
+                Ingresar
+                <Zap size={16} strokeWidth={3} />
+              </button>
+
+              <p className="mt-4 text-center text-[10px] font-bold text-gray-400">
+                ¿No tenés tu código? Pedíselo al encargado del turno.
+              </p>
+            </motion.form>
+
+            {(installReady || iosInstall) && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 0.35, duration: 0.4 }}
+                className="mt-5 rounded-2xl border border-white/20 bg-white/10 p-4 backdrop-blur-md text-left"
+              >
+                <p className="text-[10px] font-black uppercase tracking-[0.22em] text-white/90">
+                  Instalar como app
+                </p>
+                <p className="mt-1 text-xs font-medium text-white/80 leading-relaxed">
+                  {installReady
+                    ? 'Instalá la app en el celular para tenerla siempre a mano.'
+                    : 'En iPhone: tocá Compartir → "Agregar a pantalla de inicio".'}
+                </p>
+                {installReady && (
+                  <button
+                    type="button"
+                    onClick={installRiderApp}
+                    className="mt-3 inline-flex h-10 items-center gap-2 rounded-xl bg-white px-4 text-[11px] font-black uppercase tracking-widest text-[#dc1f2d] shadow-md"
+                  >
+                    <Smartphone size={14} /> Instalar
+                  </button>
+                )}
+              </motion.div>
+            )}
+
+            <p className="mt-8 text-center text-[10px] font-black uppercase tracking-[0.28em] text-white/60">
+              Hecho con <span className="text-red-300">❤</span> en Monteros
             </p>
-          </div>
-
-          {(installReady || iosInstall) && (
-            <div className="rounded-[28px] border border-primary-100 bg-white p-5 text-left shadow-sm">
-              <p className="text-[10px] font-black uppercase tracking-[0.24em] text-blue-500">
-                Instalar app
-              </p>
-              <p className="mt-2 text-sm font-semibold leading-6 text-gray-600">
-                {installReady
-                  ? 'Este celular ya puede instalar la Rider App.'
-                  : 'En iPhone: abrí Compartir → "Agregar a pantalla de inicio".'}
-              </p>
-              {installReady && (
-                <button
-                  type="button"
-                  onClick={installRiderApp}
-                  className="mt-4 inline-flex h-12 items-center gap-2 rounded-2xl bg-blue-600 px-5 text-xs font-black uppercase tracking-widest text-white shadow-lg shadow-primary-100"
-                >
-                  <Smartphone size={16} /> Instalar Rider App
-                </button>
-              )}
-            </div>
-          )}
-
-          <form onSubmit={handleLogin} className="mt-10 space-y-4">
-            <div className="text-left space-y-1.5">
-              <label className="ml-4 text-[10px] font-black uppercase text-gray-400">
-                ID de Repartidor
-              </label>
-              <input
-                type="text"
-                value={loginForm.id}
-                onChange={(e) => setLoginForm({ ...loginForm, id: e.target.value })}
-                className="h-14 w-full rounded-2xl border-none bg-white px-6 text-lg font-bold shadow-sm focus:ring-2 focus:ring-blue-500"
-                placeholder="Ej: 1"
-              />
-            </div>
-            <div className="text-left space-y-1.5">
-              <label className="ml-4 text-[10px] font-black uppercase text-gray-400">
-                Código de Acceso
-              </label>
-              <input
-                type="text"
-                value={loginForm.code}
-                onChange={(e) => setLoginForm({ ...loginForm, code: e.target.value })}
-                className="h-14 w-full rounded-2xl border-none bg-white px-6 text-lg font-bold shadow-sm focus:ring-2 focus:ring-blue-500"
-                placeholder="Pin de 8 caracteres"
-              />
-            </div>
-            <button className="h-16 w-full rounded-2xl bg-blue-600 text-white text-lg font-black uppercase tracking-widest shadow-xl shadow-primary-200 hover:bg-blue-700 active:scale-95 transition-all">
-              INGRESAR
-            </button>
-          </form>
+          </motion.div>
         </div>
       </div>
     );

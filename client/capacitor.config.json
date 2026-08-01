@@ -10,6 +10,18 @@
     "BackgroundGeolocation": {
       "backgroundTitle": "Modo Sabor Rider",
       "backgroundMessage": "Compartiendo ubicacion para el seguimiento del pedido."
+    },
+    "SplashScreen": {
+      "launchShowDuration": 2500,
+      "launchAutoHide": false,
+      "backgroundColor": "#dc1f2d",
+      "androidSplashResourceName": "splash",
+      "androidScaleType": "CENTER_CROP",
+      "showSpinner": false,
+      "splashFullScreen": true,
+      "splashImmersive": true,
+      "layoutName": "launch_screen",
+      "useDialog": false
     }
   }
 }

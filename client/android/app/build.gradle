@@ -1,5 +1,22 @@
 apply plugin: 'com.android.application'
 
+import groovy.json.JsonSlurper
+
+// versionName y versionCode se leen del client/package.json para no tener
+// que mantenerlos a mano. versionName = "1.4.0" del package. versionCode
+// se calcula como MAJOR*10000 + MINOR*100 + PATCH (1.4.0 -> 10400) para
+// que sea monotonicamente creciente sin colisiones ni suciedad manual.
+def readAppVersion() {
+    def pkg = new JsonSlurper().parse(file("${rootDir}/../package.json"))
+    def name = (pkg.version ?: '1.0.0').toString()
+    def parts = name.tokenize('.') + ['0', '0', '0']
+    def major = parts[0].toInteger()
+    def minor = parts[1].toInteger()
+    def patch = parts[2].toInteger()
+    return [name: name, code: (major * 10000) + (minor * 100) + patch]
+}
+def appVersion = readAppVersion()
+
 android {
     namespace = "com.modosabor.rider"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -7,8 +24,8 @@ android {
         applicationId "com.modosabor.rider"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode appVersion.code
+        versionName appVersion.name
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -16,10 +33,32 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+
+    // Firma release desde variables de entorno (MODOSABOR_KEYSTORE_*).
+    // Si no estan cargadas, cae a la firma debug para no romper el build
+    // en dev; pero el APK release apto para distribucion requiere las 4
+    // variables seteadas + el keystore .jks en la ruta indicada.
+    signingConfigs {
+        release {
+            def ksPath = System.getenv('MODOSABOR_KEYSTORE_PATH')
+            def ksPass = System.getenv('MODOSABOR_KEYSTORE_PASSWORD')
+            def ksAlias = System.getenv('MODOSABOR_KEY_ALIAS')
+            def ksAliasPass = System.getenv('MODOSABOR_KEY_PASSWORD') ?: ksPass
+            if (ksPath && ksPass && ksAlias) {
+                storeFile file(ksPath)
+                storePassword ksPass
+                keyAlias ksAlias
+                keyPassword ksAliasPass
+            }
+        }
+    }
+
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            def hasKs = System.getenv('MODOSABOR_KEYSTORE_PATH') && System.getenv('MODOSABOR_KEYSTORE_PASSWORD') && System.getenv('MODOSABOR_KEY_ALIAS')
+            signingConfig hasKs ? signingConfigs.release : signingConfigs.debug
         }
     }
 }
