@@ -29,6 +29,66 @@ function getMaskedCardNumber(telefono) {
 
 const BACK_CARD_BACKGROUND_URL = '/assets/fidelidad/tarjeta-fide-dorso.png';
 
+// Llamita de Modo Sabor como SVG inline. Se usa como "sello ganado":
+// cuando el cliente completa una compra, en el circulo aparece esta llamita
+// en vez del ícono placeholder gris.
+function FlameStamp({ size = 22 }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 32 40"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+    >
+      <path
+        d="M16 0 C14 8, 6 10, 6 20 C6 28, 11 34, 16 40 C21 34, 26 28, 26 20 C26 14, 22 12, 20 8 C19 12, 17 12, 16 10 C15 12, 15 6, 16 0 Z"
+        fill="#ffffff"
+      />
+    </svg>
+  );
+}
+
+// Hamburguesa simple como SVG inline para los sellos vacios.
+// Estilo "outline" simple para que se lea claro aun en 20px.
+function BurgerStamp({ size = 20 }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 32 32"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+    >
+      {/* Pan de arriba (cupula con semillitas) */}
+      <path
+        d="M5 14 C5 9, 10 5, 16 5 C22 5, 27 9, 27 14 Z"
+        fill="currentColor"
+        fillOpacity="0.35"
+      />
+      <circle cx="12" cy="10" r="0.9" fill="currentColor" />
+      <circle cx="16" cy="8.5" r="0.9" fill="currentColor" />
+      <circle cx="20" cy="10" r="0.9" fill="currentColor" />
+      {/* Lechuga (linea ondulada) */}
+      <path d="M4 17 Q7 15 10 17 T16 17 T22 17 T28 17" />
+      {/* Medallon (rectangulo con relleno) */}
+      <rect x="4" y="19" width="24" height="3.5" rx="1.5" fill="currentColor" fillOpacity="0.55" />
+      {/* Pan de abajo */}
+      <path
+        d="M5 24 L27 24 C27 26.5, 23 28, 16 28 C9 28, 5 26.5, 5 24 Z"
+        fill="currentColor"
+        fillOpacity="0.35"
+      />
+    </svg>
+  );
+}
+
 /** Dorso tipo tarjeta impresa: fondo de marca, QR limpio, sellos y datos ordenados. */
 function TarjetaDorsoSellos({
   colorPrimario,
@@ -36,108 +96,155 @@ function TarjetaDorsoSellos({
   stampGoal,
   stampCount,
   rewardReady,
-  cardHolder,
   puntos,
 }) {
-  const visibleStampGoal = Math.min(Math.max(stampGoal, 5), 6);
+  // Grid fijo 4x2 = 8 sellos. Los primeros 7 suman, el ultimo (posicion 8)
+  // es el "premio gratis" que se destraba cuando se completa el ciclo.
+  const visibleStampGoal = 8;
   const stampProgress = Math.min(stampCount, stampGoal);
 
   return (
     <div
-      className="relative mx-auto aspect-[8/5] w-full max-w-[480px] overflow-hidden rounded-[28px] border border-black/10 bg-black shadow-2xl"
+      className="relative mx-auto aspect-[8/5] w-full max-w-[480px] overflow-hidden rounded-[28px] border border-white/10 bg-black shadow-2xl"
       style={{
-        backgroundImage: `linear-gradient(90deg, rgba(0,0,0,0.18) 0%, rgba(0,0,0,0.06) 44%, rgba(0,0,0,0.24) 100%), url("${BACK_CARD_BACKGROUND_URL}")`,
+        backgroundImage: `linear-gradient(90deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.25) 44%, rgba(0,0,0,0.55) 100%), url("${BACK_CARD_BACKGROUND_URL}")`,
         backgroundSize: 'cover',
         backgroundPosition: 'center',
       }}
     >
-      <div className="pointer-events-none absolute inset-0 rounded-[28px] ring-1 ring-inset ring-white/10" />
+      {/* Halo de color de marca en la esquina */}
       <div
-        className="pointer-events-none absolute left-0 top-0 h-full w-[34%]"
-        style={{
-          background: 'linear-gradient(90deg, rgba(0,0,0,0.7), rgba(0,0,0,0.08))',
-        }}
+        className="pointer-events-none absolute -right-16 -top-16 h-56 w-56 rounded-full blur-3xl"
+        style={{ background: `radial-gradient(circle, ${colorPrimario}55, transparent 70%)` }}
       />
+      {/* Marco interno sutil */}
+      <div className="pointer-events-none absolute inset-3 rounded-[22px] border border-white/12" />
 
-      <div className="absolute left-[7%] top-[13%] flex w-[22%] flex-col items-start">
+      {/* Bloque izquierdo: QR + etiqueta + badge de progreso */}
+      <div className="absolute left-[6%] top-[12%] flex w-[24%] flex-col items-center">
         {clubUrl ? (
-          <div className="rounded-[14px] bg-white p-[6px] shadow-[0_14px_30px_rgba(0,0,0,0.42)]">
+          <div
+            className="rounded-[16px] bg-white p-[7px] shadow-[0_18px_36px_rgba(0,0,0,0.55)]"
+            style={{ boxShadow: `0 18px 36px rgba(0,0,0,0.55), 0 0 0 2px ${colorPrimario}30` }}
+          >
             <QRCodeSVG
               value={clubUrl}
-              size={88}
+              size={92}
               bgColor="#ffffff"
-              fgColor="#111827"
+              fgColor="#0f172a"
               includeMargin={false}
               className="h-auto w-full"
             />
           </div>
         ) : (
-          <div className="flex aspect-square w-full items-center justify-center rounded-[14px] border border-dashed border-white/35 bg-white/8">
-            <QrCode size={26} className="text-white/50" />
+          <div className="flex aspect-square w-full items-center justify-center rounded-[16px] border border-dashed border-white/35 bg-white/8">
+            <QrCode size={28} className="text-white/60" />
           </div>
         )}
-        <p className="mt-3 max-w-[92px] text-[9px] font-black uppercase leading-tight tracking-[0.16em] text-white/76">
+        <p className="mt-2 text-center text-[9px] font-black uppercase leading-tight tracking-[0.18em] text-white">
           Escaneá tu tarjeta
         </p>
+        <div
+          className="mt-2 rounded-full px-3 py-1 text-[10px] font-black text-white"
+          style={{
+            backgroundColor: colorPrimario,
+            boxShadow: `0 6px 14px ${colorPrimario}55`,
+          }}
+        >
+          {stampProgress}/{stampGoal} · {puntos} pts
+        </div>
       </div>
 
-      <div className="absolute left-[32%] right-[7%] top-[12%]">
-        <p
-          className="text-[9px] font-black uppercase tracking-[0.42em]"
-          style={{ color: colorPrimario }}
-        >
-          Modo Sabor
-        </p>
-        <h3 className="mt-1 text-[22px] font-black leading-none text-white sm:text-[26px]">
+      {/* Bloque superior derecho: título */}
+      <div className="absolute left-[34%] right-[7%] top-[11%]">
+        <div className="flex items-center gap-2">
+          <span
+            className="inline-block h-[10px] w-[10px] rounded-full"
+            style={{ backgroundColor: colorPrimario, boxShadow: `0 0 10px ${colorPrimario}` }}
+          />
+          <p
+            className="text-[10px] font-black uppercase tracking-[0.42em]"
+            style={{ color: colorPrimario }}
+          >
+            Modo Sabor
+          </p>
+        </div>
+        <h3 className="mt-1 text-[24px] font-black leading-tight text-white sm:text-[28px]">
           Tarjeta de fidelidad
         </h3>
-        <p className="mt-2 max-w-[260px] text-[10px] font-bold uppercase tracking-[0.14em] text-white/48">
-          {rewardReady ? 'Premio listo para canjear' : `Completá ${stampGoal} sellos y ganá`}
+        <p
+          className="mt-2 max-w-[280px] text-[11px] font-black uppercase tracking-[0.16em]"
+          style={{ color: rewardReady ? '#fde047' : 'rgba(255,255,255,0.82)' }}
+        >
+          {rewardReady
+            ? '★ Premio listo para canjear'
+            : `Completá ${visibleStampGoal - 1} y el 8vo es gratis`}
         </p>
       </div>
 
-      <div className="absolute left-[32%] right-[8%] top-[42%]">
-        <div className="grid grid-cols-3 gap-x-8 gap-y-5">
+      {/* Sellos 4x2: hamburguesa apagada, llamita cuando esta completado, ultimo = premio */}
+      <div className="absolute left-[34%] right-[7%] top-[38%] max-w-[300px]">
+        <div className="grid grid-cols-4 gap-x-2 gap-y-2">
           {Array.from({ length: visibleStampGoal }).map((_, index) => {
             const filled = index < stampCount;
-            const isRewardSlot = index === visibleStampGoal - 1 && stampGoal <= visibleStampGoal;
+            const isRewardSlot = index === visibleStampGoal - 1;
+            const rewardWon = isRewardSlot && stampCount >= stampGoal;
             return (
               <div
                 key={index}
                 className={`relative flex aspect-square items-center justify-center rounded-full border-2 transition-all duration-300 ${
-                  filled ? 'border-transparent shadow-lg' : 'border-white/72 bg-black/6'
+                  filled
+                    ? 'border-transparent shadow-lg text-white'
+                    : isRewardSlot
+                      ? 'border-yellow-300/80 bg-yellow-300/10 text-yellow-300'
+                      : 'border-white/55 bg-white/5 text-white/70'
                 }`}
                 style={
                   filled
                     ? {
                         backgroundColor: colorPrimario,
-                        boxShadow: `0 0 18px ${colorPrimario}80, 0 8px 18px rgba(0,0,0,0.36)`,
+                        boxShadow: `0 0 16px ${colorPrimario}90, 0 6px 14px rgba(0,0,0,0.36)`,
+                        animation: `flameStampIn 0.55s cubic-bezier(0.34, 1.56, 0.64, 1) ${index * 0.12}s both${index === stampCount - 1 ? ', flamePulse 2.4s ease-in-out infinite 1s' : ''}`,
                       }
                     : {}
                 }
               >
                 {filled ? (
-                  <CheckCircle2 size={17} className="text-white" strokeWidth={3} />
+                  <FlameStamp size={20} />
                 ) : isRewardSlot ? (
-                  <Star size={15} className="text-white/70" strokeWidth={2.5} />
-                ) : null}
+                  <Gift
+                    size={rewardWon ? 22 : 18}
+                    className="text-yellow-300"
+                    strokeWidth={2.5}
+                    style={rewardWon ? { animation: 'giftGlow 1.8s ease-in-out infinite' } : {}}
+                  />
+                ) : (
+                  <BurgerStamp size={20} />
+                )}
               </div>
             );
           })}
         </div>
       </div>
 
-      <div className="absolute bottom-[7%] left-[7%] right-[7%] flex items-end justify-between gap-4">
-        <div className="min-w-0">
-          <p className="text-[8px] font-black uppercase tracking-[0.22em] text-white/42">
-            Tu nombre
-          </p>
-          <p className="truncate text-[12px] font-black text-white/82">{cardHolder}</p>
-        </div>
-        <span className="shrink-0 text-[12px] font-black" style={{ color: colorPrimario }}>
-          {stampProgress}/{stampGoal} · {puntos} pts
-        </span>
-      </div>
+      {/* Animaciones de sellos ganados: entrada tipo "pop" cuando aparece
+          la llamita, pulso suave en el sello mas nuevo, y brillo dorado
+          cuando el premio esta destrabado. */}
+      <style>{`
+        @keyframes flameStampIn {
+          0% { transform: scale(0.2) rotate(-25deg); opacity: 0; }
+          55% { transform: scale(1.25) rotate(6deg); opacity: 1; }
+          100% { transform: scale(1) rotate(0); opacity: 1; }
+        }
+        @keyframes flamePulse {
+          0%, 100% { transform: scale(1); filter: brightness(1); }
+          50% { transform: scale(1.06); filter: brightness(1.18); }
+        }
+        @keyframes giftGlow {
+          0%, 100% { filter: drop-shadow(0 0 4px rgba(253, 224, 71, 0.4)); }
+          50% { filter: drop-shadow(0 0 14px rgba(253, 224, 71, 0.9)); }
+        }
+      `}</style>
     </div>
   );
 }
@@ -150,7 +257,7 @@ export default function TarjetaFidelidad({
   clubUrl,
   customFrontImage,
 }) {
-  const stampGoal = Math.max(1, Number(config?.sellos_para_premio || 10));
+  const stampGoal = Math.max(1, Number(config?.sellos_para_premio || 7));
   const stampCount = Math.max(0, Number(cliente?.sellos_actuales || 0));
   const stampsRemaining = Math.max(stampGoal - stampCount, 0);
   const rewardReady = stampsRemaining === 0 && Boolean(cliente);
@@ -175,7 +282,7 @@ export default function TarjetaFidelidad({
 
   const RewardIcon = rewardReady ? Sparkles : Gift;
 
-  // — Si el negocio subió su propio diseño: frente = imagen limpia, dorso = sellos + QR —
+  // — Si el negocio subió su propio diseño: frente = imagen + nombre del cliente en cursiva, dorso = sellos + QR —
   if (customFrontImage) {
     return (
       <div className="space-y-6">
@@ -185,6 +292,27 @@ export default function TarjetaFidelidad({
             alt={`${branding.negocio_nombre} - tarjeta de fidelidad`}
             className="block aspect-[8/5] w-full object-cover"
           />
+          {/* Nombre del titular: debajo del logo (aprox 62% del alto),
+              en Poppins bold blanco, con sombra sutil para que resalte
+              sobre cualquier imagen custom que suba el negocio. */}
+          <div
+            className="pointer-events-none absolute left-0 right-0 flex justify-center px-8"
+            style={{ top: '62%' }}
+          >
+            <p
+              className="text-center text-white drop-shadow-[0_2px_8px_rgba(0,0,0,0.8)]"
+              style={{
+                fontFamily: '"Poppins", "Inter", sans-serif',
+                fontWeight: 700,
+                fontSize: 'clamp(18px, 4.6vw, 28px)',
+                lineHeight: 1.1,
+                letterSpacing: '0.03em',
+                textTransform: 'uppercase',
+              }}
+            >
+              {cardHolder}
+            </p>
+          </div>
         </div>
         <TarjetaDorsoSellos
           colorPrimario={colorPrimario}
@@ -192,7 +320,6 @@ export default function TarjetaFidelidad({
           stampGoal={stampGoal}
           stampCount={stampCount}
           rewardReady={rewardReady}
-          cardHolder={cardHolder}
           puntos={puntos}
         />
       </div>

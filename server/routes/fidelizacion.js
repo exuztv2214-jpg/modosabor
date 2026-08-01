@@ -265,10 +265,17 @@ router.post('/club/registro', (req, res) => {
     const email = cleanText(req.body?.email);
     const fechaNacimiento = cleanText(req.body?.fecha_nacimiento);
     const direccion = cleanText(req.body?.direccion);
+    const barrio = cleanText(req.body?.barrio);
     const referencia = cleanText(req.body?.referencia);
+    const aceptoTerminos = req.body?.acepto_terminos === true || req.body?.acepto_terminos === 1;
 
     if (!telefono) return res.status(400).json({ error: 'El teléfono es obligatorio' });
     if (!nombre) return res.status(400).json({ error: 'El nombre es obligatorio' });
+    if (!aceptoTerminos) {
+      return res.status(400).json({
+        error: 'Tenés que aceptar las bases y condiciones del club para registrarte',
+      });
+    }
 
     const byCode = codigoInput
       ? db.prepare('SELECT * FROM clientes WHERE codigo_tarjeta = ?').get(codigoInput)
@@ -297,7 +304,10 @@ router.post('/club/registro', (req, res) => {
               email = CASE WHEN TRIM(COALESCE(?, '')) != '' THEN ? ELSE email END,
               fecha_nacimiento = CASE WHEN TRIM(COALESCE(?, '')) != '' THEN ? ELSE fecha_nacimiento END,
               direccion = CASE WHEN TRIM(COALESCE(?, '')) != '' THEN ? ELSE direccion END,
+              barrio = CASE WHEN TRIM(COALESCE(?, '')) != '' THEN ? ELSE barrio END,
               fidelizacion_activa = 1,
+              acepto_terminos = 1,
+              acepto_terminos_en = COALESCE(acepto_terminos_en, CURRENT_TIMESTAMP),
               codigo_tarjeta = COALESCE(codigo_tarjeta, ?)
           WHERE id = ?
         `
@@ -310,6 +320,8 @@ router.post('/club/registro', (req, res) => {
           fechaNacimiento,
           direccion,
           direccion,
+          barrio,
+          barrio,
           nextCodigo,
           cliente.id
         );
@@ -318,11 +330,12 @@ router.post('/club/registro', (req, res) => {
           .prepare(
             `
           INSERT INTO clientes (
-            nombre, telefono, email, direccion, fecha_nacimiento, fidelizacion_activa, codigo_tarjeta
-          ) VALUES (?, ?, ?, ?, ?, 1, ?)
+            nombre, telefono, email, direccion, barrio, fecha_nacimiento,
+            fidelizacion_activa, acepto_terminos, acepto_terminos_en, codigo_tarjeta
+          ) VALUES (?, ?, ?, ?, ?, ?, 1, 1, CURRENT_TIMESTAMP, ?)
         `
           )
-          .run(nombre, telefono, email, direccion, fechaNacimiento, codigoInput || null);
+          .run(nombre, telefono, email, direccion, barrio, fechaNacimiento, codigoInput || null);
         cliente = db.prepare('SELECT * FROM clientes WHERE id = ?').get(result.lastInsertRowid);
       }
 

@@ -247,7 +247,7 @@ export function useClientes() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [fidelidadConfig, setFidelidadConfig] = useState({
     monto_minimo_sello: 10000,
-    sellos_para_premio: 6,
+    sellos_para_premio: 7,
     premio_descripcion: '1 Pizza Muzzarella',
     activo: true,
   });

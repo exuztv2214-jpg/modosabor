@@ -1,6 +1,15 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
+import { motion, AnimatePresence } from 'framer-motion';
 import toast from 'react-hot-toast';
+
+import AnimatedNumber from '../components/AnimatedNumber.jsx';
+import { fireRiderConfetti, speakRider } from '../lib/riderCelebration.js';
+import {
+  enqueueRiderAction,
+  processRiderQueue,
+  readQueue as readRiderQueue,
+} from '../lib/riderOfflineQueue.js';
 import {
   Truck,
   MapPin,
@@ -28,6 +37,8 @@ import {
   List,
   Route,
   Flag,
+  DollarSign,
+  TrendingUp,
 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -53,6 +64,9 @@ import {
   saveNativeRiderAuth,
   sendRiderLocationUpdate,
   startRiderLocationWatcher,
+  riderStorageGet,
+  riderStorageSet,
+  riderStorageRemove,
 } from '../lib/nativeRiderGps.js';
 import api from '../lib/api.js';
 import { socketManager } from '../lib/socket.js';
@@ -421,13 +435,17 @@ function SwipeButton({ onComplete, disabled }) {
 export default function RiderPanel() {
   const params = useParams();
 
-  // Auth
-  const [riderAuth, setRiderAuth] = useState(() => {
-    const id = localStorage.getItem('ms_rider_id');
-    const code = localStorage.getItem('ms_rider_code');
-    return id && code ? { id, code } : null;
-  });
+  // Auth. Arrancamos con null + bootstrapping=true para dar tiempo a
+  // Preferences (async). En web/PWA es instantaneo, en app nativa Android
+  // tarda ~50ms pero es la unica forma de sobrevivir cierres de la app.
+  const [riderAuth, setRiderAuth] = useState(null);
   const [loginForm, setLoginForm] = useState({ id: '', code: '' });
+  const [bootstrapping, setBootstrapping] = useState(true);
+  const [incidenciaOpen, setIncidenciaOpen] = useState(false);
+  const [offlineCount, setOfflineCount] = useState(0);
+  const [isConnected, setIsConnected] = useState(
+    typeof navigator === 'undefined' ? true : navigator.onLine !== false
+  );
 
   // Core data
   const [loading, setLoading] = useState(false);
@@ -451,9 +469,9 @@ export default function RiderPanel() {
   const [nowTime, setNowTime] = useState(() => format(new Date(), 'HH:mm'));
 
   // ── NEW: online/offline toggle (local)
-  const [isOnline, setIsOnline] = useState(
-    () => localStorage.getItem('ms_rider_online') !== 'false'
-  );
+  // Toggle online/offline: default true; se hidrata desde storage en el
+  // useEffect de bootstrap para que persista en app nativa Android.
+  const [isOnline, setIsOnline] = useState(true);
 
   // ── NEW: timer de entrega
   const [deliveryElapsed, setDeliveryElapsed] = useState(0);
@@ -492,22 +510,72 @@ export default function RiderPanel() {
     const routeCode = String(params?.codigo || '').trim();
     if (!routeId || !routeCode) return;
     const next = { id: routeId, code: routeCode };
-    localStorage.setItem('ms_rider_id', routeId);
-    localStorage.setItem('ms_rider_code', routeCode);
+    riderStorageSet('ms_rider_id', routeId).catch(() => {});
+    riderStorageSet('ms_rider_code', routeCode).catch(() => {});
     saveNativeRiderAuth(next).catch(() => {});
     setLoginForm(next);
     setRiderAuth((prev) => (prev?.id === routeId && prev?.code === routeCode ? prev : next));
   }, [params?.codigo, params?.id]);
 
+  // Bootstrap async al montar: intento cargar credenciales primero desde
+  // Preferences (autoritativo en nativo), y si no hay caigo a localStorage
+  // (web/PWA). Recien despues muestro login o panel.
   useEffect(() => {
-    if (riderAuth) return;
-    loadNativeRiderAuth().then((saved) => {
-      if (!saved) return;
-      localStorage.setItem('ms_rider_id', saved.id);
-      localStorage.setItem('ms_rider_code', saved.code);
-      setLoginForm(saved);
-      setRiderAuth(saved);
-    });
+    let cancelled = false;
+    (async () => {
+      try {
+        // Cargar auth + toggle online + timestamp de ultimo uso en paralelo
+        const [saved, onlineStored, lastSeen] = await Promise.all([
+          loadNativeRiderAuth(),
+          riderStorageGet('ms_rider_online'),
+          riderStorageGet('ms_rider_last_seen'),
+        ]);
+        // Autologout tras 30 días sin uso. Si el celular se pierde o el
+        // rider deja de trabajar, la sesion se cierra sola.
+        const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
+        const lastSeenMs = Number(lastSeen || 0);
+        if (lastSeenMs && Date.now() - lastSeenMs > thirtyDaysMs) {
+          await clearNativeRiderAuth().catch(() => {});
+          await riderStorageRemove('ms_rider_id').catch(() => {});
+          await riderStorageRemove('ms_rider_code').catch(() => {});
+          if (!cancelled) {
+            setBootstrapping(false);
+            toast('Cerramos tu sesión por inactividad. Volvé a ingresar tu código.', {
+              icon: '🔒',
+              duration: 5000,
+            });
+          }
+          return;
+        }
+        // Marcar "visto" ahora para prolongar la vida de la sesion.
+        riderStorageSet('ms_rider_last_seen', String(Date.now())).catch(() => {});
+        if (!cancelled) {
+          if (onlineStored === 'false') setIsOnline(false);
+        }
+        if (!cancelled && saved) {
+          setLoginForm(saved);
+          setRiderAuth(saved);
+          return;
+        }
+        // Fallback: helpers universales
+        const [id, code] = await Promise.all([
+          riderStorageGet('ms_rider_id'),
+          riderStorageGet('ms_rider_code'),
+        ]);
+        if (!cancelled && id && code) {
+          const next = { id, code };
+          setLoginForm(next);
+          setRiderAuth(next);
+          // Backfill: guardar en formato canonico
+          saveNativeRiderAuth(next).catch(() => {});
+        }
+      } finally {
+        if (!cancelled) setBootstrapping(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // ── PWA install prompt ─────────────────────────────────────────
@@ -565,25 +633,34 @@ export default function RiderPanel() {
     };
   }, []);
 
+  // Historial de pedidos entregados/cancelados de la sesion del rider.
+  // Persistido en Preferences (nativo) o localStorage (web) por dia + rider.
   useEffect(() => {
     if (!riderAuth?.id) {
       setHistorialSesion([]);
-      return;
+      return undefined;
     }
-    try {
-      const stored = JSON.parse(localStorage.getItem(riderHistoryKey(riderAuth.id)) || '[]');
-      setHistorialSesion(Array.isArray(stored) ? stored : []);
-    } catch {
-      setHistorialSesion([]);
-    }
+    let cancelled = false;
+    riderStorageGet(riderHistoryKey(riderAuth.id)).then((raw) => {
+      if (cancelled) return;
+      try {
+        const stored = JSON.parse(raw || '[]');
+        setHistorialSesion(Array.isArray(stored) ? stored : []);
+      } catch {
+        setHistorialSesion([]);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [riderAuth?.id]);
 
   useEffect(() => {
     if (!riderAuth?.id) return;
-    localStorage.setItem(
+    riderStorageSet(
       riderHistoryKey(riderAuth.id),
       JSON.stringify(historialSesion.slice(0, 50))
-    );
+    ).catch(() => {});
   }, [historialSesion, riderAuth?.id]);
 
   // ── Reloj en tiempo real ───────────────────────────────────────
@@ -633,7 +710,7 @@ export default function RiderPanel() {
       notifiedAssignedRef.current.add(normalizedId);
       const recent = [...notifiedAssignedRef.current].slice(-100);
       notifiedAssignedRef.current = new Set(recent);
-      localStorage.setItem(`ms_rider_notified_${riderAuth.id}`, JSON.stringify(recent));
+      riderStorageSet(`ms_rider_notified_${riderAuth.id}`, JSON.stringify(recent)).catch(() => {});
     },
     [riderAuth]
   );
@@ -654,6 +731,18 @@ export default function RiderPanel() {
 
       try {
         await notifyRiderNewOrder(pedido);
+      } catch {}
+
+      // Anuncio por voz (TTS) para "ojos en el camino": si el rider esta
+      // manejando puede escuchar el pedido sin sacar el celular. Silent-fail
+      // si el WebView no soporta Web Speech API.
+      try {
+        const cliente = String(pedido?.cliente_nombre || 'sin nombre').split(' ')[0];
+        const direccion = String(pedido?.cliente_direccion || '').split(',')[0];
+        const total = Number(pedido?.total || 0);
+        speakRider(
+          `Nuevo pedido para ${cliente}${direccion ? ` en ${direccion}` : ''}. Monto ${Math.round(total)} pesos.`
+        );
       } catch {}
 
       try {
@@ -682,17 +771,25 @@ export default function RiderPanel() {
   useEffect(() => {
     if (!riderAuth) {
       notifiedAssignedRef.current = new Set();
-      return;
+      return undefined;
     }
+    let cancelled = false;
+    riderStorageGet(`ms_rider_notified_${riderAuth.id}`).then((raw) => {
+      if (cancelled) return;
+      try {
+        const stored = JSON.parse(raw || '[]');
+        notifiedAssignedRef.current = new Set((Array.isArray(stored) ? stored : []).map(String));
+      } catch {
+        notifiedAssignedRef.current = new Set();
+      }
+    });
 
-    try {
-      const stored = JSON.parse(localStorage.getItem(`ms_rider_notified_${riderAuth.id}`) || '[]');
-      notifiedAssignedRef.current = new Set((Array.isArray(stored) ? stored : []).map(String));
-    } catch {
-      notifiedAssignedRef.current = new Set();
-    }
-
+    // Pedir permiso de notificaciones apenas hay sesion. En Android 13+
+    // hace falta el prompt explicito o LocalNotifications no muestra nada.
     prepareRiderNotifications().catch(() => {});
+    return () => {
+      cancelled = true;
+    };
   }, [riderAuth]);
 
   // ── Fetch ──────────────────────────────────────────────────────
@@ -894,16 +991,16 @@ export default function RiderPanel() {
   const handleLogin = (e) => {
     e.preventDefault();
     if (!loginForm.id || !loginForm.code) return toast.error('Completá los datos');
-    localStorage.setItem('ms_rider_id', loginForm.id);
-    localStorage.setItem('ms_rider_code', loginForm.code);
+    riderStorageSet('ms_rider_id', loginForm.id).catch(() => {});
+    riderStorageSet('ms_rider_code', loginForm.code).catch(() => {});
     saveNativeRiderAuth(loginForm).catch(() => {});
     setRiderAuth({ id: loginForm.id, code: loginForm.code });
   };
 
   const handleLogout = () => {
     stopTracking();
-    localStorage.removeItem('ms_rider_id');
-    localStorage.removeItem('ms_rider_code');
+    riderStorageRemove('ms_rider_id').catch(() => {});
+    riderStorageRemove('ms_rider_code').catch(() => {});
     clearNativeRiderAuth().catch(() => {});
     setRiderAuth(null);
     setData(null);
@@ -914,7 +1011,7 @@ export default function RiderPanel() {
   const toggleOnline = () => {
     const next = !isOnline;
     setIsOnline(next);
-    localStorage.setItem('ms_rider_online', String(next));
+    riderStorageSet('ms_rider_online', String(next)).catch(() => {});
     if (navigator.vibrate) navigator.vibrate(40);
     toast(next ? '✅ Disponible' : '⛔ No disponible', { duration: 1500 });
   };
@@ -1025,6 +1122,52 @@ export default function RiderPanel() {
       ? sortByDistance(activePedidos, riderLocation.lat, riderLocation.lng)
       : activePedidos;
 
+  // Cola offline: si el celular vuelve a tener red, reintentar acciones
+  // pendientes (marcar entregado, ubicaciones, incidencias). Corre cada
+  // 15s mientras hay conexion + inmediatamente cuando el navegador
+  // dispara "online".
+  useEffect(() => {
+    if (!riderAuth) return undefined;
+    let cancelled = false;
+    const bumpBadge = async () => {
+      const q = await readRiderQueue();
+      if (!cancelled) setOfflineCount(q.length);
+    };
+    const flush = async () => {
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        setIsConnected(false);
+        return;
+      }
+      setIsConnected(true);
+      const { processed } = await processRiderQueue(api);
+      if (processed > 0) {
+        toast.success(`Recuperada la conexión — sincronizamos ${processed} acción(es).`);
+      }
+      await bumpBadge();
+    };
+    bumpBadge();
+    const interval = window.setInterval(flush, 15000);
+    const onOnline = () => {
+      setIsConnected(true);
+      flush();
+    };
+    const onOffline = () => {
+      setIsConnected(false);
+      toast('Sin conexión — las acciones se guardan y se envían al reconectar.', {
+        icon: '📡',
+        duration: 3500,
+      });
+    };
+    window.addEventListener('online', onOnline);
+    window.addEventListener('offline', onOffline);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener('offline', onOffline);
+    };
+  }, [riderAuth]);
+
   // ── Computed: resumen del día ──────────────────────────────────
   const resumenDia = {
     entregados: historialSesion.length,
@@ -1037,6 +1180,43 @@ export default function RiderPanel() {
       .reduce((acc, p) => acc + Number(p.total || 0), 0),
     total: historialSesion.reduce((acc, p) => acc + Number(p.total || 0), 0),
   };
+
+  // Toast animado cuando sube el numero de entregas. Solo dispara si el
+  // contador CRECE (no al arranque ni al descargar historial). Da la
+  // sensacion de "logro" apos cada delivery.
+  const previousEntregadosRef = useRef(null);
+  useEffect(() => {
+    const current = resumenDia.entregados;
+    const previous = previousEntregadosRef.current;
+    previousEntregadosRef.current = current;
+    if (previous === null || previous === undefined) return;
+    if (current > previous) {
+      toast.success(`🎉 ¡${current}ª entrega del día!`, {
+        duration: 2500,
+        style: {
+          borderRadius: '20px',
+          background: '#111',
+          color: '#fff',
+          fontWeight: 900,
+          letterSpacing: '0.02em',
+        },
+      });
+      fireRiderConfetti(36);
+      speakRider(`Entrega ${current} confirmada. ¡Buen trabajo!`, { rate: 1.1 });
+    }
+  }, [resumenDia.entregados]);
+
+  // ─────────────────────────────────────────────────────────────────
+  // RENDER: spinner de bootstrap (mientras carga Preferences en Android)
+  // ─────────────────────────────────────────────────────────────────
+  if (bootstrapping) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-6">
+        <div className="mx-auto h-12 w-12 animate-spin rounded-full border-4 border-primary-500 border-t-transparent" />
+        <p className="mt-4 text-sm font-bold text-gray-500">Cargando tu sesión...</p>
+      </div>
+    );
+  }
 
   // ─────────────────────────────────────────────────────────────────
   // RENDER: pantalla de login
@@ -1139,10 +1319,22 @@ export default function RiderPanel() {
             <img
               src={riderLogoUrl}
               alt={appName}
-              className="h-10 w-10 rounded-xl bg-white object-contain p-0.5"
+              className="h-10 w-10 rounded-xl bg-white object-contain p-0.5 border border-gray-100"
+              onError={(e) => {
+                // Si la URL del logo falla (imagen borrada, sin acceso, etc.)
+                // el placeholder roto del navegador queda espantoso; reemplazo
+                // por un ícono de camión con fondo de marca.
+                e.currentTarget.style.display = 'none';
+                e.currentTarget.insertAdjacentHTML(
+                  'afterend',
+                  `<div class="h-10 w-10 rounded-xl bg-primary-50 flex items-center justify-center text-primary-600 border border-primary-100">
+                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 18H3c-.6 0-1-.4-1-1V7c0-.6.4-1 1-1h10c.6 0 1 .4 1 1v11"/><path d="M14 9h4l4 4v4c0 .6-.4 1-1 1h-2"/><circle cx="7" cy="18" r="2"/><path d="M15 18H9"/><circle cx="17" cy="18" r="2"/></svg>
+                   </div>`
+                );
+              }}
             />
           ) : (
-            <div className="h-10 w-10 rounded-xl bg-primary-50 flex items-center justify-center text-primary-600">
+            <div className="h-10 w-10 rounded-xl bg-primary-50 flex items-center justify-center text-primary-600 border border-primary-100">
               <Truck size={20} />
             </div>
           )}
@@ -1200,38 +1392,171 @@ export default function RiderPanel() {
 
         {!selectedPedido ? (
           <>
-            {/* ── NEW: Resumen del día ── */}
-            {resumenDia.entregados > 0 && (
-              <div className="rounded-[28px] bg-gradient-to-r from-blue-600 to-blue-500 p-5 shadow-xl shadow-primary-200">
-                <p className="text-[10px] font-black uppercase tracking-[0.22em] text-blue-200 mb-3">
-                  Tu turno de hoy
-                </p>
-                <div className="grid grid-cols-3 gap-3">
-                  <div className="rounded-2xl bg-white/15 px-3 py-3 text-center">
-                    <p className="text-2xl font-black text-white">{resumenDia.entregados}</p>
-                    <p className="text-[9px] font-black text-blue-200 uppercase tracking-widest mt-1">
-                      Entregas
+            {/* ── Resumen del turno (siempre visible) ──
+                Tarjeta hero con brillo animado + 3 stats con iconos y
+                tipografia armonica. Antes solo aparecia cuando ya habia
+                entregas y los numeros tenian tamaños distintos (2xl vs lg)
+                lo que se veia desfasado. Ahora todos son text-2xl con
+                tabular-nums, y cada stat tiene su chip de icono. */}
+            <div className="relative overflow-hidden rounded-[28px] bg-gradient-to-br from-blue-600 via-blue-600 to-blue-500 p-5 shadow-xl shadow-primary-200">
+              <div className="pointer-events-none absolute -right-10 -top-10 h-40 w-40 rounded-full bg-white/10 blur-2xl" />
+              <div className="pointer-events-none absolute -bottom-8 -left-6 h-32 w-32 rounded-full bg-white/5 blur-2xl" />
+              <div className="relative">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-[0.22em] text-blue-200">
+                      Tu turno de hoy
+                    </p>
+                    <p className="text-lg font-black text-white leading-tight mt-0.5">
+                      {nowTime} · {format(new Date(), "EEE dd 'de' MMM", { locale: es })}
                     </p>
                   </div>
-                  <div className="rounded-2xl bg-white/15 px-3 py-3 text-center">
-                    <p className="text-lg font-black text-white leading-tight">
-                      {fmt(resumenDia.efectivo)}
-                    </p>
-                    <p className="text-[9px] font-black text-blue-200 uppercase tracking-widest mt-1">
-                      Efectivo
-                    </p>
-                  </div>
-                  <div className="rounded-2xl bg-white/15 px-3 py-3 text-center">
-                    <p className="text-lg font-black text-white leading-tight">
-                      {fmt(resumenDia.total)}
-                    </p>
-                    <p className="text-[9px] font-black text-blue-200 uppercase tracking-widest mt-1">
-                      Total
-                    </p>
+                  <div className="flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1.5 backdrop-blur-sm">
+                    <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+                    <span className="text-[10px] font-black uppercase tracking-widest text-white">
+                      Online
+                    </span>
                   </div>
                 </div>
+                {(() => {
+                  // Meta diaria: usa lo que el negocio configure, sino 10.
+                  const meta = Math.max(1, Number(data?.settings?.rider_meta_diaria || 10));
+                  const pctMeta = Math.min(100, (resumenDia.entregados / meta) * 100);
+                  return (
+                    <div className="mb-3">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[9px] font-black uppercase tracking-widest text-blue-200">
+                          Meta diaria
+                        </span>
+                        <span className="text-[10px] font-black tabular-nums text-white">
+                          {resumenDia.entregados}/{meta}
+                        </span>
+                      </div>
+                      <div className="h-2 overflow-hidden rounded-full bg-white/15">
+                        <motion.div
+                          initial={{ width: 0 }}
+                          animate={{ width: `${pctMeta}%` }}
+                          transition={{ duration: 0.9, ease: 'easeOut' }}
+                          className="h-full rounded-full"
+                          style={{
+                            background:
+                              pctMeta >= 100
+                                ? 'linear-gradient(90deg,#10b981,#34d399)'
+                                : 'linear-gradient(90deg,#fbbf24,#f59e0b)',
+                          }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })()}
+                <div className="grid grid-cols-3 gap-2.5">
+                  <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.05 }}
+                    className="rounded-2xl bg-white/15 backdrop-blur-sm px-3 py-3 text-center"
+                  >
+                    <div className="flex items-center justify-center h-6 mb-1.5">
+                      <Package size={14} className="text-blue-200" />
+                    </div>
+                    <AnimatedNumber
+                      value={resumenDia.entregados}
+                      className="text-2xl font-black text-white tabular-nums leading-none block"
+                    />
+                    <p className="text-[9px] font-black text-blue-200 uppercase tracking-widest mt-1.5">
+                      Entregas
+                    </p>
+                  </motion.div>
+                  <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.12 }}
+                    className="rounded-2xl bg-white/15 backdrop-blur-sm px-3 py-3 text-center"
+                  >
+                    <div className="flex items-center justify-center h-6 mb-1.5">
+                      <DollarSign size={14} className="text-blue-200" />
+                    </div>
+                    <AnimatedNumber
+                      value={resumenDia.efectivo}
+                      format={(n) => fmt(n)}
+                      className="text-lg font-black text-white tabular-nums leading-none block"
+                    />
+                    <p className="text-[9px] font-black text-blue-200 uppercase tracking-widest mt-1.5">
+                      Efectivo
+                    </p>
+                  </motion.div>
+                  <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.2 }}
+                    className="rounded-2xl bg-white/15 backdrop-blur-sm px-3 py-3 text-center"
+                  >
+                    <div className="flex items-center justify-center h-6 mb-1.5">
+                      <TrendingUp size={14} className="text-blue-200" />
+                    </div>
+                    <AnimatedNumber
+                      value={resumenDia.total}
+                      format={(n) => fmt(n)}
+                      className="text-lg font-black text-white tabular-nums leading-none block"
+                    />
+                    <p className="text-[9px] font-black text-blue-200 uppercase tracking-widest mt-1.5">
+                      Total
+                    </p>
+                  </motion.div>
+                </div>
               </div>
-            )}
+            </div>
+
+            {/* ── Barra de acciones rápidas ──
+                3 botones grandes con label debajo. Están a mano sin
+                tener que ir al ícono chico del header ni al menú.
+                Se ven vivos: bordes suaves, hover sube, íconos claros. */}
+            <motion.div
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.25 }}
+              className="grid grid-cols-3 gap-2.5"
+            >
+              {telefonoLocal ? (
+                <a
+                  href={`tel:${telefonoLocal}`}
+                  className="flex flex-col items-center gap-1.5 rounded-2xl bg-white border border-gray-100 p-3 shadow-sm hover:shadow-md active:scale-95 transition-all"
+                >
+                  <div className="h-9 w-9 rounded-xl bg-success-50 flex items-center justify-center text-success-600">
+                    <PhoneCall size={16} />
+                  </div>
+                  <span className="text-[10px] font-black uppercase tracking-widest text-gray-600">
+                    Llamar local
+                  </span>
+                </a>
+              ) : (
+                <div />
+              )}
+              <button
+                type="button"
+                onClick={() => fetchData()}
+                className="flex flex-col items-center gap-1.5 rounded-2xl bg-white border border-gray-100 p-3 shadow-sm hover:shadow-md active:scale-95 transition-all"
+              >
+                <div className="h-9 w-9 rounded-xl bg-primary-50 flex items-center justify-center text-primary-600">
+                  <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+                </div>
+                <span className="text-[10px] font-black uppercase tracking-widest text-gray-600">
+                  Actualizar
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab('historial')}
+                className="flex flex-col items-center gap-1.5 rounded-2xl bg-white border border-gray-100 p-3 shadow-sm hover:shadow-md active:scale-95 transition-all"
+              >
+                <div className="h-9 w-9 rounded-xl bg-violet-50 flex items-center justify-center text-violet-600">
+                  <History size={16} />
+                </div>
+                <span className="text-[10px] font-black uppercase tracking-widest text-gray-600">
+                  Historial
+                </span>
+              </button>
+            </motion.div>
 
             {/* ── Multi-delivery route optimization ── */}
             {hasMultipleDeliveries && (
@@ -1457,90 +1782,123 @@ export default function RiderPanel() {
                 </div>
 
                 {!data?.pedidos?.length ? (
-                  <div className="py-16 text-center flex flex-col items-center opacity-30">
-                    <Package size={48} strokeWidth={1} className="mb-4" />
-                    <p className="text-sm font-bold uppercase tracking-widest">
-                      Sin entregas por ahora
+                  <div className="rounded-[32px] bg-gradient-to-br from-blue-50 via-white to-blue-50 border border-blue-100 py-12 text-center flex flex-col items-center relative overflow-hidden">
+                    {/* Ondas de radar animadas: 3 círculos concéntricos que
+                        se expanden con desfase, dan sensación de "escaneando"
+                        el mapa a la espera de pedidos. */}
+                    <div className="relative h-28 w-28 mb-5">
+                      <div className="absolute inset-0 rounded-full bg-primary-500/20 animate-ping" />
+                      <div
+                        className="absolute inset-3 rounded-full bg-primary-500/25 animate-ping"
+                        style={{ animationDelay: '0.4s' }}
+                      />
+                      <div
+                        className="absolute inset-6 rounded-full bg-primary-500/30 animate-ping"
+                        style={{ animationDelay: '0.8s' }}
+                      />
+                      <div className="absolute inset-8 rounded-full bg-primary-500 flex items-center justify-center shadow-lg shadow-primary-200">
+                        <Package size={26} className="text-white" strokeWidth={2.2} />
+                      </div>
+                    </div>
+                    <p className="text-sm font-black uppercase tracking-widest text-primary-600">
+                      Esperando pedidos
                     </p>
+                    <p className="mt-2 text-xs font-semibold text-gray-500 max-w-xs px-4">
+                      Cuando entre uno nuevo te va a sonar y vibrar acá. Dejá la app abierta aunque
+                      bloquees el celular.
+                    </p>
+                    <div className="mt-4 flex items-center gap-2 rounded-full bg-white/80 px-3 py-1.5 shadow-sm border border-gray-100">
+                      <div className="h-2 w-2 rounded-full bg-success-500 animate-pulse" />
+                      <span className="text-[10px] font-black uppercase tracking-widest text-gray-500">
+                        Modo activo
+                      </span>
+                    </div>
                   </div>
                 ) : (
-                  (hasMultipleDeliveries ? sortedPedidos : data.pedidos).map((pedido, idx) => {
-                    const stopNumber = hasMultipleDeliveries ? idx + 1 : null;
-                    const stopColors = [
-                      'bg-emerald-500',
-                      'bg-amber-500',
-                      'bg-orange-500',
-                      'bg-rose-500',
-                      'bg-purple-500',
-                    ];
-                    return (
-                      <button
-                        key={pedido.id}
-                        onClick={() => setSelectedPedido(pedido)}
-                        className="w-full text-left rounded-[28px] bg-white border border-gray-100 p-5 shadow-sm hover:shadow-lg transition-all flex items-center justify-between group"
-                      >
-                        <div className="flex items-center gap-4">
-                          <div
-                            className={`h-12 w-12 rounded-[18px] flex items-center justify-center transition-colors ${
-                              pedido.estado === 'en_camino'
-                                ? 'bg-success-50'
-                                : 'bg-gray-50 group-hover:bg-primary-50'
-                            }`}
-                          >
-                            {hasMultipleDeliveries && stopNumber ? (
-                              <span
-                                className={`h-7 w-7 rounded-full ${stopColors[(stopNumber - 1) % stopColors.length]} flex items-center justify-center text-white text-[10px] font-black`}
-                              >
-                                {stopNumber}
-                              </span>
-                            ) : (
-                              <ShoppingBag
-                                size={22}
-                                className={
-                                  pedido.estado === 'en_camino'
-                                    ? 'text-success-600'
-                                    : 'text-gray-400 group-hover:text-primary-600'
-                                }
-                              />
-                            )}
-                          </div>
-                          <div>
-                            <p className="text-sm font-black text-gray-900 uppercase tracking-tight">
-                              #{pedido.numero} · {pedido.cliente_nombre}
-                            </p>
-                            <p className="text-xs font-bold text-gray-400 truncate max-w-[200px]">
-                              {pedido.cliente_direccion}
-                            </p>
-                            {pedido.hora_entrega ? (
-                              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-violet-600 mt-0.5">
-                                Entrega {pedido.hora_entrega}
+                  <AnimatePresence initial={false}>
+                    {(hasMultipleDeliveries ? sortedPedidos : data.pedidos).map((pedido, idx) => {
+                      const stopNumber = hasMultipleDeliveries ? idx + 1 : null;
+                      const stopColors = [
+                        'bg-emerald-500',
+                        'bg-amber-500',
+                        'bg-orange-500',
+                        'bg-rose-500',
+                        'bg-purple-500',
+                      ];
+                      return (
+                        <motion.button
+                          key={pedido.id}
+                          layout
+                          initial={{ opacity: 0, y: 40, scale: 0.95 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, y: -20, scale: 0.95 }}
+                          transition={{ type: 'spring', damping: 22, stiffness: 260 }}
+                          onClick={() => setSelectedPedido(pedido)}
+                          className="w-full text-left rounded-[28px] bg-white border border-gray-100 p-5 shadow-sm hover:shadow-lg transition-shadow flex items-center justify-between group"
+                        >
+                          <div className="flex items-center gap-4">
+                            <div
+                              className={`h-12 w-12 rounded-[18px] flex items-center justify-center transition-colors ${
+                                pedido.estado === 'en_camino'
+                                  ? 'bg-success-50'
+                                  : 'bg-gray-50 group-hover:bg-primary-50'
+                              }`}
+                            >
+                              {hasMultipleDeliveries && stopNumber ? (
+                                <span
+                                  className={`h-7 w-7 rounded-full ${stopColors[(stopNumber - 1) % stopColors.length]} flex items-center justify-center text-white text-[10px] font-black`}
+                                >
+                                  {stopNumber}
+                                </span>
+                              ) : (
+                                <ShoppingBag
+                                  size={22}
+                                  className={
+                                    pedido.estado === 'en_camino'
+                                      ? 'text-success-600'
+                                      : 'text-gray-400 group-hover:text-primary-600'
+                                  }
+                                />
+                              )}
+                            </div>
+                            <div>
+                              <p className="text-sm font-black text-gray-900 uppercase tracking-tight">
+                                #{pedido.numero} · {pedido.cliente_nombre}
                               </p>
-                            ) : null}
-                            {hasMultipleDeliveries && pedido.distance !== undefined && (
-                              <p className="text-[10px] font-black text-violet-500 mt-0.5">
-                                {Math.round(pedido.distance)}m de distancia
+                              <p className="text-xs font-bold text-gray-400 truncate max-w-[200px]">
+                                {pedido.cliente_direccion}
                               </p>
-                            )}
-                            <p className="text-xs font-black text-gray-700 mt-0.5">
-                              {fmt(pedido.total)}
-                            </p>
+                              {pedido.hora_entrega ? (
+                                <p className="text-[10px] font-black uppercase tracking-[0.18em] text-violet-600 mt-0.5">
+                                  Entrega {pedido.hora_entrega}
+                                </p>
+                              ) : null}
+                              {hasMultipleDeliveries && pedido.distance !== undefined && (
+                                <p className="text-[10px] font-black text-violet-500 mt-0.5">
+                                  {Math.round(pedido.distance)}m de distancia
+                                </p>
+                              )}
+                              <p className="text-xs font-black text-gray-700 mt-0.5">
+                                {fmt(pedido.total)}
+                              </p>
+                            </div>
                           </div>
-                        </div>
-                        <div className="flex flex-col items-end gap-2 shrink-0">
-                          <span
-                            className={`text-[9px] font-black uppercase px-2 py-1 rounded-lg ${
-                              pedido.estado === 'en_camino'
-                                ? 'bg-success-50 text-success-600'
-                                : 'bg-primary-50 text-primary-600'
-                            }`}
-                          >
-                            {pedido.estado.replace('_', ' ')}
-                          </span>
-                          <ChevronRight size={18} className="text-gray-300" />
-                        </div>
-                      </button>
-                    );
-                  })
+                          <div className="flex flex-col items-end gap-2 shrink-0">
+                            <span
+                              className={`text-[9px] font-black uppercase px-2 py-1 rounded-lg ${
+                                pedido.estado === 'en_camino'
+                                  ? 'bg-success-50 text-success-600'
+                                  : 'bg-primary-50 text-primary-600'
+                              }`}
+                            >
+                              {pedido.estado.replace('_', ' ')}
+                            </span>
+                            <ChevronRight size={18} className="text-gray-300" />
+                          </div>
+                        </motion.button>
+                      );
+                    })}
+                  </AnimatePresence>
                 )}
               </div>
             )}
@@ -1599,85 +1957,120 @@ export default function RiderPanel() {
             </button>
 
             <div className="flex flex-1 flex-col overflow-hidden rounded-[28px] border border-gray-100 bg-white shadow-lg shadow-gray-200/60">
-              {/* Info cliente */}
-              <div className="border-b border-gray-100 p-5 sm:p-6">
-                <div className="mb-4 flex items-center justify-between gap-3">
-                  <div
-                    className="rounded-full px-4 py-1.5 text-[10px] font-black uppercase tracking-wider text-white"
-                    style={{ backgroundColor: primaryColor }}
-                  >
-                    #{selectedPedido.numero}
+              {/* Hero card cliente: gradient sutil, avatar inicial, badge #pedido
+                  arriba, timer/hora bien visible. Rediseño para dar vida y
+                  jerarquia clara al detalle del pedido. */}
+              <div
+                className="relative overflow-hidden border-b border-gray-100 p-5 sm:p-6"
+                style={{
+                  background: `linear-gradient(135deg, ${primaryColor}0d 0%, #ffffff 60%)`,
+                }}
+              >
+                <div
+                  className="pointer-events-none absolute -right-16 -top-16 h-40 w-40 rounded-full blur-3xl"
+                  style={{
+                    background: `radial-gradient(circle, ${primaryColor}22, transparent 70%)`,
+                  }}
+                />
+                <div className="relative">
+                  <div className="mb-4 flex items-center justify-between gap-3">
+                    <div
+                      className="rounded-full px-4 py-1.5 text-[11px] font-black uppercase tracking-widest text-white shadow-sm"
+                      style={{ backgroundColor: primaryColor }}
+                    >
+                      #{selectedPedido.numero}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {selectedPedido.estado === 'en_camino' && (
+                        <div className="flex items-center gap-1.5 rounded-full bg-success-500 px-3 py-1.5 shadow-sm">
+                          <Clock size={12} className="text-white" />
+                          <span className="text-xs font-black tabular-nums text-white">
+                            {fmtTimer(deliveryElapsed)}
+                          </span>
+                        </div>
+                      )}
+                      <span className="rounded-full bg-white/70 px-2.5 py-1 text-[10px] font-black uppercase tracking-widest text-gray-500 backdrop-blur-sm">
+                        {format(parseDate(selectedPedido.creado_en), 'HH:mm')} HS
+                      </span>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-3">
-                    {/* ── NEW: timer visible en detalle cuando en_camino ── */}
-                    {selectedPedido.estado === 'en_camino' && (
-                      <div className="flex items-center gap-1.5 rounded-xl bg-success-50 px-3 py-1.5">
-                        <Clock size={12} className="text-success-600" />
-                        <span className="text-xs font-black tabular-nums text-success-700">
-                          {fmtTimer(deliveryElapsed)}
-                        </span>
-                      </div>
-                    )}
-                    <p className="text-xs font-bold text-gray-400">
-                      {format(parseDate(selectedPedido.creado_en), 'HH:mm')} HS
-                    </p>
-                  </div>
-                </div>
 
-                <h3 className="break-words text-xl font-black uppercase leading-tight text-gray-900 sm:text-2xl">
-                  {selectedPedido.cliente_nombre}
-                </h3>
-                <div className="mt-5 space-y-4">
-                  {selectedPedido.hora_entrega ? (
-                    <div className="flex items-start gap-3">
-                      <div className="mt-1 h-8 w-8 rounded-xl bg-violet-50 flex items-center justify-center text-violet-600 shrink-0">
-                        <Clock size={15} />
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-xs font-black text-gray-400 uppercase tracking-widest">
-                          Hora de entrega
-                        </p>
-                        <p className="text-sm font-bold text-violet-700 leading-tight">
-                          {selectedPedido.hora_entrega}
-                        </p>
-                      </div>
+                  <div className="flex items-center gap-4">
+                    {/* Avatar con inicial del cliente */}
+                    <div
+                      className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl text-2xl font-black text-white shadow-md"
+                      style={{
+                        background: `linear-gradient(135deg, ${primaryColor}, ${primaryColor}dd)`,
+                      }}
+                    >
+                      {String(selectedPedido.cliente_nombre || '?')
+                        .trim()
+                        .charAt(0)
+                        .toUpperCase()}
                     </div>
-                  ) : null}
-                  <div className="flex min-w-0 items-start gap-3">
-                    <div className="mt-1 h-8 w-8 rounded-xl bg-gray-50 flex items-center justify-center text-gray-400 shrink-0">
-                      <MapPin size={15} />
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-xs font-black text-gray-400 uppercase tracking-widest">
-                        Dirección
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+                        Cliente
                       </p>
-                      <p className="break-words text-sm font-bold leading-snug text-gray-700">
-                        {selectedPedido.cliente_direccion}
-                      </p>
+                      <h3 className="mt-0.5 break-words text-xl font-black leading-tight text-gray-900 sm:text-2xl">
+                        {selectedPedido.cliente_nombre}
+                      </h3>
                     </div>
                   </div>
-                  <div className="flex items-center justify-between gap-4">
-                    <div className="flex min-w-0 items-start gap-3">
-                      <div className="mt-1 h-8 w-8 rounded-xl bg-gray-50 flex items-center justify-center text-gray-400 shrink-0">
-                        <Phone size={15} />
+
+                  <div className="mt-5 space-y-3">
+                    {selectedPedido.hora_entrega ? (
+                      <div className="flex items-center gap-3 rounded-2xl border border-violet-100 bg-violet-50/70 p-3">
+                        <div className="h-9 w-9 rounded-xl bg-violet-500 flex items-center justify-center text-white shrink-0 shadow-sm">
+                          <Clock size={16} />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[10px] font-black text-violet-500 uppercase tracking-widest">
+                            Hora de entrega
+                          </p>
+                          <p className="text-sm font-black text-violet-900 leading-tight">
+                            {selectedPedido.hora_entrega}
+                          </p>
+                        </div>
                       </div>
-                      <div className="min-w-0">
-                        <p className="text-xs font-black text-gray-400 uppercase tracking-widest">
+                    ) : null}
+                    <div className="flex min-w-0 items-center gap-3 rounded-2xl border border-gray-100 bg-white p-3 shadow-sm">
+                      <div
+                        className="h-9 w-9 rounded-xl flex items-center justify-center text-white shrink-0 shadow-sm"
+                        style={{ backgroundColor: primaryColor }}
+                      >
+                        <MapPin size={16} />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                          Dirección
+                        </p>
+                        <p className="break-words text-sm font-black leading-snug text-gray-900">
+                          {selectedPedido.cliente_direccion}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3 rounded-2xl border border-emerald-100 bg-success-50/60 p-3">
+                      <div className="h-9 w-9 rounded-xl bg-success-500 flex items-center justify-center text-white shrink-0 shadow-sm">
+                        <Phone size={16} />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[10px] font-black text-success-600 uppercase tracking-widest">
                           Teléfono
                         </p>
-                        <p className="text-sm font-bold text-gray-700">
+                        <p className="text-sm font-black text-emerald-900">
                           {selectedPedido.cliente_telefono || 'No disponible'}
                         </p>
                       </div>
+                      {selectedPedido.cliente_telefono && (
+                        <a
+                          href={`tel:${selectedPedido.cliente_telefono}`}
+                          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-success-500 text-white shadow-md shadow-success-200 transition-all active:scale-90 hover:bg-emerald-600"
+                        >
+                          <Phone size={18} fill="currentColor" />
+                        </a>
+                      )}
                     </div>
-                    {selectedPedido.cliente_telefono && (
-                      <a
-                        href={`tel:${selectedPedido.cliente_telefono}`}
-                        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-success-500 text-white shadow-md shadow-success-100 transition-all active:scale-90"
-                      >
-                        <Phone size={20} fill="currentColor" />
-                      </a>
-                    )}
                   </div>
                 </div>
               </div>
@@ -1746,35 +2139,22 @@ export default function RiderPanel() {
                     </div>
                   )}
 
-                  <div className="grid grid-cols-2 gap-2 border-t border-gray-100 bg-white p-3">
+                  {/* 4 botones de accion, iguales entre si (mismo alto y forma)
+                      pero con colores distinguibles: MAPS marca, COPIAR neutro,
+                      WHATSAPP verde, WAZE azul cielo. Aprieta subtly con
+                      active:scale-95 para dar feedback tactil. */}
+                  <div className="grid grid-cols-2 gap-2 border-t border-gray-100 bg-gray-50/60 p-3 sm:grid-cols-4">
                     <button
                       onClick={() => openNav(selectedPedido)}
-                      className="rider-primary-button inline-flex h-12 items-center justify-center gap-2 rounded-2xl px-3 text-xs font-black uppercase tracking-wide text-white shadow-sm"
+                      className="flex h-14 flex-col items-center justify-center gap-1 rounded-2xl text-[10px] font-black uppercase tracking-widest text-white shadow-md transition-all active:scale-95"
+                      style={{
+                        background: `linear-gradient(135deg, ${primaryColor}, ${primaryColor}dd)`,
+                        boxShadow: `0 4px 12px ${primaryColor}40`,
+                      }}
                     >
-                      <Navigation size={16} />
+                      <Navigation size={18} />
                       Maps
                     </button>
-                    <button
-                      onClick={() =>
-                        navigator.clipboard
-                          ?.writeText(selectedPedido.cliente_direccion || '')
-                          .then(() => toast.success('Dirección copiada'))
-                          .catch(() => toast.error('No se pudo copiar'))
-                      }
-                      className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-gray-200 bg-white px-3 text-xs font-black uppercase tracking-wide text-gray-700"
-                    >
-                      <Copy size={14} /> Copiar
-                    </button>
-                    {selectedPedido.cliente_telefono && (
-                      <a
-                        href={`https://wa.me/${String(selectedPedido.cliente_telefono).replace(/\D/g, '')}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-emerald-200 bg-success-50 px-3 text-xs font-black uppercase tracking-wide text-success-700"
-                      >
-                        <Phone size={14} /> WhatsApp
-                      </a>
-                    )}
                     <a
                       href={buildWazeUrl(
                         {
@@ -1787,47 +2167,118 @@ export default function RiderPanel() {
                       )}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-sky-200 bg-sky-50 px-3 text-xs font-black uppercase tracking-wide text-sky-700"
+                      className="flex h-14 flex-col items-center justify-center gap-1 rounded-2xl bg-gradient-to-br from-sky-500 to-sky-600 text-[10px] font-black uppercase tracking-widest text-white shadow-md shadow-sky-200 transition-all active:scale-95"
                     >
-                      <Route size={15} /> Waze
+                      <Route size={18} /> Waze
                     </a>
+                    {selectedPedido.cliente_telefono ? (
+                      <a
+                        href={`https://wa.me/${String(selectedPedido.cliente_telefono).replace(/\D/g, '')}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex h-14 flex-col items-center justify-center gap-1 rounded-2xl bg-gradient-to-br from-emerald-500 to-emerald-600 text-[10px] font-black uppercase tracking-widest text-white shadow-md shadow-emerald-200 transition-all active:scale-95"
+                      >
+                        <Phone size={18} /> WhatsApp
+                      </a>
+                    ) : (
+                      <div className="hidden sm:block" />
+                    )}
+                    <button
+                      onClick={() =>
+                        navigator.clipboard
+                          ?.writeText(selectedPedido.cliente_direccion || '')
+                          .then(() => toast.success('Dirección copiada'))
+                          .catch(() => toast.error('No se pudo copiar'))
+                      }
+                      className="flex h-14 flex-col items-center justify-center gap-1 rounded-2xl border border-gray-200 bg-white text-[10px] font-black uppercase tracking-widest text-gray-700 shadow-sm transition-all active:scale-95"
+                    >
+                      <Copy size={16} /> Copiar
+                    </button>
                   </div>
                 </div>
               </div>
 
-              {/* Resumen */}
-              <div className="mx-5 mb-5 flex-1 rounded-[22px] bg-gray-50 p-5 sm:mx-6">
-                <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-                  <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
-                    Resumen del pedido
-                  </span>
-                  <span
-                    className={`rounded-lg px-2.5 py-1 text-[10px] font-black ${paymentStatusTone(selectedPedido.pago_estado)}`}
-                  >
-                    {paymentMethodLabel(selectedPedido.metodo_pago)} ·{' '}
-                    {paymentStatusLabel(selectedPedido.pago_estado)}
-                  </span>
-                </div>
-                <div className="mb-5 space-y-3">
-                  {selectedItems.map((it, idx) => (
-                    <div key={idx} className="flex justify-between gap-4 text-sm">
-                      <p className="min-w-0 break-words font-bold text-gray-700">
-                        {it.cantidad}x {it.nombre}
-                      </p>
-                      <p className="shrink-0 font-black text-gray-900">
-                        {fmt(it.precio_unitario * it.cantidad)}
-                      </p>
+              {/* Resumen del pedido. Total a cobrar en banda de color:
+                  verde si ya cobrado, ambar si pendiente en efectivo, azul
+                  neutro para digitales. */}
+              {(() => {
+                const estadoPago = String(selectedPedido.pago_estado || 'pendiente').toLowerCase();
+                const metodoPago = String(selectedPedido.metodo_pago || 'efectivo').toLowerCase();
+                const yaCobrado = ['pagado', 'cobrado', 'aprobado'].includes(estadoPago);
+                const totalBg = yaCobrado
+                  ? 'linear-gradient(135deg, #059669, #10b981)'
+                  : metodoPago === 'efectivo'
+                    ? 'linear-gradient(135deg, #d97706, #f59e0b)'
+                    : `linear-gradient(135deg, ${primaryColor}, ${primaryColor}dd)`;
+                const totalShadow = yaCobrado
+                  ? '0 12px 28px rgba(16,185,129,0.35)'
+                  : metodoPago === 'efectivo'
+                    ? '0 12px 28px rgba(245,158,11,0.35)'
+                    : `0 12px 28px ${primaryColor}40`;
+                return (
+                  <>
+                    <div className="mx-5 mb-4 flex-1 rounded-[22px] bg-gray-50 p-5 sm:mx-6">
+                      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+                        <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                          Resumen del pedido
+                        </span>
+                        <span
+                          className={`rounded-lg px-2.5 py-1 text-[10px] font-black ${paymentStatusTone(selectedPedido.pago_estado)}`}
+                        >
+                          {paymentMethodLabel(selectedPedido.metodo_pago)} ·{' '}
+                          {paymentStatusLabel(selectedPedido.pago_estado)}
+                        </span>
+                      </div>
+                      <div className="space-y-3">
+                        {selectedItems.map((it, idx) => (
+                          <div
+                            key={idx}
+                            className="flex justify-between gap-4 text-sm bg-white rounded-xl p-3 border border-gray-100"
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-primary-50 text-primary-600 text-[10px] font-black shrink-0">
+                                {it.cantidad}x
+                              </span>
+                              <p className="min-w-0 break-words font-bold text-gray-700">
+                                {it.nombre}
+                              </p>
+                            </div>
+                            <p className="shrink-0 font-black text-gray-900">
+                              {fmt(it.precio_unitario * it.cantidad)}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                  ))}
-                </div>
-                <div className="flex justify-between items-center pt-4 border-t border-gray-200">
-                  <p className="text-[11px] font-black uppercase tracking-wide text-gray-400">
-                    Total a cobrar
-                  </p>
-                  <p className="text-2xl font-black text-gray-900">{fmt(selectedPedido.total)}</p>
-                </div>
-                {paymentStatusLabel(selectedPedido.pago_estado) === 'Pendiente' && (
-                  <div className="mt-5 border-t border-gray-200 pt-4">
+
+                    {/* Total a cobrar: banda grande con color segun estado */}
+                    <div
+                      className="relative mx-5 mb-5 overflow-hidden rounded-[22px] p-5 shadow-lg sm:mx-6"
+                      style={{ background: totalBg, boxShadow: totalShadow }}
+                    >
+                      <div className="pointer-events-none absolute -right-8 -top-8 h-32 w-32 rounded-full bg-white/15 blur-2xl" />
+                      <div className="relative flex items-center justify-between">
+                        <div>
+                          <p className="text-[10px] font-black uppercase tracking-[0.22em] text-white/80">
+                            {yaCobrado ? '✓ Ya cobrado' : 'Total a cobrar'}
+                          </p>
+                          <p className="mt-1 text-[10px] font-bold text-white/70">
+                            {paymentMethodLabel(selectedPedido.metodo_pago)}
+                          </p>
+                        </div>
+                        <p className="text-3xl font-black text-white tabular-nums leading-none">
+                          {fmt(selectedPedido.total)}
+                        </p>
+                      </div>
+                    </div>
+                  </>
+                );
+              })()}
+
+              {/* Selector de metodo de pago (cuando esta pendiente) */}
+              {paymentStatusLabel(selectedPedido.pago_estado) === 'Pendiente' && (
+                <div className="mx-5 mb-5 rounded-[22px] bg-gray-50 p-5 sm:mx-6">
+                  <div>
                     <div className="mb-3 flex items-center gap-2">
                       <CreditCard size={15} className="text-gray-500" />
                       <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">
@@ -1869,11 +2320,25 @@ export default function RiderPanel() {
                       registrado como cobrado.
                     </p>
                   </div>
-                )}
-              </div>
+                </div>
+              )}
 
               {/* Acciones */}
               <div className="flex flex-col gap-3 border-t border-gray-100 bg-white p-5 sm:p-6">
+                {/* Chat directo con el local por WhatsApp (motivo del pedido,
+                    problema, etc.). Mucho más práctico que llamar y esperar. */}
+                {telefonoLocal ? (
+                  <a
+                    href={`https://wa.me/${String(telefonoLocal).replace(/\D/g, '')}?text=${encodeURIComponent(
+                      `Hola, sobre el pedido #${selectedPedido.numero} de ${selectedPedido.cliente_nombre || 'S/N'}: `
+                    )}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-success-50 text-xs font-black uppercase tracking-widest text-success-700 transition-all active:scale-95"
+                  >
+                    <PhoneCall size={14} /> Escribir al local por WhatsApp
+                  </a>
+                ) : null}
                 {/* Comenzar reparto */}
                 {['confirmado', 'listo', 'preparando'].includes(selectedPedido.estado) && (
                   <button
@@ -1892,20 +2357,76 @@ export default function RiderPanel() {
                   />
                 )}
 
+                {/* Bloque incidencia + cancelar */}
                 <div className="grid grid-cols-2 gap-3">
                   <button
-                    onClick={() => updateEstado(selectedPedido.id, 'incidencia')}
-                    className="flex h-12 items-center justify-center gap-2 rounded-2xl border border-amber-200 bg-warning-50 text-[11px] font-black uppercase tracking-wide text-warning-700"
+                    onClick={() => setIncidenciaOpen(true)}
+                    className="flex h-12 items-center justify-center gap-2 rounded-2xl border border-amber-200 bg-warning-50 text-[11px] font-black uppercase tracking-wide text-warning-700 active:scale-95 transition-transform"
                   >
-                    <AlertCircle size={15} /> Incidencia
+                    <AlertCircle size={15} /> Reportar problema
                   </button>
                   <button
-                    onClick={() => updateEstado(selectedPedido.id, 'cancelado')}
-                    className="flex h-12 items-center justify-center gap-2 rounded-2xl border border-rose-200 bg-danger-50 text-[11px] font-black uppercase tracking-wide text-danger-700"
+                    onClick={() => {
+                      if (window.confirm('¿Cancelar este pedido? No se puede deshacer.')) {
+                        updateEstado(selectedPedido.id, 'cancelado');
+                      }
+                    }}
+                    className="flex h-12 items-center justify-center gap-2 rounded-2xl border border-rose-200 bg-danger-50 text-[11px] font-black uppercase tracking-wide text-danger-700 active:scale-95 transition-transform"
                   >
                     <X size={15} /> Cancelar
                   </button>
                 </div>
+
+                {/* Popover animado con motivos preseteados */}
+                <AnimatePresence>
+                  {incidenciaOpen && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: 10 }}
+                      className="rounded-2xl border border-amber-200 bg-warning-50 p-4"
+                    >
+                      <p className="mb-3 text-[10px] font-black uppercase tracking-widest text-warning-700">
+                        ¿Qué pasó? Elegí el motivo:
+                      </p>
+                      <div className="grid grid-cols-2 gap-2">
+                        {[
+                          { key: 'no_atiende', label: 'Cliente no atiende' },
+                          { key: 'direccion_mal', label: 'Dirección mal' },
+                          { key: 'cliente_rechazo', label: 'Cliente rechazó' },
+                          { key: 'cerrado', label: 'Edificio cerrado' },
+                        ].map(({ key, label }) => (
+                          <button
+                            key={key}
+                            onClick={() => {
+                              updateEstado(selectedPedido.id, 'incidencia', { motivo: key });
+                              setIncidenciaOpen(false);
+                              // Avisar al local por WhatsApp automáticamente si hay
+                              // número configurado.
+                              if (telefonoLocal) {
+                                window.open(
+                                  `https://wa.me/${String(telefonoLocal).replace(/\D/g, '')}?text=${encodeURIComponent(
+                                    `Pedido #${selectedPedido.numero} (${selectedPedido.cliente_nombre || 'S/N'}): ${label}`
+                                  )}`,
+                                  '_blank'
+                                );
+                              }
+                            }}
+                            className="rounded-xl bg-white border border-amber-100 px-3 py-3 text-[11px] font-black uppercase tracking-wide text-gray-700 active:scale-95 transition-transform hover:border-amber-300"
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                      <button
+                        onClick={() => setIncidenciaOpen(false)}
+                        className="mt-3 w-full h-10 rounded-xl bg-white border border-gray-200 text-[10px] font-black uppercase tracking-widest text-gray-500"
+                      >
+                        Cerrar
+                      </button>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
             </div>
           </div>
@@ -1913,14 +2434,34 @@ export default function RiderPanel() {
       </main>
 
       {/* ── Footer ──────────────────────────────────────────────── */}
-      <footer className="px-6 py-3 bg-white border-t border-gray-100 flex items-center justify-between text-[10px] font-black text-gray-400 uppercase tracking-widest">
+      <footer className="px-6 py-3 bg-white border-t border-gray-100 flex items-center justify-between text-[10px] font-black uppercase tracking-widest">
         <div className="flex items-center gap-2">
           <div
-            className={`h-2 w-2 rounded-full ${isOnline ? 'bg-success-500 animate-pulse' : 'bg-gray-300'}`}
+            className={`h-2 w-2 rounded-full ${
+              !isConnected
+                ? 'bg-rose-500 animate-pulse'
+                : isOnline
+                  ? 'bg-success-500 animate-pulse'
+                  : 'bg-gray-300'
+            }`}
           />
-          {isOnline ? `Sincronizado ${nowTime}` : 'Sin conexión'}
+          <span className={!isConnected ? 'text-rose-500' : 'text-gray-400'}>
+            {!isConnected
+              ? 'Sin señal · guardando local'
+              : isOnline
+                ? `Sincronizado ${nowTime}`
+                : 'Modo offline'}
+          </span>
+          {offlineCount > 0 ? (
+            <span
+              className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-amber-700 tabular-nums"
+              title={`${offlineCount} accion(es) esperando reconexión`}
+            >
+              {offlineCount} pend.
+            </span>
+          ) : null}
         </div>
-        <p>{appName}</p>
+        <p className="text-gray-400">{appName}</p>
       </footer>
 
       {/* ── NEW: PIN Modal ──────────────────────────────────────── */}

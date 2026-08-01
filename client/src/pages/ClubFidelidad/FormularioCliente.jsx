@@ -9,6 +9,7 @@ import {
   Home,
   AlertTriangle,
   CheckCircle2,
+  Building2,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
@@ -183,7 +184,21 @@ export default function FormularioCliente({
             />
           </label>
 
-          <label className="block md:col-span-2">
+          <label className="block">
+            <span className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-gray-500">
+              <Building2 size={14} />
+              Barrio / zona
+            </span>
+            <input
+              className={FIELD_CLASS}
+              value={form.barrio}
+              onChange={(e) => setForm((p) => ({ ...p, barrio: e.target.value }))}
+              placeholder="Ej: Eucaliptus, Centro (opcional)"
+              {...focusProps}
+            />
+          </label>
+
+          <label className="block">
             <span className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-gray-500">
               <Home size={14} />
               Referencia del domicilio
@@ -192,17 +207,46 @@ export default function FormularioCliente({
               className={FIELD_CLASS}
               value={form.referencia}
               onChange={(e) => setForm((p) => ({ ...p, referencia: e.target.value }))}
-              placeholder="Portón negro, timbre roto, etc. (opcional)"
+              placeholder="Portón negro, timbre roto, etc."
               {...focusProps}
             />
           </label>
         </div>
 
-        <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+        {/* Checkbox de bases y condiciones (obligatorio para nuevos clientes;
+            si ya existia en la base, se pre-marca en ClubFidelidad.jsx). */}
+        <label
+          className="mt-6 flex cursor-pointer items-start gap-3 rounded-2xl border border-gray-200/80 bg-white/70 p-4 transition hover:bg-white"
+          style={!form.acepto_terminos ? { borderColor: `${colorPrimario}55` } : {}}
+        >
+          <input
+            type="checkbox"
+            checked={Boolean(form.acepto_terminos)}
+            onChange={(e) => setForm((p) => ({ ...p, acepto_terminos: e.target.checked }))}
+            className="mt-0.5 h-5 w-5 shrink-0 cursor-pointer accent-current"
+            style={{ accentColor: colorPrimario }}
+          />
+          <span className="text-xs font-semibold leading-relaxed text-gray-700">
+            Acepto las{' '}
+            <Link
+              to="/club/terminos"
+              target="_blank"
+              rel="noreferrer"
+              className="font-black underline underline-offset-2"
+              style={{ color: colorPrimario }}
+            >
+              bases y condiciones
+            </Link>{' '}
+            del Club de Fidelidad y autorizo a que se me envíen mensajes con novedades y promociones
+            al teléfono cargado.
+          </span>
+        </label>
+
+        <div className="mt-6 flex flex-col gap-3 sm:flex-row">
           <button
             type="submit"
-            disabled={saving}
-            className="inline-flex flex-1 items-center justify-center gap-2 rounded-2xl px-6 py-4 text-sm font-bold text-white shadow-lg transition disabled:opacity-60 hover:brightness-105 hover:scale-[1.01] active:scale-[0.98]"
+            disabled={saving || !form.acepto_terminos}
+            className="inline-flex flex-1 items-center justify-center gap-2 rounded-2xl px-6 py-4 text-sm font-bold text-white shadow-lg transition disabled:cursor-not-allowed disabled:opacity-40 hover:brightness-105 hover:scale-[1.01] active:scale-[0.98]"
             style={{ backgroundColor: colorPrimario, boxShadow: `0 8px 24px ${colorPrimario}30` }}
           >
             <Save size={16} />

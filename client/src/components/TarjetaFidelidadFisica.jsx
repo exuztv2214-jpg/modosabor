@@ -7,7 +7,13 @@ import { shadeColor } from '../lib/colorUtils.js';
  * Dimensiones: 86mm x 54mm (ISO 7810 ID-1)
  */
 
-const TarjetaFidelidadFisica = ({ cliente = {}, config = {}, colorPrimario = '#FF6B00' }) => {
+const TarjetaFidelidadFisica = ({
+  cliente = {},
+  config = {},
+  colorPrimario = '#FF6B00',
+  clubUrl = '',
+  sellosParaPremio = 7,
+}) => {
   const printRef = useRef(null);
 
   const {
@@ -21,7 +27,16 @@ const TarjetaFidelidadFisica = ({ cliente = {}, config = {}, colorPrimario = '#F
 
   const { negocio_nombre = 'Modo Sabor', negocio_logo = null } = config;
 
-  const totalSellos = 6;
+  // Version corta del link para imprimir (sin protocolo). Si el cliente
+  // pierde el celular puede tipearlo a mano en el navegador.
+  const linkCorto = String(clubUrl || '')
+    .replace(/^https?:\/\//, '')
+    .replace(/\?.*$/, '');
+
+  // Cantidad de sellos que muestra el frente. Se recibe por prop desde el
+  // padre (viene del config real del negocio) para que siempre coincida
+  // con lo que ve el cliente en la tarjeta virtual.
+  const totalSellos = Math.max(1, Number(sellosParaPremio) || 7);
 
   const handlePrint = () => {
     const printWindow = window.open('', '_blank');
@@ -437,7 +452,9 @@ const TarjetaFidelidadFisica = ({ cliente = {}, config = {}, colorPrimario = '#F
         {/* Encabezado */}
         <div style={headerStyle}>
           <div style={titleStyle}>Tarjeta de Fidelización</div>
-          <div style={subtitleStyle}>Acumula 6 puntos y consigue una sorpresa gratis</div>
+          <div style={subtitleStyle}>
+            Completá {Math.max(1, totalSellos - 1)} y el {totalSellos}° es gratis
+          </div>
         </div>
 
         {/* Sellos */}
@@ -475,6 +492,22 @@ const TarjetaFidelidadFisica = ({ cliente = {}, config = {}, colorPrimario = '#F
               <span style={dataLabelStyle}>Nº Tarjeta</span>
               <span style={dataValueStyle}>{codigo_tarjeta || '—'}</span>
             </div>
+            {linkCorto ? (
+              <div style={dataRowStyle}>
+                <span style={dataLabelStyle}>Ver online</span>
+                <span
+                  style={{
+                    ...dataValueStyle,
+                    fontFamily: 'monospace',
+                    fontSize: '4.5pt',
+                    letterSpacing: 0,
+                    color: 'rgba(255,255,255,0.9)',
+                  }}
+                >
+                  {linkCorto}
+                </span>
+              </div>
+            ) : null}
           </div>
 
           <div style={dataRightStyle}>

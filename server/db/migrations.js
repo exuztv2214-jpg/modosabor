@@ -53,6 +53,9 @@ function runMigrations(db) {
   ensureColumn(db, 'clientes', 'codigo_tarjeta', 'TEXT');
   ensureColumn(db, 'clientes', 'avatar_url', "TEXT DEFAULT ''");
   ensureColumn(db, 'clientes', 'premio_notificado', 'INTEGER DEFAULT 1');
+  ensureColumn(db, 'clientes', 'barrio', "TEXT DEFAULT ''");
+  ensureColumn(db, 'clientes', 'acepto_terminos', 'INTEGER DEFAULT 0');
+  ensureColumn(db, 'clientes', 'acepto_terminos_en', 'DATETIME');
   ensureColumn(db, 'repartidores', 'latitud', 'REAL');
   ensureColumn(db, 'repartidores', 'longitud', 'REAL');
   ensureColumn(db, 'repartidores', 'ultima_ubicacion_en', 'TEXT');

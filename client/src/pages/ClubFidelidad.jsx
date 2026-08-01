@@ -1,18 +1,24 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { Gift, Phone, QrCode, ChevronLeft } from 'lucide-react';
+import { Gift, ChevronLeft, MessageCircle, Share2, HelpCircle, ChevronDown } from 'lucide-react';
 
 import api from '../lib/api';
 import { resolveAssetUrl } from '../lib/assets';
 import { buildPublicAppUrl } from '../lib/publicUrls';
-import { DEFAULT_BRAND_LOGO, getPublicBrandTheme } from '../lib/webPublicaHelpers';
+import {
+  DEFAULT_BRAND_LOGO,
+  getPublicBrandTheme,
+  buildWhatsAppUrl,
+} from '../lib/webPublicaHelpers';
 
 import TarjetaFidelidad from './ClubFidelidad/TarjetaFidelidad.jsx';
 import TarjetaFidelidadFisica from '../components/TarjetaFidelidadFisica.jsx';
 import FormularioCliente from './ClubFidelidad/FormularioCliente.jsx';
 import StatsCliente from './ClubFidelidad/StatsCliente.jsx';
 import ComoFunciona from './ClubFidelidad/ComoFunciona.jsx';
+import BarraSocio from './ClubFidelidad/BarraSocio.jsx';
+import CartelBienvenida from './ClubFidelidad/CartelBienvenida.jsx';
 
 const EMPTY_FORM = {
   nombre: '',
@@ -20,7 +26,9 @@ const EMPTY_FORM = {
   email: '',
   fecha_nacimiento: '',
   direccion: '',
+  barrio: '',
   referencia: '',
+  acepto_terminos: false,
 };
 
 function getSafeBranding(payload) {
@@ -32,8 +40,27 @@ function getSafeBranding(payload) {
   };
 }
 
+// Cliente falso para el modo `?preview=1` (usado para vender el club y
+// para mostrar la tarjeta llena sin necesidad de crear un cliente real).
+const DEMO_CLIENTE = {
+  id: 'demo',
+  nombre: 'Hernán Lorenzo',
+  telefono: '381 598 8735',
+  email: 'demo@modosabor.com',
+  codigo_tarjeta: 'DEMO',
+  sellos_actuales: 2,
+  puntos: 350,
+  nivel: 'Bronce',
+  recompensas_pendientes: 0,
+  total_pedidos: 5,
+  total_gastado: 12500,
+};
+
 export default function ClubFidelidad() {
   const { codigo } = useParams();
+  const isPreview =
+    typeof window !== 'undefined' &&
+    new URLSearchParams(window.location.search).get('preview') === '1';
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [lookuping, setLookuping] = useState(false);
@@ -70,7 +97,10 @@ export default function ClubFidelidad() {
       email: cliente.email || prev.email || '',
       fecha_nacimiento: cliente.fecha_nacimiento || prev.fecha_nacimiento || '',
       direccion: cliente.direccion || prev.direccion || '',
+      barrio: cliente.barrio || prev.barrio || '',
       referencia: cliente.referencia_principal || prev.referencia || '',
+      // Si el cliente ya esta en la base, ya acepto en su registro anterior.
+      acepto_terminos: cliente.id ? true : prev.acepto_terminos,
     }));
   };
 
@@ -83,10 +113,12 @@ export default function ClubFidelidad() {
       const data = codigo
         ? await api.get(`/fidelizacion/club/${encodeURIComponent(codigo)}`)
         : await api.get('/fidelizacion/club-branding');
-      hydrate(data);
+      // En modo preview: inyectar cliente falso encima del branding real,
+      // asi se ve la tarjeta con nombre y sellos sin tocar la base.
+      hydrate(isPreview ? { ...data, cliente: DEMO_CLIENTE } : data);
     } catch (error) {
       if (error?._httpStatus === 404) {
-        setPayload(null);
+        setPayload(isPreview ? { cliente: DEMO_CLIENTE } : null);
       } else {
         toast.error(error?.error || 'No se pudo cargar la tarjeta');
       }
@@ -133,19 +165,27 @@ export default function ClubFidelidad() {
     }
   }, [branding.negocio_nombre, logoUrl, payload?.cliente]);
 
-  const buscarPorTelefono = async () => {
-    if (!form.telefono.trim()) return toast.error('Ingresá tu teléfono');
+  const buscarPorTelefono = async (telefonoOverride) => {
+    const telefonoRaw = typeof telefonoOverride === 'string' ? telefonoOverride : form.telefono;
+    if (!telefonoRaw?.trim()) return toast.error('Ingresá tu teléfono');
     setLookuping(true);
     try {
       const data = await api.post('/fidelizacion/club/lookup', {
         codigo: codigo || '',
-        telefono: form.telefono,
+        telefono: telefonoRaw,
       });
       if (data?.found) {
         hydrate(data);
         toast.success('Encontramos tu ficha');
+        // Scroll suave hacia la tarjeta para que el usuario vea sus sellos.
+        setTimeout(() => {
+          document
+            .getElementById('mi-tarjeta')
+            ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 200);
       } else {
-        toast.success('No encontramos ficha previa. Podés completar tus datos.');
+        toast('No encontramos ficha previa. Completá tus datos abajo.', { icon: 'ℹ️' });
+        setForm((prev) => ({ ...prev, telefono: telefonoRaw }));
       }
     } catch (error) {
       toast.error(error?.error || 'No se pudo buscar la ficha');
@@ -158,6 +198,9 @@ export default function ClubFidelidad() {
     e.preventDefault();
     if (!form.nombre.trim()) return toast.error('Ingresá tu nombre');
     if (!form.telefono.trim()) return toast.error('Ingresá tu teléfono');
+    if (!form.acepto_terminos) {
+      return toast.error('Tenés que aceptar las bases y condiciones para continuar');
+    }
     setSaving(true);
     try {
       const data = await api.post('/fidelizacion/club/registro', {
@@ -166,6 +209,14 @@ export default function ClubFidelidad() {
       });
       hydrate(data);
       toast.success(data?.ya_existia ? 'Actualizamos tu ficha' : 'Tu ficha quedó creada');
+      // Post-registro: hacer scroll a la tarjeta para que vea el cartel
+      // "Este link es tu tarjeta. No lo pierdas." con el link + botones
+      // "Enviarme el link" y "Guardar en celular".
+      setTimeout(() => {
+        document
+          .getElementById('mi-tarjeta')
+          ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 300);
     } catch (error) {
       toast.error(error?.error || 'No se pudo guardar la ficha');
     } finally {
@@ -242,17 +293,33 @@ export default function ClubFidelidad() {
       </header>
 
       <main className="mx-auto max-w-7xl px-4 py-8 lg:px-8">
+        {/* Barra "ya sos socio" arriba de todo, solo cuando el cliente
+            todavia no fue vinculado en esta sesion. Le da el atajo mas
+            rapido para volver a ver sus sellos. */}
+        {!payload?.cliente ? (
+          <BarraSocio
+            onBuscar={buscarPorTelefono}
+            buscando={lookuping}
+            colorPrimario={colorPrimario}
+          />
+        ) : null}
+
         {/* Hero section */}
-        <div className="mb-8 text-center">
-          <div
-            className="inline-flex items-center gap-2 rounded-full border border-gray-200/80 bg-white px-4 py-2 text-sm font-bold shadow-sm"
-            style={{ color: colorPrimario }}
-          >
+        <div className="mb-10 text-center">
+          <div className="inline-flex items-center gap-2">
             <span
-              className="h-2.5 w-2.5 rounded-full animate-pulse"
-              style={{ backgroundColor: colorPrimario }}
-            />
-            Programa de fidelidad
+              className="inline-flex items-center gap-2 rounded-full border border-gray-200/80 bg-white px-4 py-2 text-sm font-bold shadow-sm"
+              style={{ color: colorPrimario }}
+            >
+              <span
+                className="h-2.5 w-2.5 rounded-full animate-pulse"
+                style={{ backgroundColor: colorPrimario }}
+              />
+              Programa de fidelidad
+            </span>
+            <span className="inline-flex items-center rounded-full bg-emerald-100 px-3 py-1.5 text-[11px] font-black uppercase tracking-widest text-emerald-700 shadow-sm">
+              100% gratis
+            </span>
           </div>
           <h1 className="mt-4 text-4xl font-black leading-tight sm:text-5xl">
             Tu tarjeta de fidelidad,
@@ -264,44 +331,43 @@ export default function ClubFidelidad() {
           </p>
         </div>
 
-        {/* Features grid */}
-        <div className="mb-12 grid gap-4 sm:grid-cols-3">
-          <div className="rounded-[24px] border border-gray-200/80 bg-white p-6 shadow-sm text-center">
+        {/* Banner del premio real (usando premio_descripcion configurado) */}
+        <div className="mb-10">
+          <div
+            className="relative overflow-hidden rounded-[28px] border border-white/30 p-6 shadow-xl sm:p-8"
+            style={{
+              background: `linear-gradient(135deg, ${colorPrimario} 0%, ${colorPrimario}dd 60%, ${colorPrimario}bb 100%)`,
+            }}
+          >
             <div
-              className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl shadow-sm"
-              style={{ backgroundColor: `${colorPrimario}12`, color: colorPrimario }}
-            >
-              <Phone size={22} />
+              className="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full blur-3xl"
+              style={{
+                background: 'radial-gradient(circle, rgba(255,255,255,0.35), transparent 70%)',
+              }}
+            />
+            <div className="relative flex flex-col items-center gap-4 text-center sm:flex-row sm:text-left">
+              <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-white/25 backdrop-blur-sm">
+                <Gift size={32} className="text-white" strokeWidth={2.5} />
+              </div>
+              <div className="flex-1 text-white">
+                <p className="text-[11px] font-black uppercase tracking-[0.22em] text-white/80">
+                  ¿Qué ganás?
+                </p>
+                <p className="mt-1 text-2xl font-black leading-tight sm:text-3xl">
+                  {payload?.config?.premio_descripcion || '1 Pizza Muzzarella gratis'}
+                </p>
+                <p className="mt-1 text-sm font-bold text-white/90">
+                  Después de {payload?.config?.sellos_para_premio || 7} compras. Sin trampa.
+                </p>
+              </div>
             </div>
-            <h3 className="mt-4 text-base font-black">Tu teléfono te identifica</h3>
-            <p className="mt-2 text-sm font-medium text-gray-500">Un número, tu identidad.</p>
-          </div>
-          <div className="rounded-[24px] border border-gray-200/80 bg-white p-6 shadow-sm text-center">
-            <div
-              className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl shadow-sm"
-              style={{ backgroundColor: `${colorPrimario}12`, color: colorPrimario }}
-            >
-              <QrCode size={22} />
-            </div>
-            <h3 className="mt-4 text-base font-black">QR personalizado</h3>
-            <p className="mt-2 text-sm font-medium text-gray-500">Escaneá y accedé a tu tarjeta.</p>
-          </div>
-          <div className="rounded-[24px] border border-gray-200/80 bg-white p-6 shadow-sm text-center">
-            <div
-              className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl shadow-sm"
-              style={{ backgroundColor: `${colorPrimario}12`, color: colorPrimario }}
-            >
-              <Gift size={22} />
-            </div>
-            <h3 className="mt-4 text-base font-black">Sellos y recompensas</h3>
-            <p className="mt-2 text-sm font-medium text-gray-500">Premios listos para canjear.</p>
           </div>
         </div>
 
         {/* Layout principal: tarjeta + formulario */}
         <div className="grid gap-8 xl:grid-cols-[1fr_1.2fr] xl:items-start">
           {/* Columna izquierda: tarjeta + stats */}
-          <div className="space-y-6">
+          <div id="mi-tarjeta" className="space-y-6 scroll-mt-24">
             <TarjetaFidelidad
               cliente={payload?.cliente}
               config={payload?.config}
@@ -313,6 +379,14 @@ export default function ClubFidelidad() {
             />
             {payload?.cliente && (
               <>
+                <CartelBienvenida
+                  clubUrl={clubUrl}
+                  colorPrimario={colorPrimario}
+                  nombreCliente={payload.cliente.nombre}
+                  telefonoCliente={payload.cliente.telefono}
+                  onCopyLink={copyClubLink}
+                  esNuevo={Boolean(payload?.ya_existia === false)}
+                />
                 <StatsCliente
                   cliente={payload.cliente}
                   config={payload.config}
@@ -332,6 +406,8 @@ export default function ClubFidelidad() {
                       cliente={payload.cliente}
                       config={branding}
                       colorPrimario={colorPrimario}
+                      clubUrl={clubUrl}
+                      sellosParaPremio={payload?.config?.sellos_para_premio}
                     />
                   </div>
                 </div>
@@ -339,7 +415,7 @@ export default function ClubFidelidad() {
             )}
           </div>
 
-          {/* Columna derecha: formulario + cómo funciona */}
+          {/* Columna derecha: formulario */}
           <div className="space-y-6">
             <FormularioCliente
               form={form}
@@ -351,10 +427,169 @@ export default function ClubFidelidad() {
               payload={payload}
               colorPrimario={colorPrimario}
             />
-            <ComoFunciona colorPrimario={colorPrimario} />
           </div>
         </div>
+
+        {/* "Como funciona" ocupa todo el ancho (fuera del grid de 2 columnas)
+            asi la mini tarjeta y los 3 pasos entran comodos al lado. */}
+        <div className="mt-12">
+          <ComoFunciona colorPrimario={colorPrimario} />
+        </div>
+
+        {/* Compartir con amigos + contacto WhatsApp */}
+        <div className="mt-12 grid gap-6 md:grid-cols-2">
+          <div className="rounded-[24px] border border-gray-200/80 bg-white p-6 shadow-sm">
+            <div className="flex items-start gap-4">
+              <div
+                className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl shadow-sm"
+                style={{ backgroundColor: `${colorPrimario}12`, color: colorPrimario }}
+              >
+                <Share2 size={22} />
+              </div>
+              <div className="flex-1">
+                <h3 className="text-base font-black text-gray-900">Compartí con amigos</h3>
+                <p className="mt-1 text-sm font-medium text-gray-500">
+                  Mandale este link a alguien que quieras invitar al club.
+                </p>
+                <button
+                  type="button"
+                  onClick={shareCard}
+                  className="mt-3 inline-flex h-10 items-center gap-2 rounded-xl px-4 text-[11px] font-black uppercase tracking-widest text-white shadow-sm transition hover:opacity-90"
+                  style={{ backgroundColor: colorPrimario }}
+                >
+                  <Share2 size={14} />
+                  Compartir link
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-[24px] border border-emerald-200 bg-emerald-50 p-6 shadow-sm">
+            <div className="flex items-start gap-4">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-emerald-500 text-white shadow-sm">
+                <MessageCircle size={22} />
+              </div>
+              <div className="flex-1">
+                <h3 className="text-base font-black text-gray-900">¿Necesitás ayuda?</h3>
+                <p className="mt-1 text-sm font-medium text-gray-600">
+                  Si tenés dudas con tus sellos o querés canjear un premio, escribinos.
+                </p>
+                <a
+                  href={buildWhatsAppUrl(
+                    payload?.config || {},
+                    'Hola, tengo una consulta sobre mi tarjeta de fidelidad.'
+                  )}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-3 inline-flex h-10 items-center gap-2 rounded-xl bg-emerald-500 px-4 text-[11px] font-black uppercase tracking-widest text-white shadow-sm transition hover:bg-emerald-600"
+                >
+                  <MessageCircle size={14} />
+                  Escribir por WhatsApp
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Preguntas frecuentes */}
+        <div className="mt-12">
+          <div className="mb-6 text-center">
+            <div
+              className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full"
+              style={{
+                background: `linear-gradient(135deg, ${colorPrimario}24, ${colorPrimario}0f)`,
+              }}
+            >
+              <HelpCircle size={26} style={{ color: colorPrimario }} />
+            </div>
+            <h3 className="text-2xl font-black text-gray-900">Preguntas frecuentes</h3>
+            <p className="mt-2 text-sm font-medium text-gray-500">
+              Lo que la gente más nos pregunta del club.
+            </p>
+          </div>
+          <FAQ colorPrimario={colorPrimario} sellos={payload?.config?.sellos_para_premio || 7} />
+        </div>
+
+        {/* T&C simplificados con link a la pagina completa */}
+        <div className="mt-10 rounded-[20px] border border-gray-200/80 bg-white p-5 text-center text-xs font-medium text-gray-500">
+          <p>
+            El club es gratis y tu ficha queda ligada a tu teléfono. Los sellos no vencen mientras
+            sigas activo. El premio se entrega en {branding.negocio_nombre} presentando tu QR o el
+            teléfono con el que te anotaste.
+          </p>
+          <Link
+            to="/club/terminos"
+            className="mt-3 inline-block text-[11px] font-black uppercase tracking-widest hover:underline"
+            style={{ color: colorPrimario }}
+          >
+            Leer bases y condiciones completas →
+          </Link>
+        </div>
       </main>
+    </div>
+  );
+}
+
+// FAQ colapsable simple
+function FAQ({ colorPrimario, sellos }) {
+  const items = [
+    {
+      q: `¿Cómo sumo sellos?`,
+      a: `Cada compra que hagas en el local, por WhatsApp o por la web pública suma un sello. Solo tenés que dar tu teléfono al pagar.`,
+    },
+    {
+      q: `¿Cuántos sellos necesito para el premio?`,
+      a: `Con ${sellos} sellos ya destrabás el premio. El ${sellos + 1}° es tu recompensa gratis.`,
+    },
+    {
+      q: `¿Los sellos vencen?`,
+      a: `Mientras sigas comprando de vez en cuando, no vencen. Si pasás mucho tiempo sin actividad podemos revisar tu tarjeta.`,
+    },
+    {
+      q: `¿Puedo canjear en delivery?`,
+      a: `Sí. Al hacer tu pedido avisá que querés canjear tu premio y te lo mandamos junto con el resto de la orden.`,
+    },
+    {
+      q: `¿Qué pasa si cambio de número?`,
+      a: `Escribinos por WhatsApp con tu nombre y te transferimos los sellos al número nuevo.`,
+    },
+    {
+      q: `¿Se puede compartir la tarjeta con otra persona?`,
+      a: `Cada tarjeta es individual y va con un teléfono. Si querés que otra persona sume, que se anote con su propio número.`,
+    },
+  ];
+
+  const [openIndex, setOpenIndex] = useState(0);
+
+  return (
+    <div className="space-y-2">
+      {items.map((item, index) => {
+        const isOpen = openIndex === index;
+        return (
+          <div
+            key={item.q}
+            className="overflow-hidden rounded-[16px] border border-gray-200/80 bg-white shadow-sm transition-shadow hover:shadow-md"
+          >
+            <button
+              type="button"
+              onClick={() => setOpenIndex(isOpen ? -1 : index)}
+              className="flex w-full items-center justify-between gap-3 px-5 py-4 text-left"
+            >
+              <span className="text-sm font-black text-gray-900">{item.q}</span>
+              <ChevronDown
+                size={18}
+                className={`shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+                style={{ color: colorPrimario }}
+              />
+            </button>
+            {isOpen ? (
+              <div className="px-5 pb-4 text-sm font-medium leading-relaxed text-gray-600">
+                {item.a}
+              </div>
+            ) : null}
+          </div>
+        );
+      })}
     </div>
   );
 }

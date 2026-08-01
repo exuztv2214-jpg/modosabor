@@ -12,7 +12,7 @@ function getConfig() {
       dias_expiracion: 180,
       minimo_canje: 50,
       monto_minimo_sello: 10000,
-      sellos_para_premio: 6,
+      sellos_para_premio: 7,
       premio_descripcion: '1 Pizza Muzzarella',
       premio_producto_id: null,
       activo: 1,
@@ -41,7 +41,7 @@ function updateConfig(config) {
     config.dias_expiracion || 180,
     config.minimo_canje || 50,
     config.monto_minimo_sello || 10000,
-    config.sellos_para_premio || 6,
+    config.sellos_para_premio || 7,
     config.premio_descripcion || '1 Pizza Muzzarella',
     config.premio_producto_id ? Number(config.premio_producto_id) : null,
     config.activo !== undefined ? config.activo : 1

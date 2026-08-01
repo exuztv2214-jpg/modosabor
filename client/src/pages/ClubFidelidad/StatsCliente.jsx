@@ -16,7 +16,7 @@ export default function StatsCliente({
   const compras = Number(cliente?.total_compras || 0);
   const valorPunto = Number(config?.valor_punto_real || 0);
   const valorPuntos = puntos * valorPunto;
-  const stampGoal = Math.max(1, Number(config?.sellos_para_premio || 10));
+  const stampGoal = Math.max(1, Number(config?.sellos_para_premio || 7));
   const stampCount = Math.max(0, Number(cliente?.sellos_actuales || 0));
   const rewardReady = stampCount >= stampGoal;
 

@@ -24,6 +24,7 @@ const PageLoader = () => (
 
 import WebPublica from './pages/WebPublica.jsx';
 const ClubFidelidad = lazy(() => import('./pages/ClubFidelidad.jsx'));
+const TerminosCondiciones = lazy(() => import('./pages/ClubFidelidad/TerminosCondiciones.jsx'));
 const PersonalClock = lazy(() => import('./pages/PersonalClock.jsx'));
 
 // Lazy imports
@@ -75,6 +76,7 @@ export default function App() {
                   element={isNativeRiderApp() ? <Navigate to="/rider" replace /> : <WebPublica />}
                 />
                 <Route path="/club" element={<ClubFidelidad />} />
+                <Route path="/club/terminos" element={<TerminosCondiciones />} />
                 <Route path="/club/:codigo" element={<ClubFidelidad />} />
                 <Route path="/personal/reloj" element={<PersonalClock />} />
                 <Route path="/personal/reloj/:token" element={<PersonalClock />} />

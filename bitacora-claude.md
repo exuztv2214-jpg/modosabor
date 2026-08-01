@@ -1013,3 +1013,183 @@ Archivos modificados:
 - Admin login con `admin@modosabor.com` funcionando.
 - Tests locales: 6 suites, 0 fallos.
 - Health check: OK.
+
+---
+
+## 15. TPV ubicación GPS + fix precios tickets + rediseño Control Diario y Club Fidelidad (31/07 - segunda parte)
+
+Sesión larga con cinco frentes de trabajo. Todo local, pendiente de deploy al final.
+
+### 15.1. TPV: botón "Pegar link" para cargar ubicación GPS del cliente
+
+Pedido de Hernán: cuando el cliente le pasa la ubicación por WhatsApp (link de Google Maps o coordenadas), el operador del TPV no tenía dónde cargarlas. El botón "Guardar ubicación GPS" que ya existía toma la ubicación del dispositivo donde corre el TPV, no la del cliente, así que solo servía si el cliente estaba en el local.
+
+- **Nuevo**: `client/src/lib/parseGpsInput.js` — parser tolerante que soporta URLs de Google Maps con `?q=lat,lng`, `@lat,lng`, `?ll=lat,lng`, y coordenadas crudas separadas por coma/espacio/barra. Valida rango, avisa si están fuera de Argentina, y rechaza explícitamente los links cortos (`goo.gl/maps/`, `maps.app.goo.gl/`) porque no se pueden expandir desde el navegador (CORS).
+- **Nuevo handler** `pegarUbicacionCliente` en `TPV.jsx` que intenta leer del portapapeles y cae a `window.prompt` si el navegador bloquea. Al parsear guarda `cliente.latitud` y `cliente.longitud`.
+- **Nuevo botón** "Pegar link" en `TpvSidebar.jsx` al lado del actual "Guardar ubicación GPS". Ícono `ClipboardPaste` de lucide-react.
+
+### 15.2. Fix crítico: precios ×100 en tickets impresos y en Control Diario
+
+Bug confirmado con un test real: un pedido de $5.000 imprimía **$500.000** en la comanda/ticket. Causa: el HTML del ticket se renderiza en el backend **antes** de que actúe el middleware `centsToPesos` (que solo procesa respuestas JSON, no HTML pre-armado).
+
+Corregido agregando `centsToPesos(pedido)` antes de renderizar en:
+
+- `server/routes/pedidos.js`: 3 handlers (`POST /:id/imprimir`, `POST /mesa/:mesa/precuenta`, `GET /:id/impresion/:tipo`).
+- `server/routes/caja.js`: 2 handlers (cierre en vivo y `GET /cierre/:id/ticket`).
+
+En Control Diario (`/api/operacion/menu-dia`) el precio también se veía ×100. Origen: en la sesión anterior había sacado esa ruta del `MONEY_MIDDLEWARE_SKIP_PATHS`, y ese cambio ya estaba correcto en código — con este deploy queda arreglado también.
+
+### 15.3. Control Diario: rediseño del layout del menú del día
+
+Foto de Hernán mostraba que el menú del día en Control Diario se veía todo aplastado: "DESTACADO" se cortaba como "DESTA", los inputs de Precio/Stock eran ilegibles. Causa: el grid principal era `xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.65fr)]`, con la columna derecha muy angosta (35% del ancho).
+
+- `client/src/pages/Operacion.jsx`: cambié a `xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]` (mitad-mitad).
+- El grid interno de cada plato pasó de `md:grid-cols-4` a `grid-cols-2 xl:grid-cols-4` (responsivo real).
+- Labels de checkboxes (Destacado y +Jugo y postre) ahora envuelven texto y no se cortan.
+
+### 15.4. Club Fidelidad: rediseño completo de la tarjeta virtual
+
+Frente:
+
+- Nombre del cliente en cursiva Great Vibes primero, después cambiado por pedido de Hernán a **Poppins Bold** (moderna sans-serif) posicionado debajo del logo (top ~62%), en blanco con `drop-shadow` para que resalte sobre la imagen custom.
+- Google Font Poppins agregada al `client/index.html` (junto a la existente Inter).
+
+Dorso:
+
+- **8 sellos en grid 4×2** (fijo, para simetría visual): 7 hamburguesas apagadas + 1 regalo dorado en el slot 8.
+- **Cuando un sello se gana, aparece una llamita blanca** (SVG inline replicando el logo de Modo Sabor) sobre fondo rojo con glow.
+- **Animaciones**: pop escalonado al montar (delay `index * 0.12s`), pulso continuo en el sello más nuevo, brillo dorado en el regalo cuando el premio está destrabado.
+- **Sin bloque de titular** (movido al frente); badge de progreso solo debajo del QR ("2/8 · 350 pts").
+- Halo rojo en la esquina superior derecha para dar profundidad.
+- Subtítulo: "COMPLETÁ 7 Y EL 8VO ES GRATIS".
+
+Archivos: `client/src/pages/ClubFidelidad/TarjetaFidelidad.jsx` (con FlameStamp y BurgerStamp como SVG inline).
+
+### 15.5. Club Fidelidad: página pública completa
+
+**Nuevas secciones agregadas al `/club`:**
+
+1. **Badge "100% GRATIS"** al lado del "Programa de fidelidad" en el hero.
+2. **Banner de premio real** rojo grande: "¿QUÉ GANÁS? 1 Pizza Muzzarella - Después de 7 compras. Sin trampa." — usa `premio_descripcion` y `sellos_para_premio` del config real.
+3. **Barra "¿Ya sos socio?"** arriba de todo (solo visible cuando no hay cliente cargado): input de teléfono grande + botón "VER MIS SELLOS". Al buscar hace scroll suave a la tarjeta.
+4. **Cartel destacado post-registro** ("Tu link personal / Este link es tu tarjeta. No lo pierdas"): muestra el link personal + 3 botones (Copiar, Enviarme el link por WhatsApp con auto-mensaje pre-armado al propio teléfono del cliente, Guardar en celular con instrucciones iOS/Android). El botón "Enviarme el link" pulsa por 6 segundos cuando el cliente recién se registra.
+5. **Sección "¿Cómo funciona?"** rediseñada full-width con mini tarjeta demo animada a la izquierda (7 sellos llenándose solos en loop cada 900ms + regalo dorado al final) y 3 pasos a la derecha.
+6. **Card "Compartí con amigos"** + **card "¿Necesitás ayuda?"** con botón "Escribir por WhatsApp" que abre chat con mensaje pre-llenado.
+7. **FAQ colapsable** con 6 preguntas (cómo sumar sellos, cuántos hacen falta, si vencen, delivery, cambio de número, compartir tarjeta). Primera abierta por default.
+8. **Nota T&C simplificada** al pie con link a la página completa.
+9. Se **eliminó la grid redundante** de 3 beneficios (Tu teléfono / QR / Sellos) que decía lo mismo que "¿Cómo funciona?".
+
+Nuevos componentes: `ClubFidelidad/BarraSocio.jsx`, `ClubFidelidad/CartelBienvenida.jsx`, `ClubFidelidad/TerminosCondiciones.jsx`.
+
+**Modo `?preview=1`**: cuando la URL tiene `preview=1`, se inyecta un cliente demo (Hernán Lorenzo con 2 sellos ganados) para poder mostrar la página vendida sin necesidad de crear cliente real. Sirve para captures/marketing.
+
+### 15.6. Formulario del club: campo barrio + checkbox T&C obligatorio
+
+- **Nuevo campo** "Barrio / zona" (opcional) al lado de "Referencia del domicilio".
+- **Nuevo checkbox obligatorio** "Acepto las bases y condiciones del Club..." con link a `/club/terminos`. Botón "Guardar mi ficha" deshabilitado al 40% de opacidad si no está tildado. Si ya existe cliente en la base, se pre-marca (asumimos que aceptó en su registro anterior).
+- **Migración**: se agregaron 3 columnas nuevas a la tabla `clientes`: `barrio TEXT`, `acepto_terminos INTEGER`, `acepto_terminos_en DATETIME` — todas nullable/con default para no romper clientes existentes.
+- **Backend `POST /club/registro`** valida que `acepto_terminos === true`, rechaza con 400 si no. Persiste barrio y timestamp de aceptación tanto en INSERT (cliente nuevo) como UPDATE (cliente existente actualizando su ficha).
+
+### 15.7. Página `/club/terminos` (bases y condiciones)
+
+Nueva ruta pública full-width con 10 secciones:
+
+1. Alcance del programa
+2. Cómo se ganan sellos (menciona monto mínimo si está configurado)
+3. Premio y canje
+4. Vigencia de sellos y puntos
+5. Identificación del cliente (por teléfono)
+6. Uso de datos personales (protección + baja voluntaria)
+7. Fraudes y suspensión
+8. Modificaciones del programa
+9. Baja del programa
+10. Consultas y reclamos (WhatsApp del negocio)
+
+Los valores dinámicos (premio, cantidad de sellos, monto mínimo, días de vigencia) se leen del config real vía `/api/fidelizacion/club-branding`, así se mantienen siempre actualizados.
+
+Registrada en `client/src/App.jsx` como `/club/terminos` (lazy load). Enlazada desde el checkbox del formulario y desde el pie del club.
+
+### 15.8. Consistencia "8 sellos - el 8vo es gratis" en todo el sistema
+
+Revisión y ajuste de defaults para que el sistema hable siempre del mismo esquema (7 compras necesarias + 8vo slot = premio gratis):
+
+- **Backend `fidelizacionService.js`**: default `sellos_para_premio` de 6 → **7**, tanto en `getConfig()` como en `updateConfig()`.
+- **Fallbacks frontend a 7**: `TarjetaFidelidad.jsx` (era 10), `StatsCliente.jsx` (era 10), `useClientes.jsx` (era 6). `TerminosCondiciones.jsx`, `ClubFidelidad.jsx` (banner premio y FAQ) ya estaban en 7.
+- **Tarjeta física imprimible (`TarjetaFidelidadFisica.jsx`)**: tenía `const totalSellos = 6` **hardcodeado**, ahora recibe `sellosParaPremio` como prop desde `ClubFidelidad.jsx` que pasa el valor real del config. Subtítulo cambiado de "Acumula 6 puntos y consigue una sorpresa gratis" a **"Completá {N-1} y el {N}° es gratis"** dinámico.
+
+Además `TarjetaFidelidadFisica` ahora también recibe `clubUrl` y muestra el link corto legible debajo del "N° Tarjeta" ("VER ONLINE: modosabor.com.ar/club/ABC123"), así el cliente puede tipearlo a mano si pierde el celular.
+
+Acción manual pendiente: Hernán tiene que ir a Admin → Fidelización y **setear explícitamente `sellos_para_premio = 7`**, porque el valor default solo aplica si nunca se guardó; el valor histórico (que era 6 u 8) sigue mandando en la base actual.
+
+### 15.9. Estado del deploy y pendientes
+
+- **Nada de la sesión 15 está en Railway todavía**. Todos los cambios están en local. Cuando Hernán quiera desplegar, corre `railway up` desde CLI (o el push a `main` dispara auto-deploy).
+- Archivos tocados en total: `client/index.html`, `client/src/pages/ClubFidelidad.jsx`, `client/src/pages/ClubFidelidad/TarjetaFidelidad.jsx`, `client/src/pages/ClubFidelidad/ComoFunciona.jsx`, `client/src/pages/ClubFidelidad/FormularioCliente.jsx`, `client/src/pages/ClubFidelidad/StatsCliente.jsx`, `client/src/pages/Clientes/useClientes.jsx`, `client/src/pages/Operacion.jsx`, `client/src/pages/TPV.jsx`, `client/src/components/TPV/TpvSidebar.jsx`, `client/src/components/TarjetaFidelidadFisica.jsx`, `client/src/App.jsx`, `server/db/migrations.js`, `server/routes/fidelizacion.js`, `server/routes/pedidos.js`, `server/routes/caja.js`, `server/services/fidelizacionService.js`.
+- Archivos nuevos: `client/src/lib/parseGpsInput.js`, `client/src/pages/ClubFidelidad/BarraSocio.jsx`, `client/src/pages/ClubFidelidad/CartelBienvenida.jsx`, `client/src/pages/ClubFidelidad/TerminosCondiciones.jsx`.
+- Como en todas las sesiones anteriores, el sandbox de comandos no arrancó (HYPERVISOR_VIRT_DISABLED) y las pruebas se hicieron conectándose al navegador de Hernán contra `localhost:5173`. La única prueba que no se pudo hacer en vivo fue la del backend (fix de precios ×100 en tickets impresos), que requiere reiniciar el server Node para tomar los cambios.
+
+---
+
+## 16. App nativa Rider Android: fix persistencia + rediseño visual + APK nuevo (31/07/2026)
+
+### 16.1. Bugs de persistencia arreglados
+
+El rider tenía que loguearse cada vez que cerraba la app. Causa raíz: el WebView de Capacitor Android no persiste `localStorage` entre cierres de la app (a diferencia del navegador de escritorio donde sí sobrevive). Esto afectaba:
+
+- **Sesión del rider** (`ms_rider_id`, `ms_rider_code`): se perdía al cerrar, obligaba a re-loguearse.
+- **Historial de entregas** (`ms_rider_history_*`): se vaciaba al reabrir.
+- **Toggle online/offline** (`ms_rider_online`): volvía al estado default.
+- **Pedidos notificados** (`ms_rider_notified_*`): se perdían, causando re-alertas de pedidos ya avisados.
+
+Solución implementada:
+
+- **Helpers `riderStorageGet` / `riderStorageSet` / `riderStorageRemove`** en `client/src/lib/nativeRiderGps.js`: detectan si corren en nativo (Capacitor) y usan `@capacitor/preferences` (persistencia real a nivel SO), o caen a `localStorage` en web. API async unificada.
+- **Bootstrap async con spinner** en `RiderPanel.jsx`: antes el componente leía sync de `localStorage` en el render inicial (en Capacitor Android eso arranca vacío). Ahora muestra "Cargando tu sesión..." mientras lee async de Preferences, y recién después monta la UI con los datos reales.
+- Las 5 keys migradas a los helpers: `ms_rider_id`, `ms_rider_code`, `ms_rider_online`, `ms_rider_history_*`, `ms_rider_notified_*`.
+
+### 16.2. Rediseño visual del RiderPanel
+
+Cambios de UI/UX:
+
+- **Header "Tu turno de hoy"** siempre visible (antes solo aparecía si había entregas). Íconos por métrica: Package (entregas), DollarSign (cobrado), TrendingUp (efectivo). Números con `tabular-nums` para alineación fija (corrige el desfasaje reportado donde los dígitos "saltaban" al cambiar). Reloj en vivo con fecha. Chip **ONLINE** verde pulsante (animate-pulse) cuando el rider está activo.
+- **Estado vacío rediseñado**: el texto plano "SIN ENTREGAS POR AHORA" fue reemplazado por un **radar animado tipo Uber Driver** — 3 círculos concéntricos con `animate-ping` desfasado (delay 0s, 1s, 2s) + ícono de paquete centrado + texto "Esperando pedidos...". Da feedback visual de que la app está activa y escuchando.
+- **Barra de acciones rápidas**: 3 chips grandes horizontales — Llamar al local (Phone), Actualizar (RefreshCw), Historial (History). Reemplazan los botones dispersos anteriores.
+- **Contadores animados 0→valor**: componente `AnimatedNumber.jsx` usando `framer-motion` `useSpring` + `useTransform`. Al montar o cambiar el valor, el número sube suavemente desde 0 (o desde el valor anterior) con spring physics.
+- **Cards de pedido con animación**: `AnimatePresence` + `motion.button` con spring (damping 22, stiffness 260), layout auto-reorder. Cada card nueva entra con slide-in desde la derecha.
+- **Toast de entrega**: notificación negra tipo snackbar con emoji "🎉 Nª entrega del día" que aparece 3 segundos al subir el contador de entregas completadas.
+
+### 16.3. APK generado
+
+- **Path**: `C:\Users\Exuz\Desktop\ModoSaborRider-20260731-2216.apk`
+- **Tamaño**: ~6.89 MB
+- **Fecha**: 31/07/2026
+- **Versión**: 1.0 (versionCode 1)
+- **Build**: debug (firmado con key de debug de Android Studio)
+
+Instrucciones para el rider:
+
+1. **Desinstalar la app anterior** primero (el versionCode sigue en 1, Android puede rechazar la instalación si detecta firma distinta).
+2. Copiar el APK al celular (WhatsApp, cable USB, Google Drive).
+3. Abrir el APK → "Instalar de fuentes desconocidas" si lo pide.
+4. Al abrir, **permitir "Ubicación siempre"** (no solo "mientras se usa") y **permitir notificaciones**.
+5. Loguearse con su código de rider — la sesión ahora persiste entre cierres.
+
+### 16.4. Qué le falta todavía
+
+Pendientes para la siguiente iteración:
+
+- **FCM / push remoto**: para avisar al rider de pedidos nuevos incluso con la app completamente cerrada (kill del SO). Requiere proyecto Firebase + configuración de server key en el backend.
+- **Sonido custom fuerte**: actualmente usa el sonido default de notificación del sistema. Falta un tono tipo alarma que se escuche aunque el celular esté en volumen bajo.
+- **Foto de entrega**: que el rider pueda sacar foto al entregar como comprobante (cámara nativa con Capacitor Camera).
+- **APK release firmado con versionCode incremental**: el APK actual es debug. Para publicar en Play Store o distribuir sin warnings de "app no verificada" hace falta generar un keystore de release, firmar, y subir el versionCode en cada actualización.
+
+### 16.5. Cambios técnicos
+
+Archivos modificados:
+
+- `client/src/lib/nativeRiderGps.js` — agregados helpers `riderStorageGet`/`riderStorageSet`/`riderStorageRemove` con `@capacitor/preferences`.
+- `client/src/pages/RiderPanel.jsx` — bootstrap async, rediseño visual completo (header, radar, chips, animaciones, toast).
+
+Archivos nuevos:
+
+- `client/src/components/AnimatedNumber.jsx` — componente reutilizable de counter animado con framer-motion.

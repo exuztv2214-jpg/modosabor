@@ -81,6 +81,61 @@ export async function clearNativeRiderAuth() {
   await Preferences.remove({ key: RIDER_AUTH_KEY });
 }
 
+// Helpers universales de storage persistente. Usan @capacitor/preferences
+// cuando la app corre nativa (persiste 100% entre cierres, no lo limpia
+// Android por RAM) y localStorage cuando corre en web/PWA. Esto arregla
+// el bug de que el rider tenia que loguearse cada vez que abria la app
+// en el APK, porque el WebView de Capacitor no persiste localStorage
+// entre sesiones cerradas del proceso.
+export async function riderStorageGet(key) {
+  if (isNativeRiderApp()) {
+    try {
+      const { value } = await Preferences.get({ key });
+      return value ?? null;
+    } catch {
+      return null;
+    }
+  }
+  try {
+    return typeof window !== 'undefined' ? window.localStorage.getItem(key) : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function riderStorageSet(key, value) {
+  const v = value == null ? '' : String(value);
+  if (isNativeRiderApp()) {
+    try {
+      await Preferences.set({ key, value: v });
+    } catch {
+      // silent
+    }
+    return;
+  }
+  try {
+    if (typeof window !== 'undefined') window.localStorage.setItem(key, v);
+  } catch {
+    // silent
+  }
+}
+
+export async function riderStorageRemove(key) {
+  if (isNativeRiderApp()) {
+    try {
+      await Preferences.remove({ key });
+    } catch {
+      // silent
+    }
+    return;
+  }
+  try {
+    if (typeof window !== 'undefined') window.localStorage.removeItem(key);
+  } catch {
+    // silent
+  }
+}
+
 async function requestNativeNotificationPermission() {
   if (Capacitor.getPlatform?.() !== 'android') return null;
   try {
