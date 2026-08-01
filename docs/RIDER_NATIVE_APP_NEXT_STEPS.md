@@ -67,27 +67,49 @@ semver, sin colisiones.
 
 ## 3. Firebase Cloud Messaging (push remoto)
 
-El único hueco crítico que queda para que el rider reciba avisos con la
-app 100% cerrada.
+Todo el scaffolding cliente y backend está listo. Solo faltan los pasos
+que requieren acción externa (crear proyecto Firebase, bajar credenciales).
 
-### Pasos
+### Lo que YA está integrado
+
+- ✅ **Cliente**: `client/src/lib/riderPush.js` con `registerRiderPushToken()`
+  y `subscribeRiderPush()`. Import dinámico de `@capacitor/push-notifications`:
+  si no está instalado, es no-op silencioso. Se dispara automáticamente
+  en el bootstrap del `RiderPanel` después del login.
+- ✅ **Backend**: columnas `fcm_token`, `fcm_platform`, `fcm_actualizado_en`
+  en tabla `repartidores` (migración auto). Endpoint
+  `POST /api/repartidores/:id/rider/:codigo/fcm-token` que persiste el token
+  del device del rider.
+- ✅ **Gradle**: `try/catch` que detecta `google-services.json` y activa el
+  plugin automático.
+
+### Pasos que faltan (todos externos)
 
 1. **Crear proyecto Firebase gratis**: <https://console.firebase.google.com>.
 2. **Agregar app Android** con package `com.modosabor.rider`.
 3. **Descargar `google-services.json`** y ponerlo en
-   `client/android/app/google-services.json`. El build.gradle ya tiene
-   un `try/catch` que lo detecta y activa el plugin automáticamente.
+   `client/android/app/google-services.json`.
 4. **Instalar el plugin Capacitor**:
    ```powershell
    npm --prefix client i @capacitor/push-notifications
    npx --prefix client cap sync android
    ```
-5. **Integrar en `nativeRiderGps.js`** un método `registerPushToken()`
-   que llame a `PushNotifications.register()` y mande el token al
-   backend (`POST /api/repartidores/:id/fcm-token`).
-6. **Backend**: guardar el token por rider, agregar un módulo que use
-   la Firebase Admin SDK para enviar push cuando se asigna un pedido.
-7. **Probar** desde la consola de Firebase con "Cloud Messaging → New
+5. **Backend sender** (nuevo): instalar `firebase-admin` en el server y
+   agregar en el handler de `POST /pedidos` (cuando `repartidor_id` cambia)
+   un envío push al `fcm_token` de ese rider. Aproximadamente:
+   ```js
+   const admin = require('firebase-admin');
+   admin.initializeApp({ credential: admin.credential.cert(require('./firebase-service.json')) });
+   await admin.messaging().send({
+     token: rider.fcm_token,
+     notification: { title: 'Nuevo pedido', body: `Pedido #${numero}` },
+     android: {
+       priority: 'high',
+       notification: { channelId: 'rider-orders', sound: 'rider_alert' },
+     },
+   });
+   ```
+6. **Probar** desde la consola de Firebase con "Cloud Messaging → New
    Notification → Target device token".
 
 Sin FCM la app sigue funcionando: recibe pedidos cuando está abierta o
@@ -98,15 +120,19 @@ en background reciente. Solo falla si Android la mata por RAM/ahorro.
 Sirve para que el rider distinga el "nuevo pedido" de cualquier
 WhatsApp.
 
-### Pasos
+### Estado
+
+`nativeRiderGps.js` ya declara `sound: 'rider_alert'` en el canal y en el
+schedule. Falta el archivo. Si el archivo no existe, Android cae al sonido
+default automático (no rompe la notificación).
+
+### Único paso pendiente
 
 1. Grabar o buscar un `.mp3` corto (2-4 segundos) tipo "ding-dong de
    restaurante" fuerte.
 2. Guardarlo como `client/android/app/src/main/res/raw/rider_alert.mp3`.
    El nombre debe ser todo minúsculas y sin guiones (usar underscore).
-3. Editar `client/src/lib/nativeRiderGps.js`, en `prepareRiderNotifications`,
-   cambiar el `sound: 'default'` del canal por `sound: 'rider_alert'`.
-4. Rebuild APK.
+3. Rebuild APK.
 
 Android usa el sonido del canal al mostrar la LocalNotification, así
 que sonará distinto que un WhatsApp normal.
@@ -132,16 +158,21 @@ al disparar el evento `online` del navegador.
 
 Acciones que se encolan automático hoy:
 
-- **Marcar entregado** (`kind: 'mark_delivered'`) cuando `navigator.onLine === false`.
+- ✅ **Marcar entregado** (`kind: 'mark_delivered'`) cuando `navigator.onLine === false`.
+- ✅ **Cambio de estado de pedido** (`kind: 'change_state'`) — aceptar,
+  comenzar reparto, marcar cancelado, etc.
+- ✅ **Reporte de incidencia** (`kind: 'report_issue'`) — con motivo
+  preseteado. También abre WhatsApp al local si hay red.
 
-Faltan encolar (para futuras iteraciones):
+Actualización optimista local: cuando encolamos un cambio de estado, el UI
+del rider se actualiza al toque como si hubiera funcionado, para que pueda
+seguir trabajando. La cola se sincroniza al reconectar.
 
-- Envío de ubicación GPS (hoy se descarta silent si falla).
-- Cambio de estado de pedido (comenzar reparto, listo, etc.).
-- Reporte de incidencia.
-
-Para agregarlas: envolver el `api.post/put` en un `try/catch` que llame
-a `enqueueRiderAction({ kind, url, method, body })` si `!navigator.onLine`.
+**GPS no se encola por diseño**: son ~1 punto cada 5s. Encolar 100+ puntos
+en un rato sin señal es basura y satura el server al reconectar. Lo que sí
+hacemos es descartar los puntos GPS offline y retomar el streaming en vivo
+apenas hay red. Es el mismo comportamiento que Uber/Rappi. El cliente ve
+al rider "congelado" en el mapa hasta que recupera señal.
 
 ## 7. Distribución al equipo
 
@@ -204,7 +235,117 @@ Se controla desde `client/capacitor.config.json`:
 - `launchAutoHide: false` deja que la app controle el hide (mejor UX,
   no hay flash blanco entre splash y login).
 
-## 9. Métricas de crash remoto
+## 9. Auto-actualización de la app (in-app updater)
+
+La app rider chequea sola si hay una versión nueva disponible en el
+server y le muestra un modal al rider con la opción de descargar e
+instalar. Ya no hace falta pasarle el APK por WhatsApp cada vez que
+haya un update.
+
+### Cómo funciona
+
+1. El backend expone `GET /api/rider-app/version` (público) que
+   devuelve el manifest de la última versión publicada.
+2. La app al abrir (post-login, con throttle de 6 h) hace ese GET y
+   compara el `versionCode` recibido contra el que tiene instalado
+   (leído con `@capacitor/app`).
+3. Si el server tiene una versión más nueva, muestra un modal con el
+   changelog y dos botones: **Actualizar ahora** / **Más tarde**.
+4. Al tocar Actualizar, se abre el navegador del sistema con la URL
+   del APK, Android lo descarga y muestra el instalador nativo. El
+   rider toca "Instalar" y listo.
+
+### Publicar una versión nueva (flujo de 4 pasos)
+
+**1) Buildear el APK release**
+
+```powershell
+cd D:\Proyectos\modosabor1
+npm --prefix client run android:release-apk
+```
+
+Sale en `client/android/app/build/outputs/apk/release/app-release.apk`.
+
+**2) Copiar el APK a la carpeta de distribución**
+
+Usar un nombre versionado (nunca `latest.apk` — se rompen caches):
+
+```powershell
+copy client\android\app\build\outputs\apk\release\app-release.apk `
+     server\uploads\rider-app\modosabor-rider-1.2.0.apk
+```
+
+**3) Editar el manifest**
+
+Abrir `server/uploads/rider-app/manifest.json` y actualizar:
+
+```json
+{
+  "versionCode": 10200,
+  "versionName": "1.2.0",
+  "apkFile": "modosabor-rider-1.2.0.apk",
+  "changelog": "• Foto de entrega obligatoria\n• Nuevo splash screen\n• Cola offline mejorada",
+  "forceUpdate": false,
+  "minVersionCode": 10000,
+  "releasedAt": "2026-08-01T14:00:00Z"
+}
+```
+
+- `versionCode`: mismo formato que Gradle (`MAJOR*10000 + MINOR*100 + PATCH`).
+  Debe ser mayor al de la versión que están usando los riders.
+- `apkFile`: nombre exacto del archivo que copiaste en el paso 2.
+- `changelog`: markdown-ish, se muestra en el modal (líneas cortas).
+- `forceUpdate: true` → el rider **no puede cerrar el modal**; obligado
+  a actualizar. Usar solo si hay cambios de backend incompatibles.
+- `minVersionCode`: si el rider tiene menos, se le fuerza aunque
+  `forceUpdate` sea false. Sirve para cortar versiones muy viejas.
+
+**4) Deploy**
+
+```powershell
+cd D:\Proyectos\modosabor1
+git add server/uploads/rider-app/manifest.json server/uploads/rider-app/*.apk
+git commit -m "rider: release v1.2.0"
+git push origin main
+```
+
+Railway redeploya solo. Los riders al abrir la app (o al volver del
+background) ven el modal en máximo unos minutos.
+
+### Comportamiento del modal
+
+- **Voluntario** (forceUpdate=false): tienen botón "Más tarde". Si lo
+  tocan, la app no vuelve a mostrar el modal para **esa misma versión**.
+  Si publicás una v1.2.1, el modal vuelve a aparecer.
+- **Obligatorio** (forceUpdate=true o versión < minVersionCode): no hay
+  botón "Más tarde"; el modal bloquea el uso de la app.
+
+### Notificar al equipo (opcional pero útil)
+
+El sistema de update chequea al abrir la app. Para que el rider abra la
+app cuando hay update, mandale un WhatsApp al grupo: "🚀 Nueva versión
+disponible, abrí la app para actualizar". Sin FCM, ese es el único
+"push" hasta que la app esté abierta.
+
+Con FCM configurado (sección 3) se puede mandar un push automático al
+publicar versión — endpoint del backend `POST /api/repartidores/broadcast-update`
+podría dispararlo. Queda para futura iteración.
+
+### Requisitos técnicos ya integrados
+
+- Permiso `REQUEST_INSTALL_PACKAGES` en `AndroidManifest.xml` ✅
+- Endpoint backend `/api/rider-app/version` ✅
+- Cliente `client/src/lib/riderUpdater.js` ✅
+- Modal en `RiderPanel.jsx` (se muestra pre y post-login) ✅
+- Carpeta `server/uploads/rider-app/` con `manifest.json` inicial ✅
+
+### Limpieza periódica de APKs viejos
+
+Los archivos `.apk` se acumulan. Cada tanto (cada 5-10 releases), borrar
+manualmente los más viejos de `server/uploads/rider-app/` dejando los
+últimos 2-3 por si hay que hacer rollback.
+
+## 10. Métricas de crash remoto
 
 Para saber si la app crashea en un celular específico sin que el rider
 avise:

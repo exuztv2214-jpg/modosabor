@@ -1,0 +1,105 @@
+/**
+ * Dark mode del RiderPanel.
+ *
+ * En vez de agregar `dark:...` a cada className del componente (que tiene
+ * 2800 lineas), aplicamos overrides scoped al .rider-shell cuando el <html>
+ * tiene la clase `dark`. Es hacky pero pragmatico: cero touch al JSX,
+ * cubre todos los casos genericos, y los casos edge se manejan con dark: en
+ * los elementos especificos que lo necesitan.
+ *
+ * Ideal para rider app porque muchos trabajan de noche y el fondo blanco
+ * les frie los ojos.
+ */
+
+.dark .rider-shell {
+  background-color: #0a0a0a;
+  color: #e5e5e5;
+}
+
+/* Superficies (cards, header, footer, modales dentro del shell) */
+.dark .rider-shell .bg-white {
+  background-color: #171717 !important;
+}
+.dark .rider-shell .bg-gray-50 {
+  background-color: #0a0a0a !important;
+}
+.dark .rider-shell .bg-gray-100 {
+  background-color: #262626 !important;
+}
+
+/* Texto: escalonado del mas oscuro al mas claro */
+.dark .rider-shell .text-gray-900 {
+  color: #f5f5f5 !important;
+}
+.dark .rider-shell .text-gray-800 {
+  color: #e5e5e5 !important;
+}
+.dark .rider-shell .text-gray-700 {
+  color: #d4d4d4 !important;
+}
+.dark .rider-shell .text-gray-600 {
+  color: #a3a3a3 !important;
+}
+.dark .rider-shell .text-gray-500 {
+  color: #a3a3a3 !important;
+}
+.dark .rider-shell .text-gray-400 {
+  color: #737373 !important;
+}
+.dark .rider-shell .text-black {
+  color: #f5f5f5 !important;
+}
+
+/* Bordes: cambian a grises oscuros para no cortar visualmente */
+.dark .rider-shell .border-gray-100 {
+  border-color: #262626 !important;
+}
+.dark .rider-shell .border-gray-200 {
+  border-color: #404040 !important;
+}
+.dark .rider-shell .divide-gray-100 > :not([hidden]) ~ :not([hidden]) {
+  border-color: #262626 !important;
+}
+
+/* Colores semanticos suaves (backgrounds pastel) se oscurecen a
+   variantes tinted-dark en vez de quitarse por completo. */
+.dark .rider-shell .bg-success-50 {
+  background-color: rgba(16, 185, 129, 0.12) !important;
+}
+.dark .rider-shell .bg-warning-50 {
+  background-color: rgba(245, 158, 11, 0.12) !important;
+}
+.dark .rider-shell .bg-danger-50 {
+  background-color: rgba(239, 68, 68, 0.12) !important;
+}
+.dark .rider-shell .bg-info-50 {
+  background-color: rgba(56, 189, 248, 0.12) !important;
+}
+.dark .rider-shell .bg-primary-50 {
+  background-color: rgba(93, 135, 255, 0.12) !important;
+}
+
+/* Sombras: en dark quedan mas sutiles porque el fondo oscuro las mata */
+.dark .rider-shell .shadow-sm,
+.dark .rider-shell .shadow,
+.dark .rider-shell .shadow-md {
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.5) !important;
+}
+.dark .rider-shell .shadow-lg,
+.dark .rider-shell .shadow-xl,
+.dark .rider-shell .shadow-2xl {
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.7) !important;
+}
+
+/* Inputs y formularios: fondo oscuro y borde apenas visible */
+.dark .rider-shell input,
+.dark .rider-shell textarea,
+.dark .rider-shell select {
+  background-color: #171717;
+  color: #f5f5f5;
+  border-color: #404040;
+}
+.dark .rider-shell input::placeholder,
+.dark .rider-shell textarea::placeholder {
+  color: #737373;
+}

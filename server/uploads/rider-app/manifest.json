@@ -1,0 +1,9 @@
+{
+  "versionCode": 10100,
+  "versionName": "1.1.0",
+  "apkFile": "modosabor-rider-1.1.0.apk",
+  "changelog": "• Splash screen + login premium\n• Persistencia sesión rider\n• Detalle pedido con botones colores\n• Meta diaria + confetti + voz\n• Foto de entrega + cola offline\n• Chat con local + reporte incidencia\n• Dark mode + auto-update",
+  "forceUpdate": false,
+  "minVersionCode": 10000,
+  "releasedAt": "2026-08-01T05:00:00Z"
+}

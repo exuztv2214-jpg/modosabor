@@ -69,6 +69,224 @@ function PointCard({ point, index }) {
   );
 }
 
+/**
+ * Editor colapsable de configuración global del menú del día.
+ * Se abre solo cuando el operador quiere cambiar precios o la lista maestra
+ * de guarniciones. Por defecto arrancá cerrado para no ensuciar la UI.
+ */
+function ConfigMenuDiaGlobal({ config, onSaved }) {
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({
+    precioEconomico: config.precioEconomico,
+    precioEjecutivo: config.precioEjecutivo,
+    extraPostrePrecio: config.extraPostrePrecio,
+    extraBebidaPostrePrecio: config.extraBebidaPostrePrecio,
+    guarnicionesLista: config.guarnicionesLista || [],
+  });
+  const [nuevaGuarnicion, setNuevaGuarnicion] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    // Rehidratar cuando llegan datos del server
+    setForm({
+      precioEconomico: config.precioEconomico,
+      precioEjecutivo: config.precioEjecutivo,
+      extraPostrePrecio: config.extraPostrePrecio,
+      extraBebidaPostrePrecio: config.extraBebidaPostrePrecio,
+      guarnicionesLista: config.guarnicionesLista || [],
+    });
+  }, [
+    config.precioEconomico,
+    config.precioEjecutivo,
+    config.extraPostrePrecio,
+    config.extraBebidaPostrePrecio,
+    // guarnicionesLista comparado por identity, se re-hidrata sólo si cambia el array
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    (config.guarnicionesLista || []).join('|'),
+  ]);
+
+  const addGuarnicion = () => {
+    const name = nuevaGuarnicion.trim();
+    if (!name) return;
+    if (form.guarnicionesLista.includes(name)) {
+      setNuevaGuarnicion('');
+      return;
+    }
+    setForm((prev) => ({
+      ...prev,
+      guarnicionesLista: [...prev.guarnicionesLista, name],
+    }));
+    setNuevaGuarnicion('');
+  };
+
+  const removeGuarnicion = (g) => {
+    setForm((prev) => ({
+      ...prev,
+      guarnicionesLista: prev.guarnicionesLista.filter((x) => x !== g),
+    }));
+  };
+
+  const guardar = async () => {
+    setSaving(true);
+    try {
+      await api.put('/operacion/menu-dia/config', form);
+      toast.success('Configuración actualizada');
+      if (onSaved) await onSaved();
+    } catch (error) {
+      toast.error(error?.error || 'No se pudo guardar la configuración');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="mb-4 rounded-[20px] border border-primary-100 bg-primary-50/40">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
+      >
+        <div className="min-w-0">
+          <p className="text-xs font-black uppercase tracking-[0.18em] text-primary-700">
+            ⚙ Configuración global del menú del día
+          </p>
+          <p className="mt-1 text-[11px] font-semibold text-gray-500">
+            Precios base, extras y lista maestra de guarniciones ·{' '}
+            {(form.guarnicionesLista || []).length} guarniciones cargadas
+          </p>
+        </div>
+        <span className="text-xl font-black text-primary-600">{open ? '−' : '+'}</span>
+      </button>
+      {open && (
+        <div className="border-t border-primary-100 px-4 py-4 space-y-4">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <label className="rounded-[16px] bg-white p-3">
+              <span className="block text-[10px] font-black uppercase tracking-[0.16em] text-gray-500">
+                Precio económico
+              </span>
+              <input
+                type="number"
+                min="0"
+                step="100"
+                value={form.precioEconomico}
+                onChange={(e) => setForm((prev) => ({ ...prev, precioEconomico: e.target.value }))}
+                className="mt-1 h-10 w-full rounded-xl border border-gray-200 px-3 text-sm font-black text-gray-900 outline-none focus:border-primary-500"
+              />
+            </label>
+            <label className="rounded-[16px] bg-white p-3">
+              <span className="block text-[10px] font-black uppercase tracking-[0.16em] text-gray-500">
+                Precio ejecutivo
+              </span>
+              <input
+                type="number"
+                min="0"
+                step="100"
+                value={form.precioEjecutivo}
+                onChange={(e) => setForm((prev) => ({ ...prev, precioEjecutivo: e.target.value }))}
+                className="mt-1 h-10 w-full rounded-xl border border-gray-200 px-3 text-sm font-black text-gray-900 outline-none focus:border-primary-500"
+              />
+            </label>
+            <label className="rounded-[16px] bg-white p-3">
+              <span className="block text-[10px] font-black uppercase tracking-[0.16em] text-gray-500">
+                Postre extra
+              </span>
+              <input
+                type="number"
+                min="0"
+                step="100"
+                value={form.extraPostrePrecio}
+                onChange={(e) =>
+                  setForm((prev) => ({ ...prev, extraPostrePrecio: e.target.value }))
+                }
+                className="mt-1 h-10 w-full rounded-xl border border-gray-200 px-3 text-sm font-black text-gray-900 outline-none focus:border-primary-500"
+              />
+            </label>
+            <label className="rounded-[16px] bg-white p-3">
+              <span className="block text-[10px] font-black uppercase tracking-[0.16em] text-gray-500">
+                Bebida + Postre
+              </span>
+              <input
+                type="number"
+                min="0"
+                step="100"
+                value={form.extraBebidaPostrePrecio}
+                onChange={(e) =>
+                  setForm((prev) => ({ ...prev, extraBebidaPostrePrecio: e.target.value }))
+                }
+                className="mt-1 h-10 w-full rounded-xl border border-gray-200 px-3 text-sm font-black text-gray-900 outline-none focus:border-primary-500"
+              />
+            </label>
+          </div>
+
+          <div className="rounded-[16px] bg-white p-3">
+            <p className="text-[10px] font-black uppercase tracking-[0.16em] text-gray-500">
+              Lista maestra de guarniciones
+            </p>
+            <p className="mt-1 text-[11px] font-semibold text-gray-500">
+              Cada plato del menú del día elige de acá qué guarniciones ofrecer.
+            </p>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {(form.guarnicionesLista || []).map((g) => (
+                <span
+                  key={g}
+                  className="inline-flex items-center gap-1 rounded-full bg-primary-500 pl-3 pr-1 py-1 text-[11px] font-black tracking-wide text-white"
+                >
+                  {g}
+                  <button
+                    type="button"
+                    onClick={() => removeGuarnicion(g)}
+                    className="ml-1 h-5 w-5 rounded-full bg-white/25 hover:bg-white/40 text-white text-xs font-black"
+                    aria-label={`Quitar ${g}`}
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+              {(form.guarnicionesLista || []).length === 0 && (
+                <p className="text-[11px] font-semibold text-gray-400 italic">
+                  Sin guarniciones. Agregá abajo.
+                </p>
+              )}
+            </div>
+            <div className="mt-3 flex gap-2">
+              <input
+                value={nuevaGuarnicion}
+                onChange={(e) => setNuevaGuarnicion(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    addGuarnicion();
+                  }
+                }}
+                placeholder="Ej: Arroz a la provenzal"
+                className="flex-1 h-10 rounded-xl border border-gray-200 px-3 text-sm font-bold text-gray-900 outline-none focus:border-primary-500"
+              />
+              <button
+                type="button"
+                onClick={addGuarnicion}
+                className="h-10 rounded-xl bg-primary-500 px-4 text-[11px] font-black uppercase tracking-widest text-white shadow-md"
+              >
+                Agregar
+              </button>
+            </div>
+          </div>
+
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={guardar}
+              disabled={saving}
+              className="inline-flex h-11 items-center gap-2 rounded-2xl bg-primary-500 px-5 text-[11px] font-black uppercase tracking-widest text-white shadow-lg shadow-primary-100 disabled:opacity-50"
+            >
+              <Save size={15} /> Guardar configuración
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Section({ title, subtitle, children, action }) {
   return (
     <section className="rounded-[28px] border border-gray-100 bg-white p-6 shadow-sm">
@@ -95,7 +313,9 @@ export default function Operacion() {
     stock_directo: 20,
     tiempo_preparacion: 15,
     tipo: 'economico',
-    promo: 0,
+    guarniciones: [],
+    ofrece_postre: 0,
+    ofrece_bebida_postre: 0,
   });
   const [loading, setLoading] = useState(true);
   const [savingStock, setSavingStock] = useState(false);
@@ -304,7 +524,9 @@ export default function Operacion() {
         stock_directo: 20,
         tiempo_preparacion: 15,
         tipo: 'economico',
-        promo: 0,
+        guarniciones: [],
+        ofrece_postre: 0,
+        ofrece_bebida_postre: 0,
       });
       toast.success('Plato del día agregado');
       await cargar();
@@ -575,6 +797,17 @@ export default function Operacion() {
                 </div>
               }
             >
+              <ConfigMenuDiaGlobal
+                config={{
+                  precioEconomico: menuDia.precioSugerido?.economico ?? 5000,
+                  precioEjecutivo: menuDia.precioSugerido?.ejecutivo ?? 7000,
+                  extraPostrePrecio: menuDia.extraPostrePrecio ?? 1000,
+                  extraBebidaPostrePrecio: menuDia.extraBebidaPostrePrecio ?? 1000,
+                  guarnicionesLista: menuDia.guarnicionesLista || [],
+                }}
+                onSaved={cargar}
+              />
+
               <div className="mb-4 grid gap-3 sm:grid-cols-3">
                 <div className="rounded-[18px] bg-primary-50 p-4">
                   <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400">
@@ -664,7 +897,7 @@ export default function Operacion() {
                           </button>
                         </div>
 
-                        <div className="grid gap-3 grid-cols-2 xl:grid-cols-4">
+                        <div className="grid gap-3 grid-cols-2 xl:grid-cols-3">
                           <label className="rounded-[18px] bg-primary-50 p-3">
                             <span className="block text-[10px] font-black uppercase tracking-[0.18em] text-gray-400">
                               Precio
@@ -710,21 +943,105 @@ export default function Operacion() {
                             />
                             <span className="leading-tight">Destacado</span>
                           </label>
-                          <label className="flex items-center gap-2 rounded-[18px] bg-warning-50 p-3 text-[10px] font-black uppercase tracking-wider text-warning-700">
+                        </div>
+
+                        {/* ── Guarniciones: chips seleccionables de la lista global ── */}
+                        {Array.isArray(menuDia.guarnicionesLista) &&
+                          menuDia.guarnicionesLista.length > 0 && (
+                            <div className="rounded-[18px] border border-primary-100 bg-primary-50 p-3">
+                              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">
+                                Guarniciones que puede elegir el cliente
+                              </p>
+                              <div className="mt-2 flex flex-wrap gap-1.5">
+                                {menuDia.guarnicionesLista.map((g) => {
+                                  const seleccionadas = Array.isArray(item.guarniciones_hoy)
+                                    ? item.guarniciones_hoy
+                                    : [];
+                                  const activa = seleccionadas.includes(g);
+                                  return (
+                                    <button
+                                      key={g}
+                                      type="button"
+                                      onClick={() => {
+                                        const next = activa
+                                          ? seleccionadas.filter((x) => x !== g)
+                                          : [...seleccionadas, g];
+                                        updateMenuDiaItem(item.id, 'guarniciones_hoy', next);
+                                      }}
+                                      className={`rounded-full px-3 py-1.5 text-[11px] font-black tracking-wide transition ${
+                                        activa
+                                          ? 'bg-primary-500 text-white shadow'
+                                          : 'bg-white text-gray-600 border border-gray-200 hover:border-primary-300'
+                                      }`}
+                                    >
+                                      {activa ? '✓ ' : ''}
+                                      {g}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                              <p className="mt-2 text-[10px] font-semibold text-gray-500">
+                                {Array.isArray(item.guarniciones_hoy) &&
+                                item.guarniciones_hoy.length > 0
+                                  ? `El cliente eligirá 1 de ${item.guarniciones_hoy.length}.`
+                                  : 'Sin guarniciones: el plato se pide directo.'}
+                              </p>
+                            </div>
+                          )}
+
+                        {/* ── Extras opcionales: postre / bebida+postre ── */}
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <label className="flex items-start gap-2 rounded-[18px] bg-warning-50 p-3 text-[11px] font-bold text-warning-800">
                             <input
                               type="checkbox"
-                              className="h-4 w-4 shrink-0"
-                              checked={Number(item.promo_hoy) === 1}
+                              className="h-4 w-4 mt-0.5 shrink-0"
+                              checked={Number(item.ofrece_postre_hoy) === 1}
                               onChange={(event) =>
                                 updateMenuDiaItem(
                                   item.id,
-                                  'promo_hoy',
+                                  'ofrece_postre_hoy',
                                   event.target.checked ? 1 : 0
                                 )
                               }
                             />
-                            <span className="leading-tight">+ Jugo y postre $1.000</span>
+                            <span className="leading-tight">
+                              <span className="block font-black uppercase tracking-wider">
+                                Ofrecer Postre
+                              </span>
+                              <span className="mt-0.5 block text-[10px] font-semibold text-warning-700">
+                                + $
+                                {Number(menuDia.extraPostrePrecio || 1000).toLocaleString('es-AR')}
+                              </span>
+                            </span>
                           </label>
+                          {item.tipo_hoy === 'ejecutivo' && (
+                            <label className="flex items-start gap-2 rounded-[18px] bg-info-50 p-3 text-[11px] font-bold text-info-700">
+                              <input
+                                type="checkbox"
+                                className="h-4 w-4 mt-0.5 shrink-0"
+                                checked={Number(item.ofrece_bebida_postre_hoy) === 1}
+                                onChange={(event) =>
+                                  updateMenuDiaItem(
+                                    item.id,
+                                    'ofrece_bebida_postre_hoy',
+                                    event.target.checked ? 1 : 0
+                                  )
+                                }
+                              />
+                              <span className="leading-tight">
+                                <span className="block font-black uppercase tracking-wider">
+                                  Ofrecer Bebida + Postre
+                                </span>
+                                <span className="mt-0.5 block text-[10px] font-semibold">
+                                  + $
+                                  {Number(menuDia.extraBebidaPostrePrecio || 1000).toLocaleString(
+                                    'es-AR'
+                                  )}{' '}
+                                  · solo ejecutivos
+                                </span>
+                              </span>
+                            </label>
+                          )}
                         </div>
 
                         <label className="rounded-[18px] bg-primary-50 p-3">
@@ -823,19 +1140,76 @@ export default function Operacion() {
                     placeholder="Descripción"
                     className="md:col-span-2 rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm font-semibold text-gray-900 outline-none focus:border-primary-500 focus:ring-4 focus:ring-blue-100"
                   />
-                  <label className="flex items-center gap-2 rounded-2xl border border-gray-200 bg-white px-4 py-3 text-xs font-black uppercase tracking-widest text-gray-600 md:col-span-2">
+                  {/* ── Guarniciones para este nuevo plato (opcional) ── */}
+                  {Array.isArray(menuDia.guarnicionesLista) &&
+                    menuDia.guarnicionesLista.length > 0 && (
+                      <div className="md:col-span-2 rounded-2xl border border-gray-200 bg-white p-3">
+                        <p className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">
+                          Guarniciones a ofrecer
+                        </p>
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {menuDia.guarnicionesLista.map((g) => {
+                            const list = Array.isArray(menuDiaNuevo.guarniciones)
+                              ? menuDiaNuevo.guarniciones
+                              : [];
+                            const activa = list.includes(g);
+                            return (
+                              <button
+                                key={g}
+                                type="button"
+                                onClick={() =>
+                                  setMenuDiaNuevo((prev) => {
+                                    const cur = Array.isArray(prev.guarniciones)
+                                      ? prev.guarniciones
+                                      : [];
+                                    const next = activa ? cur.filter((x) => x !== g) : [...cur, g];
+                                    return { ...prev, guarniciones: next };
+                                  })
+                                }
+                                className={`rounded-full px-3 py-1.5 text-[11px] font-black tracking-wide transition ${
+                                  activa
+                                    ? 'bg-primary-500 text-white shadow'
+                                    : 'bg-gray-50 text-gray-600 border border-gray-200 hover:border-primary-300'
+                                }`}
+                              >
+                                {activa ? '✓ ' : ''}
+                                {g}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  <label className="flex items-center gap-2 rounded-2xl border border-warning-100 bg-warning-50 px-4 py-3 text-xs font-black uppercase tracking-widest text-warning-700">
                     <input
                       type="checkbox"
-                      checked={Number(menuDiaNuevo.promo) === 1}
+                      checked={Number(menuDiaNuevo.ofrece_postre) === 1}
                       onChange={(event) =>
                         setMenuDiaNuevo((prev) => ({
                           ...prev,
-                          promo: event.target.checked ? 1 : 0,
+                          ofrece_postre: event.target.checked ? 1 : 0,
                         }))
                       }
                     />
-                    Incluir promo + Jugo y postre ($1.000 extra)
+                    Ofrecer postre (+$
+                    {Number(menuDia.extraPostrePrecio || 1000).toLocaleString('es-AR')})
                   </label>
+                  {menuDiaNuevo.tipo === 'ejecutivo' && (
+                    <label className="flex items-center gap-2 rounded-2xl border border-info-100 bg-info-50 px-4 py-3 text-xs font-black uppercase tracking-widest text-info-700">
+                      <input
+                        type="checkbox"
+                        checked={Number(menuDiaNuevo.ofrece_bebida_postre) === 1}
+                        onChange={(event) =>
+                          setMenuDiaNuevo((prev) => ({
+                            ...prev,
+                            ofrece_bebida_postre: event.target.checked ? 1 : 0,
+                          }))
+                        }
+                      />
+                      Ofrecer bebida + postre (+$
+                      {Number(menuDia.extraBebidaPostrePrecio || 1000).toLocaleString('es-AR')})
+                    </label>
+                  )}
                 </div>
                 <button
                   onClick={crearProductoMenuDia}

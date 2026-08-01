@@ -64,39 +64,103 @@ function ensureMenuDiaCategory() {
   };
 }
 
-const PROMO_MENU_DIA_NOMBRE = 'Jugo + Postre';
-const PROMO_MENU_DIA_PRECIO = 1000;
-const MENU_DIA_PRECIO_SUGERIDO = { economico: 5000, ejecutivo: 7000 };
+// ── Menú del día v2: guarniciones + extras (postre / bebida+postre) ─────
+// Los platos del menú del día tienen 2 tipos de opciones:
+//   1. Guarnición: variante OBLIGATORIA (elegir 1 de N), sin costo extra.
+//      Ejemplo: suprema napolitana → arroz blanco, puré, papas, etc.
+//   2. Extras opcionales:
+//      - "Postre" (económicos + ejecutivos): suma un precio configurable.
+//      - "Bebida + Postre" (solo ejecutivos): suma un precio configurable.
+// Los precios y la lista global de guarniciones se guardan en `configuracion`
+// para poder editarlos desde la UI sin re-deployar.
+const EXTRA_POSTRE_NOMBRE = 'Postre';
+const EXTRA_BEBIDA_POSTRE_NOMBRE = 'Bebida + Postre';
+const VARIANTE_GUARNICION_NOMBRE = 'Guarnición';
+const LEGACY_PROMO_NOMBRE = 'Jugo + Postre'; // se ignora al leer, para retrocompat.
+const MENU_DIA_PRECIO_SUGERIDO_FALLBACK = { economico: 5000, ejecutivo: 7000 };
 
-function parseExtrasList(raw) {
+function parseJsonList(raw, fallback = []) {
   try {
     const parsed = typeof raw === 'string' ? JSON.parse(raw || '[]') : raw;
-    return Array.isArray(parsed) ? parsed : [];
+    return Array.isArray(parsed) ? parsed : fallback;
   } catch {
-    return [];
+    return fallback;
   }
 }
+const parseExtrasList = parseJsonList; // alias por compatibilidad
 
-function hasPromoExtra(extrasRaw) {
-  return parseExtrasList(extrasRaw).some(
-    (extra) =>
-      String(extra?.nombre || '')
-        .trim()
-        .toLowerCase() === PROMO_MENU_DIA_NOMBRE.toLowerCase()
-  );
+/**
+ * Lee los settings del menú del día (precios base + precios de extras +
+ * lista global de guarniciones). Con fallback razonable si no están.
+ */
+function loadMenuDiaSettings() {
+  const rows = db
+    .prepare("SELECT clave, valor FROM configuracion WHERE clave LIKE 'menu_dia_%'")
+    .all();
+  const map = new Map(rows.map((r) => [r.clave, r.valor]));
+  const num = (key, def) => {
+    const n = Number(map.get(key));
+    return Number.isFinite(n) && n >= 0 ? n : def;
+  };
+  return {
+    precioEconomico: num('menu_dia_precio_economico', MENU_DIA_PRECIO_SUGERIDO_FALLBACK.economico),
+    precioEjecutivo: num('menu_dia_precio_ejecutivo', MENU_DIA_PRECIO_SUGERIDO_FALLBACK.ejecutivo),
+    extraPostrePrecio: num('menu_dia_extra_postre_precio', 1000),
+    extraBebidaPostrePrecio: num('menu_dia_extra_bebida_postre_precio', 1000),
+    guarnicionesLista: parseJsonList(map.get('menu_dia_guarniciones_lista'), []),
+  };
 }
 
-function withPromoExtra(extrasRaw, promoActiva) {
-  const sinPromo = parseExtrasList(extrasRaw).filter(
-    (extra) =>
-      String(extra?.nombre || '')
-        .trim()
-        .toLowerCase() !== PROMO_MENU_DIA_NOMBRE.toLowerCase()
-  );
-  if (promoActiva) {
-    sinPromo.push({ nombre: PROMO_MENU_DIA_NOMBRE, precio: PROMO_MENU_DIA_PRECIO });
+/** Construye el JSON de variantes según las guarniciones seleccionadas.
+ *  Si no hay guarniciones, no genera variante alguna. */
+function buildMenuDiaVariantes(guarniciones) {
+  const opciones = (guarniciones || [])
+    .map((g) => String(g || '').trim())
+    .filter(Boolean)
+    .map((nombre) => ({ nombre, precio_extra: 0 }));
+  if (opciones.length === 0) return '[]';
+  return JSON.stringify([{ nombre: VARIANTE_GUARNICION_NOMBRE, opciones }]);
+}
+
+/** Construye el JSON de extras según flags de postre / bebida+postre. */
+function buildMenuDiaExtras(flags = {}, settings = loadMenuDiaSettings()) {
+  const extras = [];
+  if (flags.ofrecePostre) {
+    extras.push({ nombre: EXTRA_POSTRE_NOMBRE, precio: settings.extraPostrePrecio });
   }
-  return JSON.stringify(sinPromo);
+  if (flags.ofreceBebidaPostre) {
+    extras.push({
+      nombre: EXTRA_BEBIDA_POSTRE_NOMBRE,
+      precio: settings.extraBebidaPostrePrecio,
+    });
+  }
+  return JSON.stringify(extras);
+}
+
+/** Lee del `variantes` existente qué guarniciones tenía seleccionadas. */
+function extractGuarnicionesFromVariantes(variantesRaw) {
+  const list = parseJsonList(variantesRaw);
+  const target = list.find(
+    (v) =>
+      String(v?.nombre || '')
+        .trim()
+        .toLowerCase() === VARIANTE_GUARNICION_NOMBRE.toLowerCase()
+  );
+  if (!target) return [];
+  return (target.opciones || []).map((o) => String(o?.nombre || '').trim()).filter(Boolean);
+}
+
+/** Lee del `extras` existente si tenía activado postre / bebida+postre. */
+function extractExtrasFlagsFromExtras(extrasRaw) {
+  const list = parseJsonList(extrasRaw);
+  const norm = (s) =>
+    String(s || '')
+      .trim()
+      .toLowerCase();
+  return {
+    ofrecePostre: list.some((e) => norm(e?.nombre) === norm(EXTRA_POSTRE_NOMBRE)),
+    ofreceBebidaPostre: list.some((e) => norm(e?.nombre) === norm(EXTRA_BEBIDA_POSTRE_NOMBRE)),
+  };
 }
 
 function loadMenuDiaLibrary() {
@@ -189,8 +253,11 @@ function buildMenuDiaManagerPayload() {
   const fecha = today();
   const ultimaFecha = latestMenuDiaSnapshotDate(fecha);
   const snapshotHoy = new Map(loadMenuDiaSnapshot(fecha).map((item) => [item.producto_id, item]));
+  const settings = loadMenuDiaSettings();
   const items = loadMenuDiaLibrary().map((item, index) => {
     const snapshot = snapshotHoy.get(Number(item.id));
+    const guarniciones = extractGuarnicionesFromVariantes(item.variantes);
+    const extrasFlags = extractExtrasFlagsFromExtras(item.extras);
     return {
       ...item,
       disponible_hoy: snapshot
@@ -204,7 +271,11 @@ function buildMenuDiaManagerPayload() {
       destacado_hoy: snapshot ? snapshot.destacado : Number(item.destacado) === 1 ? 1 : 0,
       orden_hoy: snapshot ? snapshot.orden : index,
       tipo_hoy: item.menu_dia_tipo,
-      promo_hoy: hasPromoExtra(item.extras) ? 1 : 0,
+      // Nuevo: exponer selección actual de guarniciones y extras opcionales
+      // para que el UI pueda editarlas por plato.
+      guarniciones_hoy: guarniciones,
+      ofrece_postre_hoy: extrasFlags.ofrecePostre ? 1 : 0,
+      ofrece_bebida_postre_hoy: extrasFlags.ofreceBebidaPostre ? 1 : 0,
     };
   });
 
@@ -212,9 +283,14 @@ function buildMenuDiaManagerPayload() {
     fecha,
     categoria: findMenuDiaCategory(),
     ultimaFechaDisponible: ultimaFecha,
-    precioSugerido: MENU_DIA_PRECIO_SUGERIDO,
-    promoNombre: PROMO_MENU_DIA_NOMBRE,
-    promoPrecio: PROMO_MENU_DIA_PRECIO,
+    precioSugerido: {
+      economico: settings.precioEconomico,
+      ejecutivo: settings.precioEjecutivo,
+    },
+    // Config global para que la UI arme los selectors sin hardcodear.
+    guarnicionesLista: settings.guarnicionesLista,
+    extraPostrePrecio: settings.extraPostrePrecio,
+    extraBebidaPostrePrecio: settings.extraBebidaPostrePrecio,
     items,
   };
 }
@@ -234,6 +310,7 @@ function persistMenuDiaItems(items = [], fecha = today()) {
         menu_dia_base = 1,
         menu_dia_disponible_hoy = ?,
         menu_dia_tipo = ?,
+        variantes = ?,
         extras = ?
     WHERE id = ?
   `);
@@ -257,6 +334,8 @@ function persistMenuDiaItems(items = [], fecha = today()) {
       actualizado_en = CURRENT_TIMESTAMP
   `);
 
+  const settings = loadMenuDiaSettings();
+
   db.exec('BEGIN');
   try {
     resetAvailability.run(category.id);
@@ -275,11 +354,26 @@ function persistMenuDiaItems(items = [], fecha = today()) {
       const descripcion = String(rawItem?.descripcion_hoy ?? existing.descripcion ?? '').trim();
       const tipo =
         (rawItem?.tipo_hoy ?? existing.menu_dia_tipo) === 'ejecutivo' ? 'ejecutivo' : 'economico';
-      const promoActiva =
-        rawItem?.promo_hoy === undefined
-          ? hasPromoExtra(existing.extras)
-          : Number(rawItem.promo_hoy) === 1;
-      const extras = withPromoExtra(existing.extras, promoActiva);
+
+      // Guarniciones: si el UI mandó array, lo usamos; si no, mantenemos las
+      // que ya tenía el producto (para que no se borren al guardar sin tocarlas).
+      const guarniciones = Array.isArray(rawItem?.guarniciones_hoy)
+        ? rawItem.guarniciones_hoy
+        : extractGuarnicionesFromVariantes(existing.variantes);
+      const variantes = buildMenuDiaVariantes(guarniciones);
+
+      // Extras opcionales (postre / bebida+postre). Idem: si el UI no mandó
+      // los flags, se preservan los actuales del producto.
+      const prevFlags = extractExtrasFlagsFromExtras(existing.extras);
+      const ofrecePostre =
+        rawItem?.ofrece_postre_hoy === undefined
+          ? prevFlags.ofrecePostre
+          : Number(rawItem.ofrece_postre_hoy) === 1;
+      const ofreceBebidaPostre =
+        rawItem?.ofrece_bebida_postre_hoy === undefined
+          ? prevFlags.ofreceBebidaPostre
+          : Number(rawItem.ofrece_bebida_postre_hoy) === 1 && tipo === 'ejecutivo';
+      const extras = buildMenuDiaExtras({ ofrecePostre, ofreceBebidaPostre }, settings);
 
       updateProduct.run(
         category.id,
@@ -289,6 +383,7 @@ function persistMenuDiaItems(items = [], fecha = today()) {
         destacado,
         disponible,
         tipo,
+        variantes,
         extras,
         id
       );
@@ -737,18 +832,59 @@ router.post('/menu-dia/copiar-ayer', requirePermission('productos.edit'), (_req,
   }
 });
 
+/**
+ * Config global del menú del día: lista maestra de guarniciones + precios base
+ * + precios de extras. Editable desde la UI para no tener que redeployar.
+ */
+router.get('/menu-dia/config', requirePermission('productos.edit'), (_req, res) => {
+  res.json(loadMenuDiaSettings());
+});
+
+router.put('/menu-dia/config', requirePermission('productos.edit'), (req, res) => {
+  const upsert = db.prepare(
+    `INSERT INTO configuracion (clave, valor) VALUES (?, ?)
+     ON CONFLICT(clave) DO UPDATE SET valor = excluded.valor`
+  );
+  const body = req.body || {};
+  const num = (key, val, min = 0) => {
+    const n = Number(val);
+    if (Number.isFinite(n) && n >= min) {
+      upsert.run(key, String(Math.round(n)));
+    }
+  };
+  num('menu_dia_precio_economico', body.precioEconomico, 100);
+  num('menu_dia_precio_ejecutivo', body.precioEjecutivo, 100);
+  num('menu_dia_extra_postre_precio', body.extraPostrePrecio, 0);
+  num('menu_dia_extra_bebida_postre_precio', body.extraBebidaPostrePrecio, 0);
+  if (Array.isArray(body.guarnicionesLista)) {
+    const clean = Array.from(
+      new Set(body.guarnicionesLista.map((g) => String(g || '').trim()).filter(Boolean))
+    );
+    upsert.run('menu_dia_guarniciones_lista', JSON.stringify(clean));
+  }
+  res.json(loadMenuDiaSettings());
+});
+
 router.post('/menu-dia/nuevo', requirePermission('productos.edit'), (req, res) => {
   const fecha = today();
   const category = ensureMenuDiaCategory();
+  const settings = loadMenuDiaSettings();
   const nombre = String(req.body?.nombre || '').trim();
   const descripcion = String(req.body?.descripcion || 'Menu del dia.').trim();
   const tipo = req.body?.tipo === 'ejecutivo' ? 'ejecutivo' : 'economico';
-  const precioDefault = MENU_DIA_PRECIO_SUGERIDO[tipo];
+  const precioDefault = tipo === 'ejecutivo' ? settings.precioEjecutivo : settings.precioEconomico;
   const precio = roundStock(Math.max(0, Number(req.body?.precio || precioDefault)));
   const stock = roundStock(Math.max(0, Number(req.body?.stock_directo || 0)));
   const tiempo = roundStock(Math.max(1, Number(req.body?.tiempo_preparacion || 15)));
-  const promoActiva = Number(req.body?.promo) === 1;
-  const extras = withPromoExtra('[]', promoActiva);
+
+  // Guarniciones (variante obligatoria) y extras opcionales (postre / bebida+postre).
+  // Todos vienen opcionales del UI para que crear un plato sin nada extra siga
+  // funcionando exactamente igual que antes.
+  const guarniciones = Array.isArray(req.body?.guarniciones) ? req.body.guarniciones : [];
+  const ofrecePostre = Number(req.body?.ofrece_postre) === 1;
+  const ofreceBebidaPostre = Number(req.body?.ofrece_bebida_postre) === 1 && tipo === 'ejecutivo';
+  const variantes = buildMenuDiaVariantes(guarniciones);
+  const extras = buildMenuDiaExtras({ ofrecePostre, ofreceBebidaPostre }, settings);
 
   if (!nombre) {
     return res.status(400).json({ error: 'Nombre requerido' });
@@ -763,10 +899,10 @@ router.post('/menu-dia/nuevo', requirePermission('productos.edit'), (req, res) =
     INSERT INTO productos (
       nombre, descripcion, precio, costo, categoria_id, imagen, variantes, extras,
       activo, destacado, tiempo_preparacion, stock_directo, stock_mode, menu_dia_base, menu_dia_disponible_hoy, menu_dia_tipo
-    ) VALUES (?, ?, ?, 0, ?, '', '[]', ?, 1, 0, ?, ?, 'direct', 1, 1, ?)
+    ) VALUES (?, ?, ?, 0, ?, '', ?, ?, 1, 0, ?, ?, 'direct', 1, 1, ?)
   `
     )
-    .run(nombre, descripcion, precio, category.id, extras, tiempo, stock, tipo);
+    .run(nombre, descripcion, precio, category.id, variantes, extras, tiempo, stock, tipo);
 
   const created = db
     .prepare(

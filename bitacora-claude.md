@@ -2,7 +2,7 @@
 
 Registro de todo el trabajo hecho sobre el sistema Modo Sabor y sobre el agente de WhatsApp con IA. Se va actualizando a medida que avanzamos, para poder pausar y retomar sin perder el hilo.
 
-Última actualización: 31 de julio de 2026 (tarde/noche — pack final rider + splash + login premium).
+Última actualización: 1 de agosto de 2026 (auto-update in-app + dark mode + cola offline extendida + FCM hook).
 
 ---
 
@@ -1330,6 +1330,297 @@ Look final comparable a apps de delivery premium (Rappi Cartero, PedidosYa Repar
 - **Cola offline extendida**: agregar GPS + cambio de estado + reporte de incidencia (hoy solo entrega).
 - **Sentry o Crashlytics** para crashes remotos.
 - **PIN de bloqueo** de la app rider (usuario dijo "todavía no", queda en pausa hasta pedido explícito).
+
+---
+
+## 19. Auto-actualización in-app del APK rider (01/08/2026)
+
+Se implementó el sistema completo para que los riders reciban las actualizaciones de la app sin que el operador tenga que pasarles el APK por WhatsApp cada vez. Cuando hay una versión nueva, la app misma le muestra un modal al rider con el changelog y el botón "Actualizar ahora"; al aceptar, Android descarga y ofrece instalar. Cero intervención manual por rider.
+
+### 19.1. Backend: manifest público + endpoint
+
+- **Nuevo router `server/routes/riderApp.js`** montado en `/api/rider-app`.
+- **`GET /api/rider-app/version`** (público, sin auth) devuelve `{ versionCode, versionName, downloadUrl, changelog, forceUpdate, minVersionCode, sizeMB, hasBinary }`.
+  - Lee `server/uploads/rider-app/manifest.json` como fuente de verdad.
+  - Fallback: si no hay manifest, lee `client/package.json` para al menos devolver la versión conocida (sin `downloadUrl` → la app no ofrece update).
+  - Construye la `downloadUrl` absoluta respetando `X-Forwarded-Proto`/`Host` para que funcione tanto en local como en Railway sin hardcodear el dominio.
+  - Verifica que el archivo APK exista físicamente antes de anunciarlo (`hasBinary: true/false`); si no está, no ofrece update.
+- **Endpoint auxiliar `GET /api/rider-app/manifest`** que devuelve el JSON crudo (útil para debug).
+- **Static ya existente `/uploads/`** sirve los APKs sin config extra.
+
+### 19.2. Estructura de la carpeta de releases
+
+- `server/uploads/rider-app/manifest.json` — fuente única del "cuál es la última versión".
+- `server/uploads/rider-app/modosabor-rider-X.Y.Z.apk` — el binario (nombre versionado, no `latest.apk` para no romper caches en clientes viejos).
+- `server/uploads/rider-app/README.md` — instrucciones inline para publicar una release nueva.
+
+Como `uploads/` está en el volume persistido de Railway, los APKs sobreviven redeploys.
+
+### 19.3. Cliente: módulo `riderUpdater.js`
+
+Nuevo archivo `client/src/lib/riderUpdater.js` con:
+
+- **`getInstalledVersion()`** — usa `@capacitor/app` (`App.getInfo()`) para leer el `versionCode` real instalado. En web devuelve null (no aplica).
+- **`checkForUpdate(httpClient, { force })`** — GET al endpoint, compara con la versión instalada, aplica throttle de 6 h (para no bombardear el server), respeta el flag "dismiss" del rider (no muestra dos veces el mismo modal salvo que sea `forceUpdate` o el rider esté bajo `minVersionCode`).
+- **`dismissUpdate(versionCode)`** — persiste en localStorage que el rider dijo "más tarde" para esa versión.
+- **`downloadAndInstall(url)`** — abre el APK en el browser del sistema (`window.open(url, '_system')` en Capacitor Android abre en Chrome/browser default, no en el WebView). Android descarga, muestra el instalador nativo, el rider toca "Instalar" y listo. Cero plugins extra ni intents custom.
+
+Diseño: **no descargamos el APK con `@capacitor/filesystem`** (que requeriría un plugin adicional para abrir el APK con intent). Delegar en el browser del sistema es más simple, cero deps nuevas, y es el patrón estándar en apps que se autoactualizan fuera de Play Store (Rappi partner, Uber partner, apps de bancos).
+
+### 19.4. RiderPanel: modal integrado
+
+- **Estados nuevos**: `updateInfo` (info del manifest si hay update disponible) y `updateDownloading` (loading del botón).
+- **useEffect nuevo** post-bootstrap (no depende de `riderAuth` → funciona en login también, para forceUpdate). Chequea 4s después del bootstrap y vuelve a chequear cada vez que la app pasa a foreground (`visibilitychange`).
+- **`renderUpdateModal()`** función que devuelve el JSX del modal como `AnimatePresence`+`motion.div`:
+  - Backdrop negro con blur, se cierra al tocar fuera solo si NO es forceUpdate.
+  - Header con gradient rojo `#dc1f2d → #b91c1c`, ícono Zap, título "Modo Sabor Rider vX.Y.Z", kicker "Nueva versión" o "Actualización obligatoria".
+  - Body con el changelog (whitespace-pre-line), scroll si es largo. Muestra tamaño en MB y versión instalada.
+  - Banner rojo "Esta actualización es obligatoria" si `forceUpdate` o versión < min.
+  - Botones: "Actualizar ahora" (gradient rojo, se pone en "Descargando..." con spinner mientras) + "Más tarde" (solo si no es obligatorio).
+- **Se renderiza en ambos returns** (login y app principal) — así incluso si el rider no llega a loguearse porque su versión es incompatible con el backend nuevo, ve el modal y puede actualizar.
+
+### 19.5. Android: permiso REQUEST_INSTALL_PACKAGES
+
+Agregado al `AndroidManifest.xml`:
+
+```xml
+<uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+```
+
+Necesario para que Android permita que la app abra un APK. La primera vez que un rider toque "Actualizar", Android le pide "permitir instalar apps de esta fuente" → una vez aceptado, queda persistido y las siguientes updates son un toque.
+
+### 19.6. Flujo operativo para publicar una versión
+
+Documentado en detalle en `docs/RIDER_NATIVE_APP_NEXT_STEPS.md` sección 9. Resumen:
+
+1. `npm --prefix client run android:release-apk` → genera `app-release.apk`.
+2. `copy` a `server/uploads/rider-app/modosabor-rider-X.Y.Z.apk`.
+3. Editar `manifest.json` con nueva versión + changelog.
+4. `git commit` + `push origin main` → Railway redeploya solo.
+
+Los riders reciben el aviso al abrir la app (o cuando vuelven del background). Máximo 6h de delay por el throttle.
+
+### 19.7. Comportamiento y throttling
+
+- **Throttle 6h**: no chequeamos más de 1 vez cada 6 horas salvo que se fuerce (visibility change no fuerza, respeta throttle).
+- **Dismiss por versión**: si el rider dice "más tarde" a la v1.2.0, no vuelve a ver ese modal hasta que salga una versión más nueva (v1.2.1 vuelve a molestar).
+- **ForceUpdate bloqueante**: no hay botón "Más tarde", el backdrop no cierra al tocar fuera. Bloquea el uso.
+- **MinVersionCode**: si el rider tiene menos del mínimo declarado en el manifest, se le fuerza aunque `forceUpdate` sea false. Útil para cortar versiones incompatibles con cambios de backend.
+
+### 19.8. Archivos creados/modificados
+
+Nuevos:
+
+- `server/routes/riderApp.js` — router público con `/version` y `/manifest`.
+- `server/uploads/rider-app/manifest.json` — fuente de verdad de la última versión.
+- `server/uploads/rider-app/README.md` — instrucciones inline.
+- `client/src/lib/riderUpdater.js` — check, dismiss, downloadAndInstall.
+
+Modificados:
+
+- `server/index.js` — mount de `/api/rider-app`.
+- `client/src/pages/RiderPanel.jsx` — import del updater, estados, useEffect de check, handlers, `renderUpdateModal()`, inyección en ambos returns.
+- `client/android/app/src/main/AndroidManifest.xml` — permiso REQUEST_INSTALL_PACKAGES.
+- `docs/RIDER_NATIVE_APP_NEXT_STEPS.md` — nueva sección 9 con el flujo completo (numeración corrida: métricas de crash ahora es sección 10).
+
+### 19.9. Pendiente para siguiente iteración
+
+- **Notificación push automática al publicar versión** (necesita FCM ya configurado, sección 3 de la doc). Sin FCM: mandar mensaje al grupo de WhatsApp manualmente para que abran la app.
+- **UI en admin panel para subir APK + editar manifest** (hoy es git commit). Bajo esfuerzo, mejora la UX del operador.
+- **Rollback rápido**: si una versión sale rota, editar manifest a la versión anterior + `forceUpdate: true` con changelog "Rollback urgente" → los riders vuelven a la versión previa (pero necesitan tenerla en la carpeta).
+
+---
+
+## 20. Dark mode + cola offline extendida + FCM scaffolding + sonido custom (01/08/2026 - noche)
+
+Después del auto-update se hizo una auditoría del código real vs los tasks declarados. Aparecieron features que estaban en los nombres de los tasks pero no en el código (dark mode, cola offline extendida, sonido custom, FCM). Se implementaron los 4 en una sola tanda.
+
+### 20.1. Dark mode automático
+
+- **CSS scoped** en `client/src/styles/riderDark.css`: en vez de agregar `dark:...` a cada uno de los ~2800 renglones del RiderPanel, se overridean los tokens (`.bg-white`, `.text-gray-900`, borders, colores semánticos pastel) cuando el `<html>` tiene la clase `dark` **y** el elemento está dentro de `.rider-shell`. Cero touch al JSX.
+- **Estado `themeMode`**: `'light' | 'dark' | 'auto'`. Persistido en Preferences con clave `ms_rider_theme` para sobrevivir cierres de app.
+- **useEffect que aplica/quita `dark` al `<html>`**: en modo `'auto'` respeta `prefers-color-scheme: dark` del sistema y reacciona en vivo si el rider cambia el tema del OS.
+- **Botón toggle en el header**: cicla `auto → light → dark → auto`. Iconos lucide: `Monitor` para auto, `Sun` para light, `Moon` para dark. Tooltip descriptivo.
+- **Cleanup al desmontar**: quita la clase `dark` para no afectar admin/TPV/web pública.
+
+Ideal para riders que trabajan de noche — el fondo blanco quema los ojos. Y por ser OLED en la mayoría de celulares Android modernos, ahorra batería.
+
+### 20.2. Cola offline extendida
+
+Antes solo se encolaba `mark_delivered`. Se extendió a:
+
+- ✅ **Cambio de estado de pedido** (`kind: 'change_state'`) — aceptar, comenzar reparto, marcar cancelado.
+- ✅ **Reporte de incidencia** (`kind: 'report_issue'`) — con motivo preseteado + apertura WhatsApp al local si hay red.
+
+Implementación en `updateEstado(pedidoId, nuevoEstado, extra)`:
+
+- Detecta `navigator.onLine === false`.
+- Encola con `enqueueRiderAction({ kind, url, method: 'PUT', body })`.
+- **Actualización optimista local**: el UI cambia el estado del pedido al toque como si hubiera funcionado. El rider sigue trabajando sin fricción.
+- Toast "📡 Sin señal — se guardó y se sincroniza al reconectar."
+- La cola se procesa cada 15s + al disparar evento `online` del browser (ya existía).
+
+**GPS no se encola** por diseño (1 punto cada 5s → 100+ items acumulados serían basura y saturarían el server al reconectar). Comportamiento estándar de Uber/Rappi: se descartan los puntos offline y se retoma el stream en vivo apenas hay red.
+
+### 20.3. Sonido custom `rider_alert`
+
+- Cambiado `sound: 'default'` → `sound: 'rider_alert'` en las 2 ocurrencias de `nativeRiderGps.js` (canal + schedule).
+- Si el archivo `client/android/app/src/main/res/raw/rider_alert.mp3` no existe, Android cae al sonido default automático (no rompe la notificación).
+- Falta grabar/buscar el mp3 fuerte (2-4 seg tipo "ding-dong de restaurante") y ponerlo en la carpeta. Sin gestos manuales del server.
+
+### 20.4. FCM scaffolding (dormant hasta configurar Firebase)
+
+Todo el código está listo. Cuando el operador cree el proyecto Firebase y agregue `google-services.json`, se activa solo sin cambios de código adicionales.
+
+**Cliente** (`client/src/lib/riderPush.js`):
+
+- `registerRiderPushToken(riderId, code)` — pide permiso, se registra en FCM, obtiene token, lo manda al backend. Idempotente (no re-registra en misma sesión). Con timeout 12s para no colgar el bootstrap.
+- `subscribeRiderPush(onNotification)` — listener para pushes recibidos en foreground.
+- **Import dinámico de `@capacitor/push-notifications`**: si el plugin no está instalado, todo es no-op silencioso. La app sigue funcionando idéntica.
+- Enchufado en el bootstrap del `RiderPanel` post-login vía import dinámico.
+
+**Backend** (`server/routes/repartidores.js`):
+
+- Nuevo endpoint `POST /repartidores/:id/rider/:codigo/fcm-token` que valida el rider y persiste el token.
+- **Migración auto**: columnas `fcm_token`, `fcm_platform`, `fcm_actualizado_en` en tabla `repartidores` (agregadas a `server/db/migrations.js`).
+- Funciona incluso sin `firebase-admin` en el server: guarda el token. Cuando se instale el SDK y se agregue el sender, los tokens están ahí listos para usar.
+
+**Documentación** (`docs/RIDER_NATIVE_APP_NEXT_STEPS.md` sección 3):
+
+- Marcado como ✅ lo que ya está integrado.
+- Pasos externos restantes: crear proyecto Firebase, `google-services.json`, `npm i @capacitor/push-notifications`, agregar sender en backend con `firebase-admin`.
+
+### 20.5. Archivos creados/modificados
+
+Nuevos:
+
+- `client/src/styles/riderDark.css` — overrides scoped para dark mode.
+- `client/src/lib/riderPush.js` — hook FCM cliente (dormant hasta Firebase configurado).
+
+Modificados:
+
+- `client/src/pages/RiderPanel.jsx` — import CSS dark, estado `themeMode`, useEffect que aplica clase `dark`, botón toggle en header, extensión de `updateEstado` con offline queue + optimista local, integración del `registerRiderPushToken` en bootstrap post-login.
+- `client/src/lib/nativeRiderGps.js` — `sound: 'default'` → `'rider_alert'` en canal y schedule.
+- `server/routes/repartidores.js` — endpoint `POST /rider/:codigo/fcm-token`.
+- `server/db/migrations.js` — columnas FCM en tabla repartidores.
+- `docs/RIDER_NATIVE_APP_NEXT_STEPS.md` — actualizadas secciones 3 (FCM), 4 (sonido), 6 (offline queue) con estado real.
+
+### 20.6. Estado post-tanda
+
+**Todo lo que se puede hacer sin gestos externos está hecho.** Los pendientes reales son:
+
+- **Deploy Railway** (git push) — todos los cambios desde tanda 16 sin deployar.
+- **Instalar deps nativas**: `npm --prefix client i @capacitor/splash-screen @capacitor/camera` + `-D @capacitor/assets`.
+- **Generar splash assets** e `icon.png` (2732×2732 + 1024×1024).
+- **Generar keystore** para firma release + build APK release firmado.
+- **Grabar `rider_alert.mp3`** y ponerlo en `android/app/src/main/res/raw/`.
+- **Configurar Firebase** (proyecto + google-services.json + instalar `@capacitor/push-notifications` + `firebase-admin` en server).
+- **PIN de bloqueo** de la app (usuario dijo "todavía no", pendiente hasta pedido explícito).
+
+---
+
+## 21. Menú del día v2: guarniciones + extras opcionales (01/08/2026 - urgente)
+
+Ampliación del sistema de menú del día para soportar guarniciones (variante obligatoria por plato) y extras opcionales (postre / bebida+postre). Antes el operador tenía que crear cada guarnición a mano en cada plato; ahora hay una lista maestra global y por plato se eligen cuáles se ofrecen.
+
+### 21.1. Modelo de datos
+
+**Nuevos settings globales (persistidos en `configuracion`)**:
+
+- `menu_dia_precio_economico` = 5000
+- `menu_dia_precio_ejecutivo` = 7000
+- `menu_dia_extra_postre_precio` = 1000
+- `menu_dia_extra_bebida_postre_precio` = 1000
+- `menu_dia_guarniciones_lista` = JSON array con la lista maestra editable.
+
+**Por producto del menú del día** (usa las columnas `variantes` y `extras` existentes):
+
+- `variantes`: JSON con un único grupo `{ nombre: 'Guarnición', opciones: [{nombre, precio_extra: 0}, ...] }` — obligatorio elegir 1 al pedir.
+- `extras`: JSON array con 0-2 extras opcionales:
+  - `{ nombre: 'Postre', precio: 1000 }`
+  - `{ nombre: 'Bebida + Postre', precio: 1000 }` (solo tipo=ejecutivo)
+
+### 21.2. Backend
+
+Reescritura del bloque de menú del día en `server/routes/operacion.js`:
+
+- **Constantes canónicas**: `VARIANTE_GUARNICION_NOMBRE`, `EXTRA_POSTRE_NOMBRE`, `EXTRA_BEBIDA_POSTRE_NOMBRE`.
+- **`loadMenuDiaSettings()`**: lee los 5 settings globales con fallback.
+- **`buildMenuDiaVariantes(guarniciones)`**: arma el JSON de variantes según selección.
+- **`buildMenuDiaExtras(flags)`**: arma el JSON de extras según toggles.
+- **`extractGuarnicionesFromVariantes(variantesRaw)`** y **`extractExtrasFlagsFromExtras(extrasRaw)`**: helpers inversos para hidratar el UI con la selección actual.
+- Reemplazado el sistema legacy de `promoActiva`/`withPromoExtra` (que solo soportaba "Jugo + Postre" hardcoded).
+- **`buildMenuDiaManagerPayload()`** ahora expone en cada item `guarniciones_hoy[]`, `ofrece_postre_hoy`, `ofrece_bebida_postre_hoy`, y en la raíz `guarnicionesLista`, `extraPostrePrecio`, `extraBebidaPostrePrecio`.
+- **`persistMenuDiaItems()`** regenera variantes y extras al guardar, respetando los flags recibidos del UI (o preservando los actuales si el UI no los mandó).
+- **`crearProductoMenuDia`** (POST /menu-dia/nuevo) acepta `guarniciones[]`, `ofrece_postre`, `ofrece_bebida_postre` al crear un plato.
+
+**Nuevos endpoints**:
+
+- `GET /operacion/menu-dia/config` — devuelve los 5 settings globales.
+- `PUT /operacion/menu-dia/config` — actualiza precios y lista maestra de guarniciones. Sanitiza (números > 0, dedup + trim de guarniciones).
+
+### 21.3. UI Admin (Operación → Menú del día)
+
+Cambios en `client/src/pages/Operacion.jsx`:
+
+**Nuevo componente `ConfigMenuDiaGlobal`** (colapsable arriba del listado):
+
+- 4 inputs para precios (económico, ejecutivo, postre extra, bebida+postre extra).
+- Editor de la lista maestra de guarniciones: chips con botón × para quitar + input + botón "Agregar" (o Enter).
+- Botón "Guardar configuración" que persiste via `PUT /menu-dia/config`.
+
+**Cada card de plato del menú del día**:
+
+- Reemplazado el toggle único "Jugo y postre" por un bloque nuevo:
+  - **Chips seleccionables de guarniciones** de la lista global (multi-select). Cada chip activo se muestra con "✓ Nombre" en primario, inactivo en gris. Contador "El cliente eligirá 1 de N" abajo.
+  - **Toggle "Ofrecer Postre"** siempre disponible.
+  - **Toggle "Ofrecer Bebida + Postre"** solo visible si `tipo_hoy === 'ejecutivo'`.
+
+**Formulario "Agregar plato eventual"**:
+
+- Mismos controles: chips de guarniciones + 2 toggles de extras condicionales.
+- Estado inicial actualizado con `guarniciones: []`, `ofrece_postre: 0`, `ofrece_bebida_postre: 0`.
+
+### 21.4. Cero cambios en TPV y Web pública
+
+Los modales de variante existentes (`WebPublica/VariantModal.jsx` y `TPV/TpvVariantModal.jsx`) ya soportan el formato genérico `{ variantes: [{nombre, opciones: [{nombre, precio_extra}]}], extras: [{nombre, precio}] }`. Como el backend ahora genera ese JSON automáticamente al guardar, TPV y web funcionan sin tocar nada más.
+
+### 21.5. Script `seedMenuManana.js` para pre-cargar el menú de mañana
+
+`server/scripts/seedMenuManana.js` — script idempotente que:
+
+1. Persiste los 5 settings globales.
+2. Asegura la categoría "Menu del Dia".
+3. Resetea disponibilidad de todos los platos.
+4. Upsert (por nombre) de los 7 platos de mañana:
+   - **Económicos ($5.000)**: Wok (arroz/fideo), Canelones (salsa roja/blanca/mixta), Suprema napolitana (8 guarniciones), Pollo al verdeo (5 guarniciones). Todos con postre opcional.
+   - **Ejecutivos ($7.000)**: Costeleta a la riojana, 1/4 pollo al horno, Bombita de papas. Cada uno con sus guarniciones específicas + postre + bebida+postre opcionales.
+5. Registra el snapshot histórico del día.
+
+Correr con:
+
+```powershell
+node server/scripts/seedMenuManana.js
+```
+
+Después el operador puede entrar a Operación → Menú del día y ajustar guarniciones o precios si hace falta.
+
+### 21.6. Archivos creados/modificados
+
+Nuevos:
+
+- `server/scripts/seedMenuManana.js` — script pre-carga.
+
+Modificados:
+
+- `server/routes/operacion.js` — sistema v2 de guarniciones+extras (helpers + endpoints + payload).
+- `server/db/seed.js` — settings iniciales de guarniciones + precios de extras.
+- `client/src/pages/Operacion.jsx` — componente `ConfigMenuDiaGlobal`, UI de chips por plato, formulario nuevo actualizado.
+
+### 21.7. Retrocompatibilidad
+
+- Los platos existentes con el sistema legacy (`promo_hoy` / "Jugo + Postre") se leen como `ofrece_bebida_postre_hoy = 0` (el nombre no matchea con el canónico nuevo). Al primer guardado desde el UI nuevo, se regeneran los extras según los toggles.
+- La constante `LEGACY_PROMO_NOMBRE = 'Jugo + Postre'` queda declarada pero no usada — sirve como documentación del rename.
 
 ---
 

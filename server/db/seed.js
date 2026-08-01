@@ -58,6 +58,31 @@ function runSeed(db) {
     ['impresion_mostrar_qr_seguimiento', '1'],
     ['impresion_compacta', '0'],
     ['impresion_comanda_mostrar_cliente', '1'],
+    // ── Menu del día: precios base + lista de guarniciones + precios de extras ──
+    // La lista de guarniciones globales se edita una sola vez desde la UI y
+    // luego cada plato elige cuáles se ofrecen. Formato JSON array de strings.
+    ['menu_dia_precio_economico', '5000'],
+    ['menu_dia_precio_ejecutivo', '7000'],
+    ['menu_dia_extra_postre_precio', '1000'],
+    ['menu_dia_extra_bebida_postre_precio', '1000'],
+    [
+      'menu_dia_guarniciones_lista',
+      JSON.stringify([
+        'Arroz blanco',
+        'Arroz a la provenzal',
+        'Arroz primavera',
+        'Puré',
+        'Papas fritas',
+        'Ensalada mixta',
+        'Ensalada rusa',
+        'Fideo a la provenzal',
+        'Arroz',
+        'Fideo',
+        'Salsa roja',
+        'Salsa blanca',
+        'Salsa mixta',
+      ]),
+    ],
   ];
 
   const checkStmt = db.prepare('SELECT 1 FROM configuracion WHERE clave = ?');

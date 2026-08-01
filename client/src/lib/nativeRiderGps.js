@@ -171,7 +171,10 @@ export async function prepareRiderNotifications() {
         importance: 5,
         visibility: 1,
         vibration: true,
-        sound: 'default',
+        // Si existe client/android/app/src/main/res/raw/rider_alert.mp3
+        // se usa ese sonido custom fuerte; si no, Android cae al default
+        // del sistema automatico (no rompe la notificacion).
+        sound: 'rider_alert',
       });
     } catch {}
   }
@@ -216,7 +219,10 @@ export async function notifyRiderNewOrder(pedido = {}) {
         title: 'Nuevo pedido asignado',
         body,
         channelId: 'rider-orders',
-        sound: 'default',
+        // Si existe client/android/app/src/main/res/raw/rider_alert.mp3
+        // se usa ese sonido custom fuerte; si no, Android cae al default
+        // del sistema automatico (no rompe la notificacion).
+        sound: 'rider_alert',
         extra: {
           pedidoId: pedido?.id,
           numero,

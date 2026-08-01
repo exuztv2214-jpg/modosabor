@@ -48,6 +48,11 @@ function runMigrations(db) {
   ensureColumn(db, 'clientes', 'sellos_actuales', 'INTEGER DEFAULT 0');
   ensureColumn(db, 'clientes', 'frecuencia_dias', 'INTEGER DEFAULT 7');
   ensureColumn(db, 'clientes', 'canjes_premio', 'INTEGER DEFAULT 0');
+  // FCM push token para app rider nativa. Un rider = 1 device;
+  // si cambia de celu, el token nuevo pisa el viejo.
+  ensureColumn(db, 'repartidores', 'fcm_token', "TEXT DEFAULT ''");
+  ensureColumn(db, 'repartidores', 'fcm_platform', "TEXT DEFAULT ''");
+  ensureColumn(db, 'repartidores', 'fcm_actualizado_en', 'DATETIME');
   ensureColumn(db, 'clientes', 'recompensas_pendientes', 'INTEGER DEFAULT 0');
   ensureColumn(db, 'clientes', 'fidelizacion_activa', 'INTEGER DEFAULT 1');
   ensureColumn(db, 'clientes', 'codigo_tarjeta', 'TEXT');

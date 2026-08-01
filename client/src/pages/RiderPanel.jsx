@@ -39,6 +39,9 @@ import {
   Flag,
   DollarSign,
   TrendingUp,
+  Sun,
+  Moon,
+  Monitor,
 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -69,6 +72,8 @@ import {
   riderStorageRemove,
 } from '../lib/nativeRiderGps.js';
 import api from '../lib/api.js';
+import { checkForUpdate, dismissUpdate, downloadAndInstall } from '../lib/riderUpdater.js';
+import '../styles/riderDark.css';
 import { socketManager } from '../lib/socket.js';
 import { runDeliveredAlert, runOrderAlert, useOrderAlertPlayback } from '../lib/orderAlerts.js';
 import RiderRouteMap from '../components/RiderRouteMap.jsx';
@@ -447,6 +452,16 @@ export default function RiderPanel() {
     typeof navigator === 'undefined' ? true : navigator.onLine !== false
   );
 
+  // ── Auto-update de la app rider: al abrir (post-login) consultamos
+  // el manifest del server. Si hay version nueva, mostramos modal.
+  const [updateInfo, setUpdateInfo] = useState(null);
+  const [updateDownloading, setUpdateDownloading] = useState(false);
+
+  // ── Dark mode: 'light' | 'dark' | 'auto'. Persistido en Preferences
+  // para sobrevivir cierres de app en Android. 'auto' respeta
+  // prefers-color-scheme del sistema.
+  const [themeMode, setThemeMode] = useState('auto');
+
   // Core data
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState(null);
@@ -524,12 +539,17 @@ export default function RiderPanel() {
     let cancelled = false;
     (async () => {
       try {
-        // Cargar auth + toggle online + timestamp de ultimo uso en paralelo
-        const [saved, onlineStored, lastSeen] = await Promise.all([
+        // Cargar auth + toggle online + timestamp de ultimo uso + theme en paralelo
+        const [saved, onlineStored, lastSeen, themeStored] = await Promise.all([
           loadNativeRiderAuth(),
           riderStorageGet('ms_rider_online'),
           riderStorageGet('ms_rider_last_seen'),
+          riderStorageGet('ms_rider_theme'),
         ]);
+        // Hidratar preferencia de tema; default 'auto' (sigue al sistema)
+        if (!cancelled && themeStored && ['light', 'dark', 'auto'].includes(themeStored)) {
+          setThemeMode(themeStored);
+        }
         // Autologout tras 30 días sin uso. Si el celular se pierde o el
         // rider deja de trabajar, la sesion se cierra sola.
         const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
@@ -799,6 +819,17 @@ export default function RiderPanel() {
     // Pedir permiso de notificaciones apenas hay sesion. En Android 13+
     // hace falta el prompt explicito o LocalNotifications no muestra nada.
     prepareRiderNotifications().catch(() => {});
+
+    // Registrar el device en FCM (si Firebase esta configurado). Si no
+    // esta @capacitor/push-notifications instalado o falta google-services.json
+    // esto es no-op silencioso: la app sigue igual.
+    (async () => {
+      try {
+        const { registerRiderPushToken } = await import('../lib/riderPush.js');
+        await registerRiderPushToken(riderAuth.id, riderAuth.code);
+      } catch {}
+    })();
+
     return () => {
       cancelled = true;
     };
@@ -1029,12 +1060,35 @@ export default function RiderPanel() {
   };
 
   // ── Estado de pedido ───────────────────────────────────────────
-  const updateEstado = async (pedidoId, nuevoEstado) => {
+  // Si el rider esta sin señal, encolamos la accion y aceptamos el
+  // cambio en el UI local para no bloquearlo. La cola offline la
+  // sincroniza al reconectar.
+  const updateEstado = async (pedidoId, nuevoEstado, extra = {}) => {
+    const url = `/repartidores/${riderAuth.id}/rider/${riderAuth.code}/pedido/${pedidoId}/estado`;
+    const body = { estado: nuevoEstado, ...extra };
+
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      await enqueueRiderAction({
+        kind: nuevoEstado === 'incidencia' ? 'report_issue' : 'change_state',
+        url,
+        method: 'PUT',
+        body,
+      });
+      toast('📡 Sin señal — se guardó y se sincroniza al reconectar.', {
+        duration: 2500,
+      });
+      // Actualizacion optimista local del estado.
+      setData((current) => ({
+        ...current,
+        pedidos: (current?.pedidos || []).map((p) =>
+          p.id === pedidoId ? { ...p, estado: nuevoEstado } : p
+        ),
+      }));
+      return;
+    }
+
     try {
-      await api.put(
-        `/repartidores/${riderAuth.id}/rider/${riderAuth.code}/pedido/${pedidoId}/estado`,
-        { estado: nuevoEstado }
-      );
+      await api.put(url, body);
       toast.success(`Pedido ${nuevoEstado.replace('_', ' ')}`);
       fetchData();
     } catch {
@@ -1220,6 +1274,224 @@ export default function RiderPanel() {
       window.removeEventListener('offline', onOffline);
     };
   }, [riderAuth]);
+
+  // ── Dark mode: aplica la clase `dark` al <html> segun themeMode.
+  // 'auto' respeta prefers-color-scheme del sistema y reacciona en vivo
+  // si el usuario cambia el tema del OS. Se limpia al desmontar para
+  // no afectar otras pantallas del sistema (admin, tpv, web publica).
+  useEffect(() => {
+    const root = document.documentElement;
+    let mql = null;
+    const apply = (isDark) => {
+      if (isDark) root.classList.add('dark');
+      else root.classList.remove('dark');
+    };
+
+    if (themeMode === 'dark') {
+      apply(true);
+    } else if (themeMode === 'light') {
+      apply(false);
+    } else {
+      // auto
+      try {
+        mql = window.matchMedia('(prefers-color-scheme: dark)');
+        apply(mql.matches);
+        const onChange = (e) => apply(e.matches);
+        mql.addEventListener('change', onChange);
+        return () => {
+          mql.removeEventListener('change', onChange);
+          root.classList.remove('dark');
+        };
+      } catch {
+        apply(false);
+      }
+    }
+
+    return () => {
+      root.classList.remove('dark');
+    };
+  }, [themeMode]);
+
+  // ── Handler: cicla entre auto → light → dark → auto y persiste
+  const cycleTheme = useCallback(() => {
+    setThemeMode((prev) => {
+      const next = prev === 'auto' ? 'light' : prev === 'light' ? 'dark' : 'auto';
+      riderStorageSet('ms_rider_theme', next).catch(() => {});
+      return next;
+    });
+  }, []);
+
+  // ── Auto-update: chequea si hay APK más nuevo en el server ────────
+  // Corre tanto pre como post-login: si hay forceUpdate, el rider no debería
+  // poder loguearse hasta actualizar. Solo activo en Capacitor Android
+  // (checkForUpdate retorna null en web/PWA).
+  useEffect(() => {
+    if (bootstrapping) return undefined;
+    let cancelled = false;
+
+    const runCheck = async ({ force = false } = {}) => {
+      try {
+        const info = await checkForUpdate(api, { force });
+        if (!cancelled && info) {
+          setUpdateInfo(info);
+        }
+      } catch {
+        // silent — sin update no molestamos al rider
+      }
+    };
+
+    // Chequeo inicial demorado 4s para no competir con el bootstrap
+    const initialTimer = window.setTimeout(() => runCheck(), 4000);
+
+    // Cada vez que la app vuelve al foreground, rechequeamos (con throttle).
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') runCheck();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(initialTimer);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [bootstrapping]);
+
+  // ── Handler: acepta el update, abre browser para descargar APK ─────
+  const handleAcceptUpdate = useCallback(async () => {
+    if (!updateInfo?.downloadUrl) return;
+    setUpdateDownloading(true);
+    try {
+      await downloadAndInstall(updateInfo.downloadUrl);
+      // No cerramos el modal: el rider vuelve a la app después de instalar
+      // y ya está en la nueva versión. Si cancela la instalación, ve el
+      // modal de vuelta al reabrir.
+      toast.success('Se abrió el descargador. Tocá "Instalar" cuando termine.', {
+        duration: 6000,
+      });
+    } finally {
+      setUpdateDownloading(false);
+    }
+  }, [updateInfo?.downloadUrl]);
+
+  const handleDismissUpdate = useCallback(() => {
+    if (!updateInfo || updateInfo.isForced) return;
+    dismissUpdate(updateInfo.versionCode);
+    setUpdateInfo(null);
+  }, [updateInfo]);
+
+  // ── Modal reutilizable: se muestra tanto en login como en app principal ─
+  const renderUpdateModal = () => (
+    <AnimatePresence>
+      {updateInfo && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+          onClick={updateInfo.isForced ? undefined : handleDismissUpdate}
+        >
+          <motion.div
+            initial={{ y: 40, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 40, opacity: 0 }}
+            transition={{ type: 'spring', damping: 22, stiffness: 260 }}
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-md rounded-3xl bg-white shadow-2xl overflow-hidden"
+          >
+            {/* Header con gradient rojo Modo Sabor */}
+            <div
+              className="px-6 py-5 text-white"
+              style={{ background: 'linear-gradient(135deg,#dc1f2d,#b91c1c)' }}
+            >
+              <div className="flex items-center gap-3">
+                <div className="h-12 w-12 rounded-2xl bg-white/20 backdrop-blur flex items-center justify-center">
+                  <Zap size={24} strokeWidth={2.5} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[10px] font-black uppercase tracking-[0.22em] opacity-90">
+                    {updateInfo.isForced ? 'Actualización obligatoria' : 'Nueva versión'}
+                  </p>
+                  <h2 className="text-xl font-black leading-tight">
+                    Modo Sabor Rider {updateInfo.versionName}
+                  </h2>
+                </div>
+              </div>
+              {updateInfo.installedVersionName && (
+                <p className="mt-3 text-[11px] font-semibold text-white/80">
+                  Tenés instalada la <b>v{updateInfo.installedVersionName}</b>
+                  {typeof updateInfo.sizeMB === 'number' && <> · Descarga {updateInfo.sizeMB} MB</>}
+                </p>
+              )}
+            </div>
+
+            {/* Body: changelog */}
+            <div className="px-6 py-5 max-h-[40vh] overflow-y-auto">
+              {updateInfo.changelog ? (
+                <>
+                  <p className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-500 mb-2">
+                    Qué hay de nuevo
+                  </p>
+                  <div className="text-sm font-semibold text-gray-800 whitespace-pre-line leading-relaxed">
+                    {updateInfo.changelog}
+                  </div>
+                </>
+              ) : (
+                <p className="text-sm font-semibold text-gray-600">
+                  Actualizá la app para acceder a las últimas mejoras.
+                </p>
+              )}
+              {updateInfo.isForced && (
+                <div className="mt-4 rounded-2xl border border-red-100 bg-red-50 px-4 py-3">
+                  <p className="text-xs font-black uppercase tracking-wider text-red-700">
+                    Esta actualización es obligatoria
+                  </p>
+                  <p className="mt-1 text-xs font-semibold text-red-600">
+                    Necesitás instalarla para seguir usando la app.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Footer: acciones */}
+            <div className="px-6 pb-6 space-y-2">
+              <button
+                type="button"
+                onClick={handleAcceptUpdate}
+                disabled={updateDownloading}
+                className="flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-[#dc1f2d] to-[#b91c1c] text-sm font-black uppercase tracking-widest text-white shadow-lg shadow-red-200 transition-all active:scale-[0.98] hover:brightness-110 disabled:opacity-60"
+              >
+                {updateDownloading ? (
+                  <>
+                    <RefreshCw size={16} className="animate-spin" />
+                    Descargando...
+                  </>
+                ) : (
+                  <>
+                    <Zap size={16} strokeWidth={3} />
+                    Actualizar ahora
+                  </>
+                )}
+              </button>
+              {!updateInfo.isForced && (
+                <button
+                  type="button"
+                  onClick={handleDismissUpdate}
+                  className="h-11 w-full rounded-2xl text-xs font-black uppercase tracking-widest text-gray-500 hover:bg-gray-50"
+                >
+                  Más tarde
+                </button>
+              )}
+              <p className="mt-2 text-center text-[10px] font-bold text-gray-400 leading-relaxed">
+                Se abrirá el descargador de Android. Tocá "Instalar" cuando termine.
+                <br />
+                La primera vez podés necesitar permitir "instalar apps de esta fuente".
+              </p>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
 
   // ── Computed: resumen del día ──────────────────────────────────
   const resumenDia = {
@@ -1429,6 +1701,7 @@ export default function RiderPanel() {
             </p>
           </motion.div>
         </div>
+        {renderUpdateModal()}
       </div>
     );
   }
@@ -1513,6 +1786,30 @@ export default function RiderPanel() {
               <PhoneCall size={16} />
             </a>
           )}
+
+          {/* Toggle tema: auto → light → dark → auto. Ideal para riders
+              que trabajan de noche (fondo blanco cansa la vista). */}
+          <button
+            type="button"
+            onClick={cycleTheme}
+            className="h-9 w-9 rounded-xl bg-gray-50 flex items-center justify-center text-gray-500 hover:text-primary-600"
+            title={
+              themeMode === 'auto'
+                ? 'Tema: automático (sigue al sistema)'
+                : themeMode === 'light'
+                  ? 'Tema: claro'
+                  : 'Tema: oscuro'
+            }
+            aria-label="Cambiar tema"
+          >
+            {themeMode === 'auto' ? (
+              <Monitor size={16} />
+            ) : themeMode === 'light' ? (
+              <Sun size={16} />
+            ) : (
+              <Moon size={16} />
+            )}
+          </button>
 
           <button
             onClick={handleLogout}
@@ -2616,6 +2913,9 @@ export default function RiderPanel() {
           onClose={() => setPinModal({ open: false, pedidoId: null })}
         />
       )}
+
+      {/* ── Auto-update modal ────────────────────────────────────── */}
+      {renderUpdateModal()}
     </div>
   );
 }

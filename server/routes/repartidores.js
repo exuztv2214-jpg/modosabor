@@ -527,6 +527,40 @@ router.put('/:id/rider/:codigo/ubicacion', (req, res) => {
   res.json({ success: true, distancia_metros: distanciaMetros });
 });
 
+/**
+ * FCM: guarda el token del device del rider para poder mandarle push
+ * cuando le asignan un pedido. Un rider = 1 token activo; si cambia
+ * de celular, el token nuevo pisa el viejo automatico.
+ *
+ * Este endpoint funciona incluso si FCM aun no esta activo en el server:
+ * simplemente guarda el token. Cuando actives Firebase Admin SDK y
+ * agregues el sender, el token estara ahi listo para usar.
+ */
+router.post('/:id/rider/:codigo/fcm-token', (req, res) => {
+  const repartidor = validateRiderAccess(req, res);
+  if (!repartidor) return;
+
+  const token = String(req.body?.token || '').trim();
+  const platform = String(req.body?.platform || 'android')
+    .trim()
+    .toLowerCase();
+
+  if (!token || token.length < 20) {
+    return res.status(400).json({ success: false, error: 'Token FCM invalido' });
+  }
+
+  try {
+    db.prepare(
+      `UPDATE repartidores
+       SET fcm_token = ?, fcm_platform = ?, fcm_actualizado_en = CURRENT_TIMESTAMP
+       WHERE id = ?`
+    ).run(token, platform, repartidor.id);
+    return res.json({ success: true });
+  } catch (error) {
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 router.put('/:id/rider/:codigo/pedido/:pedidoId/estado', (req, res) => {
   const repartidor = validateRiderAccess(req, res);
   if (!repartidor) return;

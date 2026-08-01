@@ -40,4 +40,8 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <!-- Auto-update: permite abrir el instalador de APKs desde la app.
+         La primera vez el rider tiene que aceptar "instalar apps de esta
+         fuente" en el dialogo del sistema; despues queda persistido. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 </manifest>
