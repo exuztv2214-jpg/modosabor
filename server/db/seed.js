@@ -58,6 +58,9 @@ function runSeed(db) {
     ['impresion_mostrar_qr_seguimiento', '1'],
     ['impresion_compacta', '0'],
     ['impresion_comanda_mostrar_cliente', '1'],
+    // Minutos que tiene el rider para deshacer una entrega marcada por
+    // error. Pasado ese tiempo la correccion la hace el local.
+    ['delivery_ventana_deshacer_min', '5'],
     // ── Menu del día: precios base + lista de guarniciones + precios de extras ──
     // La lista de guarniciones globales se edita una sola vez desde la UI y
     // luego cada plato elige cuáles se ofrecen. Formato JSON array de strings.

@@ -11,6 +11,37 @@
  * les frie los ojos.
  */
 
+/* ── Shimmer de los skeleton loaders ──────────────────────────────
+   Animación de background-position: la compone la GPU, no toca el
+   hilo de JS. Importante porque corre justo cuando la app está
+   esperando datos y no queremos competir por CPU. */
+.rider-shimmer {
+  background: linear-gradient(90deg, #eef1f5 25%, #f7f9fb 50%, #eef1f5 75%);
+  background-size: 200% 100%;
+  animation: rider-shimmer-move 1.4s ease-in-out infinite;
+}
+
+@keyframes rider-shimmer-move {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.dark .rider-shimmer {
+  background: linear-gradient(90deg, #1c1c1c 25%, #2a2a2a 50%, #1c1c1c 75%);
+  background-size: 200% 100%;
+}
+
+/* Respetar preferencia de menos movimiento del sistema. */
+@media (prefers-reduced-motion: reduce) {
+  .rider-shimmer {
+    animation: none;
+  }
+}
+
 .dark .rider-shell {
   background-color: #0a0a0a;
   color: #e5e5e5;

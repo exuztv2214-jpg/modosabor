@@ -278,6 +278,7 @@ export default function Layout() {
       '/admin/clientes': 'Clientes',
       '/admin/marketing': 'Marketing Digital',
       '/admin/reportes': 'Reportes',
+      '/admin/reportes-delivery': 'Reportes de delivery',
       '/admin/configuracion': 'Configuración',
       '/admin/personal': 'Personal',
       '/admin/usuarios': 'Usuarios',

@@ -97,7 +97,7 @@ function upsertConfigRows(db, rows) {
   for (const row of rows) {
     const clave = String(row.clave || '').trim();
     if (!clave || SAFE_CONFIG_DENY.test(clave)) continue;
-    stmt.run(clave, row.valor == null ? '' : String(row.valor));
+    stmt.run(clave, row.valor === null || row.valor === undefined ? '' : String(row.valor));
     imported += 1;
   }
   return { table: 'configuracion', rows: imported, skipped: false };

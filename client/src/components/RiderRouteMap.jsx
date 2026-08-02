@@ -123,6 +123,7 @@ export default function RiderRouteMap({
       fillOpacity: 0.1,
       weight: 2,
       dashArray: '8, 6',
+      radius: 5500,
     })
       .addTo(map)
       .bindPopup('Zona de delivery - Monteros');
@@ -353,23 +354,36 @@ export default function RiderRouteMap({
     <div className="relative h-full w-full overflow-hidden rounded-2xl border border-gray-200">
       <div ref={mapRef} className="h-full w-full" style={{ zIndex: 1 }} />
 
-      {/* Indicador de distancia / llegando */}
-      {distance !== null && (
-        <div
-          className={`absolute left-4 top-4 z-[400] rounded-full px-4 py-2 text-xs font-black uppercase tracking-widest shadow-lg ${
-            isArriving ? 'bg-emerald-500 text-white animate-pulse' : 'bg-white text-gray-700'
-          }`}
-        >
-          {isArriving ? (
-            <span className="flex items-center gap-1.5">
-              <span className="h-2 w-2 rounded-full bg-white animate-ping" />
-              ¡Llegando! ({distance}m)
-            </span>
-          ) : (
-            <span>A {distance}m del destino</span>
-          )}
-        </div>
-      )}
+      {/* Indicador de distancia + ETA. Formato adaptado: metros bajo 1km,
+          km con 1 decimal después. ETA estimado a ~28 km/h promedio moto
+          urbana (Rappi/PedidosYa usan valores similares). */}
+      {distance !== null &&
+        (() => {
+          const distText =
+            distance >= 1000 ? `${(distance / 1000).toFixed(1)} km` : `${distance} m`;
+          const etaMin = Math.max(1, Math.round((distance / 1000 / 28) * 60));
+          return (
+            <div
+              className={`absolute left-4 top-4 z-[400] rounded-2xl px-4 py-2.5 shadow-lg ${
+                isArriving ? 'bg-emerald-500 text-white animate-pulse' : 'bg-white text-gray-800'
+              }`}
+            >
+              {isArriving ? (
+                <span className="flex items-center gap-1.5 text-xs font-black uppercase tracking-widest">
+                  <span className="h-2 w-2 rounded-full bg-white animate-ping" />
+                  ¡Llegando! ({distance}m)
+                </span>
+              ) : (
+                <div className="flex items-baseline gap-2">
+                  <span className="text-base font-black leading-none">{distText}</span>
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
+                    · {etaMin} min
+                  </span>
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
       {onNavigate && clientLat && clientLng && (
         <button

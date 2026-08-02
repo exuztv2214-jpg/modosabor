@@ -25,7 +25,11 @@ const DEFAULT_MONTEROS_BOUNDS = {
 function resolveLocationConfig(config = {}) {
   return {
     localidad: cleanText(config.localidad || config.negocio_localidad || 'Monteros'),
+    departamento: cleanText(
+      config.departamento || config.negocio_departamento || 'Departamento Monteros'
+    ),
     provincia: cleanText(config.provincia || config.negocio_provincia || 'Tucuman'),
+    codigoPostal: cleanText(config.codigo_postal || config.negocio_codigo_postal || '4142'),
     pais: cleanText(config.pais || 'Argentina'),
   };
 }
@@ -73,26 +77,39 @@ export function buildAddressForMaps(address, config = {}) {
   const mentionsOtherCity = [
     'concepcion',
     'san miguel de tucuman',
+    'san miguel',
     'yerba buena',
     'aguilares',
+    'banda del rio sali',
+    'bella vista',
+    'famailla',
   ].some((city) => normalizedBase.includes(city));
   const correctedBase =
     mentionsOtherCity && !includesToken(baseAddress, location.localidad)
-      ? baseAddress.replace(/,\s*(concepcion|san miguel de tucuman|yerba buena|aguilares)\b/gi, '')
+      ? baseAddress.replace(
+          /,\s*(concepcion|san miguel de tucuman|san miguel|yerba buena|aguilares|banda del rio sali|bella vista|famailla)\b/gi,
+          ''
+        )
       : baseAddress;
   const parts = [correctedBase];
 
   if (location.localidad && !includesToken(correctedBase, location.localidad)) {
     parts.push(location.localidad);
   }
+  if (location.departamento && !includesToken(correctedBase, location.departamento)) {
+    parts.push(location.departamento);
+  }
   if (location.provincia && !includesToken(correctedBase, location.provincia)) {
     parts.push(location.provincia);
+  }
+  if (location.codigoPostal && !includesToken(correctedBase, location.codigoPostal)) {
+    parts.push(location.codigoPostal);
   }
   if (location.pais && !includesToken(correctedBase, location.pais)) {
     parts.push(location.pais);
   }
 
-  return parts.join(', ');
+  return parts.filter(Boolean).join(', ');
 }
 
 export function hasCoordinates(latitud, longitud) {
@@ -151,7 +168,7 @@ export function buildGoogleMapsDirectionsUrl(
 }
 
 export function buildWazeUrl({ latitud, longitud, direccion, ubicacionExacta }, config = {}) {
-  if (ubicacionExacta !== false && hasCoordinates(latitud, longitud)) {
+  if (canUseExactCoordinates(latitud, longitud, ubicacionExacta, config)) {
     return `https://waze.com/ul?ll=${Number(latitud)},${Number(longitud)}&navigate=yes`;
   }
   const destination = buildNavigationDestination(
@@ -161,7 +178,6 @@ export function buildWazeUrl({ latitud, longitud, direccion, ubicacionExacta }, 
   if (!destination) return '';
   return `https://waze.com/ul?q=${encodeURIComponent(destination)}&navigate=yes`;
 }
-
 export function buildGoogleMapsSearchUrl(
   { latitud, longitud, direccion, ubicacionExacta },
   config = {}

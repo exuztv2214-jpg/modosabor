@@ -238,6 +238,7 @@ app.use('/api/configuracion', require('./routes/configuracion'));
 app.use('/api/reportes', require('./routes/reportes'));
 app.use('/api/repartidores', require('./routes/repartidores'));
 app.use('/api/rider-app', require('./routes/riderApp'));
+app.use('/api/reportes-delivery', require('./routes/reportesDelivery'));
 app.use('/api/personal', require('./routes/personal'));
 app.use('/api/caja', require('./routes/caja'));
 app.use('/api/cupones', require('./routes/cupones'));

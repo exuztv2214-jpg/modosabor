@@ -136,6 +136,74 @@ export async function riderStorageRemove(key) {
   }
 }
 
+/**
+ * Borra TODO el rastro del rider en el dispositivo.
+ *
+ * Escenario real: un rider renuncia y el celular pasa a otro. Con el
+ * logout normal solo se limpiaban las credenciales, pero quedaban el
+ * historial del dia, el record personal, la cola offline pendiente y
+ * los pedidos ya notificados del rider anterior — que despues aparecian
+ * mezclados con los del nuevo.
+ *
+ * Barre por prefijos porque varias claves llevan el id del rider o la
+ * fecha en el nombre (ms_rider_history_3_2026-08-02).
+ */
+const RIDER_KEY_PREFIXES = ['ms_rider_'];
+
+export async function wipeRiderDevice() {
+  // Claves exactas conocidas. Se listan igual que los prefijos por si
+  // alguna cambia de formato en el futuro.
+  const exactas = [
+    'ms_rider_auth_v1',
+    'ms_rider_id',
+    'ms_rider_code',
+    'ms_rider_online',
+    'ms_rider_last_seen',
+    'ms_rider_turno_inicio',
+    'ms_rider_theme',
+    'ms_rider_queue_v1',
+    'ms_rider_last_update_check',
+    'ms_rider_dismissed_update',
+  ];
+
+  if (isNativeRiderApp()) {
+    try {
+      // Preferences.keys() nos deja barrer tambien las dinamicas
+      // (historial por fecha, notificados por dia, record por rider).
+      const { keys } = await Preferences.keys();
+      const objetivo = new Set(exactas);
+      for (const k of keys || []) {
+        if (RIDER_KEY_PREFIXES.some((p) => String(k).startsWith(p))) objetivo.add(k);
+      }
+      await Promise.all(
+        Array.from(objetivo).map((k) => Preferences.remove({ key: k }).catch(() => {}))
+      );
+    } catch {
+      // Fallback: al menos las exactas.
+      await Promise.all(exactas.map((k) => Preferences.remove({ key: k }).catch(() => {})));
+    }
+    return true;
+  }
+
+  try {
+    if (typeof window === 'undefined') return false;
+    const ls = window.localStorage;
+    const aBorrar = new Set(exactas);
+    for (let i = 0; i < ls.length; i += 1) {
+      const k = ls.key(i);
+      if (k && RIDER_KEY_PREFIXES.some((p) => k.startsWith(p))) aBorrar.add(k);
+    }
+    aBorrar.forEach((k) => {
+      try {
+        ls.removeItem(k);
+      } catch {}
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function requestNativeNotificationPermission() {
   if (Capacitor.getPlatform?.() !== 'android') return null;
   try {

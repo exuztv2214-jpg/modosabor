@@ -137,6 +137,13 @@ const links = [
     permission: 'reportes.view',
     moduleKey: 'reportes',
   },
+  {
+    to: '/admin/reportes-delivery',
+    icon: Bike,
+    label: 'Reportes delivery',
+    permission: 'reportes.view',
+    moduleKey: 'reportes',
+  },
   { type: 'header', label: 'Configuración' },
   { to: '/admin/cuenta', icon: UserCircle, label: 'Mi cuenta' },
   {

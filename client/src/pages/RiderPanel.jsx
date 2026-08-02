@@ -9,6 +9,7 @@ import {
   enqueueRiderAction,
   processRiderQueue,
   readQueue as readRiderQueue,
+  clearRiderQueue,
 } from '../lib/riderOfflineQueue.js';
 import {
   Truck,
@@ -39,9 +40,8 @@ import {
   Flag,
   DollarSign,
   TrendingUp,
-  Sun,
-  Moon,
-  Monitor,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -70,19 +70,45 @@ import {
   riderStorageGet,
   riderStorageSet,
   riderStorageRemove,
+  wipeRiderDevice,
 } from '../lib/nativeRiderGps.js';
 import api from '../lib/api.js';
 import { checkForUpdate, dismissUpdate, downloadAndInstall } from '../lib/riderUpdater.js';
-import '../styles/riderDark.css';
 import { socketManager } from '../lib/socket.js';
 import { runDeliveredAlert, runOrderAlert, useOrderAlertPlayback } from '../lib/orderAlerts.js';
 import RiderRouteMap from '../components/RiderRouteMap.jsx';
+import { DEFAULT_BRAND_LOGO } from '../lib/webPublicaHelpers.js';
+import { haptic } from '../lib/riderHaptics.js';
+import {
+  saludoPorHora,
+  nivelUrgencia,
+  ordenarPorCercania,
+  fmtDistancia,
+  KEY_TURNO_INICIO,
+  riderRecordKey,
+} from '../lib/riderUx.js';
+import PedidoTimeline from '../components/rider/PedidoTimeline.jsx';
+import ToggleTurno from '../components/rider/ToggleTurno.jsx';
+import RiderSkeleton from '../components/rider/RiderSkeleton.jsx';
+import CierreTurnoModal from '../components/rider/CierreTurnoModal.jsx';
+import DeshacerEntrega from '../components/rider/DeshacerEntrega.jsx';
+import HeroPedido from '../components/rider/HeroPedido.jsx';
+import WidgetGanancias from '../components/rider/WidgetGanancias.jsx';
+import ModoEnRuta from '../components/rider/ModoEnRuta.jsx';
+import NotificacionInApp from '../components/rider/NotificacionInApp.jsx';
+import PullToRefresh from '../components/rider/PullToRefresh.jsx';
+import PerfilRider from '../components/rider/PerfilRider.jsx';
+import BottomTabBar from '../components/rider/BottomTabBar.jsx';
+import '../styles/riderDark.css';
 
 // ── Helpers ────────────────────────────────────────────────────────
 const fmt = (n) => `$${Number(n || 0).toLocaleString('es-AR')}`;
 const parseDate = (str) => parseISO(String(str || '').replace(' ', 'T'));
 const todayStr = () => format(new Date(), 'yyyy-MM-dd');
 const riderHistoryKey = (riderId) => `ms_rider_history_${riderId}_${todayStr()}`;
+const RIDER_APP_NAME = 'Modo Sabor Riders';
+const RIDER_HEADER_NAME = 'Modo Sabor Delivery';
+const RIDER_FLAME_ASSET = '/rider-flame-red.png';
 
 function fmtTimer(seconds) {
   const m = Math.floor(seconds / 60);
@@ -116,31 +142,11 @@ function destinationEmbedUrl(pedido, config = {}) {
   );
 }
 
-// ── Haversine distance ──
-function haversine(lat1, lng1, lat2, lng2) {
-  const R = 6371000;
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLng = ((lng2 - lng1) * Math.PI) / 180;
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos((lat1 * Math.PI) / 180) *
-      Math.cos((lat2 * Math.PI) / 180) *
-      Math.sin(dLng / 2) *
-      Math.sin(dLng / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
-}
-
-// ── Sort pedidos by distance from rider ──
-function sortByDistance(pedidos, riderLat, riderLng) {
-  return pedidos
-    .filter((p) => p.cliente_latitud && p.cliente_longitud)
-    .map((p) => ({
-      ...p,
-      distance: haversine(riderLat, riderLng, p.cliente_latitud, p.cliente_longitud),
-    }))
-    .sort((a, b) => a.distance - b.distance);
-}
+// NOTA: `haversine` y `sortByDistance` se movieron a lib/riderUx.js como
+// `distanciaMetros` y `ordenarPorCercania`. El nuevo ordenamiento usa
+// vecino mas proximo en vez de simple distancia al rider, y ademas NO
+// descarta los pedidos sin coordenadas — el filtro del anterior los hacia
+// desaparecer de la lista, que era un bug real.
 
 function isIosDevice() {
   if (typeof navigator === 'undefined') return false;
@@ -445,6 +451,8 @@ export default function RiderPanel() {
   // tarda ~50ms pero es la unica forma de sobrevivir cierres de la app.
   const [riderAuth, setRiderAuth] = useState(null);
   const [loginForm, setLoginForm] = useState({ id: '', code: '' });
+  const [showAccessCode, setShowAccessCode] = useState(false);
+  const [showRiderSplash, setShowRiderSplash] = useState(true);
   const [bootstrapping, setBootstrapping] = useState(true);
   const [incidenciaOpen, setIncidenciaOpen] = useState(false);
   const [offlineCount, setOfflineCount] = useState(0);
@@ -457,10 +465,31 @@ export default function RiderPanel() {
   const [updateInfo, setUpdateInfo] = useState(null);
   const [updateDownloading, setUpdateDownloading] = useState(false);
 
-  // ── Dark mode: 'light' | 'dark' | 'auto'. Persistido en Preferences
-  // para sobrevivir cierres de app en Android. 'auto' respeta
-  // prefers-color-scheme del sistema.
-  const [themeMode, setThemeMode] = useState('auto');
+  // ── Stats del rider (ganancias, racha, historico). Vienen del backend
+  // para que sobrevivan a cambios de celular o borrado de la app.
+  const [riderStats, setRiderStats] = useState(null);
+
+  // ── Modo en ruta: pantalla completa mientras maneja. Se activa al
+  // comenzar el reparto y mantiene la pantalla encendida (wake lock).
+  const [modoRutaPedidoId, setModoRutaPedidoId] = useState(null);
+
+  // ── Notificacion in-app de pedido nuevo (reemplaza al toast generico
+  // cuando entra un pedido con la app abierta).
+  const [notifPedido, setNotifPedido] = useState(null);
+
+  // ── Deshacer entrega: guardamos el ultimo pedido entregado para
+  // ofrecer la reversion durante unos minutos. Solo aplica a entregas
+  // hechas con conexion (las offline todavia no llegaron al server).
+  const [entregaReciente, setEntregaReciente] = useState(null);
+
+  // ── Cierre de turno: snapshot congelado del resumen del dia que se
+  // muestra al pasar a "no disponible". null = modal cerrado.
+  const [cierreTurno, setCierreTurno] = useState(null);
+  // Momento en que el rider se puso disponible. Se persiste en Preferences
+  // porque si cierra y reabre la app a mitad de turno (o Android la mata
+  // por RAM) el contador tiene que seguir corriendo desde el inicio real,
+  // no desde que volvio a abrir.
+  const inicioTurnoRef = useRef(null);
 
   // Core data
   const [loading, setLoading] = useState(false);
@@ -539,16 +568,23 @@ export default function RiderPanel() {
     let cancelled = false;
     (async () => {
       try {
-        // Cargar auth + toggle online + timestamp de ultimo uso + theme en paralelo
-        const [saved, onlineStored, lastSeen, themeStored] = await Promise.all([
+        // Cargar auth + toggle online + ultimo uso + inicio de turno
+        const [saved, onlineStored, lastSeen, turnoInicio] = await Promise.all([
           loadNativeRiderAuth(),
           riderStorageGet('ms_rider_online'),
           riderStorageGet('ms_rider_last_seen'),
-          riderStorageGet('ms_rider_theme'),
+          riderStorageGet(KEY_TURNO_INICIO),
         ]);
-        // Hidratar preferencia de tema; default 'auto' (sigue al sistema)
-        if (!cancelled && themeStored && ['light', 'dark', 'auto'].includes(themeStored)) {
-          setThemeMode(themeStored);
+
+        // Recuperar el inicio del turno si quedo uno abierto (la app se
+        // cerro o Android la mato a mitad de jornada). Si la marca es de
+        // hace mas de 18h la descartamos: es de un turno viejo que nunca
+        // se cerro bien.
+        const inicioMs = Number(turnoInicio || 0);
+        if (inicioMs && Date.now() - inicioMs < 18 * 60 * 60 * 1000) {
+          inicioTurnoRef.current = inicioMs;
+        } else if (inicioMs) {
+          riderStorageRemove(KEY_TURNO_INICIO).catch(() => {});
         }
         // Autologout tras 30 días sin uso. Si el celular se pierde o el
         // rider deja de trabajar, la sesion se cierra sola.
@@ -570,7 +606,16 @@ export default function RiderPanel() {
         // Marcar "visto" ahora para prolongar la vida de la sesion.
         riderStorageSet('ms_rider_last_seen', String(Date.now())).catch(() => {});
         if (!cancelled) {
-          if (onlineStored === 'false') setIsOnline(false);
+          const quedaOnline = onlineStored !== 'false';
+          if (!quedaOnline) setIsOnline(false);
+          // Si arranca disponible y no habia marca de turno (primera vez,
+          // o venia de una version anterior sin este campo), la creamos
+          // ahora para que el resumen de cierre tenga de donde contar.
+          if (quedaOnline && !inicioTurnoRef.current) {
+            const ahora = Date.now();
+            inicioTurnoRef.current = ahora;
+            riderStorageSet(KEY_TURNO_INICIO, String(ahora)).catch(() => {});
+          }
         }
         if (!cancelled && saved) {
           setLoginForm(saved);
@@ -625,7 +670,7 @@ export default function RiderPanel() {
     };
     const syncStandalone = () => setIsStandaloneApp(isStandaloneMode());
     const restoreManifest = swapManifest('/manifest-rider.json');
-    document.title = 'Modo Sabor Rider';
+    document.title = RIDER_APP_NAME;
     window.addEventListener('beforeinstallprompt', onBefore);
     window.addEventListener('appinstalled', onInstalled);
     window.matchMedia?.('(display-mode: standalone)')?.addEventListener?.('change', syncStandalone);
@@ -640,7 +685,12 @@ export default function RiderPanel() {
         ?.removeEventListener?.('change', syncStandalone);
     };
   }, []);
-
+  // Splash visual de marca: el splash nativo es estatico, esta capa agrega
+  // movimiento apenas React toma control de la pantalla.
+  useEffect(() => {
+    const timer = window.setTimeout(() => setShowRiderSplash(false), 1450);
+    return () => window.clearTimeout(timer);
+  }, []);
   // ── Permisos de geolocalización ────────────────────────────────
   useEffect(() => {
     let cancelled = false;
@@ -761,6 +811,13 @@ export default function RiderPanel() {
       rememberAssignedNotification(pedidoId);
       if (navigator.vibrate) navigator.vibrate([300, 120, 300, 120, 500]);
 
+      // Notificacion in-app con marca y accion directa. Solo tiene
+      // sentido si el rider esta mirando la app; si esta en background
+      // ya se encarga la LocalNotification nativa de abajo.
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+        setNotifPedido(pedido);
+      }
+
       try {
         await notifyRiderNewOrder(pedido);
       } catch {}
@@ -834,6 +891,24 @@ export default function RiderPanel() {
       cancelled = true;
     };
   }, [riderAuth]);
+
+  // ── Stats personales (ganancias, racha, historico) ──────────────
+  // Se refrescan al loguearse y cada vez que cambia el contador de
+  // entregas del dia, no en cada poll: es informacion que se mueve
+  // lento y no vale la pena pedirla cada 15s.
+  const fetchStats = useCallback(async () => {
+    if (!riderAuth) return;
+    try {
+      const res = await api.get(`/repartidores/${riderAuth.id}/rider/${riderAuth.code}/stats`);
+      setRiderStats(res);
+    } catch {
+      // Silencioso: el widget simplemente no se muestra.
+    }
+  }, [riderAuth]);
+
+  useEffect(() => {
+    fetchStats();
+  }, [fetchStats]);
 
   // ── Fetch ──────────────────────────────────────────────────────
   const fetchData = useCallback(
@@ -1040,23 +1115,127 @@ export default function RiderPanel() {
     setRiderAuth({ id: loginForm.id, code: loginForm.code });
   };
 
+  const resetLocalState = () => {
+    setRiderAuth(null);
+    setData(null);
+    setSelectedPedido(null);
+    setHistorialSesion([]);
+    setEntregaReciente(null);
+    setCierreTurno(null);
+    setOfflineCount(0);
+    inicioTurnoRef.current = null;
+    deliveredSeenRef.current = new Set();
+  };
+
   const handleLogout = () => {
     stopTracking();
     riderStorageRemove('ms_rider_id').catch(() => {});
     riderStorageRemove('ms_rider_code').catch(() => {});
+    riderStorageRemove(KEY_TURNO_INICIO).catch(() => {});
     clearNativeRiderAuth().catch(() => {});
-    setRiderAuth(null);
-    setData(null);
-    setSelectedPedido(null);
+    resetLocalState();
   };
 
-  // ── NEW: toggle online/offline ─────────────────────────────────
-  const toggleOnline = () => {
-    const next = !isOnline;
+  /**
+   * Cierre de sesion COMPLETO: borra todo el rastro del rider en el
+   * dispositivo (historial, record personal, cola offline, pedidos
+   * notificados, preferencias).
+   *
+   * Es para cuando el celular pasa a otra persona. Se separa del logout
+   * normal a proposito: el logout comun tiene que ser barato de revertir
+   * (volves a entrar con tu codigo y seguis donde estabas), este no.
+   */
+  const handleLogoutCompleto = async () => {
+    const pendientes = offlineCount > 0;
+    const aviso = pendientes
+      ? `Tenés ${offlineCount} acción(es) sin sincronizar que se van a PERDER.\n\n¿Borrar igual todos los datos de este celular?`
+      : '¿Borrar todos los datos del rider en este celular?\n\nSe pierde el historial del día y el récord personal. Usalo solo si el celular pasa a otra persona.';
+
+    if (!window.confirm(aviso)) return;
+
+    stopTracking();
+    try {
+      await wipeRiderDevice();
+      await clearRiderQueue();
+    } catch {}
+    resetLocalState();
+    toast.success('Dispositivo limpio. Puede usarlo otro rider.', { duration: 4000 });
+  };
+
+  // ── Toggle online/offline ──────────────────────────────────────
+  // Al pasar a "no disponible" con entregas hechas, mostramos el modal
+  // de cierre de turno con el resumen (incluye el efectivo a rendir en
+  // el local, que es el dato que mas le importa al rider al terminar).
+  const toggleOnline = async (forced) => {
+    const next = typeof forced === 'boolean' ? forced : !isOnline;
     setIsOnline(next);
     riderStorageSet('ms_rider_online', String(next)).catch(() => {});
-    if (navigator.vibrate) navigator.vibrate(40);
-    toast(next ? '✅ Disponible' : '⛔ No disponible', { duration: 1500 });
+    haptic(next ? 'success' : 'warning');
+
+    // ── Se pone DISPONIBLE: arranca el reloj del turno ──
+    if (next) {
+      const ahora = Date.now();
+      inicioTurnoRef.current = ahora;
+      riderStorageSet(KEY_TURNO_INICIO, String(ahora)).catch(() => {});
+      toast('✅ Disponible', { duration: 1500 });
+      return;
+    }
+
+    // ── Se pone NO DISPONIBLE ──
+    if (historialSesion.length === 0) {
+      riderStorageRemove(KEY_TURNO_INICIO).catch(() => {});
+      inicioTurnoRef.current = null;
+      toast('⛔ No disponible', { duration: 1500 });
+      return;
+    }
+
+    const entregados = historialSesion.length;
+    const efectivo = historialSesion
+      .filter((p) =>
+        String(p.metodo_pago || '')
+          .toLowerCase()
+          .includes('efectivo')
+      )
+      .reduce((acc, p) => acc + Number(p.total || 0), 0);
+    const total = historialSesion.reduce((acc, p) => acc + Number(p.total || 0), 0);
+    const meta = Math.max(1, Number(data?.settings?.rider_meta_diaria || 10));
+
+    // Duracion real del turno. Si por algun motivo no tenemos marca de
+    // inicio (primera vez tras actualizar la app, storage limpio), no
+    // inventamos un numero: mandamos 0 y el modal no muestra tiempo.
+    const inicio = inicioTurnoRef.current;
+    const minutos = inicio ? Math.max(0, Math.round((Date.now() - inicio) / 60000)) : 0;
+
+    // Record HISTORICO de entregas en un dia, distinto de la meta diaria.
+    // Se guarda por rider en Preferences.
+    let recordAnterior = 0;
+    let esRecord = false;
+    try {
+      const guardado = await riderStorageGet(riderRecordKey(riderAuth?.id));
+      recordAnterior = Number(guardado) || 0;
+      esRecord = entregados > recordAnterior;
+      if (esRecord) {
+        await riderStorageSet(riderRecordKey(riderAuth?.id), String(entregados));
+      }
+    } catch {
+      // Sin storage no podemos afirmar que sea record; no lo celebramos.
+      esRecord = false;
+    }
+
+    // Snapshot congelado: si el rider vuelve a ponerse online mientras
+    // el modal esta abierto, los numeros no se mueven.
+    setCierreTurno({
+      entregas: entregados,
+      totalCobrado: total,
+      efectivo,
+      minutos,
+      metaCumplida: entregados >= meta,
+      record: esRecord,
+      recordAnterior,
+    });
+
+    riderStorageRemove(KEY_TURNO_INICIO).catch(() => {});
+    inicioTurnoRef.current = null;
   };
 
   // ── Estado de pedido ───────────────────────────────────────────
@@ -1201,6 +1380,8 @@ export default function RiderPanel() {
       }
       setPinModal({ open: false, pedidoId: null });
       toast.success('¡Entregado! 🎉');
+      // Habilitar la ventana para deshacer si fue por error.
+      if (pedidoActual) setEntregaReciente(pedidoActual);
       setSelectedPedido(null);
       fetchData();
     } catch (err) {
@@ -1221,13 +1402,20 @@ export default function RiderPanel() {
     if (url) window.open(url, '_blank');
   };
 
-  // ── Computed: pedidos ordenados por distancia ──
+  // ── Computed: orden sugerido de la ruta ──
+  // Usamos vecino mas proximo (no simple orden por distancia al rider):
+  // con 6-8 pedidos, ordenar solo por "que tan lejos esta de mi ahora"
+  // hace que el rider cruce el pueblo de ida y vuelta. El heuristico
+  // arma una secuencia encadenada mucho mas razonable.
+  //
+  // Ademas ordenarPorCercania NO descarta los pedidos sin GPS (los manda
+  // al final): el sortByDistance anterior los filtraba y desaparecian
+  // de la lista, que era un bug real.
   const activePedidos = data?.pedidos || [];
   const hasMultipleDeliveries = activePedidos.length >= 2;
-  const sortedPedidos =
-    hasMultipleDeliveries && riderLocation.lat && riderLocation.lng
-      ? sortByDistance(activePedidos, riderLocation.lat, riderLocation.lng)
-      : activePedidos;
+  const sortedPedidos = hasMultipleDeliveries
+    ? ordenarPorCercania(activePedidos, riderLocation.lat, riderLocation.lng)
+    : activePedidos;
 
   // Cola offline: si el celular vuelve a tener red, reintentar acciones
   // pendientes (marcar entregado, ubicaciones, incidencias). Corre cada
@@ -1275,50 +1463,9 @@ export default function RiderPanel() {
     };
   }, [riderAuth]);
 
-  // ── Dark mode: aplica la clase `dark` al <html> segun themeMode.
-  // 'auto' respeta prefers-color-scheme del sistema y reacciona en vivo
-  // si el usuario cambia el tema del OS. Se limpia al desmontar para
-  // no afectar otras pantallas del sistema (admin, tpv, web publica).
+  // La app Rider queda siempre en modo claro para mantener consistencia visual.
   useEffect(() => {
-    const root = document.documentElement;
-    let mql = null;
-    const apply = (isDark) => {
-      if (isDark) root.classList.add('dark');
-      else root.classList.remove('dark');
-    };
-
-    if (themeMode === 'dark') {
-      apply(true);
-    } else if (themeMode === 'light') {
-      apply(false);
-    } else {
-      // auto
-      try {
-        mql = window.matchMedia('(prefers-color-scheme: dark)');
-        apply(mql.matches);
-        const onChange = (e) => apply(e.matches);
-        mql.addEventListener('change', onChange);
-        return () => {
-          mql.removeEventListener('change', onChange);
-          root.classList.remove('dark');
-        };
-      } catch {
-        apply(false);
-      }
-    }
-
-    return () => {
-      root.classList.remove('dark');
-    };
-  }, [themeMode]);
-
-  // ── Handler: cicla entre auto → light → dark → auto y persiste
-  const cycleTheme = useCallback(() => {
-    setThemeMode((prev) => {
-      const next = prev === 'auto' ? 'light' : prev === 'light' ? 'dark' : 'auto';
-      riderStorageSet('ms_rider_theme', next).catch(() => {});
-      return next;
-    });
+    document.documentElement.classList.remove('dark');
   }, []);
 
   // ── Auto-update: chequea si hay APK más nuevo en el server ────────
@@ -1378,6 +1525,36 @@ export default function RiderPanel() {
     dismissUpdate(updateInfo.versionCode);
     setUpdateInfo(null);
   }, [updateInfo]);
+
+  // ── Deshacer una entrega marcada por error ─────────────────────
+  // El backend valida la ventana de tiempo; aca solo mostramos el
+  // resultado. Si expiro, el rider tiene que pedirle al local que lo
+  // corrija (es a proposito: no queremos que se edite la historia
+  // horas despues).
+  const handleDeshacerEntrega = useCallback(
+    async (pedido, motivo) => {
+      if (!riderAuth || !pedido?.id) return false;
+      try {
+        await api.post(
+          `/repartidores/${riderAuth.id}/rider/${riderAuth.code}/deshacer-entrega/${pedido.id}`,
+          { motivo }
+        );
+        // Sacarlo del historial de sesion y del set de "ya avisados".
+        setHistorialSesion((prev) => prev.filter((p) => p.id !== pedido.id));
+        deliveredSeenRef.current.delete(pedido.id);
+        setEntregaReciente(null);
+        toast.success('Listo, el pedido volvió a "en camino".');
+        fetchData({ silent: true });
+        return true;
+      } catch (error) {
+        const msg = error?.error || error?.message || 'No se pudo deshacer';
+        toast.error(msg, { duration: 5000 });
+        if (error?.expirado) setEntregaReciente(null);
+        return false;
+      }
+    },
+    [riderAuth, fetchData]
+  );
 
   // ── Modal reutilizable: se muestra tanto en login como en app principal ─
   const renderUpdateModal = () => (
@@ -1528,17 +1705,44 @@ export default function RiderPanel() {
       });
       fireRiderConfetti(36);
       speakRider(`Entrega ${current} confirmada. ¡Buen trabajo!`, { rate: 1.1 });
+      // Refrescar ganancias/racha: es el momento en que realmente cambian.
+      fetchStats();
     }
-  }, [resumenDia.entregados]);
+  }, [resumenDia.entregados, fetchStats]);
 
   // ─────────────────────────────────────────────────────────────────
   // RENDER: spinner de bootstrap (mientras carga Preferences en Android)
   // ─────────────────────────────────────────────────────────────────
-  if (bootstrapping) {
+  if (bootstrapping || showRiderSplash) {
     return (
-      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-6">
-        <div className="mx-auto h-12 w-12 animate-spin rounded-full border-4 border-primary-500 border-t-transparent" />
-        <p className="mt-4 text-sm font-bold text-gray-500">Cargando tu sesión...</p>
+      <div className="relative min-h-screen overflow-hidden bg-[#d51f2b] text-white flex flex-col items-center justify-center p-6">
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_42%,rgba(255,255,255,0.18),transparent_26%),radial-gradient(circle_at_50%_58%,rgba(127,29,29,0.45),transparent_42%)]" />
+        <motion.div
+          initial={{ opacity: 0, scale: 0.82 }}
+          animate={{ opacity: 1, scale: [0.92, 1.04, 1] }}
+          transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
+          className="relative flex flex-col items-center"
+        >
+          <motion.div
+            animate={{
+              scale: [1, 1.06, 1],
+              filter: [
+                'drop-shadow(0 0 18px rgba(255,255,255,0.15))',
+                'drop-shadow(0 0 34px rgba(255,255,255,0.34))',
+                'drop-shadow(0 0 18px rgba(255,255,255,0.15))',
+              ],
+            }}
+            transition={{ duration: 1.2, repeat: Infinity, ease: 'easeInOut' }}
+            className="h-36 w-36 overflow-hidden rounded-[34px] bg-black/25 shadow-2xl shadow-black/25 ring-1 ring-white/20"
+          >
+            <img src={RIDER_FLAME_ASSET} alt="Modo Sabor" className="h-full w-full object-cover" />
+          </motion.div>
+          <p className="mt-8 text-[11px] font-black uppercase tracking-[0.46em] text-white/70">
+            Modo Sabor
+          </p>
+          <h1 className="mt-2 text-4xl font-black tracking-tight">Riders</h1>
+          <p className="mt-3 text-sm font-bold text-white/70">Preparando tu turno...</p>
+        </motion.div>
       </div>
     );
   }
@@ -1578,24 +1782,18 @@ export default function RiderPanel() {
                 sin depender del backend). Con animacion float sutil. */}
             <div className="flex flex-col items-center">
               <motion.div
-                animate={{ y: [0, -8, 0] }}
+                animate={{ y: [0, -8, 0], scale: [1, 1.03, 1] }}
                 transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
                 className="relative"
               >
-                <div className="absolute inset-0 rounded-full bg-white/20 blur-2xl scale-125" />
-                <div className="relative h-24 w-24 rounded-3xl bg-white flex items-center justify-center shadow-2xl">
-                  <svg
-                    width="52"
-                    height="60"
-                    viewBox="0 0 32 40"
-                    fill="none"
-                    xmlns="http://www.w3.org/2000/svg"
-                  >
-                    <path
-                      d="M16 0 C14 8, 6 10, 6 20 C6 28, 11 34, 16 40 C21 34, 26 28, 26 20 C26 14, 22 12, 20 8 C19 12, 17 12, 16 10 C15 12, 15 6, 16 0 Z"
-                      fill="#dc1f2d"
-                    />
-                  </svg>
+                <div className="absolute inset-0 rounded-[34px] bg-white/25 blur-2xl scale-125" />
+                <div className="relative h-28 w-28 overflow-hidden rounded-[32px] bg-black/20 shadow-2xl shadow-black/25 ring-1 ring-white/20">
+                  <img
+                    src={RIDER_FLAME_ASSET}
+                    alt="Modo Sabor Riders"
+                    className="h-full w-full object-cover"
+                    draggable="false"
+                  />
                 </div>
               </motion.div>
 
@@ -1609,7 +1807,7 @@ export default function RiderPanel() {
                 className="mt-1 text-4xl font-black leading-none tracking-tight text-white"
                 style={{ fontFamily: '"Poppins","Inter",sans-serif' }}
               >
-                Rider
+                Riders
               </h1>
               <p className="mt-3 text-center text-sm font-semibold text-white/80 max-w-xs">
                 Ingresá tu código para arrancar tu turno y empezar a recibir pedidos.
@@ -1645,14 +1843,25 @@ export default function RiderPanel() {
                     <LocateFixed size={12} />
                     Código de acceso
                   </label>
-                  <input
-                    type="password"
-                    value={loginForm.code}
-                    onChange={(e) => setLoginForm({ ...loginForm, code: e.target.value })}
-                    className="h-14 w-full rounded-2xl border-2 border-gray-100 bg-gray-50 px-5 text-xl font-black text-gray-900 tracking-widest outline-none transition focus:border-[#dc1f2d] focus:bg-white"
-                    placeholder="••••••••"
-                    autoComplete="current-password"
-                  />
+                  <div className="relative">
+                    <input
+                      type={showAccessCode ? 'text' : 'password'}
+                      value={loginForm.code}
+                      onChange={(e) => setLoginForm({ ...loginForm, code: e.target.value })}
+                      className="h-14 w-full rounded-2xl border-2 border-gray-100 bg-gray-50 px-5 pr-14 text-xl font-black text-gray-900 tracking-widest outline-none transition focus:border-[#dc1f2d] focus:bg-white"
+                      placeholder="••••••••"
+                      autoComplete="current-password"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowAccessCode((value) => !value)}
+                      className="absolute right-2 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-xl text-gray-400 transition hover:bg-white hover:text-[#dc1f2d] active:scale-95"
+                      aria-label={showAccessCode ? 'Ocultar código' : 'Mostrar código'}
+                    >
+                      {showAccessCode ? <EyeOff size={20} /> : <Eye size={20} />}
+                    </button>
+                  </div>
+                  `r`n{' '}
                 </div>
               </div>
 
@@ -1711,11 +1920,11 @@ export default function RiderPanel() {
   // ─────────────────────────────────────────────────────────────────
   const primaryColor = data?.settings?.rider_app_color_primario || '#5D87FF';
   const secondaryColor = data?.settings?.rider_app_color_secundario || '#49BEFF';
-  const appName = data?.settings?.rider_app_nombre || 'Modo Sabor Delivery';
+  const appName = data?.settings?.rider_app_nombre || RIDER_HEADER_NAME;
   const telefonoLocal = data?.settings?.negocio_telefono || '';
   const showRiderLogo = String(data?.settings?.rider_app_mostrar_logo ?? '1') === '1';
   const riderLogoUrl = resolveAssetUrl(
-    data?.settings?.rider_app_logo || data?.settings?.negocio_logo || ''
+    data?.settings?.rider_app_logo || data?.settings?.negocio_logo || DEFAULT_BRAND_LOGO
   );
   const inTransitOrder = data?.pedidos?.find((p) => p.estado === 'en_camino');
 
@@ -1734,40 +1943,46 @@ export default function RiderPanel() {
             <img
               src={riderLogoUrl}
               alt={appName}
-              className="h-10 w-10 rounded-xl bg-white object-contain p-0.5 border border-gray-100"
+              className="h-12 w-12 object-contain drop-shadow-sm"
               onError={(e) => {
-                // Si la URL del logo falla (imagen borrada, sin acceso, etc.)
-                // el placeholder roto del navegador queda espantoso; reemplazo
-                // por un ícono de camión con fondo de marca.
+                if (!String(e.currentTarget.src || '').includes('rider-flame-red')) {
+                  e.currentTarget.src = RIDER_FLAME_ASSET;
+                  e.currentTarget.className =
+                    'h-12 w-12 overflow-hidden rounded-2xl object-cover shadow-md shadow-red-100';
+                  return;
+                }
                 e.currentTarget.style.display = 'none';
-                e.currentTarget.insertAdjacentHTML(
-                  'afterend',
-                  `<div class="h-10 w-10 rounded-xl bg-primary-50 flex items-center justify-center text-primary-600 border border-primary-100">
-                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 18H3c-.6 0-1-.4-1-1V7c0-.6.4-1 1-1h10c.6 0 1 .4 1 1v11"/><path d="M14 9h4l4 4v4c0 .6-.4 1-1 1h-2"/><circle cx="7" cy="18" r="2"/><path d="M15 18H9"/><circle cx="17" cy="18" r="2"/></svg>
-                   </div>`
-                );
               }}
             />
           ) : (
-            <div className="h-10 w-10 rounded-xl bg-primary-50 flex items-center justify-center text-primary-600 border border-primary-100">
-              <Truck size={20} />
-            </div>
+            <img
+              src={RIDER_FLAME_ASSET}
+              alt={appName}
+              className="h-12 w-12 overflow-hidden rounded-2xl object-cover shadow-md shadow-red-100"
+              draggable="false"
+            />
           )}
-          <div>
-            <h2 className="text-sm font-black uppercase tracking-tight text-gray-900 leading-none">
-              {appName}
+          {/* Saludo dinamico segun la hora: sirve de contexto de turno
+              y hace que la app se sienta menos generica. */}
+          <div className="min-w-0">
+            <h2 className="text-sm font-black tracking-tight text-gray-900 leading-none">
+              {saludoPorHora().saludo},{' '}
+              {String(data?.repartidor?.nombre || 'Repartidor').split(' ')[0]}
             </h2>
             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-1">
-              {data?.repartidor?.nombre || 'Repartidor'}
+              {saludoPorHora().turno}
             </p>
           </div>
         </div>
 
         {/* ── NEW: controles del header ── */}
         <div className="flex items-center gap-2">
-          {/* Online/Offline toggle */}
+          {/* Chip compacto de estado. El control principal para cambiar
+              disponibilidad es el boton grande del cuerpo (ToggleTurno);
+              este chip queda como indicador rapido + atajo. */}
           <button
-            onClick={toggleOnline}
+            onClick={() => toggleOnline()}
+            aria-label={isOnline ? 'Pasar a no disponible' : 'Pasar a disponible'}
             className={`flex items-center gap-1.5 h-9 px-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
               isOnline ? 'bg-success-50 text-success-700' : 'bg-gray-100 text-gray-500'
             }`}
@@ -1787,30 +2002,6 @@ export default function RiderPanel() {
             </a>
           )}
 
-          {/* Toggle tema: auto → light → dark → auto. Ideal para riders
-              que trabajan de noche (fondo blanco cansa la vista). */}
-          <button
-            type="button"
-            onClick={cycleTheme}
-            className="h-9 w-9 rounded-xl bg-gray-50 flex items-center justify-center text-gray-500 hover:text-primary-600"
-            title={
-              themeMode === 'auto'
-                ? 'Tema: automático (sigue al sistema)'
-                : themeMode === 'light'
-                  ? 'Tema: claro'
-                  : 'Tema: oscuro'
-            }
-            aria-label="Cambiar tema"
-          >
-            {themeMode === 'auto' ? (
-              <Monitor size={16} />
-            ) : themeMode === 'light' ? (
-              <Sun size={16} />
-            ) : (
-              <Moon size={16} />
-            )}
-          </button>
-
           <button
             onClick={handleLogout}
             className="h-9 w-9 rounded-xl bg-gray-50 flex items-center justify-center text-gray-400 hover:text-rose-500"
@@ -1820,443 +2011,218 @@ export default function RiderPanel() {
         </div>
       </header>
 
-      {/* ── Main ────────────────────────────────────────────────── */}
-      <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col space-y-5 p-4 md:p-6">
-        {loading && !data && (
-          <div className="flex flex-col items-center justify-center py-20 opacity-40 animate-pulse">
-            <RefreshCw className="animate-spin mb-4" size={32} />
-            <p className="text-sm font-black uppercase">Sincronizando...</p>
-          </div>
-        )}
+      {/* ── Main ──────────────────────────────────────────────────
+          Envuelto en pull-to-refresh: gesto natural para actualizar sin
+          tener que buscar el boton de refresh. Se desactiva cuando hay
+          un pedido abierto para no interferir con el scroll del detalle. */}
+      <PullToRefresh onRefresh={() => fetchData()} disabled={Boolean(selectedPedido)}>
+        <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col space-y-5 p-4 md:p-6">
+          {/* Carga inicial: skeletons con la silueta real de lo que viene,
+            en vez de un spinner generico. La espera se percibe mas corta
+            y el layout no salta cuando llegan los datos. */}
+          {loading && !data && <RiderSkeleton cards={3} />}
 
-        {!selectedPedido ? (
-          <>
-            {/* ── Resumen del turno (siempre visible) ──
+          {!selectedPedido ? (
+            <>
+              {/* ── Hero: a donde vas AHORA ──
+                Con varias entregas asignadas, la lista plana hace que
+                todas compitan por atencion. Esta card responde la unica
+                pregunta que importa mientras manejas. */}
+              {sortedPedidos.length > 0 && (
+                <HeroPedido
+                  pedido={
+                    // Si hay uno en camino, ese manda. Si no, el primero
+                    // de la ruta sugerida.
+                    sortedPedidos.find((p) => p.estado === 'en_camino') || sortedPedidos[0]
+                  }
+                  riderLat={riderLocation.lat}
+                  riderLng={riderLocation.lng}
+                  onAbrir={setSelectedPedido}
+                  onNavegar={setSelectedPedido}
+                />
+              )}
+
+              {/* ── Ganancias del dia + racha ── */}
+              <WidgetGanancias stats={riderStats} loading={loading && !riderStats} />
+
+              {/* ── Resumen del turno (siempre visible) ──
                 Tarjeta hero con brillo animado + 3 stats con iconos y
                 tipografia armonica. Antes solo aparecia cuando ya habia
                 entregas y los numeros tenian tamaños distintos (2xl vs lg)
                 lo que se veia desfasado. Ahora todos son text-2xl con
                 tabular-nums, y cada stat tiene su chip de icono. */}
-            <div className="relative overflow-hidden rounded-[28px] bg-gradient-to-br from-blue-600 via-blue-600 to-blue-500 p-5 shadow-xl shadow-primary-200">
-              <div className="pointer-events-none absolute -right-10 -top-10 h-40 w-40 rounded-full bg-white/10 blur-2xl" />
-              <div className="pointer-events-none absolute -bottom-8 -left-6 h-32 w-32 rounded-full bg-white/5 blur-2xl" />
-              <div className="relative">
-                <div className="flex items-center justify-between mb-4">
-                  <div>
-                    <p className="text-[10px] font-black uppercase tracking-[0.22em] text-blue-200">
-                      Tu turno de hoy
-                    </p>
-                    <p className="text-lg font-black text-white leading-tight mt-0.5">
-                      {nowTime} · {format(new Date(), "EEE dd 'de' MMM", { locale: es })}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1.5 backdrop-blur-sm">
-                    <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-                    <span className="text-[10px] font-black uppercase tracking-widest text-white">
-                      Online
-                    </span>
-                  </div>
-                </div>
-                {(() => {
-                  // Meta diaria: usa lo que el negocio configure, sino 10.
-                  const meta = Math.max(1, Number(data?.settings?.rider_meta_diaria || 10));
-                  const pctMeta = Math.min(100, (resumenDia.entregados / meta) * 100);
-                  return (
-                    <div className="mb-3">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-[9px] font-black uppercase tracking-widest text-blue-200">
-                          Meta diaria
-                        </span>
-                        <span className="text-[10px] font-black tabular-nums text-white">
-                          {resumenDia.entregados}/{meta}
-                        </span>
-                      </div>
-                      <div className="h-2 overflow-hidden rounded-full bg-white/15">
-                        <motion.div
-                          initial={{ width: 0 }}
-                          animate={{ width: `${pctMeta}%` }}
-                          transition={{ duration: 0.9, ease: 'easeOut' }}
-                          className="h-full rounded-full"
-                          style={{
-                            background:
-                              pctMeta >= 100
-                                ? 'linear-gradient(90deg,#10b981,#34d399)'
-                                : 'linear-gradient(90deg,#fbbf24,#f59e0b)',
-                          }}
-                        />
-                      </div>
-                    </div>
-                  );
-                })()}
-                <div className="grid grid-cols-3 gap-2.5">
-                  <motion.div
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.05 }}
-                    className="rounded-2xl bg-white/15 backdrop-blur-sm px-3 py-3 text-center"
-                  >
-                    <div className="flex items-center justify-center h-6 mb-1.5">
-                      <Package size={14} className="text-blue-200" />
-                    </div>
-                    <AnimatedNumber
-                      value={resumenDia.entregados}
-                      className="text-2xl font-black text-white tabular-nums leading-none block"
-                    />
-                    <p className="text-[9px] font-black text-blue-200 uppercase tracking-widest mt-1.5">
-                      Entregas
-                    </p>
-                  </motion.div>
-                  <motion.div
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.12 }}
-                    className="rounded-2xl bg-white/15 backdrop-blur-sm px-3 py-3 text-center"
-                  >
-                    <div className="flex items-center justify-center h-6 mb-1.5">
-                      <DollarSign size={14} className="text-blue-200" />
-                    </div>
-                    <AnimatedNumber
-                      value={resumenDia.efectivo}
-                      format={(n) => fmt(n)}
-                      className="text-lg font-black text-white tabular-nums leading-none block"
-                    />
-                    <p className="text-[9px] font-black text-blue-200 uppercase tracking-widest mt-1.5">
-                      Efectivo
-                    </p>
-                  </motion.div>
-                  <motion.div
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.2 }}
-                    className="rounded-2xl bg-white/15 backdrop-blur-sm px-3 py-3 text-center"
-                  >
-                    <div className="flex items-center justify-center h-6 mb-1.5">
-                      <TrendingUp size={14} className="text-blue-200" />
-                    </div>
-                    <AnimatedNumber
-                      value={resumenDia.total}
-                      format={(n) => fmt(n)}
-                      className="text-lg font-black text-white tabular-nums leading-none block"
-                    />
-                    <p className="text-[9px] font-black text-blue-200 uppercase tracking-widest mt-1.5">
-                      Total
-                    </p>
-                  </motion.div>
-                </div>
-              </div>
-            </div>
-
-            {/* ── Barra de acciones rápidas ──
-                3 botones grandes con label debajo. Están a mano sin
-                tener que ir al ícono chico del header ni al menú.
-                Se ven vivos: bordes suaves, hover sube, íconos claros. */}
-            <motion.div
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.25 }}
-              className="grid grid-cols-3 gap-2.5"
-            >
-              {telefonoLocal ? (
-                <a
-                  href={`tel:${telefonoLocal}`}
-                  className="flex flex-col items-center gap-1.5 rounded-2xl bg-white border border-gray-100 p-3 shadow-sm hover:shadow-md active:scale-95 transition-all"
-                >
-                  <div className="h-9 w-9 rounded-xl bg-success-50 flex items-center justify-center text-success-600">
-                    <PhoneCall size={16} />
-                  </div>
-                  <span className="text-[10px] font-black uppercase tracking-widest text-gray-600">
-                    Llamar local
-                  </span>
-                </a>
-              ) : (
-                <div />
-              )}
-              <button
-                type="button"
-                onClick={() => fetchData()}
-                className="flex flex-col items-center gap-1.5 rounded-2xl bg-white border border-gray-100 p-3 shadow-sm hover:shadow-md active:scale-95 transition-all"
-              >
-                <div className="h-9 w-9 rounded-xl bg-primary-50 flex items-center justify-center text-primary-600">
-                  <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
-                </div>
-                <span className="text-[10px] font-black uppercase tracking-widest text-gray-600">
-                  Actualizar
-                </span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveTab('historial')}
-                className="flex flex-col items-center gap-1.5 rounded-2xl bg-white border border-gray-100 p-3 shadow-sm hover:shadow-md active:scale-95 transition-all"
-              >
-                <div className="h-9 w-9 rounded-xl bg-violet-50 flex items-center justify-center text-violet-600">
-                  <History size={16} />
-                </div>
-                <span className="text-[10px] font-black uppercase tracking-widest text-gray-600">
-                  Historial
-                </span>
-              </button>
-            </motion.div>
-
-            {/* ── Multi-delivery route optimization ── */}
-            {hasMultipleDeliveries && (
-              <div className="rounded-[24px] bg-violet-50 border border-violet-200 px-5 py-4">
-                <div className="flex items-center gap-2 mb-3">
-                  <Route size={16} className="text-violet-600" />
-                  <p className="text-[10px] font-black text-violet-600 uppercase tracking-widest">
-                    Ruta optimizada · {sortedPedidos.length} entregas
-                  </p>
-                </div>
-                <div className="space-y-2">
-                  {sortedPedidos.map((pedido, idx) => {
-                    const isNext = idx === 0;
-                    const stopColors = [
-                      'bg-emerald-500',
-                      'bg-amber-500',
-                      'bg-orange-500',
-                      'bg-rose-500',
-                      'bg-purple-500',
-                    ];
-                    return (
-                      <button
-                        key={pedido.id}
-                        onClick={() => setSelectedPedido(pedido)}
-                        className={`w-full text-left rounded-2xl px-4 py-3 flex items-center gap-3 transition-all ${
-                          isNext
-                            ? 'bg-white shadow-sm border border-violet-200'
-                            : 'bg-violet-100/50'
-                        }`}
-                      >
-                        <div
-                          className={`h-8 w-8 rounded-full ${stopColors[idx % stopColors.length]} flex items-center justify-center text-white text-xs font-black shrink-0`}
-                        >
-                          {idx + 1}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-black text-gray-900 truncate">
-                            {pedido.cliente_nombre}
-                          </p>
-                          <p className="text-xs text-gray-500 truncate">
-                            {pedido.cliente_direccion}
-                          </p>
-                        </div>
-                        <div className="text-right shrink-0">
-                          {pedido.distance !== undefined && (
-                            <p className="text-xs font-black text-violet-600">
-                              {Math.round(pedido.distance)}m
-                            </p>
-                          )}
-                          <p className="text-[10px] font-bold text-gray-400">
-                            {pedido.estado.replace('_', ' ')}
-                          </p>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-                {sortedPedidos[0]?.cliente_latitud && sortedPedidos[0]?.cliente_longitud && (
-                  <button
-                    onClick={() => openNav(sortedPedidos[0])}
-                    className="mt-3 w-full h-11 rounded-2xl bg-violet-600 text-white flex items-center justify-center gap-2 text-xs font-black uppercase tracking-widest shadow-lg shadow-violet-200"
-                  >
-                    <Navigation size={14} /> Navegar a Parada 1
-                  </button>
-                )}
-              </div>
-            )}
-
-            {/* ── Timer en reparto activo ── */}
-            {inTransitOrder && (
-              <div className="rounded-[24px] bg-success-50 border border-emerald-200 px-5 py-4 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="h-10 w-10 rounded-xl bg-success-500 flex items-center justify-center">
-                    <Truck size={18} color="white" />
-                  </div>
-                  <div>
-                    <p className="text-[10px] font-black text-success-600 uppercase tracking-widest">
-                      En reparto
-                    </p>
-                    <p className="text-sm font-black text-emerald-800">
-                      #{inTransitOrder.numero} · {inTransitOrder.cliente_nombre || 'S/N'}
-                    </p>
-                    {inTransitOrder.hora_entrega ? (
-                      <p className="mt-1 text-[10px] font-black uppercase tracking-[0.18em] text-emerald-600">
-                        Entrega {inTransitOrder.hora_entrega}
+              <div className="relative overflow-hidden rounded-[28px] bg-gradient-to-br from-blue-600 via-blue-600 to-blue-500 p-5 shadow-xl shadow-primary-200">
+                <div className="pointer-events-none absolute -right-10 -top-10 h-40 w-40 rounded-full bg-white/10 blur-2xl" />
+                <div className="pointer-events-none absolute -bottom-8 -left-6 h-32 w-32 rounded-full bg-white/5 blur-2xl" />
+                <div className="relative">
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-[0.22em] text-blue-200">
+                        Tu turno de hoy
                       </p>
-                    ) : null}
-                  </div>
-                </div>
-                <div className="text-right">
-                  <p className="text-2xl font-black text-success-700 tabular-nums">
-                    {fmtTimer(deliveryElapsed)}
-                  </p>
-                  <p className="text-[9px] text-emerald-500 uppercase font-black">Tiempo en ruta</p>
-                </div>
-              </div>
-            )}
-
-            {/* ── Status card + GPS ── */}
-            <div className="rounded-[32px] bg-white p-6 shadow-sm border border-gray-100">
-              <p className="text-sm font-bold text-gray-600 leading-relaxed">
-                {data?.settings?.rider_app_bienvenida}
-              </p>
-              <div className="mt-4 flex flex-wrap items-center gap-3">
-                <div
-                  className={`h-2.5 w-2.5 rounded-full ${trackingActive ? 'bg-success-500 animate-pulse' : 'bg-gray-300'}`}
-                />
-                <span className="text-[10px] font-black uppercase text-gray-400 tracking-widest">
-                  {trackingActive ? 'GPS activo' : 'Sin reparto activo'}
-                </span>
-                <span
-                  className={`rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-widest ${
-                    locationPermission === 'granted'
-                      ? 'bg-success-50 text-success-600'
-                      : locationPermission === 'denied'
-                        ? 'bg-danger-50 text-danger-600'
-                        : 'bg-warning-50 text-warning-600'
-                  }`}
-                >
-                  GPS{' '}
-                  {locationPermission === 'granted'
-                    ? 'OK'
-                    : locationPermission === 'denied'
-                      ? 'bloqueado'
-                      : 'pendiente'}
-                </span>
-                {trackingActive && lastGpsAgeSeconds !== null && (
-                  <span
-                    className={`rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-widest ${
-                      lastGpsAgeSeconds <= 90
-                        ? 'bg-success-50 text-success-700'
-                        : 'bg-warning-50 text-warning-700'
-                    }`}
-                  >
-                    {lastGpsAgeSeconds <= 90
-                      ? 'GPS reciente'
-                      : `GPS atrasado ${lastGpsAgeSeconds}s`}
-                  </span>
-                )}
-              </div>
-              {lastPositionAt && (
-                <p className="mt-3 text-[11px] font-bold uppercase tracking-widest text-gray-400">
-                  Último GPS: {format(parseDate(lastPositionAt), 'HH:mm', { locale: es })}
-                </p>
-              )}
-              {locationError && (
-                <div className="mt-4 rounded-2xl border border-rose-100 bg-danger-50 px-4 py-3 text-sm font-semibold text-danger-700">
-                  {locationError}
-                </div>
-              )}
-              <div className="mt-4 flex flex-wrap gap-2">
-                {locationPermission !== 'granted' && (
-                  <button
-                    type="button"
-                    onClick={requestLocationAccess}
-                    className="inline-flex h-11 items-center gap-2 rounded-2xl bg-blue-600 px-5 text-xs font-black uppercase tracking-widest text-white shadow-lg shadow-primary-100"
-                  >
-                    <LocateFixed size={15} /> Activar GPS
-                  </button>
-                )}
-                {data?.pedidos?.length > 0 &&
-                  !(trackingActive && locationPermission === 'granted') && (
-                    <button
-                      type="button"
-                      onClick={requestLocationAccess}
-                      className="inline-flex h-11 items-center gap-2 rounded-2xl border border-gray-200 bg-white px-4 text-xs font-black uppercase tracking-widest text-gray-700 shadow-sm"
-                    >
-                      <RefreshCw size={14} /> Revalidar GPS
-                    </button>
-                  )}
-                {!isStandaloneApp && (installReady || iosInstall) && (
-                  <button
-                    type="button"
-                    onClick={installRiderApp}
-                    className="inline-flex h-11 items-center gap-2 rounded-2xl border border-primary-200 bg-primary-50 px-4 text-xs font-black uppercase tracking-widest text-blue-700"
-                  >
-                    <Smartphone size={14} /> Instalar app
-                  </button>
-                )}
-              </div>
-              {!isStandaloneApp && (
-                <p className="mt-4 text-[11px] font-semibold leading-relaxed text-gray-500">
-                  Instalá esta pantalla en el celular del rider para abrirla como app.{' '}
-                  {iosInstall
-                    ? 'En iPhone: Compartir -> Agregar a pantalla de inicio.'
-                    : 'En Android o Chrome: usá el botón Instalar app cuando aparezca.'}
-                </p>
-              )}
-            </div>
-
-            {/* ── Tabs: Pedidos / Historial ── */}
-            <div className="flex rounded-2xl bg-gray-100 p-1 gap-1">
-              {[
-                {
-                  id: 'pedidos',
-                  label: `Pedidos activos (${data?.pedidos?.length || 0})`,
-                  icon: Package,
-                },
-                { id: 'historial', label: `Historial (${historialSesion.length})`, icon: History },
-              ].map(({ id, label, icon: Icon }) => (
-                <button
-                  key={id}
-                  onClick={() => setActiveTab(id)}
-                  className={`flex-1 flex items-center justify-center gap-2 h-10 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${
-                    activeTab === id ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500'
-                  }`}
-                >
-                  <Icon size={14} /> {label}
-                </button>
-              ))}
-            </div>
-
-            {/* ── Tab: Pedidos activos ── */}
-            {activeTab === 'pedidos' && (
-              <div className="space-y-3">
-                <div className="flex items-center justify-between px-1">
-                  <h3 className="text-xs font-black uppercase text-gray-400 tracking-[0.2em]">
-                    Asignados ({data?.pedidos?.length || 0})
-                  </h3>
-                  <button onClick={fetchData} className="text-primary-600">
-                    <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
-                  </button>
-                </div>
-
-                {!data?.pedidos?.length ? (
-                  <div className="rounded-[32px] bg-gradient-to-br from-blue-50 via-white to-blue-50 border border-blue-100 py-12 text-center flex flex-col items-center relative overflow-hidden">
-                    {/* Ondas de radar animadas: 3 círculos concéntricos que
-                        se expanden con desfase, dan sensación de "escaneando"
-                        el mapa a la espera de pedidos. */}
-                    <div className="relative h-28 w-28 mb-5">
-                      <div className="absolute inset-0 rounded-full bg-primary-500/20 animate-ping" />
-                      <div
-                        className="absolute inset-3 rounded-full bg-primary-500/25 animate-ping"
-                        style={{ animationDelay: '0.4s' }}
-                      />
-                      <div
-                        className="absolute inset-6 rounded-full bg-primary-500/30 animate-ping"
-                        style={{ animationDelay: '0.8s' }}
-                      />
-                      <div className="absolute inset-8 rounded-full bg-primary-500 flex items-center justify-center shadow-lg shadow-primary-200">
-                        <Package size={26} className="text-white" strokeWidth={2.2} />
-                      </div>
+                      <p className="text-lg font-black text-white leading-tight mt-0.5">
+                        {nowTime} · {format(new Date(), "EEE dd 'de' MMM", { locale: es })}
+                      </p>
                     </div>
-                    <p className="text-sm font-black uppercase tracking-widest text-primary-600">
-                      Esperando pedidos
-                    </p>
-                    <p className="mt-2 text-xs font-semibold text-gray-500 max-w-xs px-4">
-                      Cuando entre uno nuevo te va a sonar y vibrar acá. Dejá la app abierta aunque
-                      bloquees el celular.
-                    </p>
-                    <div className="mt-4 flex items-center gap-2 rounded-full bg-white/80 px-3 py-1.5 shadow-sm border border-gray-100">
-                      <div className="h-2 w-2 rounded-full bg-success-500 animate-pulse" />
-                      <span className="text-[10px] font-black uppercase tracking-widest text-gray-500">
-                        Modo activo
+                    <div className="flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1.5 backdrop-blur-sm">
+                      <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+                      <span className="text-[10px] font-black uppercase tracking-widest text-white">
+                        Online
                       </span>
                     </div>
                   </div>
+                  {(() => {
+                    // Meta diaria: usa lo que el negocio configure, sino 10.
+                    const meta = Math.max(1, Number(data?.settings?.rider_meta_diaria || 10));
+                    const pctMeta = Math.min(100, (resumenDia.entregados / meta) * 100);
+                    return (
+                      <div className="mb-3">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-[9px] font-black uppercase tracking-widest text-blue-200">
+                            Meta diaria
+                          </span>
+                          <span className="text-[10px] font-black tabular-nums text-white">
+                            {resumenDia.entregados}/{meta}
+                          </span>
+                        </div>
+                        <div className="h-2 overflow-hidden rounded-full bg-white/15">
+                          <motion.div
+                            initial={{ width: 0 }}
+                            animate={{ width: `${pctMeta}%` }}
+                            transition={{ duration: 0.9, ease: 'easeOut' }}
+                            className="h-full rounded-full"
+                            style={{
+                              background:
+                                pctMeta >= 100
+                                  ? 'linear-gradient(90deg,#10b981,#34d399)'
+                                  : 'linear-gradient(90deg,#fbbf24,#f59e0b)',
+                            }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })()}
+                  <div className="grid grid-cols-3 gap-2.5">
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: 0.05 }}
+                      className="rounded-2xl bg-white/15 backdrop-blur-sm px-3 py-3 text-center"
+                    >
+                      <div className="flex items-center justify-center h-6 mb-1.5">
+                        <Package size={14} className="text-blue-200" />
+                      </div>
+                      <AnimatedNumber
+                        value={resumenDia.entregados}
+                        className="text-2xl font-black text-white tabular-nums leading-none block"
+                      />
+                      <p className="text-[9px] font-black text-blue-200 uppercase tracking-widest mt-1.5">
+                        Entregas
+                      </p>
+                    </motion.div>
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: 0.12 }}
+                      className="rounded-2xl bg-white/15 backdrop-blur-sm px-3 py-3 text-center"
+                    >
+                      <div className="flex items-center justify-center h-6 mb-1.5">
+                        <DollarSign size={14} className="text-blue-200" />
+                      </div>
+                      <AnimatedNumber
+                        value={resumenDia.efectivo}
+                        format={(n) => fmt(n)}
+                        className="text-lg font-black text-white tabular-nums leading-none block"
+                      />
+                      <p className="text-[9px] font-black text-blue-200 uppercase tracking-widest mt-1.5">
+                        Efectivo
+                      </p>
+                    </motion.div>
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: 0.2 }}
+                      className="rounded-2xl bg-white/15 backdrop-blur-sm px-3 py-3 text-center"
+                    >
+                      <div className="flex items-center justify-center h-6 mb-1.5">
+                        <TrendingUp size={14} className="text-blue-200" />
+                      </div>
+                      <AnimatedNumber
+                        value={resumenDia.total}
+                        format={(n) => fmt(n)}
+                        className="text-lg font-black text-white tabular-nums leading-none block"
+                      />
+                      <p className="text-[9px] font-black text-blue-200 uppercase tracking-widest mt-1.5">
+                        Total
+                      </p>
+                    </motion.div>
+                  </div>
+                </div>
+              </div>
+
+              {/* ── Barra de acciones rápidas ──
+                3 botones grandes con label debajo. Están a mano sin
+                tener que ir al ícono chico del header ni al menú.
+                Se ven vivos: bordes suaves, hover sube, íconos claros. */}
+              <motion.div
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.25 }}
+                className="grid grid-cols-3 gap-2.5"
+              >
+                {telefonoLocal ? (
+                  <a
+                    href={`tel:${telefonoLocal}`}
+                    className="flex flex-col items-center gap-1.5 rounded-2xl bg-white border border-gray-100 p-3 shadow-sm hover:shadow-md active:scale-95 transition-all"
+                  >
+                    <div className="h-9 w-9 rounded-xl bg-success-50 flex items-center justify-center text-success-600">
+                      <PhoneCall size={16} />
+                    </div>
+                    <span className="text-[10px] font-black uppercase tracking-widest text-gray-600">
+                      Llamar local
+                    </span>
+                  </a>
                 ) : (
-                  <AnimatePresence initial={false}>
-                    {(hasMultipleDeliveries ? sortedPedidos : data.pedidos).map((pedido, idx) => {
-                      const stopNumber = hasMultipleDeliveries ? idx + 1 : null;
+                  <div />
+                )}
+                <button
+                  type="button"
+                  onClick={() => fetchData()}
+                  className="flex flex-col items-center gap-1.5 rounded-2xl bg-white border border-gray-100 p-3 shadow-sm hover:shadow-md active:scale-95 transition-all"
+                >
+                  <div className="h-9 w-9 rounded-xl bg-primary-50 flex items-center justify-center text-primary-600">
+                    <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+                  </div>
+                  <span className="text-[10px] font-black uppercase tracking-widest text-gray-600">
+                    Actualizar
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('historial')}
+                  className="flex flex-col items-center gap-1.5 rounded-2xl bg-white border border-gray-100 p-3 shadow-sm hover:shadow-md active:scale-95 transition-all"
+                >
+                  <div className="h-9 w-9 rounded-xl bg-violet-50 flex items-center justify-center text-violet-600">
+                    <History size={16} />
+                  </div>
+                  <span className="text-[10px] font-black uppercase tracking-widest text-gray-600">
+                    Historial
+                  </span>
+                </button>
+              </motion.div>
+
+              {/* ── Multi-delivery route optimization ── */}
+              {hasMultipleDeliveries && (
+                <div className="rounded-[24px] bg-violet-50 border border-violet-200 px-5 py-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Route size={16} className="text-violet-600" />
+                    <p className="text-[10px] font-black text-violet-600 uppercase tracking-widest">
+                      Ruta optimizada · {sortedPedidos.length} entregas
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    {sortedPedidos.map((pedido, idx) => {
+                      const isNext = idx === 0;
                       const stopColors = [
                         'bg-emerald-500',
                         'bg-amber-500',
@@ -2265,612 +2231,925 @@ export default function RiderPanel() {
                         'bg-purple-500',
                       ];
                       return (
-                        <motion.button
+                        <button
                           key={pedido.id}
-                          layout
-                          initial={{ opacity: 0, y: 40, scale: 0.95 }}
-                          animate={{ opacity: 1, y: 0, scale: 1 }}
-                          exit={{ opacity: 0, y: -20, scale: 0.95 }}
-                          transition={{ type: 'spring', damping: 22, stiffness: 260 }}
                           onClick={() => setSelectedPedido(pedido)}
-                          className="w-full text-left rounded-[28px] bg-white border border-gray-100 p-5 shadow-sm hover:shadow-lg transition-shadow flex items-center justify-between group"
+                          className={`w-full text-left rounded-2xl px-4 py-3 flex items-center gap-3 transition-all ${
+                            isNext
+                              ? 'bg-white shadow-sm border border-violet-200'
+                              : 'bg-violet-100/50'
+                          }`}
                         >
-                          <div className="flex items-center gap-4">
-                            <div
-                              className={`h-12 w-12 rounded-[18px] flex items-center justify-center transition-colors ${
-                                pedido.estado === 'en_camino'
-                                  ? 'bg-success-50'
-                                  : 'bg-gray-50 group-hover:bg-primary-50'
-                              }`}
-                            >
-                              {hasMultipleDeliveries && stopNumber ? (
-                                <span
-                                  className={`h-7 w-7 rounded-full ${stopColors[(stopNumber - 1) % stopColors.length]} flex items-center justify-center text-white text-[10px] font-black`}
-                                >
-                                  {stopNumber}
-                                </span>
-                              ) : (
-                                <ShoppingBag
-                                  size={22}
-                                  className={
-                                    pedido.estado === 'en_camino'
-                                      ? 'text-success-600'
-                                      : 'text-gray-400 group-hover:text-primary-600'
-                                  }
-                                />
-                              )}
-                            </div>
-                            <div>
-                              <p className="text-sm font-black text-gray-900 uppercase tracking-tight">
-                                #{pedido.numero} · {pedido.cliente_nombre}
-                              </p>
-                              <p className="text-xs font-bold text-gray-400 truncate max-w-[200px]">
-                                {pedido.cliente_direccion}
-                              </p>
-                              {pedido.hora_entrega ? (
-                                <p className="text-[10px] font-black uppercase tracking-[0.18em] text-violet-600 mt-0.5">
-                                  Entrega {pedido.hora_entrega}
-                                </p>
-                              ) : null}
-                              {hasMultipleDeliveries && pedido.distance !== undefined && (
-                                <p className="text-[10px] font-black text-violet-500 mt-0.5">
-                                  {Math.round(pedido.distance)}m de distancia
-                                </p>
-                              )}
-                              <p className="text-xs font-black text-gray-700 mt-0.5">
-                                {fmt(pedido.total)}
-                              </p>
-                            </div>
+                          <div
+                            className={`h-8 w-8 rounded-full ${stopColors[idx % stopColors.length]} flex items-center justify-center text-white text-xs font-black shrink-0`}
+                          >
+                            {idx + 1}
                           </div>
-                          <div className="flex flex-col items-end gap-2 shrink-0">
-                            <span
-                              className={`text-[9px] font-black uppercase px-2 py-1 rounded-lg ${
-                                pedido.estado === 'en_camino'
-                                  ? 'bg-success-50 text-success-600'
-                                  : 'bg-primary-50 text-primary-600'
-                              }`}
-                            >
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-black text-gray-900 truncate">
+                              {pedido.cliente_nombre}
+                            </p>
+                            <p className="text-xs text-gray-500 truncate">
+                              {pedido.cliente_direccion}
+                            </p>
+                          </div>
+                          <div className="text-right shrink-0">
+                            {/* Distancia desde la parada anterior (no desde el
+                              local), que es lo que realmente le importa al
+                              rider para saber cuanto le falta al siguiente. */}
+                            {Number.isFinite(pedido._distanciaDesdeAnterior) && (
+                              <p className="text-xs font-black text-violet-600">
+                                {fmtDistancia(pedido._distanciaDesdeAnterior)}
+                              </p>
+                            )}
+                            <p className="text-[10px] font-bold text-gray-400">
                               {pedido.estado.replace('_', ' ')}
-                            </span>
-                            <ChevronRight size={18} className="text-gray-300" />
+                            </p>
                           </div>
-                        </motion.button>
+                        </button>
                       );
                     })}
-                  </AnimatePresence>
-                )}
-              </div>
-            )}
-
-            {/* ── Tab: Historial de sesión ── */}
-            {activeTab === 'historial' && (
-              <div className="space-y-3">
-                {historialSesion.length === 0 ? (
-                  <div className="py-16 text-center flex flex-col items-center opacity-30">
-                    <Star size={48} strokeWidth={1} className="mb-4" />
-                    <p className="text-sm font-bold uppercase tracking-widest">
-                      Aún no entregaste nada
-                    </p>
                   </div>
-                ) : (
-                  historialSesion.map((p, i) => (
-                    <div
-                      key={p.id + '-' + i}
-                      className="rounded-[24px] bg-white border border-gray-100 p-4 flex items-center justify-between shadow-sm"
+                  {sortedPedidos[0]?.cliente_latitud && sortedPedidos[0]?.cliente_longitud && (
+                    <button
+                      onClick={() => openNav(sortedPedidos[0])}
+                      className="mt-3 w-full h-11 rounded-2xl bg-violet-600 text-white flex items-center justify-center gap-2 text-xs font-black uppercase tracking-widest shadow-lg shadow-violet-200"
                     >
-                      <div className="flex items-center gap-3">
-                        <div className="h-10 w-10 rounded-xl bg-success-50 flex items-center justify-center">
-                          <CheckCircle2 size={18} className="text-success-600" />
-                        </div>
-                        <div>
-                          <p className="text-sm font-black text-gray-900">
-                            #{p.numero} · {p.cliente_nombre || 'S/N'}
-                          </p>
-                          <p className="text-xs text-gray-400">{p.cliente_direccion}</p>
-                          {p.hora_entrega ? (
-                            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-violet-600 mt-0.5">
-                              Entrega {p.hora_entrega}
-                            </p>
-                          ) : null}
-                          <p className="text-[10px] text-success-600 font-bold mt-0.5">
-                            {p.entregado_en ? format(parseDate(p.entregado_en), 'HH:mm') : ''} ·{' '}
-                            {paymentMethodLabel(p.metodo_pago)}
-                          </p>
-                        </div>
-                      </div>
-                      <p className="text-sm font-black text-gray-900">{fmt(p.total)}</p>
-                    </div>
-                  ))
-                )}
-              </div>
-            )}
-          </>
-        ) : (
-          /* ── Detalle de pedido ──────────────────────────────── */
-          <div className="flex flex-1 flex-col animate-in slide-in-from-right duration-300">
-            <button
-              onClick={() => setSelectedPedido(null)}
-              className="mb-3 flex w-fit items-center gap-2 rounded-xl px-2 py-2 text-xs font-black uppercase tracking-wider text-gray-500 transition hover:bg-white hover:text-gray-900"
-            >
-              <X size={18} /> Volver
-            </button>
-
-            <div className="flex flex-1 flex-col overflow-hidden rounded-[28px] border border-gray-100 bg-white shadow-lg shadow-gray-200/60">
-              {/* Hero card cliente: gradient sutil, avatar inicial, badge #pedido
-                  arriba, timer/hora bien visible. Rediseño para dar vida y
-                  jerarquia clara al detalle del pedido. */}
-              <div
-                className="relative overflow-hidden border-b border-gray-100 p-5 sm:p-6"
-                style={{
-                  background: `linear-gradient(135deg, ${primaryColor}0d 0%, #ffffff 60%)`,
-                }}
-              >
-                <div
-                  className="pointer-events-none absolute -right-16 -top-16 h-40 w-40 rounded-full blur-3xl"
-                  style={{
-                    background: `radial-gradient(circle, ${primaryColor}22, transparent 70%)`,
-                  }}
-                />
-                <div className="relative">
-                  <div className="mb-4 flex items-center justify-between gap-3">
-                    <div
-                      className="rounded-full px-4 py-1.5 text-[11px] font-black uppercase tracking-widest text-white shadow-sm"
-                      style={{ backgroundColor: primaryColor }}
-                    >
-                      #{selectedPedido.numero}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {selectedPedido.estado === 'en_camino' && (
-                        <div className="flex items-center gap-1.5 rounded-full bg-success-500 px-3 py-1.5 shadow-sm">
-                          <Clock size={12} className="text-white" />
-                          <span className="text-xs font-black tabular-nums text-white">
-                            {fmtTimer(deliveryElapsed)}
-                          </span>
-                        </div>
-                      )}
-                      <span className="rounded-full bg-white/70 px-2.5 py-1 text-[10px] font-black uppercase tracking-widest text-gray-500 backdrop-blur-sm">
-                        {format(parseDate(selectedPedido.creado_en), 'HH:mm')} HS
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-4">
-                    {/* Avatar con inicial del cliente */}
-                    <div
-                      className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl text-2xl font-black text-white shadow-md"
-                      style={{
-                        background: `linear-gradient(135deg, ${primaryColor}, ${primaryColor}dd)`,
-                      }}
-                    >
-                      {String(selectedPedido.cliente_nombre || '?')
-                        .trim()
-                        .charAt(0)
-                        .toUpperCase()}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">
-                        Cliente
-                      </p>
-                      <h3 className="mt-0.5 break-words text-xl font-black leading-tight text-gray-900 sm:text-2xl">
-                        {selectedPedido.cliente_nombre}
-                      </h3>
-                    </div>
-                  </div>
-
-                  <div className="mt-5 space-y-3">
-                    {selectedPedido.hora_entrega ? (
-                      <div className="flex items-center gap-3 rounded-2xl border border-violet-100 bg-violet-50/70 p-3">
-                        <div className="h-9 w-9 rounded-xl bg-violet-500 flex items-center justify-center text-white shrink-0 shadow-sm">
-                          <Clock size={16} />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="text-[10px] font-black text-violet-500 uppercase tracking-widest">
-                            Hora de entrega
-                          </p>
-                          <p className="text-sm font-black text-violet-900 leading-tight">
-                            {selectedPedido.hora_entrega}
-                          </p>
-                        </div>
-                      </div>
-                    ) : null}
-                    <div className="flex min-w-0 items-center gap-3 rounded-2xl border border-gray-100 bg-white p-3 shadow-sm">
-                      <div
-                        className="h-9 w-9 rounded-xl flex items-center justify-center text-white shrink-0 shadow-sm"
-                        style={{ backgroundColor: primaryColor }}
-                      >
-                        <MapPin size={16} />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
-                          Dirección
-                        </p>
-                        <p className="break-words text-sm font-black leading-snug text-gray-900">
-                          {selectedPedido.cliente_direccion}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-3 rounded-2xl border border-emerald-100 bg-success-50/60 p-3">
-                      <div className="h-9 w-9 rounded-xl bg-success-500 flex items-center justify-center text-white shrink-0 shadow-sm">
-                        <Phone size={16} />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-[10px] font-black text-success-600 uppercase tracking-widest">
-                          Teléfono
-                        </p>
-                        <p className="text-sm font-black text-emerald-900">
-                          {selectedPedido.cliente_telefono || 'No disponible'}
-                        </p>
-                      </div>
-                      {selectedPedido.cliente_telefono && (
-                        <a
-                          href={`tel:${selectedPedido.cliente_telefono}`}
-                          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-success-500 text-white shadow-md shadow-success-200 transition-all active:scale-90 hover:bg-emerald-600"
-                        >
-                          <Phone size={18} fill="currentColor" />
-                        </a>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Mapa interactivo */}
-              <div className="px-5 py-5 sm:px-6">
-                <div className="overflow-hidden rounded-[22px] border border-gray-200 bg-white shadow-sm">
-                  <div className="h-[230px] bg-gray-50 sm:h-[270px]">
-                    {selectedPedido.cliente_direccion ? (
-                      <RiderRouteMap
-                        riderLat={selectedPedido.repartidor?.latitud}
-                        riderLng={selectedPedido.repartidor?.longitud}
-                        clientLat={selectedPedido.cliente_latitud}
-                        clientLng={selectedPedido.cliente_longitud}
-                        clientLocationExact={Boolean(selectedPedido.cliente_ubicacion_exacta)}
-                        clientAddress={selectedPedido.cliente_direccion}
-                        onNavigate={() => openNav(selectedPedido)}
-                        mapConfig={mapConfig}
-                      />
-                    ) : (
-                      <div className="flex h-full items-center justify-center text-sm font-bold text-gray-400">
-                        Sin dirección cargada
-                      </div>
-                    )}
-                  </div>
-
-                  {/* ── Multi-delivery: otras paradas ── */}
-                  {hasMultipleDeliveries && (
-                    <div className="p-3 border-t border-gray-100 bg-gray-50/50">
-                      <p className="text-[10px] font-black uppercase text-gray-400 tracking-widest mb-2">
-                        Otras paradas en tu ruta
-                      </p>
-                      <div className="flex flex-wrap gap-2">
-                        {sortedPedidos
-                          .filter((p) => p.id !== selectedPedido.id)
-                          .map((p, idx) => {
-                            const stopColors = [
-                              'bg-emerald-500',
-                              'bg-amber-500',
-                              'bg-orange-500',
-                              'bg-rose-500',
-                              'bg-purple-500',
-                            ];
-                            const globalIdx = sortedPedidos.findIndex((sp) => sp.id === p.id);
-                            return (
-                              <button
-                                key={p.id}
-                                onClick={() => setSelectedPedido(p)}
-                                className="inline-flex items-center gap-1.5 rounded-xl bg-white border border-gray-200 px-3 py-2 text-xs font-bold text-gray-700 shadow-sm hover:shadow-md transition-all"
-                              >
-                                <span
-                                  className={`h-5 w-5 rounded-full ${stopColors[globalIdx % stopColors.length]} flex items-center justify-center text-white text-[9px] font-black`}
-                                >
-                                  {globalIdx + 1}
-                                </span>
-                                <span className="truncate max-w-[120px]">{p.cliente_nombre}</span>
-                                {p.distance !== undefined && (
-                                  <span className="text-[10px] text-violet-500 font-black">
-                                    {Math.round(p.distance)}m
-                                  </span>
-                                )}
-                              </button>
-                            );
-                          })}
-                      </div>
-                    </div>
+                      <Navigation size={14} /> Navegar a Parada 1
+                    </button>
                   )}
-
-                  {/* 4 botones de accion, iguales entre si (mismo alto y forma)
-                      pero con colores distinguibles: MAPS marca, COPIAR neutro,
-                      WHATSAPP verde, WAZE azul cielo. Aprieta subtly con
-                      active:scale-95 para dar feedback tactil. */}
-                  <div className="grid grid-cols-2 gap-2 border-t border-gray-100 bg-gray-50/60 p-3 sm:grid-cols-4">
-                    <button
-                      onClick={() => openNav(selectedPedido)}
-                      className="flex h-14 flex-col items-center justify-center gap-1 rounded-2xl text-[10px] font-black uppercase tracking-widest text-white shadow-md transition-all active:scale-95"
-                      style={{
-                        background: `linear-gradient(135deg, ${primaryColor}, ${primaryColor}dd)`,
-                        boxShadow: `0 4px 12px ${primaryColor}40`,
-                      }}
-                    >
-                      <Navigation size={18} />
-                      Maps
-                    </button>
-                    <a
-                      href={buildWazeUrl(
-                        {
-                          latitud: selectedPedido.cliente_latitud,
-                          longitud: selectedPedido.cliente_longitud,
-                          direccion: selectedPedido.cliente_direccion,
-                          ubicacionExacta: Boolean(selectedPedido.cliente_ubicacion_exacta),
-                        },
-                        mapConfig
-                      )}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex h-14 flex-col items-center justify-center gap-1 rounded-2xl bg-gradient-to-br from-sky-500 to-sky-600 text-[10px] font-black uppercase tracking-widest text-white shadow-md shadow-sky-200 transition-all active:scale-95"
-                    >
-                      <Route size={18} /> Waze
-                    </a>
-                    {selectedPedido.cliente_telefono ? (
-                      <a
-                        href={`https://wa.me/${String(selectedPedido.cliente_telefono).replace(/\D/g, '')}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex h-14 flex-col items-center justify-center gap-1 rounded-2xl bg-gradient-to-br from-emerald-500 to-emerald-600 text-[10px] font-black uppercase tracking-widest text-white shadow-md shadow-emerald-200 transition-all active:scale-95"
-                      >
-                        <Phone size={18} /> WhatsApp
-                      </a>
-                    ) : (
-                      <div className="hidden sm:block" />
-                    )}
-                    <button
-                      onClick={() =>
-                        navigator.clipboard
-                          ?.writeText(selectedPedido.cliente_direccion || '')
-                          .then(() => toast.success('Dirección copiada'))
-                          .catch(() => toast.error('No se pudo copiar'))
-                      }
-                      className="flex h-14 flex-col items-center justify-center gap-1 rounded-2xl border border-gray-200 bg-white text-[10px] font-black uppercase tracking-widest text-gray-700 shadow-sm transition-all active:scale-95"
-                    >
-                      <Copy size={16} /> Copiar
-                    </button>
-                  </div>
                 </div>
-              </div>
+              )}
 
-              {/* Resumen del pedido. Total a cobrar en banda de color:
-                  verde si ya cobrado, ambar si pendiente en efectivo, azul
-                  neutro para digitales. */}
-              {(() => {
-                const estadoPago = String(selectedPedido.pago_estado || 'pendiente').toLowerCase();
-                const metodoPago = String(selectedPedido.metodo_pago || 'efectivo').toLowerCase();
-                const yaCobrado = ['pagado', 'cobrado', 'aprobado'].includes(estadoPago);
-                const totalBg = yaCobrado
-                  ? 'linear-gradient(135deg, #059669, #10b981)'
-                  : metodoPago === 'efectivo'
-                    ? 'linear-gradient(135deg, #d97706, #f59e0b)'
-                    : `linear-gradient(135deg, ${primaryColor}, ${primaryColor}dd)`;
-                const totalShadow = yaCobrado
-                  ? '0 12px 28px rgba(16,185,129,0.35)'
-                  : metodoPago === 'efectivo'
-                    ? '0 12px 28px rgba(245,158,11,0.35)'
-                    : `0 12px 28px ${primaryColor}40`;
-                return (
-                  <>
-                    <div className="mx-5 mb-4 flex-1 rounded-[22px] bg-gray-50 p-5 sm:mx-6">
-                      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-                        <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
-                          Resumen del pedido
-                        </span>
-                        <span
-                          className={`rounded-lg px-2.5 py-1 text-[10px] font-black ${paymentStatusTone(selectedPedido.pago_estado)}`}
-                        >
-                          {paymentMethodLabel(selectedPedido.metodo_pago)} ·{' '}
-                          {paymentStatusLabel(selectedPedido.pago_estado)}
-                        </span>
-                      </div>
-                      <div className="space-y-3">
-                        {selectedItems.map((it, idx) => (
-                          <div
-                            key={idx}
-                            className="flex justify-between gap-4 text-sm bg-white rounded-xl p-3 border border-gray-100"
-                          >
-                            <div className="flex items-center gap-2 min-w-0">
-                              <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-primary-50 text-primary-600 text-[10px] font-black shrink-0">
-                                {it.cantidad}x
-                              </span>
-                              <p className="min-w-0 break-words font-bold text-gray-700">
-                                {it.nombre}
-                              </p>
-                            </div>
-                            <p className="shrink-0 font-black text-gray-900">
-                              {fmt(it.precio_unitario * it.cantidad)}
-                            </p>
-                          </div>
-                        ))}
-                      </div>
+              {/* ── Timer en reparto activo ── */}
+              {inTransitOrder && (
+                <div className="rounded-[24px] bg-success-50 border border-emerald-200 px-5 py-4 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="h-10 w-10 rounded-xl bg-success-500 flex items-center justify-center">
+                      <Truck size={18} color="white" />
                     </div>
-
-                    {/* Total a cobrar: banda grande con color segun estado */}
-                    <div
-                      className="relative mx-5 mb-5 overflow-hidden rounded-[22px] p-5 shadow-lg sm:mx-6"
-                      style={{ background: totalBg, boxShadow: totalShadow }}
-                    >
-                      <div className="pointer-events-none absolute -right-8 -top-8 h-32 w-32 rounded-full bg-white/15 blur-2xl" />
-                      <div className="relative flex items-center justify-between">
-                        <div>
-                          <p className="text-[10px] font-black uppercase tracking-[0.22em] text-white/80">
-                            {yaCobrado ? '✓ Ya cobrado' : 'Total a cobrar'}
-                          </p>
-                          <p className="mt-1 text-[10px] font-bold text-white/70">
-                            {paymentMethodLabel(selectedPedido.metodo_pago)}
-                          </p>
-                        </div>
-                        <p className="text-3xl font-black text-white tabular-nums leading-none">
-                          {fmt(selectedPedido.total)}
-                        </p>
-                      </div>
-                    </div>
-                  </>
-                );
-              })()}
-
-              {/* Selector de metodo de pago (cuando esta pendiente) */}
-              {paymentStatusLabel(selectedPedido.pago_estado) === 'Pendiente' && (
-                <div className="mx-5 mb-5 rounded-[22px] bg-gray-50 p-5 sm:mx-6">
-                  <div>
-                    <div className="mb-3 flex items-center gap-2">
-                      <CreditCard size={15} className="text-gray-500" />
-                      <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">
-                        Medio que usará el cliente
+                    <div>
+                      <p className="text-[10px] font-black text-success-600 uppercase tracking-widest">
+                        En reparto
                       </p>
+                      <p className="text-sm font-black text-emerald-800">
+                        #{inTransitOrder.numero} · {inTransitOrder.cliente_nombre || 'S/N'}
+                      </p>
+                      {inTransitOrder.hora_entrega ? (
+                        <p className="mt-1 text-[10px] font-black uppercase tracking-[0.18em] text-emerald-600">
+                          Entrega {inTransitOrder.hora_entrega}
+                        </p>
+                      ) : null}
                     </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      {(() => {
-                        let enabled = [];
-                        try {
-                          enabled = JSON.parse(data?.settings?.metodos_pago || '[]');
-                        } catch {
-                          enabled = [];
-                        }
-                        if (!enabled.length) {
-                          enabled = ['efectivo', 'transferencia', 'modo', 'uala'];
-                        }
-                        return enabled
-                          .filter((method) => method !== 'mercadopago')
-                          .map((method) => (
-                            <button
-                              key={method}
-                              type="button"
-                              disabled={changingPayment || selectedPedido.metodo_pago === method}
-                              onClick={() => changePaymentMethod(selectedPedido.id, method)}
-                              className={`min-h-11 rounded-xl border px-3 py-2 text-xs font-black transition ${
-                                selectedPedido.metodo_pago === method
-                                  ? 'border-primary-500 bg-primary-50 text-primary-700'
-                                  : 'border-gray-200 bg-white text-gray-700'
-                              } disabled:opacity-60`}
-                            >
-                              {paymentMethodLabel(method)}
-                            </button>
-                          ));
-                      })()}
-                    </div>
-                    <p className="mt-3 text-[11px] font-semibold leading-relaxed text-gray-500">
-                      Se puede cambiar mientras figure pendiente. Al confirmar la entrega quedará
-                      registrado como cobrado.
+                  </div>
+                  <div className="text-right">
+                    <p className="text-2xl font-black text-success-700 tabular-nums">
+                      {fmtTimer(deliveryElapsed)}
+                    </p>
+                    <p className="text-[9px] text-emerald-500 uppercase font-black">
+                      Tiempo en ruta
                     </p>
                   </div>
                 </div>
               )}
 
-              {/* Acciones */}
-              <div className="flex flex-col gap-3 border-t border-gray-100 bg-white p-5 sm:p-6">
-                {/* Chat directo con el local por WhatsApp (motivo del pedido,
-                    problema, etc.). Mucho más práctico que llamar y esperar. */}
-                {telefonoLocal ? (
-                  <a
-                    href={`https://wa.me/${String(telefonoLocal).replace(/\D/g, '')}?text=${encodeURIComponent(
-                      `Hola, sobre el pedido #${selectedPedido.numero} de ${selectedPedido.cliente_nombre || 'S/N'}: `
-                    )}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-success-50 text-xs font-black uppercase tracking-widest text-success-700 transition-all active:scale-95"
-                  >
-                    <PhoneCall size={14} /> Escribir al local por WhatsApp
-                  </a>
-                ) : null}
-                {/* Comenzar reparto */}
-                {['confirmado', 'listo', 'preparando'].includes(selectedPedido.estado) && (
-                  <button
-                    onClick={() => updateEstado(selectedPedido.id, 'en_camino')}
-                    className="rider-primary-button flex h-14 w-full items-center justify-center gap-3 rounded-2xl text-sm font-black uppercase tracking-wide text-white shadow-lg transition-all active:scale-[0.98]"
-                  >
-                    <Truck size={22} /> Comenzar reparto
-                  </button>
-                )}
-
-                {/* ── NEW: Swipe para entregar ── */}
-                {selectedPedido.estado === 'en_camino' && (
-                  <SwipeButton
-                    onComplete={() => handleSwipeComplete(selectedPedido)}
-                    disabled={false}
+              {/* ── Status card + GPS ── */}
+              <div className="rounded-[32px] bg-white p-6 shadow-sm border border-gray-100">
+                <p className="text-sm font-bold text-gray-600 leading-relaxed">
+                  {data?.settings?.rider_app_bienvenida}
+                </p>
+                <div className="mt-4 flex flex-wrap items-center gap-3">
+                  <div
+                    className={`h-2.5 w-2.5 rounded-full ${trackingActive ? 'bg-success-500 animate-pulse' : 'bg-gray-300'}`}
                   />
+                  <span className="text-[10px] font-black uppercase text-gray-400 tracking-widest">
+                    {trackingActive ? 'GPS activo' : 'Sin reparto activo'}
+                  </span>
+                  <span
+                    className={`rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-widest ${
+                      locationPermission === 'granted'
+                        ? 'bg-success-50 text-success-600'
+                        : locationPermission === 'denied'
+                          ? 'bg-danger-50 text-danger-600'
+                          : 'bg-warning-50 text-warning-600'
+                    }`}
+                  >
+                    GPS{' '}
+                    {locationPermission === 'granted'
+                      ? 'OK'
+                      : locationPermission === 'denied'
+                        ? 'bloqueado'
+                        : 'pendiente'}
+                  </span>
+                  {trackingActive && lastGpsAgeSeconds !== null && (
+                    <span
+                      className={`rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-widest ${
+                        lastGpsAgeSeconds <= 90
+                          ? 'bg-success-50 text-success-700'
+                          : 'bg-warning-50 text-warning-700'
+                      }`}
+                    >
+                      {lastGpsAgeSeconds <= 90
+                        ? 'GPS reciente'
+                        : `GPS atrasado ${lastGpsAgeSeconds}s`}
+                    </span>
+                  )}
+                </div>
+                {lastPositionAt && (
+                  <p className="mt-3 text-[11px] font-bold uppercase tracking-widest text-gray-400">
+                    Último GPS: {format(parseDate(lastPositionAt), 'HH:mm', { locale: es })}
+                  </p>
                 )}
+                {locationError && (
+                  <div className="mt-4 rounded-2xl border border-rose-100 bg-danger-50 px-4 py-3 text-sm font-semibold text-danger-700">
+                    {locationError}
+                  </div>
+                )}
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {locationPermission !== 'granted' && (
+                    <button
+                      type="button"
+                      onClick={requestLocationAccess}
+                      className="inline-flex h-11 items-center gap-2 rounded-2xl bg-blue-600 px-5 text-xs font-black uppercase tracking-widest text-white shadow-lg shadow-primary-100"
+                    >
+                      <LocateFixed size={15} /> Activar GPS
+                    </button>
+                  )}
+                  {data?.pedidos?.length > 0 &&
+                    !(trackingActive && locationPermission === 'granted') && (
+                      <button
+                        type="button"
+                        onClick={requestLocationAccess}
+                        className="inline-flex h-11 items-center gap-2 rounded-2xl border border-gray-200 bg-white px-4 text-xs font-black uppercase tracking-widest text-gray-700 shadow-sm"
+                      >
+                        <RefreshCw size={14} /> Revalidar GPS
+                      </button>
+                    )}
+                  {!isStandaloneApp && (installReady || iosInstall) && (
+                    <button
+                      type="button"
+                      onClick={installRiderApp}
+                      className="inline-flex h-11 items-center gap-2 rounded-2xl border border-primary-200 bg-primary-50 px-4 text-xs font-black uppercase tracking-widest text-blue-700"
+                    >
+                      <Smartphone size={14} /> Instalar app
+                    </button>
+                  )}
+                </div>
+                {!isStandaloneApp && (
+                  <p className="mt-4 text-[11px] font-semibold leading-relaxed text-gray-500">
+                    Instalá esta pantalla en el celular del rider para abrirla como app.{' '}
+                    {iosInstall
+                      ? 'En iPhone: Compartir -> Agregar a pantalla de inicio.'
+                      : 'En Android o Chrome: usá el botón Instalar app cuando aparezca.'}
+                  </p>
+                )}
+              </div>
 
-                {/* Bloque incidencia + cancelar */}
-                <div className="grid grid-cols-2 gap-3">
-                  <button
-                    onClick={() => setIncidenciaOpen(true)}
-                    className="flex h-12 items-center justify-center gap-2 rounded-2xl border border-amber-200 bg-warning-50 text-[11px] font-black uppercase tracking-wide text-warning-700 active:scale-95 transition-transform"
-                  >
-                    <AlertCircle size={15} /> Reportar problema
-                  </button>
-                  <button
-                    onClick={() => {
-                      if (window.confirm('¿Cancelar este pedido? No se puede deshacer.')) {
-                        updateEstado(selectedPedido.id, 'cancelado');
-                      }
+              {/* Los tabs ahora viven en la BottomTabBar (mas ergonomico:
+                el pulgar llega comodo abajo, no arriba de una pantalla
+                de 6"). Aca solo queda el contenido de cada uno. */}
+
+              {/* ── Tab: Pedidos activos ── */}
+              {activeTab === 'pedidos' && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between px-1">
+                    <h3 className="text-xs font-black uppercase text-gray-400 tracking-[0.2em]">
+                      Asignados ({data?.pedidos?.length || 0})
+                    </h3>
+                    <button onClick={fetchData} className="text-primary-600">
+                      <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+                    </button>
+                  </div>
+
+                  {!data?.pedidos?.length ? (
+                    isOnline ? (
+                      <div className="rounded-[32px] bg-gradient-to-br from-blue-50 via-white to-blue-50 border border-blue-100 py-12 text-center flex flex-col items-center relative overflow-hidden">
+                        {/* Ondas de radar animadas: 3 círculos concéntricos que
+                          se expanden con desfase, dan sensación de "escaneando"
+                          el mapa a la espera de pedidos. */}
+                        <div className="relative h-28 w-28 mb-5">
+                          <div className="absolute inset-0 rounded-full bg-primary-500/20 animate-ping" />
+                          <div
+                            className="absolute inset-3 rounded-full bg-primary-500/25 animate-ping"
+                            style={{ animationDelay: '0.4s' }}
+                          />
+                          <div
+                            className="absolute inset-6 rounded-full bg-primary-500/30 animate-ping"
+                            style={{ animationDelay: '0.8s' }}
+                          />
+                          <div className="absolute inset-8 rounded-full bg-primary-500 flex items-center justify-center shadow-lg shadow-primary-200">
+                            <Package size={26} className="text-white" strokeWidth={2.2} />
+                          </div>
+                        </div>
+                        <p className="text-sm font-black uppercase tracking-widest text-primary-600">
+                          Esperando pedidos
+                        </p>
+                        <p className="mt-2 text-xs font-semibold text-gray-500 max-w-xs px-4">
+                          Cuando entre uno nuevo te va a sonar y vibrar acá. Dejá la app abierta
+                          aunque bloquees el celular.
+                        </p>
+                        <div className="mt-4 flex items-center gap-2 rounded-full bg-white/80 px-3 py-1.5 shadow-sm border border-gray-100">
+                          <div className="h-2 w-2 rounded-full bg-success-500 animate-pulse" />
+                          <span className="text-[10px] font-black uppercase tracking-widest text-gray-500">
+                            Modo activo
+                          </span>
+                        </div>
+                      </div>
+                    ) : (
+                      /* Offline y sin pedidos: el boton grande de turno es lo
+                       unico que importa en pantalla. Patron Uber Driver. */
+                      <div className="rounded-[32px] border border-gray-100 bg-white py-10 shadow-sm">
+                        <ToggleTurno online={isOnline} onToggle={(next) => toggleOnline(next)} />
+                        <p className="mx-auto mt-2 max-w-xs px-6 text-center text-xs font-semibold leading-relaxed text-gray-400">
+                          Mientras estés no disponible no te vamos a asignar pedidos nuevos.
+                        </p>
+                      </div>
+                    )
+                  ) : (
+                    <AnimatePresence initial={false}>
+                      {(hasMultipleDeliveries ? sortedPedidos : data.pedidos).map((pedido, idx) => {
+                        const stopNumber = hasMultipleDeliveries ? idx + 1 : null;
+                        const stopColors = [
+                          'bg-emerald-500',
+                          'bg-amber-500',
+                          'bg-orange-500',
+                          'bg-rose-500',
+                          'bg-purple-500',
+                        ];
+                        // Urgencia por antiguedad del pedido: la barra lateral
+                        // de color deja ver de un vistazo cual esta demorado
+                        // sin tener que leer horarios.
+                        const urgencia = nivelUrgencia(pedido.creado_en);
+                        return (
+                          <motion.button
+                            key={pedido.id}
+                            layout
+                            initial={{ opacity: 0, y: 40, scale: 0.95 }}
+                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                            exit={{ opacity: 0, y: -20, scale: 0.95 }}
+                            transition={{ type: 'spring', damping: 22, stiffness: 260 }}
+                            onClick={() => {
+                              haptic('tap');
+                              setSelectedPedido(pedido);
+                            }}
+                            style={{ borderLeft: `5px solid ${urgencia.color}` }}
+                            className="w-full text-left rounded-[28px] bg-white border border-gray-100 p-5 shadow-sm hover:shadow-lg transition-shadow flex items-center justify-between group"
+                          >
+                            <div className="flex items-center gap-4">
+                              <div
+                                className={`h-12 w-12 rounded-[18px] flex items-center justify-center transition-colors ${
+                                  pedido.estado === 'en_camino'
+                                    ? 'bg-success-50'
+                                    : 'bg-gray-50 group-hover:bg-primary-50'
+                                }`}
+                              >
+                                {hasMultipleDeliveries && stopNumber ? (
+                                  <span
+                                    className={`h-7 w-7 rounded-full ${stopColors[(stopNumber - 1) % stopColors.length]} flex items-center justify-center text-white text-[10px] font-black`}
+                                  >
+                                    {stopNumber}
+                                  </span>
+                                ) : (
+                                  <ShoppingBag
+                                    size={22}
+                                    className={
+                                      pedido.estado === 'en_camino'
+                                        ? 'text-success-600'
+                                        : 'text-gray-400 group-hover:text-primary-600'
+                                    }
+                                  />
+                                )}
+                              </div>
+                              <div>
+                                <p className="text-sm font-black text-gray-900 uppercase tracking-tight">
+                                  #{pedido.numero} · {pedido.cliente_nombre}
+                                </p>
+                                <p className="text-xs font-bold text-gray-400 truncate max-w-[200px]">
+                                  {pedido.cliente_direccion}
+                                </p>
+                                {urgencia.minutos !== null && urgencia.nivel !== 'ok' ? (
+                                  <span
+                                    className={`mt-1 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-widest ${
+                                      urgencia.nivel === 'urgente'
+                                        ? 'bg-danger-50 text-danger-700'
+                                        : 'bg-warning-50 text-warning-700'
+                                    }`}
+                                  >
+                                    <Clock size={10} strokeWidth={3} />
+                                    {urgencia.minutos} min esperando
+                                  </span>
+                                ) : null}
+                                {pedido.hora_entrega ? (
+                                  <p className="text-[10px] font-black uppercase tracking-[0.18em] text-violet-600 mt-0.5">
+                                    Entrega {pedido.hora_entrega}
+                                  </p>
+                                ) : null}
+                                {hasMultipleDeliveries && pedido.distance !== undefined && (
+                                  <p className="text-[10px] font-black text-violet-500 mt-0.5">
+                                    {Math.round(pedido.distance)}m de distancia
+                                  </p>
+                                )}
+                                <p className="text-xs font-black text-gray-700 mt-0.5">
+                                  {fmt(pedido.total)}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="flex flex-col items-end gap-2 shrink-0">
+                              <span
+                                className={`text-[9px] font-black uppercase px-2 py-1 rounded-lg ${
+                                  pedido.estado === 'en_camino'
+                                    ? 'bg-success-50 text-success-600'
+                                    : 'bg-primary-50 text-primary-600'
+                                }`}
+                              >
+                                {pedido.estado.replace('_', ' ')}
+                              </span>
+                              <ChevronRight size={18} className="text-gray-300" />
+                            </div>
+                          </motion.button>
+                        );
+                      })}
+                    </AnimatePresence>
+                  )}
+                </div>
+              )}
+
+              {/* ── Tab: Historial de sesión ── */}
+              {activeTab === 'historial' && (
+                <div className="space-y-3">
+                  {historialSesion.length === 0 ? (
+                    <div className="py-16 text-center flex flex-col items-center opacity-30">
+                      <Star size={48} strokeWidth={1} className="mb-4" />
+                      <p className="text-sm font-bold uppercase tracking-widest">
+                        Aún no entregaste nada
+                      </p>
+                    </div>
+                  ) : (
+                    historialSesion.map((p, i) => (
+                      <div
+                        key={p.id + '-' + i}
+                        className="rounded-[24px] bg-white border border-gray-100 p-4 flex items-center justify-between shadow-sm"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="h-10 w-10 rounded-xl bg-success-50 flex items-center justify-center">
+                            <CheckCircle2 size={18} className="text-success-600" />
+                          </div>
+                          <div>
+                            <p className="text-sm font-black text-gray-900">
+                              #{p.numero} · {p.cliente_nombre || 'S/N'}
+                            </p>
+                            <p className="text-xs text-gray-400">{p.cliente_direccion}</p>
+                            {p.hora_entrega ? (
+                              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-violet-600 mt-0.5">
+                                Entrega {p.hora_entrega}
+                              </p>
+                            ) : null}
+                            <p className="text-[10px] text-success-600 font-bold mt-0.5">
+                              {p.entregado_en ? format(parseDate(p.entregado_en), 'HH:mm') : ''} ·{' '}
+                              {paymentMethodLabel(p.metodo_pago)}
+                            </p>
+                          </div>
+                        </div>
+                        <p className="text-sm font-black text-gray-900">{fmt(p.total)}</p>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+
+              {/* ── Tab: Perfil ── */}
+              {activeTab === 'perfil' && (
+                <PerfilRider
+                  repartidor={data?.repartidor}
+                  stats={riderStats}
+                  onLogout={handleLogout}
+                  onCambiarRider={handleLogoutCompleto}
+                />
+              )}
+            </>
+          ) : (
+            /* ── Detalle de pedido ──────────────────────────────── */
+            <div className="flex flex-1 flex-col animate-in slide-in-from-right duration-300">
+              <button
+                onClick={() => setSelectedPedido(null)}
+                className="mb-3 flex w-fit items-center gap-2 rounded-xl px-2 py-2 text-xs font-black uppercase tracking-wider text-gray-500 transition hover:bg-white hover:text-gray-900"
+              >
+                <X size={18} /> Volver
+              </button>
+
+              <div className="flex flex-1 flex-col overflow-hidden rounded-[28px] border border-gray-100 bg-white shadow-lg shadow-gray-200/60">
+                {/* Hero card cliente: gradient sutil, avatar inicial, badge #pedido
+                  arriba, timer/hora bien visible. Rediseño para dar vida y
+                  jerarquia clara al detalle del pedido. */}
+                <div
+                  className="relative overflow-hidden border-b border-gray-100 p-5 sm:p-6"
+                  style={{
+                    background: `linear-gradient(135deg, ${primaryColor}0d 0%, #ffffff 60%)`,
+                  }}
+                >
+                  <div
+                    className="pointer-events-none absolute -right-16 -top-16 h-40 w-40 rounded-full blur-3xl"
+                    style={{
+                      background: `radial-gradient(circle, ${primaryColor}22, transparent 70%)`,
                     }}
-                    className="flex h-12 items-center justify-center gap-2 rounded-2xl border border-rose-200 bg-danger-50 text-[11px] font-black uppercase tracking-wide text-danger-700 active:scale-95 transition-transform"
-                  >
-                    <X size={15} /> Cancelar
-                  </button>
+                  />
+                  <div className="relative">
+                    <div className="mb-4 flex items-center justify-between gap-3">
+                      <div
+                        className="rounded-full px-4 py-1.5 text-[11px] font-black uppercase tracking-widest text-white shadow-sm"
+                        style={{ backgroundColor: primaryColor }}
+                      >
+                        #{selectedPedido.numero}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {selectedPedido.estado === 'en_camino' && (
+                          <div className="flex items-center gap-1.5 rounded-full bg-success-500 px-3 py-1.5 shadow-sm">
+                            <Clock size={12} className="text-white" />
+                            <span className="text-xs font-black tabular-nums text-white">
+                              {fmtTimer(deliveryElapsed)}
+                            </span>
+                          </div>
+                        )}
+                        <span className="rounded-full bg-white/70 px-2.5 py-1 text-[10px] font-black uppercase tracking-widest text-gray-500 backdrop-blur-sm">
+                          {format(parseDate(selectedPedido.creado_en), 'HH:mm')} HS
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-4">
+                      {/* Avatar con inicial del cliente */}
+                      <div
+                        className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl text-2xl font-black text-white shadow-md"
+                        style={{
+                          background: `linear-gradient(135deg, ${primaryColor}, ${primaryColor}dd)`,
+                        }}
+                      >
+                        {String(selectedPedido.cliente_nombre || '?')
+                          .trim()
+                          .charAt(0)
+                          .toUpperCase()}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+                          Cliente
+                        </p>
+                        <h3 className="mt-0.5 break-words text-xl font-black leading-tight text-gray-900 sm:text-2xl">
+                          {selectedPedido.cliente_nombre}
+                        </h3>
+                      </div>
+                    </div>
+
+                    <div className="mt-5 space-y-3">
+                      {selectedPedido.hora_entrega ? (
+                        <div className="flex items-center gap-3 rounded-2xl border border-violet-100 bg-violet-50/70 p-3">
+                          <div className="h-9 w-9 rounded-xl bg-violet-500 flex items-center justify-center text-white shrink-0 shadow-sm">
+                            <Clock size={16} />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-[10px] font-black text-violet-500 uppercase tracking-widest">
+                              Hora de entrega
+                            </p>
+                            <p className="text-sm font-black text-violet-900 leading-tight">
+                              {selectedPedido.hora_entrega}
+                            </p>
+                          </div>
+                        </div>
+                      ) : null}
+                      <div className="flex min-w-0 items-center gap-3 rounded-2xl border border-gray-100 bg-white p-3 shadow-sm">
+                        <div
+                          className="h-9 w-9 rounded-xl flex items-center justify-center text-white shrink-0 shadow-sm"
+                          style={{ backgroundColor: primaryColor }}
+                        >
+                          <MapPin size={16} />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                            Dirección
+                          </p>
+                          <p className="break-words text-sm font-black leading-snug text-gray-900">
+                            {selectedPedido.cliente_direccion}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3 rounded-2xl border border-emerald-100 bg-success-50/60 p-3">
+                        <div className="h-9 w-9 rounded-xl bg-success-500 flex items-center justify-center text-white shrink-0 shadow-sm">
+                          <Phone size={16} />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[10px] font-black text-success-600 uppercase tracking-widest">
+                            Teléfono
+                          </p>
+                          <p className="text-sm font-black text-emerald-900">
+                            {selectedPedido.cliente_telefono || 'No disponible'}
+                          </p>
+                        </div>
+                        {selectedPedido.cliente_telefono && (
+                          <a
+                            href={`tel:${selectedPedido.cliente_telefono}`}
+                            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-success-500 text-white shadow-md shadow-success-200 transition-all active:scale-90 hover:bg-emerald-600"
+                          >
+                            <Phone size={18} fill="currentColor" />
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
-                {/* Popover animado con motivos preseteados */}
-                <AnimatePresence>
-                  {incidenciaOpen && (
-                    <motion.div
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: 10 }}
-                      className="rounded-2xl border border-amber-200 bg-warning-50 p-4"
-                    >
-                      <p className="mb-3 text-[10px] font-black uppercase tracking-widest text-warning-700">
-                        ¿Qué pasó? Elegí el motivo:
-                      </p>
-                      <div className="grid grid-cols-2 gap-2">
-                        {[
-                          { key: 'no_atiende', label: 'Cliente no atiende' },
-                          { key: 'direccion_mal', label: 'Dirección mal' },
-                          { key: 'cliente_rechazo', label: 'Cliente rechazó' },
-                          { key: 'cerrado', label: 'Edificio cerrado' },
-                        ].map(({ key, label }) => (
-                          <button
-                            key={key}
-                            onClick={() => {
-                              updateEstado(selectedPedido.id, 'incidencia', { motivo: key });
-                              setIncidenciaOpen(false);
-                              // Avisar al local por WhatsApp automáticamente si hay
-                              // número configurado.
-                              if (telefonoLocal) {
-                                window.open(
-                                  `https://wa.me/${String(telefonoLocal).replace(/\D/g, '')}?text=${encodeURIComponent(
-                                    `Pedido #${selectedPedido.numero} (${selectedPedido.cliente_nombre || 'S/N'}): ${label}`
-                                  )}`,
-                                  '_blank'
-                                );
-                              }
-                            }}
-                            className="rounded-xl bg-white border border-amber-100 px-3 py-3 text-[11px] font-black uppercase tracking-wide text-gray-700 active:scale-95 transition-transform hover:border-amber-300"
-                          >
-                            {label}
-                          </button>
-                        ))}
+                {/* Timeline de estados: le da al rider contexto de en que
+                  punto del flujo esta sin tener que interpretar el estado
+                  crudo del pedido. */}
+                <div className="border-b border-gray-100 bg-white px-6 py-4 sm:px-7">
+                  <PedidoTimeline estado={selectedPedido.estado} />
+                </div>
+
+                {/* Mapa interactivo — grande, protagonista de la vista de reparto.
+                  Como el usuario no quiere depender de Google Maps para ver por
+                  dónde va, el mapa embebido con ruta OSRM real ocupa casi toda la
+                  pantalla; el botón de "Abrir en Maps" queda como fallback opcional. */}
+                <div className="px-5 py-5 sm:px-6">
+                  <div className="overflow-hidden rounded-[22px] border border-gray-200 bg-white shadow-sm">
+                    <div className="h-[55vh] min-h-[380px] max-h-[640px] bg-gray-50">
+                      {selectedPedido.cliente_direccion ? (
+                        <RiderRouteMap
+                          riderLat={selectedPedido.repartidor?.latitud}
+                          riderLng={selectedPedido.repartidor?.longitud}
+                          clientLat={selectedPedido.cliente_latitud}
+                          clientLng={selectedPedido.cliente_longitud}
+                          clientLocationExact={Boolean(selectedPedido.cliente_ubicacion_exacta)}
+                          clientAddress={selectedPedido.cliente_direccion}
+                          onNavigate={() => openNav(selectedPedido)}
+                          mapConfig={mapConfig}
+                        />
+                      ) : (
+                        <div className="flex h-full items-center justify-center text-sm font-bold text-gray-400">
+                          Sin dirección cargada
+                        </div>
+                      )}
+                    </div>
+
+                    {/* ── Multi-delivery: otras paradas ── */}
+                    {hasMultipleDeliveries && (
+                      <div className="p-3 border-t border-gray-100 bg-gray-50/50">
+                        <p className="text-[10px] font-black uppercase text-gray-400 tracking-widest mb-2">
+                          Otras paradas en tu ruta
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                          {sortedPedidos
+                            .filter((p) => p.id !== selectedPedido.id)
+                            .map((p, idx) => {
+                              const stopColors = [
+                                'bg-emerald-500',
+                                'bg-amber-500',
+                                'bg-orange-500',
+                                'bg-rose-500',
+                                'bg-purple-500',
+                              ];
+                              const globalIdx = sortedPedidos.findIndex((sp) => sp.id === p.id);
+                              return (
+                                <button
+                                  key={p.id}
+                                  onClick={() => setSelectedPedido(p)}
+                                  className="inline-flex items-center gap-1.5 rounded-xl bg-white border border-gray-200 px-3 py-2 text-xs font-bold text-gray-700 shadow-sm hover:shadow-md transition-all"
+                                >
+                                  <span
+                                    className={`h-5 w-5 rounded-full ${stopColors[globalIdx % stopColors.length]} flex items-center justify-center text-white text-[9px] font-black`}
+                                  >
+                                    {globalIdx + 1}
+                                  </span>
+                                  <span className="truncate max-w-[120px]">{p.cliente_nombre}</span>
+                                  {p.distance !== undefined && (
+                                    <span className="text-[10px] text-violet-500 font-black">
+                                      {Math.round(p.distance)}m
+                                    </span>
+                                  )}
+                                </button>
+                              );
+                            })}
+                        </div>
                       </div>
+                    )}
+
+                    {/* 4 botones de accion, iguales entre si (mismo alto y forma)
+                      pero con colores distinguibles: MAPS marca, COPIAR neutro,
+                      WHATSAPP verde, WAZE azul cielo. Aprieta subtly con
+                      active:scale-95 para dar feedback tactil. */}
+                    <div className="grid grid-cols-2 gap-2 border-t border-gray-100 bg-gray-50/60 p-3 sm:grid-cols-4">
                       <button
-                        onClick={() => setIncidenciaOpen(false)}
-                        className="mt-3 w-full h-10 rounded-xl bg-white border border-gray-200 text-[10px] font-black uppercase tracking-widest text-gray-500"
+                        onClick={() => openNav(selectedPedido)}
+                        className="flex h-14 flex-col items-center justify-center gap-1 rounded-2xl text-[10px] font-black uppercase tracking-widest text-white shadow-md transition-all active:scale-95"
+                        style={{
+                          background: `linear-gradient(135deg, ${primaryColor}, ${primaryColor}dd)`,
+                          boxShadow: `0 4px 12px ${primaryColor}40`,
+                        }}
                       >
-                        Cerrar
+                        <Navigation size={18} />
+                        Maps
                       </button>
-                    </motion.div>
+                      <a
+                        href={buildWazeUrl(
+                          {
+                            latitud: selectedPedido.cliente_latitud,
+                            longitud: selectedPedido.cliente_longitud,
+                            direccion: selectedPedido.cliente_direccion,
+                            ubicacionExacta: Boolean(selectedPedido.cliente_ubicacion_exacta),
+                          },
+                          mapConfig
+                        )}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex h-14 flex-col items-center justify-center gap-1 rounded-2xl bg-gradient-to-br from-sky-500 to-sky-600 text-[10px] font-black uppercase tracking-widest text-white shadow-md shadow-sky-200 transition-all active:scale-95"
+                      >
+                        <Route size={18} /> Waze
+                      </a>
+                      {selectedPedido.cliente_telefono ? (
+                        <a
+                          href={`https://wa.me/${String(selectedPedido.cliente_telefono).replace(/\D/g, '')}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex h-14 flex-col items-center justify-center gap-1 rounded-2xl bg-gradient-to-br from-emerald-500 to-emerald-600 text-[10px] font-black uppercase tracking-widest text-white shadow-md shadow-emerald-200 transition-all active:scale-95"
+                        >
+                          <Phone size={18} /> WhatsApp
+                        </a>
+                      ) : (
+                        <div className="hidden sm:block" />
+                      )}
+                      <button
+                        onClick={() =>
+                          navigator.clipboard
+                            ?.writeText(selectedPedido.cliente_direccion || '')
+                            .then(() => toast.success('Dirección copiada'))
+                            .catch(() => toast.error('No se pudo copiar'))
+                        }
+                        className="flex h-14 flex-col items-center justify-center gap-1 rounded-2xl border border-gray-200 bg-white text-[10px] font-black uppercase tracking-widest text-gray-700 shadow-sm transition-all active:scale-95"
+                      >
+                        <Copy size={16} /> Copiar
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Resumen del pedido. Total a cobrar en banda de color:
+                  verde si ya cobrado, ambar si pendiente en efectivo, azul
+                  neutro para digitales. */}
+                {(() => {
+                  const estadoPago = String(
+                    selectedPedido.pago_estado || 'pendiente'
+                  ).toLowerCase();
+                  const metodoPago = String(selectedPedido.metodo_pago || 'efectivo').toLowerCase();
+                  const yaCobrado = ['pagado', 'cobrado', 'aprobado'].includes(estadoPago);
+                  const totalBg = yaCobrado
+                    ? 'linear-gradient(135deg, #059669, #10b981)'
+                    : metodoPago === 'efectivo'
+                      ? 'linear-gradient(135deg, #d97706, #f59e0b)'
+                      : `linear-gradient(135deg, ${primaryColor}, ${primaryColor}dd)`;
+                  const totalShadow = yaCobrado
+                    ? '0 12px 28px rgba(16,185,129,0.35)'
+                    : metodoPago === 'efectivo'
+                      ? '0 12px 28px rgba(245,158,11,0.35)'
+                      : `0 12px 28px ${primaryColor}40`;
+                  return (
+                    <>
+                      <div className="mx-5 mb-4 flex-1 rounded-[22px] bg-gray-50 p-5 sm:mx-6">
+                        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+                          <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                            Resumen del pedido
+                          </span>
+                          <span
+                            className={`rounded-lg px-2.5 py-1 text-[10px] font-black ${paymentStatusTone(selectedPedido.pago_estado)}`}
+                          >
+                            {paymentMethodLabel(selectedPedido.metodo_pago)} ·{' '}
+                            {paymentStatusLabel(selectedPedido.pago_estado)}
+                          </span>
+                        </div>
+                        <div className="space-y-3">
+                          {selectedItems.map((it, idx) => (
+                            <div
+                              key={idx}
+                              className="flex justify-between gap-4 text-sm bg-white rounded-xl p-3 border border-gray-100"
+                            >
+                              <div className="flex items-center gap-2 min-w-0">
+                                <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-primary-50 text-primary-600 text-[10px] font-black shrink-0">
+                                  {it.cantidad}x
+                                </span>
+                                <p className="min-w-0 break-words font-bold text-gray-700">
+                                  {it.nombre}
+                                </p>
+                              </div>
+                              <p className="shrink-0 font-black text-gray-900">
+                                {fmt(it.precio_unitario * it.cantidad)}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Total a cobrar: banda grande con color segun estado */}
+                      <div
+                        className="relative mx-5 mb-5 overflow-hidden rounded-[22px] p-5 shadow-lg sm:mx-6"
+                        style={{ background: totalBg, boxShadow: totalShadow }}
+                      >
+                        <div className="pointer-events-none absolute -right-8 -top-8 h-32 w-32 rounded-full bg-white/15 blur-2xl" />
+                        <div className="relative flex items-center justify-between">
+                          <div>
+                            <p className="text-[10px] font-black uppercase tracking-[0.22em] text-white/80">
+                              {yaCobrado ? '✓ Ya cobrado' : 'Total a cobrar'}
+                            </p>
+                            <p className="mt-1 text-[10px] font-bold text-white/70">
+                              {paymentMethodLabel(selectedPedido.metodo_pago)}
+                            </p>
+                          </div>
+                          <p className="text-3xl font-black text-white tabular-nums leading-none">
+                            {fmt(selectedPedido.total)}
+                          </p>
+                        </div>
+                      </div>
+                    </>
+                  );
+                })()}
+
+                {/* Selector de metodo de pago (cuando esta pendiente) */}
+                {paymentStatusLabel(selectedPedido.pago_estado) === 'Pendiente' && (
+                  <div className="mx-5 mb-5 rounded-[22px] bg-gray-50 p-5 sm:mx-6">
+                    <div>
+                      <div className="mb-3 flex items-center gap-2">
+                        <CreditCard size={15} className="text-gray-500" />
+                        <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">
+                          Medio que usará el cliente
+                        </p>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        {(() => {
+                          let enabled = [];
+                          try {
+                            enabled = JSON.parse(data?.settings?.metodos_pago || '[]');
+                          } catch {
+                            enabled = [];
+                          }
+                          if (!enabled.length) {
+                            enabled = ['efectivo', 'transferencia', 'modo', 'uala'];
+                          }
+                          return enabled
+                            .filter((method) => method !== 'mercadopago')
+                            .map((method) => (
+                              <button
+                                key={method}
+                                type="button"
+                                disabled={changingPayment || selectedPedido.metodo_pago === method}
+                                onClick={() => changePaymentMethod(selectedPedido.id, method)}
+                                className={`min-h-11 rounded-xl border px-3 py-2 text-xs font-black transition ${
+                                  selectedPedido.metodo_pago === method
+                                    ? 'border-primary-500 bg-primary-50 text-primary-700'
+                                    : 'border-gray-200 bg-white text-gray-700'
+                                } disabled:opacity-60`}
+                              >
+                                {paymentMethodLabel(method)}
+                              </button>
+                            ));
+                        })()}
+                      </div>
+                      <p className="mt-3 text-[11px] font-semibold leading-relaxed text-gray-500">
+                        Se puede cambiar mientras figure pendiente. Al confirmar la entrega quedará
+                        registrado como cobrado.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Acciones */}
+                <div className="flex flex-col gap-3 border-t border-gray-100 bg-white p-5 sm:p-6">
+                  {/* Chat directo con el local por WhatsApp (motivo del pedido,
+                    problema, etc.). Mucho más práctico que llamar y esperar. */}
+                  {telefonoLocal ? (
+                    <a
+                      href={`https://wa.me/${String(telefonoLocal).replace(/\D/g, '')}?text=${encodeURIComponent(
+                        `Hola, sobre el pedido #${selectedPedido.numero} de ${selectedPedido.cliente_nombre || 'S/N'}: `
+                      )}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-success-50 text-xs font-black uppercase tracking-widest text-success-700 transition-all active:scale-95"
+                    >
+                      <PhoneCall size={14} /> Escribir al local por WhatsApp
+                    </a>
+                  ) : null}
+                  {/* Comenzar reparto → entra al modo en ruta fullscreen */}
+                  {['confirmado', 'listo', 'preparando'].includes(selectedPedido.estado) && (
+                    <button
+                      onClick={async () => {
+                        await updateEstado(selectedPedido.id, 'en_camino');
+                        setModoRutaPedidoId(selectedPedido.id);
+                      }}
+                      className="rider-primary-button flex h-14 w-full items-center justify-center gap-3 rounded-2xl text-sm font-black uppercase tracking-wide text-white shadow-lg transition-all active:scale-[0.98]"
+                    >
+                      <Truck size={22} /> Comenzar reparto
+                    </button>
                   )}
-                </AnimatePresence>
+
+                  {/* Si ya esta en camino, poder volver al modo ruta */}
+                  {selectedPedido.estado === 'en_camino' && (
+                    <button
+                      onClick={() => setModoRutaPedidoId(selectedPedido.id)}
+                      className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-gray-900 bg-gray-900 text-xs font-black uppercase tracking-widest text-white transition active:scale-[0.98]"
+                    >
+                      <Navigation size={15} /> Modo ruta
+                    </button>
+                  )}
+
+                  {/* ── NEW: Swipe para entregar ── */}
+                  {selectedPedido.estado === 'en_camino' && (
+                    <SwipeButton
+                      onComplete={() => handleSwipeComplete(selectedPedido)}
+                      disabled={false}
+                    />
+                  )}
+
+                  {/* Bloque incidencia + cancelar */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                      onClick={() => setIncidenciaOpen(true)}
+                      className="flex h-12 items-center justify-center gap-2 rounded-2xl border border-amber-200 bg-warning-50 text-[11px] font-black uppercase tracking-wide text-warning-700 active:scale-95 transition-transform"
+                    >
+                      <AlertCircle size={15} /> Reportar problema
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (window.confirm('¿Cancelar este pedido? No se puede deshacer.')) {
+                          updateEstado(selectedPedido.id, 'cancelado');
+                        }
+                      }}
+                      className="flex h-12 items-center justify-center gap-2 rounded-2xl border border-rose-200 bg-danger-50 text-[11px] font-black uppercase tracking-wide text-danger-700 active:scale-95 transition-transform"
+                    >
+                      <X size={15} /> Cancelar
+                    </button>
+                  </div>
+
+                  {/* Popover animado con motivos preseteados */}
+                  <AnimatePresence>
+                    {incidenciaOpen && (
+                      <motion.div
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: 10 }}
+                        className="rounded-2xl border border-amber-200 bg-warning-50 p-4"
+                      >
+                        <p className="mb-3 text-[10px] font-black uppercase tracking-widest text-warning-700">
+                          ¿Qué pasó? Elegí el motivo:
+                        </p>
+                        <div className="grid grid-cols-2 gap-2">
+                          {[
+                            { key: 'no_atiende', label: 'Cliente no atiende' },
+                            { key: 'direccion_mal', label: 'Dirección mal' },
+                            { key: 'cliente_rechazo', label: 'Cliente rechazó' },
+                            { key: 'cerrado', label: 'Edificio cerrado' },
+                          ].map(({ key, label }) => (
+                            <button
+                              key={key}
+                              onClick={() => {
+                                updateEstado(selectedPedido.id, 'incidencia', { motivo: key });
+                                setIncidenciaOpen(false);
+                                // Avisar al local por WhatsApp automáticamente si hay
+                                // número configurado.
+                                if (telefonoLocal) {
+                                  window.open(
+                                    `https://wa.me/${String(telefonoLocal).replace(/\D/g, '')}?text=${encodeURIComponent(
+                                      `Pedido #${selectedPedido.numero} (${selectedPedido.cliente_nombre || 'S/N'}): ${label}`
+                                    )}`,
+                                    '_blank'
+                                  );
+                                }
+                              }}
+                              className="rounded-xl bg-white border border-amber-100 px-3 py-3 text-[11px] font-black uppercase tracking-wide text-gray-700 active:scale-95 transition-transform hover:border-amber-300"
+                            >
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                        <button
+                          onClick={() => setIncidenciaOpen(false)}
+                          className="mt-3 w-full h-10 rounded-xl bg-white border border-gray-200 text-[10px] font-black uppercase tracking-widest text-gray-500"
+                        >
+                          Cerrar
+                        </button>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
               </div>
             </div>
-          </div>
-        )}
-      </main>
+          )}
+        </main>
+      </PullToRefresh>
+
+      {/* ── Navegación inferior ──────────────────────────────────
+          Solo en la vista de lista: cuando hay un pedido abierto el
+          foco tiene que estar en ese pedido, no en navegar. */}
+      {!selectedPedido && (
+        <BottomTabBar
+          activo={activeTab}
+          onChange={setActiveTab}
+          badgeHistorial={historialSesion.length}
+        />
+      )}
 
       {/* ── Footer ──────────────────────────────────────────────── */}
       <footer className="px-6 py-3 bg-white border-t border-gray-100 flex items-center justify-between text-[10px] font-black uppercase tracking-widest">
@@ -2900,7 +3179,20 @@ export default function RiderPanel() {
             </span>
           ) : null}
         </div>
-        <p className="text-gray-400">{appName}</p>
+        <div className="flex items-center gap-3">
+          {/* Entrega del celular a otro rider. Deliberadamente discreto
+              y separado del logout normal: esta accion NO es barata de
+              revertir (borra historial, record y cola pendiente). */}
+          <button
+            type="button"
+            onClick={handleLogoutCompleto}
+            className="text-[9px] font-black uppercase tracking-widest text-gray-300 underline decoration-dotted underline-offset-2 hover:text-rose-500"
+            title="Borra todos los datos del rider en este celular"
+          >
+            Cambiar de rider
+          </button>
+          <p className="text-gray-400">{appName}</p>
+        </div>
       </footer>
 
       {/* ── NEW: PIN Modal ──────────────────────────────────────── */}
@@ -2916,6 +3208,61 @@ export default function RiderPanel() {
 
       {/* ── Auto-update modal ────────────────────────────────────── */}
       {renderUpdateModal()}
+
+      {/* ── Notificacion in-app de pedido nuevo ──────────────────── */}
+      <NotificacionInApp
+        pedido={notifPedido}
+        onVer={(p) => {
+          setNotifPedido(null);
+          setSelectedPedido(p);
+        }}
+        onCerrar={() => setNotifPedido(null)}
+      />
+
+      {/* ── Modo en ruta: fullscreen mientras maneja ─────────────── */}
+      <ModoEnRuta
+        abierto={Boolean(modoRutaPedidoId)}
+        pedido={
+          (data?.pedidos || []).find((p) => p.id === modoRutaPedidoId) ||
+          (selectedPedido?.id === modoRutaPedidoId ? selectedPedido : null)
+        }
+        riderLat={riderLocation.lat}
+        riderLng={riderLocation.lng}
+        mapConfig={mapConfig}
+        onCerrar={() => setModoRutaPedidoId(null)}
+        onEntregar={(p) => {
+          setModoRutaPedidoId(null);
+          setSelectedPedido(p);
+          handleSwipeComplete(p);
+        }}
+        onNavegarExterno={openNav}
+        onIncidencia={(p) => {
+          setModoRutaPedidoId(null);
+          setSelectedPedido(p);
+          setIncidenciaOpen(true);
+        }}
+      />
+
+      {/* ── Deshacer entrega marcada por error ───────────────────── */}
+      <DeshacerEntrega
+        pedido={entregaReciente}
+        ventanaMin={Number(data?.settings?.delivery_ventana_deshacer_min) || 5}
+        onDeshacer={handleDeshacerEntrega}
+        onExpirar={() => setEntregaReciente(null)}
+      />
+
+      {/* ── Cierre de turno ──────────────────────────────────────── */}
+      <CierreTurnoModal
+        open={Boolean(cierreTurno)}
+        entregas={cierreTurno?.entregas || 0}
+        totalCobrado={cierreTurno?.totalCobrado || 0}
+        efectivo={cierreTurno?.efectivo || 0}
+        minutos={cierreTurno?.minutos || 0}
+        metaCumplida={Boolean(cierreTurno?.metaCumplida)}
+        record={Boolean(cierreTurno?.record)}
+        recordAnterior={cierreTurno?.recordAnterior || 0}
+        onClose={() => setCierreTurno(null)}
+      />
     </div>
   );
 }

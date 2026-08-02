@@ -5,6 +5,7 @@ const auth = require('../middleware/auth');
 const { requirePermission, hasPermission } = require('../utils/permissions');
 const { getConfigMap, createPreference, getPayment } = require('../utils/mercadoPago');
 const { logAudit, actorFromRequest } = require('../utils/audit');
+const { registrarEvento, calcularDuraciones } = require('../services/pedidoTrazabilidad');
 const { autoAssignPedido } = require('../utils/deliveryAssignment');
 const { recalculateClienteStats } = require('../utils/loyalty');
 const {
@@ -515,6 +516,30 @@ router.get('/:id/pago/mercadopago', async (req, res) => {
   } catch (error) {
     return res.status(500).json({ error: error.message || 'No se pudo verificar el pago' });
   }
+});
+
+/**
+ * Linea de tiempo del pedido: cada transicion de estado con quien la
+ * hizo, mas las duraciones calculadas entre hitos.
+ *
+ * Sirve para responder "por que este pedido tardo 50 minutos" sin
+ * tener que adivinar. Va ANTES de /:id para que Express no lo tome
+ * como un id.
+ */
+router.get('/:id/trazabilidad', auth, (req, res) => {
+  const pedido = db
+    .prepare('SELECT id, numero, creado_en, estado FROM pedidos WHERE id = ?')
+    .get(req.params.id);
+  if (!pedido) return res.status(404).json({ error: 'Pedido no encontrado' });
+
+  const { eventos, hitos, duraciones } = calcularDuraciones(pedido.id, pedido.creado_en);
+  return res.json({
+    pedido: { id: pedido.id, numero: pedido.numero, estado: pedido.estado },
+    creado_en: pedido.creado_en,
+    eventos,
+    hitos,
+    duraciones,
+  });
 });
 
 router.get('/:id', async (req, res) => {
@@ -1050,6 +1075,17 @@ router.put('/:id/estado', auth, async (req, res) => {
     actor_id: actor.actor_id,
     actor_nombre: actor.actor_nombre,
     detalle: { numero: pedido.numero, desde: existing.estado, hacia: nuevoEstado },
+  });
+
+  // Trazabilidad de tiempos: alimenta los reportes de delivery y permite
+  // reconstruir por que un pedido tardo lo que tardo.
+  registrarEvento({
+    pedidoId: pedido.id,
+    estado: nuevoEstado,
+    estadoAnterior: existing.estado,
+    actorTipo: 'admin',
+    actorId: actor.actor_id,
+    actorNombre: actor.actor_nombre,
   });
 
   let autoAssignedRepartidor = null;

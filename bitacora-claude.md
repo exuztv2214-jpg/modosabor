@@ -1431,6 +1431,93 @@ Modificados:
 
 ---
 
+## 22. Renovación visual rider: timeline, toggle grande, skeletons, cierre de turno (02/08/2026)
+
+Tanda de mejoras de UX/UI para acercar la app al nivel de Rappi Cartero / PedidosYa Repartidor. **Decisión estructural**: en vez de seguir inflando `RiderPanel.jsx` (que ya tiene ~2900 líneas), todo lo nuevo va en archivos separados bajo `client/src/components/rider/` y `client/src/lib/`. El panel solo importa y compone.
+
+### 22.1. Libs nuevas
+
+**`client/src/lib/riderHaptics.js`** — feedback háptico semántico. En vez de `navigator.vibrate()` suelto, patrones con significado: `tap` (12ms), `success` ([30,60,30]), `warning`, `error`, `arrive`, `newOrder`. El rider aprende a distinguir la vibración sin mirar la pantalla mientras maneja. Silencioso si el device no soporta vibración.
+
+**`client/src/lib/riderUx.js`** — helpers de presentación puros (sin JSX):
+
+- `saludoPorHora()` → `{ saludo, turno }` según hora local (madrugada/mediodía/tarde/noche).
+- `minutosDesde(fechaIso)` y `nivelUrgencia(fechaIso)` → clasifica en `ok` (<15min, verde), `atencion` (15-30, ámbar), `urgente` (>30, rojo).
+- `ETAPAS_PEDIDO` + `indiceEtapa(estado)` → mapea el estado crudo del pedido a una de las 4 etapas del timeline.
+- `fmtDistancia`, `etaMinutos` (28 km/h moto urbana), `distanciaMetros` (Haversine), `fmtDuracion`.
+
+### 22.2. Componentes nuevos
+
+**`components/rider/PedidoTimeline.jsx`** — timeline horizontal Asignado → Retiré → En camino → Entregué. Cada punto se llena de verde con check animado (spring); la línea entre puntos se colorea con `scaleX`. El punto actual late suave. Si el estado no matchea el flujo normal (cancelado, incidencia) no renderiza nada.
+
+**`components/rider/ToggleTurno.jsx`** — botón circular de 104px estilo Uber Driver. Verde con 2 ondas expansivas desfasadas cuando está online, gris apagado cuando no. Las ondas **solo corren cuando está online** para no gastar batería de gama baja con animaciones permanentes. Dispara háptico al cambiar.
+
+**`components/rider/RiderSkeleton.jsx`** — skeleton loaders con shimmer. Exporta `SkeletonPedidoCard`, `SkeletonHeaderTurno` y el default con header + N cards. El shimmer se hace con `background-position` en CSS (lo compone la GPU) en vez de framer-motion, para no cargar el hilo de JS justo cuando la app está esperando datos.
+
+**`components/rider/CierreTurnoModal.jsx`** — modal fullscreen al cerrar turno. Header con gradient verde, trofeo animado, confetti + háptico de éxito al abrir. Stats en 3 columnas (entregas / tiempo / cobrado) con entrada escalonada. Banner ámbar destacado con el **efectivo a rendir en el local** — el dato que más le importa al rider al terminar. Chip "🏆 Nuevo récord personal" si superó la meta diaria.
+
+### 22.3. CSS
+
+`styles/riderDark.css` — agregadas las clases `.rider-shimmer` con keyframes `rider-shimmer-move`, variante dark, y respeto de `prefers-reduced-motion`.
+
+### 22.4. Integración en RiderPanel
+
+- **Header**: el título estático del negocio se reemplazó por **saludo dinámico** ("Buen día, Juan" + "Turno mediodía"). El chip Online/Offline queda como indicador rápido y atajo.
+- **Estado vacío condicional**: si está online → radar animado "Esperando pedidos". Si está offline → **botón grande de turno** ocupando la pantalla, patrón Uber Driver. Es lo único que importa cuando no estás trabajando.
+- **Cards de pedido**: `borderLeft` de 5px con color de urgencia + chip "N min esperando" cuando el pedido lleva más de 15 minutos. Háptico `tap` al abrir el detalle.
+- **Detalle**: timeline horizontal arriba del mapa.
+- **Carga inicial**: `RiderSkeleton` en vez del spinner "Sincronizando...".
+- **`toggleOnline(forced)`**: ahora acepta un booleano opcional (para el toggle grande) y al pasar a no-disponible con entregas hechas arma un **snapshot congelado** del turno y abre el modal de cierre. Congelado para que los números no se muevan si el rider vuelve a ponerse online con el modal abierto.
+- **`inicioTurnoRef`**: marca el arranque del turno para calcular la duración.
+
+### 22.5. Nota sobre divergencia del archivo
+
+Al integrar se detectó que `RiderPanel.jsx` había cambiado respecto a la tanda 20: el dark mode (estado `themeMode`, `cycleTheme`, botón toggle del header, import de `riderDark.css`) ya no estaba, y aparecieron `showAccessCode` y `showRiderSplash` que no venían de acá. Se repuso el import del CSS (necesario para el shimmer) pero **no se reimplementó el dark mode**, a la espera de confirmar si se sacó a propósito.
+
+### 22.6. Archivos
+
+Nuevos:
+
+- `client/src/lib/riderHaptics.js`
+- `client/src/lib/riderUx.js`
+- `client/src/components/rider/PedidoTimeline.jsx`
+- `client/src/components/rider/ToggleTurno.jsx`
+- `client/src/components/rider/RiderSkeleton.jsx`
+- `client/src/components/rider/CierreTurnoModal.jsx`
+
+Modificados:
+
+- `client/src/pages/RiderPanel.jsx` — imports, estado de cierre de turno, saludo dinámico, estado vacío condicional, urgencia en cards, timeline en detalle, skeletons, modal de cierre.
+- `client/src/styles/riderDark.css` — shimmer.
+
+### 22.8. Correcciones post-review (02/08/2026)
+
+Codex revisó la tanda (build OK, lint limpio sobre Rider) y marcó 3 problemas reales. Los tres corregidos:
+
+**1. Duración del turno mal calculada.** `inicioTurnoRef` se inicializaba con `Date.now()` al montar el componente, o sea marcaba el momento de abrir la app, no el de ponerse disponible. Si el rider abría la app a las 9 y arrancaba a las 12, el resumen decía "5 h" en vez de "2 h".
+
+Solución: el ref arranca en `null` y se setea únicamente al pasar a disponible. Además se persiste en Preferences bajo `ms_rider_turno_inicio`, porque si Android mata la app a mitad de turno el contador tiene que seguir desde el inicio real. Al reabrir se rehidrata, descartando marcas de más de 18h (turnos viejos que nunca se cerraron bien). Si arranca disponible sin marca previa (primera vez tras actualizar), se crea en ese momento. Si no hay marca al cerrar, se manda `minutos: 0` y el modal **omite la columna de tiempo** en vez de mostrar "0 min", que sería un dato falso.
+
+**2. Háptico doble.** `ToggleTurno` vibraba y después `toggleOnline` volvía a vibrar. Se sacó el `haptic()` del componente; ahora la vibración la dispara solo el handler del panel. El componente quedó sin dependencia de `riderHaptics`.
+
+**3. "Récord personal" que en realidad era la meta diaria.** El cálculo era `entregas >= meta`, o sea celebraba cumplir el objetivo del negocio como si fuera una marca histórica.
+
+Solución: son dos cosas separadas.
+
+- `metaCumplida` = llegó a `rider_meta_diaria` → chip discreto "✅ Meta del día cumplida".
+- `record` = superó su mejor marca histórica, guardada por rider en Preferences (`ms_rider_record_entregas_<id>`) → chip dorado "🏆 Récord personal · antes N".
+  El récord tiene prioridad visual sobre la meta. El confetti escala según el logro (52 partículas si récord, 38 si meta, 26 normal). Si falla el storage no se afirma que sea récord.
+
+Claves nuevas centralizadas en `riderUx.js`: `KEY_TURNO_INICIO` y `riderRecordKey(riderId)`.
+
+**Sobre el dark mode**: confirmado que se saca a propósito. El usuario prefiere la app siempre en claro. No se repone. El archivo `riderDark.css` queda solo por las clases del shimmer.
+
+### 22.7. Pendiente de esta línea de trabajo
+
+Ideas evaluadas y **no** implementadas todavía (a la espera de priorización): bottom sheet arrastrable, modo "en ruta" fullscreen con wake lock, hero card del próximo pedido, widget de ganancias con gráfico, chip de racha, pull-to-refresh custom, slide-to-reveal en cards, historial rediseñado con grouping, bottom tab bar, pantalla de perfil con niveles, notificaciones in-app estilo Rappi, onboarding, chat interno con burbujas.
+
+---
+
 ## 20. Dark mode + cola offline extendida + FCM scaffolding + sonido custom (01/08/2026 - noche)
 
 Después del auto-update se hizo una auditoría del código real vs los tasks declarados. Aparecieron features que estaban en los nombres de los tasks pero no en el código (dark mode, cola offline extendida, sonido custom, FCM). Se implementaron los 4 en una sola tanda.
@@ -1756,3 +1843,258 @@ Pendientes que requieren acciones externas:
 - `rider_alert.mp3` en `android/app/src/main/res/raw/` para sonido custom fuerte.
 - Sentry / Crashlytics para crash reporting remoto.
 - PIN de bloqueo (en pausa por decisión del usuario).
+
+## 23. Auditoria Codex post-Claude: correcciones de menu, rider y mapas (02/08/2026)
+
+Se reviso el estado real del proyecto despues de los cambios previos y se encontraron diferencias importantes contra lo pedido por el local.
+
+### 23.1. Hallazgos corregidos
+
+- Menu del dia: el seed anterior habia cargado 7 platos, no 8, y varios productos duplicados con precios guardados sin escala interna, lo que podia mostrar totales como $50 en pedidos de $5.000. Se rehizo `server/scripts/seedMenuManana.js` para cargar 4 economicos + 4 ejecutivos, precio interno en centavos, stock 10 para todos y desactivar duplicados/alias viejos.
+- Rider: se removio el modo oscuro automatico y el boton de tema. La app queda forzada en modo claro para respetar la preferencia del local.
+- Mapas/Rider: se reforzo `client/src/lib/maps.js` para armar direcciones con Monteros, Departamento Monteros, Tucuman, CP 4142 y Argentina. Waze ahora usa coordenadas solo si son exactas y dentro de zona; si no, abre por direccion completa. `RiderRouteMap` ahora define radio valido de zona.
+
+### 23.2. Validaciones ejecutadas
+
+- `npm run build` OK.
+- `npm --prefix server test` OK.
+- `npm run verify:core` OK.
+- `npm run verify:operacion` OK.
+- Menu local confirmado: 8 platos activos, stock 10, precios $5.000/$7.000 correctos.
+- Stock compartido confirmado para Prepizza, Queso cremoso 200g, Muzzarella 200g, Pan hamburguesa, Medallon smash 90g y milanesas.
+
+### 23.3. Pendientes criticos detectados
+
+- Railway directo responde OK en `https://modosabor-api-production.up.railway.app`.
+- `modosabor.com.ar` todavia resuelve a `149.50.133.118` (DonWeb viejo), por eso puede fallar conexion si se entra por el dominio.
+- En Railway, `PUBLIC_APP_URL` y `PUBLIC_API_URL` apuntan al dominio Railway directo. Antes de usar `modosabor.com.ar` como final hay que corregir DNS/custom domain.
+- La precision GPS del rider ya tiene filtros de frontend/backend, pero en web/PWA depende del navegador. Para background tracking real sigue siendo necesario el APK nativo con permisos y Firebase/FCM terminado para push real.
+
+## 2026-08-02 - Rider branding y app instalable
+
+- Se actualizo la identidad de la app Rider a "Modo Sabor Riders" en manifest PWA, Capacitor y Android.
+- El login Rider ahora usa la llamita roja real (`/rider-flame-red.png`) en vez del SVG generico dentro de cuadro blanco.
+- Se agrego boton de ojo para mostrar/ocultar el codigo de acceso del rider.
+- Se incorporo splash visual animado al abrir Rider, complementando el splash nativo de Capacitor.
+- El header post-login usa el logo real configurado del negocio o de Rider y, si falla, cae a la llamita roja; se elimino el fallback visual del camion en ese lugar.
+- Se regeneraron assets nativos Android con `capacitor-assets generate --android` y se sincronizo Capacitor con `npm --prefix client run cap:sync`.
+- Validacion: `npm run build` OK y `git diff --check` OK.
+
+---
+
+## 24. BACKLOG VIGENTE — pendientes al 02/08/2026
+
+Inventario completo de todo lo conversado y todavía no hecho. Esta sección se mantiene actualizada: cuando algo se completa, se tacha o se mueve a la sección de la tanda correspondiente.
+
+### 24.1. Visual de la app rider (14 pendientes)
+
+De la lista de 20 mejoras propuestas para acercar la app al nivel Rappi/PedidosYa/DiDi, quedan sin hacer:
+
+1. **Bottom sheet arrastrable** — mapa a 100% de pantalla, sheet inferior con drag handle. Mini mientras va en camino, expandida al llegar. Candidatos: `react-modal-sheet` o custom con framer-motion drag.
+2. **Modo "en ruta" fullscreen** — al tocar "Comenzar reparto" entra a pantalla completa con mapa + swipe "Entregado" + botón chico "Detalles". Con wake lock para que no se apague la pantalla.
+3. **Hero card del próximo pedido** — card enorme arriba con avatar, dirección grande, distancia + ETA, botón "Ir"; resto de cards más chicas.
+4. **Avatar de perfil en el header** — hoy el saludo dinámico está pero falta la foto circular.
+5. **Widget de ganancias del día** — "$12.500 hoy" + chip "+15% vs ayer" + mini gráfico de barras de 7 días. Requiere endpoint backend con histórico por rider.
+6. **Chip de racha** — "🔥 5 días seguidos" al lado del saludo. Requiere calcular racha desde historial.
+7. **Pull-to-refresh custom** — con el logo llamita girando.
+8. **Slide-to-reveal actions en cards** — deslizar izquierda revela "Llamar" y "Detalle", iOS Mail style, con indicador la primera vez.
+9. **Historial rediseñado** — grouping por día (Hoy/Ayer/Lunes 28), card compacta con distancia y tiempo, stats de la semana arriba, chips de filtro.
+10. **Bottom tab bar iOS-style** — Home / Historial / Perfil con background circular en el activo y animación morphing.
+11. **Pantalla de perfil** — avatar, stats totales, niveles gamificados (🥉 Bronce 0-50 → 🥈 Plata 50-200 → 🥇 Oro 200+), stats del mes, ranking del equipo, ajustes.
+12. **Notificaciones in-app estilo Rappi** — card que cae desde arriba con logo + botones "Ver"/dismiss por swipe, en vez de los toast de react-hot-toast.
+13. **Onboarding** — 3-4 slides al primer login. (Dudoso para 3 riders que ya usan la app hace tiempo.)
+14. **Ripple effect + spring physics global** — el háptico semántico ya está; falta el feedback visual en cada tap.
+
+### 24.2. Operativo de la app rider (5 pendientes) — MAYOR PRIORIDAD
+
+Esto no es cosmética: son huecos que hoy impiden resolver problemas reales de operación.
+
+15. **Trazabilidad de tiempos por etapa** — guardar timestamps de asignado → aceptado → retirado → en camino → entregado. Hoy no se puede responder "por qué este pedido tardó 50 minutos". Backend puro, bajo riesgo, alto valor. Alimenta los reportes del punto 19.
+16. **Deshacer "entregado"** — si el rider marca por error no hay vuelta atrás. Ventana de 5 minutos para revertir + registro de la corrección para que quede auditado.
+17. **Limpiar sesión al cambiar de rider** — si un rider renuncia y el celular pasa a otro, hoy queda el historial local, la cola offline pendiente y el récord personal del anterior. Falta un "cerrar sesión completo" que limpie todas las claves de Preferences.
+18. **Ordenamiento por ruta óptima** — con 8 pedidos simultáneos la lista actual no ayuda a decidir el orden. Falta ordenar por cercanía real o proponer una secuencia.
+19. **Reportes de delivery en el admin** — tiempos promedio por rider, por zona, por franja horaria. Sirve para decidir si contratar otro rider o si hay un barrio que siempre se demora.
+
+### 24.3. Chat (1 pendiente)
+
+20. **Chat interno con burbujas** — reemplazar el link a WhatsApp externo por chat propio (burbujas iMessage-style, historial, timestamps, indicador "leído"). Requiere backend nuevo: tabla de mensajes, websocket para tiempo real, endpoints POST/GET. Es el item más caro de la lista.
+
+### 24.4. Gestos manuales del operador (4 pendientes)
+
+21. **`rider_alert.mp3`** — el código ya declara `sound: 'rider_alert'` pero el archivo no existe en `client/android/app/src/main/res/raw/`. Android cae al sonido default. Falta grabar o conseguir un mp3 corto (2-4 seg) tipo "ding-dong de restaurante" fuerte.
+22. **Assets del splash** — `client/resources/splash.png` (2732×2732) e `icon.png` (1024×1024). NOTA: según la entrada del 02/08 ya se regeneraron assets con `capacitor-assets generate --android`; verificar si esto quedó cubierto.
+23. **Keystore** — verificar que `client/android/modosabor-rider.jks` exista y **hacerle backup fuera de la máquina** (Drive, USB, disco externo). Si se pierde, no se pueden publicar updates que se instalen encima de las versiones ya distribuidas.
+24. **Proyecto Firebase** — solo si se decide activar FCM (ver 24.7).
+
+### 24.5. Deploy (bloqueante)
+
+25. **Publicar v1.2.0** — la renovación visual del 02/08 (timeline, toggle grande, urgencia en cards, skeletons, cierre de turno, háptico) NO está en producción. Requiere: bump de versión en `client/package.json` → build APK release → copiar a `server/uploads/rider-app/modosabor-rider-1.2.0.apk` → editar manifest (versionCode 10200) → commit + push → verificar que `/api/rider-app/version` devuelva `hasBinary: true`.
+
+### 24.6. Sistema web — arrastrados de antes (2 pendientes)
+
+26. **Verificación final del fix `pesosToCents`/`isMoneyKey`** — task #36, quedó pendiente de confirmar tras un restart.
+27. **Probar el agente de WhatsApp con el número de prueba de Meta** — task #52. n8n está montado en el VPS con el workflow importado hace días y nunca se probó end-to-end. **Es lo que más puede mover la aguja del negocio**: pedidos que entran solos sin que nadie atienda el teléfono.
+
+### 24.7. Decisiones pendientes del usuario (3)
+
+28. **¿FCM sí o no?** — todo el scaffolding está listo (cliente `riderPush.js`, endpoint `fcm-token`, columnas en DB). Solo falta crear el proyecto Firebase, bajar `google-services.json`, instalar `@capacitor/push-notifications` y agregar el sender con `firebase-admin` en el backend. Pregunta real: ¿los riders pierden pedidos porque Android mata la app, o con las LocalNotifications actuales alcanza?
+29. **¿Automatizar el proceso de release?** — hoy son 6 pasos manuales y el repo se infla con un APK de varios MB por versión. Opciones evaluadas: script npm que haga todo, GitHub Action, UI en el admin panel para subir el APK y editar el manifest, o mover los binarios a S3/Cloudflare R2.
+30. **¿Qué de la lista visual (24.1) se prioriza?** — son 14 items de valor decreciente.
+
+### 24.8. Decisiones ya tomadas — NO reabrir
+
+- **Turn-by-turn con voz**: descartado. Se evaluaron Mapbox Navigation SDK y Google Navigation SDK (~$70-200/mes). El usuario dijo que no le importa la voz. La solución vigente es mapa OSRM embebido + botón "Abrir en Maps" como fallback.
+- **PIN de bloqueo de la app rider**: excluido por pedido explícito ("lo del pin todavía no").
+- **Dark mode**: removido a propósito. El usuario prefiere la app siempre en claro. `riderDark.css` queda solo por las clases del shimmer.
+
+### 24.10. ✅ GRUPO B COMPLETADO (02/08/2026)
+
+Los 5 items operativos de 24.2 quedaron implementados. Detalle:
+
+**B15 — Trazabilidad de tiempos por etapa**
+
+- Tabla nueva `pedido_eventos`: un renglón por transición de estado, con estado anterior, quién lo hizo (`actor_tipo`: rider/admin/tpv/agente/sistema), motivo y metadata JSON. Índices por pedido y por estado+fecha.
+- Se eligió tabla aparte en vez de columnas de timestamp en `pedidos` porque: un pedido puede volver a un estado anterior (deshacer entrega), queremos saber _quién_ hizo cada cambio, y 6+ columnas de fecha ensucian la tabla principal.
+- Servicio `server/services/pedidoTrazabilidad.js` con `registrarEvento()`, `obtenerEventos()`, `calcularDuraciones()` y `backfillPedidosSinEventos()`. La trazabilidad nunca rompe el flujo principal: si falla, loguea y sigue.
+- `calcularDuraciones()` devuelve preparación (confirmado→listo), espera de retiro (listo→en_camino), viaje (en_camino→entregado) y total. Lo que no se puede calcular viene `null`, no `0`, para distinguir "tardó cero" de "no tengo el dato".
+- Enganchado en los 3 puntos donde cambia el estado: `PUT /pedidos/:id/estado` (admin), `PUT /repartidores/:id/rider/:codigo/pedido/:pedidoId/estado` (rider) y el handler de entrega. En la entrega además se guarda si hubo foto y si se validó PIN — es la evidencia ante un "no me llegó".
+- Endpoint nuevo `GET /pedidos/:id/trazabilidad` con la línea de tiempo completa.
+
+**B16 — Deshacer entrega**
+
+- Endpoint `POST /repartidores/:id/rider/:codigo/deshacer-entrega/:pedidoId`.
+- Ventana configurable (`delivery_ventana_deshacer_min`, default 5). Pasado ese tiempo devuelve `expirado: true` y la corrección la tiene que hacer el local — a propósito, para que no se use como forma de editar la historia horas después.
+- El pedido vuelve a `en_camino`, el rider vuelve a quedar ocupado, y queda registro tanto en `pedido_eventos` (con `metadata.reversion = true`) como en la auditoría. La corrección es visible, no se borra el hecho de que se marcó mal.
+- Componente `DeshacerEntrega.jsx`: barra flotante abajo que aparece al entregar, con countdown visible y barra de progreso. Dos pasos (tocar "Deshacer" → confirmar) para que no se dispare sin querer. Se va sola al expirar.
+
+**B17 — Limpieza total al cambiar de rider**
+
+- `wipeRiderDevice()` en `nativeRiderGps.js`: barre por prefijo `ms_rider_` usando `Preferences.keys()`, así también limpia las claves dinámicas (historial por fecha, notificados por día, récord por rider) que el logout normal dejaba atrás.
+- Handler `handleLogoutCompleto` con confirmación explícita que **avisa si hay acciones offline pendientes que se van a perder**.
+- Botón discreto "Cambiar de rider" en el footer, separado del logout normal a propósito: el logout común es barato de revertir, este no.
+- Se agregó `resetLocalState()` para limpiar también el estado de React (historial de sesión, entrega reciente, cierre de turno, contador offline, refs).
+
+**B18 — Orden por cercanía**
+
+- `ordenarPorCercania()` en `riderUx.js` con heurístico de vecino más próximo: arranca en la posición del rider y en cada paso va al pedido más cercano de los que quedan. No es la ruta óptima (eso es TSP) pero con menos de 10 paradas la diferencia es chica y el cálculo es instantáneo.
+- **Bug encontrado y corregido**: el `sortByDistance` anterior hacía `.filter((p) => p.cliente_latitud && p.cliente_longitud)`, o sea los pedidos sin coordenadas GPS **desaparecían de la lista** cuando había 2+ entregas. Ahora van al final conservando su orden.
+- El ordenamiento anterior era por distancia al rider, lo que con 6-8 pedidos hacía cruzar el pueblo de ida y vuelta.
+- La UI ahora muestra la distancia **desde la parada anterior**, que es lo que le importa al rider, no desde el local.
+- Se eliminaron `haversine` y `sortByDistance` de RiderPanel (movidos a `riderUx.js` como `distanciaMetros` y `ordenarPorCercania`).
+
+**B19 — Reportes de delivery**
+
+- `server/routes/reportesDelivery.js` con `GET /api/reportes-delivery/resumen?desde=&hasta=`. Un solo query con agregación condicional (no N+1) que cruza `pedidos` con `pedido_eventos`.
+- **Usa mediana como métrica principal**, con el promedio al lado. Un pedido que quedó 3 horas abierto porque nadie lo cerró distorsiona la media; la mediana no. Se descartan duraciones negativas o de más de 8h.
+- Devuelve: totales (pedidos, entregados, sin entregar, incidencias, reversiones), duraciones por etapa, desglose por rider, por franja horaria, por día, y los 10 pedidos más lentos del rango.
+- Pantalla `client/src/pages/ReportesDelivery.jsx` en `/admin/reportes-delivery`, con presets de rango (hoy/7d/30d), 4 cards de etapas que **avisan cuando el promedio se dispara respecto de la mediana** (señal de outliers), tabla por rider con incidencias y reversiones destacadas en color, gráfico de barras por hora, y lista de los más lentos para investigar casos puntuales.
+- Agregado al sidebar con ícono Bike bajo permiso `reportes.view`.
+
+**Archivos nuevos de esta tanda:**
+
+- `server/services/pedidoTrazabilidad.js`
+- `server/routes/reportesDelivery.js`
+- `client/src/components/rider/DeshacerEntrega.jsx`
+- `client/src/pages/ReportesDelivery.jsx`
+
+**Modificados:** `server/db/migrations.js` (tabla + índices), `server/db/seed.js` (setting de ventana), `server/routes/pedidos.js`, `server/routes/repartidores.js`, `server/index.js`, `client/src/lib/riderUx.js`, `client/src/lib/nativeRiderGps.js`, `client/src/pages/RiderPanel.jsx`, `client/src/App.jsx`, `client/src/components/SidebarModern.jsx`, `client/src/components/Layout.jsx`.
+
+### 24.11. ✅ GRUPO A COMPLETADO (02/08/2026)
+
+**Backend nuevo: stats personales del rider**
+
+`GET /repartidores/:id/rider/:codigo/stats` devuelve: hoy vs ayer con variación porcentual, serie de 7 días para el gráfico, racha de días consecutivos, totales del mes, histórico completo y mejor jornada. Todo sale de `pedidos` con `estado = 'entregado'`, así que sobrevive a que el rider cambie de celular o se le borre la app.
+
+Detalles de criterio: la variación vs ayer devuelve `null` si ayer fue $0 (no tiene sentido mostrar "+∞%"). La racha arranca desde ayer si hoy todavía no entregó nada, para no romperla a media mañana.
+
+**Hero card del próximo pedido** (`HeroPedido.jsx`)
+
+Card grande con gradient (rojo si va a salir, verde si ya está en camino), avatar con inicial, dirección, distancia y ETA. Responde "¿a dónde voy AHORA?" sin leer la lista. Si el pedido lleva más de 15 min esperando muestra el chip de minutos. Distancia y ETA se omiten si el GPS todavía no ubicó al rider, en vez de mostrar datos inventados.
+
+**Widget de ganancias** (`WidgetGanancias.jsx`)
+
+Cobrado de hoy con contador animado, chip de variación vs ayer (verde/rojo), chip de racha con llamita si son 2+ días, y mini gráfico de barras de 7 días con el día actual destacado. Las barras tienen altura mínima visible aunque el día haya sido cero, para que se entienda que el día existe y estuvo en cero, no que falta el dato.
+
+**Modo en ruta fullscreen** (`ModoEnRuta.jsx` + `useWakeLock.js`)
+
+Pantalla completa al comenzar el reparto: barra mínima arriba con distancia y ETA, mapa ocupando todo, y panel inferior colapsable con dirección, monto y acciones. El botón "Marcar entregado" es de 64px y se pone verde cuando estás a menos de 150m.
+
+**Wake lock**: la pantalla no se apaga mientras dura el modo. Sin esto el celular se bloquea a los 30 segundos y el rider tiene que desbloquear manejando. Se re-adquiere al volver del background (el lock se pierde ahí) y se libera al salir. **Solo se activa durante el reparto activo**, nunca en el home — la pantalla prendida es lo que más consume batería.
+
+**Notificación in-app** (`NotificacionInApp.jsx`)
+
+Reemplaza el toast genérico cuando entra un pedido con la app abierta. Card con gradient de marca que cae desde arriba, muestra dirección y monto, y trae botón "Ver" directo. **Se descarta deslizando hacia arriba** — gesto natural para "sacarme esto de encima" sin apuntar a una X chiquita manejando. Auto-cierra a los 8s. Solo se muestra si `document.visibilityState === 'visible'`; si la app está en background se encarga la LocalNotification nativa.
+
+**Pull-to-refresh** (`PullToRefresh.jsx`)
+
+Implementado a mano con touch events, ~80 líneas, en vez de sumar una librería de 15 KB a una app que corre en gama baja. Solo se activa con el scroll arriba de todo. Tiene resistencia progresiva (cuanto más tirás, menos se mueve) y háptico al cruzar el umbral, así el rider sabe que puede soltar sin mirar. El indicador es la llamita de Modo Sabor girando.
+
+**Pantalla de perfil** (`PerfilRider.jsx`)
+
+Avatar, nivel gamificado con barra de progreso al siguiente, stats del mes, marcas personales (racha, mejor día, facturado histórico) y las dos opciones de sesión.
+
+Los cortes de nivel (Bronce 0-50, Plata 50-200, Oro 200+) están pensados para un rider interno: con ~10 entregas por turno, Bronce se pasa en la primera semana, Plata en el primer mes y Oro a los ~4 meses. Los cortes de una app masiva (miles de entregas) no motivarían a nadie acá.
+
+**Bottom tab bar** (`BottomTabBar.jsx`)
+
+Inicio / Historial / Perfil abajo, no arriba: el rider usa el celular con una mano, a veces con guantes, y el pulgar no llega cómodo a la parte superior de una pantalla de 6". El indicador del tab activo usa `layoutId` de framer-motion, así la píldora se desliza entre tabs. Badge con las entregas del día sobre Historial. Se oculta cuando hay un pedido abierto: ahí el foco tiene que estar en ese pedido, no en navegar.
+
+Se eliminaron los tabs inline que estaban en el medio del contenido.
+
+**Archivos nuevos:**
+
+- `client/src/lib/useWakeLock.js`
+- `client/src/components/rider/HeroPedido.jsx`
+- `client/src/components/rider/WidgetGanancias.jsx`
+- `client/src/components/rider/ModoEnRuta.jsx`
+- `client/src/components/rider/NotificacionInApp.jsx`
+- `client/src/components/rider/PullToRefresh.jsx`
+- `client/src/components/rider/PerfilRider.jsx`
+- `client/src/components/rider/BottomTabBar.jsx`
+
+**Modificados:** `server/routes/repartidores.js` (endpoint stats), `client/src/pages/RiderPanel.jsx`.
+
+### 24.12. Pendientes que quedan del backlog original
+
+Del grupo A quedaron sin hacer, por decisión de bajo ROI:
+
+- **Slide-to-reveal en cards**: el border-left de urgencia y el hero card ya resuelven la priorización. Agregar gestos ocultos en una app que usan 3 personas que ya la conocen suma complejidad sin beneficio claro.
+- **Onboarding de 3-4 slides**: absurdo para riders que trabajan hace años con la app.
+- **Ripple effect global**: el háptico semántico ya da feedback de tap. El ripple es puro adorno y agrega re-renders en gama baja.
+
+Del grupo C:
+
+- **Chat interno con burbujas**: requiere tabla de mensajes, websocket y endpoints nuevos. El link a WhatsApp funciona, es gratis y los riders ya lo usan todo el día. Es el ítem de peor relación costo/beneficio de toda la lista.
+
+### 24.9. Lectura recomendada del backlog
+
+Orden sugerido por impacto operativo real, no por vistosidad:
+
+1. Deploy de la v1.2.0 (punto 25) — desbloquea todo lo demás.
+2. Trazabilidad de tiempos (15) + deshacer entregado (16) — resuelven problemas concretos del día a día.
+3. Agente de WhatsApp (27) — el de mayor impacto en el negocio.
+4. Reportes de delivery (19) — decisiones informadas sobre el equipo.
+5. Lo visual (24.1) — la app ya está sobrada para 3 riders internos.
+
+## 2026-08-02 - Revision Codex post-handoff Claude A/B rider
+
+Se leyo el handoff de Claude sobre los grupos A (visual rider) y B (operativo rider). Se valido contra codigo real y se corrigio lo siguiente:
+
+- `server/routes/reportesDelivery.js`: se reemplazo `json_extract(e.metadata, '$.reversion')` por deteccion compatible con texto (`LIKE '%"reversion":true%'` / `LIKE '%"reversion":1%'`) para no depender de SQLite JSON1 en produccion.
+- `client/src/components/rider/PerfilRider.jsx`: se limpio un import sin uso y se dejo `nivelPorEntregas` como helper interno del componente.
+- `client/src/lib/useWakeLock.js`: se documentaron los catch vacios para evitar warnings y dejar claro que el release del wake lock no debe romper el flujo.
+
+Validaciones corridas:
+
+- `npm --prefix client run build`: OK.
+- ESLint enfocado en archivos nuevos/modificados de rider y `ReportesDelivery`: OK sin errores.
+- `npm --prefix server test`: OK, 6 suites pasadas.
+- `npm run verify:operacion`: OK; creo pedidos de verificacion por API como parte del smoke operativo.
+- Chequeo DB local: tabla `pedido_eventos` existe con columnas `id`, `pedido_id`, `estado`, `estado_anterior`, `actor_tipo`, `actor_id`, `actor_nombre`, `motivo`, `metadata`, `creado_en`.
+- `git diff --check`: OK; solo avisos CRLF normales de Windows.
+
+Notas pendientes:
+
+- El lint global del server todavia falla por `server/utils/dataPackage.js:100` (`==` en vez de `===`), no relacionado con esta tanda.
+- Falta prueba real en celular/APK del wake lock, modo ruta, ubicacion y notificaciones.
+- Falta publicar v1.2.0 cuando el usuario confirme que local esta listo.

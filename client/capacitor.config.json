@@ -1,6 +1,6 @@
 {
   "appId": "com.modosabor.rider",
-  "appName": "Modo Sabor Rider",
+  "appName": "Modo Sabor Riders",
   "webDir": "dist",
   "bundledWebRuntime": false,
   "android": {
@@ -8,7 +8,7 @@
   },
   "plugins": {
     "BackgroundGeolocation": {
-      "backgroundTitle": "Modo Sabor Rider",
+      "backgroundTitle": "Modo Sabor Riders",
       "backgroundMessage": "Compartiendo ubicacion para el seguimiento del pedido."
     },
     "SplashScreen": {

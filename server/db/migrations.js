@@ -200,6 +200,40 @@ function runMigrations(db) {
     )
   `);
 
+  // ── Trazabilidad de tiempos del pedido ──────────────────────────
+  // Un renglon por cada transicion de estado. Permite responder
+  // "por que este pedido tardo 50 minutos" y alimentar los reportes
+  // de delivery (tiempo promedio por rider, por zona, por franja).
+  //
+  // Se guarda como tabla aparte en vez de columnas en `pedidos` porque:
+  //  - un pedido puede volver a un estado anterior (deshacer entrega)
+  //  - queremos saber QUIEN hizo cada cambio, no solo cuando
+  //  - no ensucia la tabla principal con 6+ columnas de timestamp
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS pedido_eventos (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      pedido_id INTEGER NOT NULL,
+      estado TEXT NOT NULL,
+      estado_anterior TEXT DEFAULT '',
+      actor_tipo TEXT DEFAULT 'sistema',
+      actor_id INTEGER,
+      actor_nombre TEXT DEFAULT '',
+      motivo TEXT DEFAULT '',
+      metadata TEXT DEFAULT '{}',
+      creado_en DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_pedido_eventos_pedido
+    ON pedido_eventos(pedido_id, creado_en)
+  `);
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_pedido_eventos_estado_fecha
+    ON pedido_eventos(estado, creado_en DESC)
+  `);
+
   // ============================================
   // BACKFILLS
   // ============================================

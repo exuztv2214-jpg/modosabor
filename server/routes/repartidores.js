@@ -24,6 +24,7 @@ const {
   PHOTO_MIME_TYPES,
 } = require('../utils/uploadValidation');
 const { getPedidoHydratedById } = require('../services/pedidoService');
+const { registrarEvento, calcularDuraciones } = require('../services/pedidoTrazabilidad');
 const { syncPersonalFromDeliveryRepartidor } = require('../utils/deliveryPersonnelSync');
 const { checkAndNotifyLlegando } = require('../utils/deliveryNotifications');
 const { getConfigMap } = require('../utils/mercadoPago');
@@ -588,6 +589,17 @@ router.put('/:id/rider/:codigo/pedido/:pedidoId/estado', (req, res) => {
     ).run(estado, pedido.id);
   }
 
+  // Trazabilidad: dejar registro de quien cambio el estado y cuando.
+  registrarEvento({
+    pedidoId: pedido.id,
+    estado,
+    estadoAnterior: pedido.estado,
+    actorTipo: 'rider',
+    actorId: repartidor.id,
+    actorNombre: repartidor.nombre || '',
+    motivo: String(req.body?.motivo || ''),
+  });
+
   const updatedPedido = getPedidoHydratedById(pedido.id);
   const io = req.app.get('io');
   if (io) emitPedidoActualizado(io, updatedPedido);
@@ -662,6 +674,231 @@ router.put('/:id/rider/:codigo/pedido/:pedidoId/pago', (req, res) => {
   res.json(updatedPedido);
 });
 
+/**
+ * Estadísticas personales del rider para el home de la app.
+ *
+ * Devuelve lo del día, la comparación con ayer, los últimos 7 días para
+ * el mini gráfico, la racha de días trabajados y los totales históricos
+ * (que alimentan los niveles bronce/plata/oro del perfil).
+ *
+ * Todo sale de `pedidos` con `estado = 'entregado'`, así que sobrevive
+ * a que el rider borre el historial local o cambie de celular.
+ */
+router.get('/:id/rider/:codigo/stats', (req, res) => {
+  const repartidor = validateRiderAccess(req, res);
+  if (!repartidor) return;
+
+  const hoy = new Date();
+  const iso = (d) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+  try {
+    // Serie de los ultimos 7 dias (incluye hoy). Rellenamos los dias sin
+    // entregas con ceros para que el grafico no tenga huecos.
+    const desde = new Date(hoy.getTime() - 6 * 24 * 60 * 60 * 1000);
+    const filas = db
+      .prepare(
+        `SELECT DATE(actualizado_en) AS fecha,
+                COUNT(*) AS entregas,
+                COALESCE(SUM(total), 0) AS facturado
+         FROM pedidos
+         WHERE repartidor_id = ?
+           AND estado = 'entregado'
+           AND DATE(actualizado_en) BETWEEN ? AND ?
+         GROUP BY DATE(actualizado_en)`
+      )
+      .all(repartidor.id, iso(desde), iso(hoy));
+
+    const porFecha = new Map(filas.map((f) => [f.fecha, f]));
+    const serie = [];
+    for (let i = 6; i >= 0; i -= 1) {
+      const d = new Date(hoy.getTime() - i * 24 * 60 * 60 * 1000);
+      const key = iso(d);
+      const f = porFecha.get(key);
+      serie.push({
+        fecha: key,
+        entregas: Number(f?.entregas || 0),
+        facturado: Number(f?.facturado || 0),
+      });
+    }
+
+    const hoyStats = serie[serie.length - 1] || { entregas: 0, facturado: 0 };
+    const ayerStats = serie[serie.length - 2] || { entregas: 0, facturado: 0 };
+
+    // Variacion porcentual vs ayer. Si ayer fue 0 no calculamos un
+    // porcentaje infinito: devolvemos null y el UI lo omite.
+    const variacion =
+      ayerStats.facturado > 0
+        ? Math.round(((hoyStats.facturado - ayerStats.facturado) / ayerStats.facturado) * 100)
+        : null;
+
+    // Racha: dias consecutivos con al menos una entrega, contando hacia
+    // atras. Si hoy todavia no entrego nada arrancamos desde ayer, para
+    // no romperle la racha a media mañana.
+    const diasConEntregas = db
+      .prepare(
+        `SELECT DISTINCT DATE(actualizado_en) AS fecha
+         FROM pedidos
+         WHERE repartidor_id = ? AND estado = 'entregado'
+         ORDER BY fecha DESC
+         LIMIT 120`
+      )
+      .all(repartidor.id)
+      .map((r) => r.fecha);
+
+    const setDias = new Set(diasConEntregas);
+    let racha = 0;
+    let cursor = new Date(hoy);
+    if (!setDias.has(iso(cursor))) cursor = new Date(hoy.getTime() - 24 * 60 * 60 * 1000);
+    while (setDias.has(iso(cursor))) {
+      racha += 1;
+      cursor = new Date(cursor.getTime() - 24 * 60 * 60 * 1000);
+    }
+
+    // Totales historicos para los niveles del perfil.
+    const historico = db
+      .prepare(
+        `SELECT COUNT(*) AS entregas, COALESCE(SUM(total), 0) AS facturado
+         FROM pedidos
+         WHERE repartidor_id = ? AND estado = 'entregado'`
+      )
+      .get(repartidor.id);
+
+    // Mes actual.
+    const mes = db
+      .prepare(
+        `SELECT COUNT(*) AS entregas, COALESCE(SUM(total), 0) AS facturado
+         FROM pedidos
+         WHERE repartidor_id = ? AND estado = 'entregado'
+           AND strftime('%Y-%m', actualizado_en) = strftime('%Y-%m', 'now', 'localtime')`
+      )
+      .get(repartidor.id);
+
+    // Mejor dia historico: es el record real de entregas en una jornada.
+    const mejorDia = db
+      .prepare(
+        `SELECT DATE(actualizado_en) AS fecha, COUNT(*) AS entregas
+         FROM pedidos
+         WHERE repartidor_id = ? AND estado = 'entregado'
+         GROUP BY DATE(actualizado_en)
+         ORDER BY entregas DESC
+         LIMIT 1`
+      )
+      .get(repartidor.id);
+
+    return res.json({
+      hoy: { entregas: hoyStats.entregas, facturado: hoyStats.facturado },
+      ayer: { entregas: ayerStats.entregas, facturado: ayerStats.facturado },
+      variacionFacturado: variacion,
+      serie7dias: serie,
+      racha,
+      mes: { entregas: Number(mes?.entregas || 0), facturado: Number(mes?.facturado || 0) },
+      historico: {
+        entregas: Number(historico?.entregas || 0),
+        facturado: Number(historico?.facturado || 0),
+      },
+      mejorDia: mejorDia ? { fecha: mejorDia.fecha, entregas: Number(mejorDia.entregas) } : null,
+    });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * Deshacer una entrega marcada por error.
+ *
+ * Escenario real: el rider desliza el swipe sin querer, o marca el
+ * pedido equivocado cuando lleva varios. Hasta ahora no habia vuelta
+ * atras y el local quedaba con un pedido "entregado" que en realidad
+ * seguia en la moto.
+ *
+ * Reglas:
+ *  - Ventana de 5 minutos desde que se marco entregado (configurable
+ *    con `delivery_ventana_deshacer_min`). Pasado ese tiempo tiene que
+ *    corregirlo el local desde el admin, para que no se use como
+ *    forma de "editar la historia" a posteriori.
+ *  - El pedido vuelve a `en_camino` y el rider vuelve a quedar ocupado.
+ *  - Queda registro en `pedido_eventos` Y en la auditoria: la correccion
+ *    es visible, no se borra el hecho de que se marco mal.
+ */
+router.post('/:id/rider/:codigo/deshacer-entrega/:pedidoId', (req, res) => {
+  const repartidor = validateRiderAccess(req, res);
+  if (!repartidor) return;
+
+  const pedido = db
+    .prepare('SELECT * FROM pedidos WHERE id = ? AND repartidor_id = ?')
+    .get(req.params.pedidoId, repartidor.id);
+  if (!pedido) return res.status(404).json({ error: 'Pedido no encontrado' });
+
+  if (pedido.estado !== 'entregado') {
+    return res.status(400).json({ error: 'El pedido no figura como entregado' });
+  }
+
+  const ventanaMin =
+    Number(
+      db
+        .prepare("SELECT valor FROM configuracion WHERE clave = 'delivery_ventana_deshacer_min'")
+        .get()?.valor
+    ) || 5;
+
+  // Buscamos cuando se marco entregado. Preferimos el evento de
+  // trazabilidad; si no existe (pedido viejo) caemos a actualizado_en.
+  const eventoEntrega = db
+    .prepare(
+      `SELECT creado_en FROM pedido_eventos
+       WHERE pedido_id = ? AND estado = 'entregado'
+       ORDER BY datetime(creado_en) DESC, id DESC LIMIT 1`
+    )
+    .get(pedido.id);
+  const marcadoEn = eventoEntrega?.creado_en || pedido.actualizado_en;
+  const marcadoMs = new Date(String(marcadoEn).replace(' ', 'T') + 'Z').getTime();
+  const minutosDesde = Number.isFinite(marcadoMs)
+    ? (Date.now() - marcadoMs) / 60000
+    : Number.POSITIVE_INFINITY;
+
+  if (minutosDesde > ventanaMin) {
+    return res.status(400).json({
+      error: `Pasaron mas de ${ventanaMin} minutos. Pedile al local que lo corrija.`,
+      expirado: true,
+    });
+  }
+
+  const motivo = String(req.body?.motivo || 'Marcado por error').slice(0, 200);
+
+  db.prepare(
+    `UPDATE pedidos
+     SET estado = 'en_camino', actualizado_en = CURRENT_TIMESTAMP
+     WHERE id = ?`
+  ).run(pedido.id);
+  db.prepare('UPDATE repartidores SET disponible = 0 WHERE id = ?').run(repartidor.id);
+
+  registrarEvento({
+    pedidoId: pedido.id,
+    estado: 'en_camino',
+    estadoAnterior: 'entregado',
+    actorTipo: 'rider',
+    actorId: repartidor.id,
+    actorNombre: repartidor.nombre || '',
+    motivo,
+    metadata: { reversion: true, minutos_desde_entrega: Math.round(minutosDesde * 10) / 10 },
+  });
+
+  logAudit(db, {
+    modulo: 'pedidos',
+    accion: 'deshacer_entrega',
+    entidad: 'pedido',
+    entidad_id: pedido.id,
+    actor_nombre: `Rider ${repartidor.nombre}`,
+    detalle: { numero: pedido.numero, motivo, minutos_desde_entrega: Math.round(minutosDesde) },
+  });
+
+  const updatedPedido = getPedidoHydratedById(pedido.id);
+  const io = req.app.get('io');
+  if (io) emitPedidoActualizado(io, updatedPedido);
+
+  return res.json({ success: true, pedido: updatedPedido });
+});
+
 router.post('/:id/rider/:codigo/entregar/:pedidoId', upload.single('foto'), (req, res) => {
   const repartidor = validateRiderAccess(req, res);
   if (!repartidor) return;
@@ -726,6 +963,22 @@ router.post('/:id/rider/:codigo/entregar/:pedidoId', upload.single('foto'), (req
       },
     });
   }
+
+  // Trazabilidad de la entrega. Guardamos si hubo foto y si se valido
+  // PIN, que es la evidencia ante un reclamo "no me llego".
+  registrarEvento({
+    pedidoId: pedido.id,
+    estado: 'entregado',
+    estadoAnterior: pedido.estado,
+    actorTipo: 'rider',
+    actorId: repartidor.id,
+    actorNombre: repartidor.nombre || '',
+    metadata: {
+      con_foto: Boolean(req.file),
+      pin_validado: Boolean(validacionActiva && pedido.entrega_pin),
+      pago_estado: pagoEstadoEntrega,
+    },
+  });
 
   // Limpiar estado de proximidad del pedido entregado
   proximityState.delete(pedido.id);

@@ -44,6 +44,7 @@ const Mesas = lazy(() => import('./pages/Mesas.jsx'));
 const Caja = lazy(() => import('./pages/Caja.jsx'));
 const Usuarios = lazy(() => import('./pages/Usuarios.jsx'));
 const Reportes = lazy(() => import('./pages/Reportes.jsx'));
+const ReportesDelivery = lazy(() => import('./pages/ReportesDelivery.jsx'));
 const MarketingDigital = lazy(() => import('./pages/MarketingDigital.jsx'));
 const WhatsAppCopiloto = lazy(() => import('./pages/WhatsAppCopiloto.jsx'));
 const Configuracion = lazy(() => import('./pages/Configuracion.jsx'));
@@ -139,6 +140,7 @@ export default function App() {
                       element={<PrivateRoute permission="reportes.view" moduleKey="reportes" />}
                     >
                       <Route path="/admin/reportes" element={<Reportes />} />
+                      <Route path="/admin/reportes-delivery" element={<ReportesDelivery />} />
                     </Route>
                     <Route element={<PrivateRoute permission="config.manage" />}>
                       <Route path="/admin/configuracion" element={<Configuracion />} />

@@ -1,6 +1,6 @@
 {
-  "short_name": "Rider MS",
-  "name": "Modo Sabor - Repartidores",
+  "short_name": "MS Riders",
+  "name": "Modo Sabor Riders",
   "id": "/rider",
   "icons": [
     {
@@ -28,6 +28,6 @@
   "background_color": "#ffffff",
   "orientation": "portrait",
   "scope": "/rider",
-  "description": "App de gestion de repartos para Modo Sabor",
+  "description": "App de repartidores de Modo Sabor",
   "categories": ["business", "food", "productivity"]
 }
