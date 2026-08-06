@@ -32,12 +32,27 @@ const PATTERNS = {
 export function haptic(kind = 'tap') {
   try {
     if (typeof navigator === 'undefined' || !navigator.vibrate) return false;
+    if (!vibracionHabilitada) return false;
     const pattern = PATTERNS[kind] ?? PATTERNS.tap;
     navigator.vibrate(pattern);
     return true;
   } catch {
     return false;
   }
+}
+
+/*
+  El rider puede apagar la vibración desde sus preferencias.
+
+  Se guarda en una variable de módulo en vez de pasarla por parámetro porque
+  `haptic` se llama desde una veintena de lugares sueltos —cada botón, cada
+  cambio de estado— y hacer que todos conozcan las preferencias sería ensuciar
+  la firma en todos lados para una decisión que es global.
+*/
+let vibracionHabilitada = true;
+
+export function configurarVibracion(habilitada) {
+  vibracionHabilitada = habilitada !== false;
 }
 
 export default haptic;

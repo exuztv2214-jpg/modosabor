@@ -1,5 +1,20 @@
+import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Package, DollarSign, Flame, Trophy, Calendar, LogOut, Award } from 'lucide-react';
+import {
+  Package,
+  DollarSign,
+  Flame,
+  Trophy,
+  Calendar,
+  LogOut,
+  Award,
+  SlidersHorizontal,
+  Phone,
+  Bike,
+  Lock,
+  Check,
+  UserRound,
+} from 'lucide-react';
 
 const fmtPesos = (n) => `$${Number(n || 0).toLocaleString('es-AR')}`;
 
@@ -55,7 +70,28 @@ function StatBox({ icon: Icon, label, value, tone = 'text-gray-600' }) {
  *   onLogout    fn
  *   onCambiarRider fn — wipe completo del dispositivo
  */
-export default function PerfilRider({ repartidor, stats, onLogout, onCambiarRider }) {
+export default function PerfilRider({
+  repartidor,
+  stats,
+  onLogout,
+  onCambiarRider,
+  preferencias,
+  onCambiarPreferencia,
+  perfil,
+  onGuardarPerfil,
+  guardandoPerfil = false,
+}) {
+  const [telefono, setTelefono] = useState(perfil?.telefono || '');
+  const [vehiculo, setVehiculo] = useState(perfil?.vehiculo || '');
+
+  // Cuando llegan los datos del servidor se cargan los campos, salvo que el
+  // rider ya haya empezado a escribir.
+  useEffect(() => {
+    setTelefono(perfil?.telefono || '');
+    setVehiculo(perfil?.vehiculo || '');
+  }, [perfil?.telefono, perfil?.vehiculo]);
+
+  const hayCambios = telefono !== (perfil?.telefono || '') || vehiculo !== (perfil?.vehiculo || '');
   const historico = stats?.historico || { entregas: 0, facturado: 0 };
   const mes = stats?.mes || { entregas: 0, facturado: 0 };
   const { nivel, siguiente, progreso, faltan } = nivelPorEntregas(historico.entregas);
@@ -169,6 +205,164 @@ export default function PerfilRider({ repartidor, stats, onLogout, onCambiarRide
             Tu mejor jornada fue el {stats.mejorDia.fecha} con {stats.mejorDia.entregas} entregas
           </p>
         )}
+      </section>
+
+      {/*
+        ── Mis datos ─────────────────────────────────────────────────────────
+
+        El nombre va bloqueado a propósito: sale del legajo con el que se
+        liquida y **es lo que ve el cliente** en la pantalla de seguimiento. Si
+        el rider pudiera cambiarlo, un día aparece un apodo en el seguimiento
+        de alguien y encima se desincroniza de Personal.
+
+        El teléfono y el vehículo sí los edita: son datos operativos que él
+        conoce mejor que nadie —cambió de moto, cambió de número— y no tocan la
+        liquidación. El servidor los vuelve a validar y deja auditoría.
+      */}
+      <section className="rounded-[24px] border border-gray-100 bg-white p-5 shadow-sm">
+        <div className="mb-4 flex items-center gap-2">
+          <UserRound size={16} className="text-gray-700" />
+          <h3 className="text-[14px] font-semibold text-gray-900">Mis datos</h3>
+        </div>
+
+        <div className="mb-4 flex items-center justify-between gap-3 rounded-2xl bg-gray-50 px-4 py-3">
+          <div className="min-w-0">
+            <p className="text-[12px] font-medium text-gray-400">Nombre</p>
+            <p className="mt-0.5 truncate text-[15px] font-semibold text-gray-900">
+              {perfil?.nombre || repartidor?.nombre || '—'}
+            </p>
+          </div>
+          <span className="flex shrink-0 items-center gap-1.5 text-[12px] text-gray-400">
+            <Lock size={13} />
+            Lo cambia el local
+          </span>
+        </div>
+
+        <div className="space-y-3">
+          <div>
+            <label
+              htmlFor="rider-telefono"
+              className="mb-1.5 flex items-center gap-2 text-[13px] font-medium text-gray-600"
+            >
+              <Phone size={13} />
+              Mi teléfono
+            </label>
+            <input
+              id="rider-telefono"
+              type="tel"
+              inputMode="tel"
+              value={telefono}
+              onChange={(e) => setTelefono(e.target.value)}
+              placeholder="Ej: 3815 12-3456"
+              className="h-12 w-full rounded-2xl border-2 border-gray-100 bg-gray-50 px-4 text-[15px] font-medium text-gray-900 outline-none transition focus:border-[#dc1f2d] focus:bg-white"
+            />
+          </div>
+
+          <div>
+            <label
+              htmlFor="rider-vehiculo"
+              className="mb-1.5 flex items-center gap-2 text-[13px] font-medium text-gray-600"
+            >
+              <Bike size={13} />
+              Mi vehículo
+            </label>
+            <input
+              id="rider-vehiculo"
+              type="text"
+              value={vehiculo}
+              onChange={(e) => setVehiculo(e.target.value)}
+              placeholder="Ej: Moto roja 110"
+              className="h-12 w-full rounded-2xl border-2 border-gray-100 bg-gray-50 px-4 text-[15px] font-medium text-gray-900 outline-none transition focus:border-[#dc1f2d] focus:bg-white"
+            />
+          </div>
+        </div>
+
+        {/* El botón sólo aparece si hay algo para guardar: sin cambios no hay
+            nada que confirmar y un botón siempre activo invita a tocarlo al
+            pedo. */}
+        {hayCambios ? (
+          <button
+            type="button"
+            disabled={guardandoPerfil}
+            onClick={() => onGuardarPerfil?.({ telefono, vehiculo })}
+            className="mt-4 flex h-12 w-full items-center justify-center gap-2 rounded-2xl text-[15px] font-semibold text-white transition active:scale-[0.98] disabled:opacity-60"
+            style={{ background: '#dc1f2d' }}
+          >
+            <Check size={16} strokeWidth={2.5} />
+            {guardandoPerfil ? 'Guardando...' : 'Guardar cambios'}
+          </button>
+        ) : null}
+      </section>
+
+      {/*
+        ── Preferencias ──────────────────────────────────────────────────────
+
+        Son del rider, no del legajo: cómo quiere que la app le avise y de qué
+        tamaño quiere la letra. Antes estaba clavado en el código —sonaba
+        siempre, nunca hablaba— y no se podía cambiar. Un repartidor con casco
+        quiere la voz; otro que reparte de noche capaz prefiere sólo vibración.
+
+        No se sincroniza con el servidor: es de este celular.
+      */}
+      <section className="rounded-[24px] border border-gray-100 bg-white p-5 shadow-sm">
+        <div className="mb-3 flex items-center gap-2">
+          <SlidersHorizontal size={16} className="text-gray-700" />
+          <h3 className="text-[14px] font-semibold text-gray-900">Cómo quiero la app</h3>
+        </div>
+
+        <div className="divide-y divide-gray-100">
+          {[
+            {
+              clave: 'sonido',
+              titulo: 'Sonido al entrar un pedido',
+              detalle: 'Un aviso corto cuando te asignan uno nuevo',
+            },
+            {
+              clave: 'voz',
+              titulo: 'Que lo diga en voz alta',
+              detalle: 'Útil si andás con casco o guantes',
+            },
+            {
+              clave: 'vibracion',
+              titulo: 'Vibración',
+              detalle: 'Cada acción confirma con una vibración distinta',
+            },
+            {
+              clave: 'letraGrande',
+              titulo: 'Letra más grande',
+              detalle: 'Para leer de un vistazo con sol',
+            },
+          ].map(({ clave, titulo, detalle }) => {
+            const activo = Boolean(preferencias?.[clave]);
+            return (
+              <button
+                key={clave}
+                type="button"
+                onClick={() => onCambiarPreferencia?.(clave, !activo)}
+                className="flex w-full items-center justify-between gap-4 py-3.5 text-left"
+                aria-pressed={activo}
+              >
+                <span className="min-w-0">
+                  <span className="block text-[15px] font-medium text-gray-900">{titulo}</span>
+                  <span className="mt-0.5 block text-[13px] text-gray-500">{detalle}</span>
+                </span>
+
+                {/* Interruptor: el estado se lee por posición y color, no por texto. */}
+                <span
+                  className={`relative h-7 w-12 shrink-0 rounded-full transition-colors ${
+                    activo ? 'bg-emerald-500' : 'bg-gray-300'
+                  }`}
+                >
+                  <span
+                    className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow transition-all ${
+                      activo ? 'left-6' : 'left-1'
+                    }`}
+                  />
+                </span>
+              </button>
+            );
+          })}
+        </div>
       </section>
 
       {/* ── Sesión ── */}

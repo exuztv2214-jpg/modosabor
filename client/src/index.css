@@ -400,3 +400,24 @@
     transform: none;
   }
 }
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Letra grande en la app del rider.
+
+   El repartidor mira la pantalla parado en la vereda, con sol y a veces con
+   casco. Quien necesita anteojos para leer de cerca no los va a usar arriba de
+   la moto. Esto agranda todo un escalón sin tocar el diseño: el `rem` afecta a
+   los tamaños relativos y el resto acompaña.
+   ────────────────────────────────────────────────────────────────────────── */
+.rider-letra-grande {
+  font-size: 1.12em;
+}
+
+.rider-letra-grande p,
+.rider-letra-grande span,
+.rider-letra-grande button,
+.rider-letra-grande h1,
+.rider-letra-grande h2,
+.rider-letra-grande h3 {
+  letter-spacing: 0.01em;
+}

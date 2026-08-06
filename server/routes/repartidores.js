@@ -754,6 +754,83 @@ router.put('/:id/rider/:codigo/pedido/:pedidoId/pago', (req, res) => {
  * Todo sale de `pedidos` con `estado = 'entregado'`, así que sobrevive
  * a que el rider borre el historial local o cambie de celular.
  */
+/**
+ * Datos del propio rider y edición de los campos seguros.
+ *
+ * ── Por qué no puede editar todo ───────────────────────────────────────────
+ *
+ * El repartidor es parte del equipo, no un usuario independiente: su nombre
+ * sale del legajo con el que se le liquida, y además **es lo que ve el cliente**
+ * en la pantalla de seguimiento. Si pudiera cambiarlo libre, un día aparece un
+ * apodo en el seguimiento de un cliente y encima se desincroniza de Personal.
+ *
+ * Por eso se parte en dos:
+ *
+ *   Sólo lectura  → nombre (lo cambia el local en Personal)
+ *   Editable      → teléfono de contacto y vehículo
+ *
+ * El teléfono y el vehículo son datos operativos que el propio rider conoce
+ * mejor que nadie —cambió de moto, cambió de número— y que no afectan a la
+ * liquidación. Igual quedan auditados: todo lo que toca el legajo deja rastro.
+ */
+router.get('/:id/rider/:codigo/perfil', (req, res) => {
+  const repartidor = validateRiderAccess(req, res);
+  if (!repartidor) return;
+
+  res.json({
+    id: repartidor.id,
+    nombre: repartidor.nombre,
+    telefono: repartidor.telefono || '',
+    vehiculo: repartidor.vehiculo || '',
+    // Le decimos al cliente qué puede tocar, para no repetir la regla en la app.
+    editables: ['telefono', 'vehiculo'],
+  });
+});
+
+router.put('/:id/rider/:codigo/perfil', (req, res) => {
+  const repartidor = validateRiderAccess(req, res);
+  if (!repartidor) return;
+
+  const limpiar = (valor, max) =>
+    String(valor ?? '')
+      .trim()
+      .slice(0, max);
+  const telefono = limpiar(req.body?.telefono, 30);
+  const vehiculo = limpiar(req.body?.vehiculo, 60);
+
+  /*
+    El nombre se ignora aunque venga en el cuerpo: que la app no lo mande no
+    alcanza como control, porque cualquiera puede armar la petición a mano.
+  */
+  db.prepare('UPDATE repartidores SET telefono = ?, vehiculo = ? WHERE id = ?').run(
+    telefono,
+    vehiculo,
+    repartidor.id
+  );
+
+  logAudit(db, {
+    modulo: 'personal',
+    accion: 'editar_perfil_rider',
+    entidad: 'repartidor',
+    entidad_id: repartidor.id,
+    actor_nombre: `Rider ${repartidor.nombre}`,
+    detalle: {
+      telefono_anterior: repartidor.telefono || '',
+      telefono_nuevo: telefono,
+      vehiculo_anterior: repartidor.vehiculo || '',
+      vehiculo_nuevo: vehiculo,
+    },
+  });
+
+  res.json({
+    id: repartidor.id,
+    nombre: repartidor.nombre,
+    telefono,
+    vehiculo,
+    editables: ['telefono', 'vehiculo'],
+  });
+});
+
 router.get('/:id/rider/:codigo/stats', (req, res) => {
   const repartidor = validateRiderAccess(req, res);
   if (!repartidor) return;

@@ -80,7 +80,13 @@ import { socketManager } from '../lib/socket.js';
 import { runDeliveredAlert, runOrderAlert, useOrderAlertPlayback } from '../lib/orderAlerts.js';
 import RiderRouteMap from '../components/RiderRouteMap.jsx';
 import { DEFAULT_BRAND_LOGO } from '../lib/webPublicaHelpers.js';
-import { haptic } from '../lib/riderHaptics.js';
+import { configurarVibracion, haptic } from '../lib/riderHaptics.js';
+import {
+  PREFERENCIAS_POR_DEFECTO,
+  guardarPreferencias,
+  leerPreferencias,
+  preferenciasParaAlerta,
+} from '../lib/riderPreferencias.js';
 import {
   saludoPorHora,
   nivelUrgencia,
@@ -552,6 +558,28 @@ export default function RiderPanel() {
 
   // ── NEW: historial de sesión (entregas completadas hoy)
   const [historialSesion, setHistorialSesion] = useState([]);
+  // Preferencias del propio rider: sonido, voz, vibración y letra grande.
+  const [preferencias, setPreferencias] = useState(PREFERENCIAS_POR_DEFECTO);
+  /*
+    El aviso de pedido nuevo se dispara desde un callback de socket que se
+    registra una sola vez. Con el estado directo leería siempre el valor del
+    primer render; con el ref lee el actual.
+  */
+  const preferenciasRef = useRef(PREFERENCIAS_POR_DEFECTO);
+  // Con cuánto paga el cliente, para calcular el vuelto en la puerta.
+  const [pagaCon, setPagaCon] = useState('');
+  // Datos del legajo del rider: nombre (sólo lectura), teléfono y vehículo.
+  const [perfilRider, setPerfilRider] = useState(null);
+  const [guardandoPerfil, setGuardandoPerfil] = useState(false);
+
+  /*
+    El monto se borra al cambiar de pedido. Sin esto, el rider abre el
+    siguiente y se encuentra el importe del anterior ya cargado: el vuelto que
+    ve es de otra entrega, y eso es peor que no tener la calculadora.
+  */
+  useEffect(() => {
+    setPagaCon('');
+  }, [selectedPedido?.id]);
   const [changingPayment, setChangingPayment] = useState(false);
 
   // ── NEW: PIN modal
@@ -763,6 +791,54 @@ export default function RiderPanel() {
     };
   }, [riderAuth?.id]);
 
+  // Preferencias guardadas en este celular.
+  useEffect(() => {
+    leerPreferencias().then((guardadas) => {
+      setPreferencias(guardadas);
+      preferenciasRef.current = guardadas;
+      configurarVibracion(guardadas.vibracion);
+    });
+  }, []);
+
+  // Datos del legajo, para la pestaña de perfil.
+  useEffect(() => {
+    if (!riderAuth?.id) return;
+    api
+      .get(`/repartidores/${riderAuth.id}/rider/${riderAuth.code}/perfil`)
+      .then(setPerfilRider)
+      .catch(() => {
+        // Sin estos datos el perfil igual muestra las estadísticas: no vale la
+        // pena molestar al rider con un error por algo secundario.
+      });
+  }, [riderAuth?.id, riderAuth?.code]);
+
+  const guardarPerfilRider = async (datos) => {
+    if (!riderAuth || guardandoPerfil) return;
+    setGuardandoPerfil(true);
+    try {
+      const actualizado = await api.put(
+        `/repartidores/${riderAuth.id}/rider/${riderAuth.code}/perfil`,
+        datos
+      );
+      setPerfilRider(actualizado);
+      toast.success('Datos actualizados');
+    } catch (error) {
+      toast.error(error?.error || 'No se pudieron guardar tus datos');
+    } finally {
+      setGuardandoPerfil(false);
+    }
+  };
+
+  const cambiarPreferencia = (clave, valor) => {
+    const siguiente = { ...preferencias, [clave]: valor };
+    setPreferencias(siguiente);
+    preferenciasRef.current = siguiente;
+    configurarVibracion(siguiente.vibracion);
+    guardarPreferencias(siguiente);
+    // Un toque de confirmación: si acaba de prender la vibración, la siente.
+    if (clave === 'vibracion' && valor) haptic('tap');
+  };
+
   useEffect(() => {
     if (!riderAuth?.id) return;
     riderStorageSet(
@@ -865,8 +941,9 @@ export default function RiderPanel() {
           pedido,
           config: {
             ...(configRef.current || {}),
-            alertas_pedido_sonido: '1',
-            alertas_pedido_voz: '0',
+            // Antes estaban clavadas acá: sonido siempre, voz nunca. Ahora
+            // manda lo que el rider eligió en su perfil.
+            ...preferenciasParaAlerta(preferenciasRef.current),
           },
           audioContextRef,
           voiceRef,
@@ -1968,7 +2045,9 @@ export default function RiderPanel() {
 
   return (
     <div
-      className="rider-shell min-h-screen bg-gray-50 flex flex-col font-sans overflow-x-hidden"
+      className={`rider-shell min-h-screen bg-gray-50 flex flex-col font-sans overflow-x-hidden ${
+        preferencias.letraGrande ? 'rider-letra-grande' : ''
+      }`}
       style={{ '--rider-primary': primaryColor, '--rider-secondary': secondaryColor }}
     >
       {/* ── Header ──────────────────────────────────────────────── */}
@@ -2634,6 +2713,11 @@ export default function RiderPanel() {
               {/* ── Tab: Perfil ── */}
               {activeTab === 'perfil' && (
                 <PerfilRider
+                  preferencias={preferencias}
+                  onCambiarPreferencia={cambiarPreferencia}
+                  perfil={perfilRider}
+                  onGuardarPerfil={guardarPerfilRider}
+                  guardandoPerfil={guardandoPerfil}
                   repartidor={data?.repartidor}
                   stats={riderStats}
                   onLogout={handleLogout}
@@ -2974,6 +3058,89 @@ export default function RiderPanel() {
                           </p>
                         </div>
                       </div>
+
+                      {/*
+                        ── Vuelto ──────────────────────────────────────────────
+
+                        Calcular el vuelto de cabeza, en la puerta, con el
+                        cliente esperando y a veces de noche, es donde más se
+                        equivoca cualquiera. Y el error siempre aparece después,
+                        al cerrar el turno, cuando ya no se sabe de qué pedido
+                        salió la diferencia.
+
+                        Sólo aparece si el pago es en efectivo y todavía no se
+                        cobró: en transferencia no hay vuelto que dar.
+                      */}
+                      {metodoPago.includes('efectivo') && !yaCobrado ? (
+                        <div className="mx-5 mb-5 rounded-[22px] bg-gray-50 p-5 sm:mx-6">
+                          <label
+                            htmlFor="paga-con"
+                            className="mb-2 block text-[13px] font-semibold text-gray-500"
+                          >
+                            ¿Con cuánto te paga?
+                          </label>
+                          <div className="flex items-center gap-3">
+                            <input
+                              id="paga-con"
+                              type="number"
+                              inputMode="numeric"
+                              value={pagaCon}
+                              onChange={(e) => setPagaCon(e.target.value)}
+                              placeholder="0"
+                              className="h-14 w-full rounded-2xl border-2 border-gray-200 bg-white px-4 text-[22px] font-bold tabular-nums text-gray-900 outline-none transition focus:border-[#dc1f2d]"
+                            />
+                            {pagaCon ? (
+                              <button
+                                type="button"
+                                onClick={() => setPagaCon('')}
+                                className="h-14 shrink-0 rounded-2xl px-4 text-[14px] font-medium text-gray-500"
+                              >
+                                Borrar
+                              </button>
+                            ) : null}
+                          </div>
+
+                          {/* Montos habituales, para no tipear. */}
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {[2000, 5000, 10000, 20000].map((monto) => (
+                              <button
+                                key={monto}
+                                type="button"
+                                onClick={() => setPagaCon(String(monto))}
+                                className="h-10 rounded-xl border border-gray-200 bg-white px-4 text-[14px] font-medium text-gray-700"
+                              >
+                                {fmt(monto)}
+                              </button>
+                            ))}
+                          </div>
+
+                          {(() => {
+                            const entregado = Number(pagaCon);
+                            if (!pagaCon || !Number.isFinite(entregado)) return null;
+                            const vuelto = entregado - Number(selectedPedido.total || 0);
+
+                            // Si no alcanza, decirlo claro en vez de mostrar un
+                            // vuelto negativo que se lee mal de un vistazo.
+                            if (vuelto < 0) {
+                              return (
+                                <p className="mt-4 rounded-2xl bg-amber-50 px-4 py-3 text-[15px] font-medium text-amber-800">
+                                  Falta {fmt(Math.abs(vuelto))}
+                                </p>
+                              );
+                            }
+                            return (
+                              <div className="mt-4 rounded-2xl bg-emerald-50 px-4 py-3">
+                                <p className="text-[13px] font-medium text-emerald-800">
+                                  Tenés que dar de vuelto
+                                </p>
+                                <p className="mt-0.5 text-[30px] font-bold leading-none tabular-nums text-emerald-900">
+                                  {fmt(vuelto)}
+                                </p>
+                              </div>
+                            );
+                          })()}
+                        </div>
+                      ) : null}
                     </>
                   );
                 })()}
