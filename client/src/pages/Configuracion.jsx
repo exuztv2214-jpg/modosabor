@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import {
   BellRing,
+  Bot,
   Building2,
   Check,
   CreditCard,
@@ -27,6 +28,7 @@ import SeccionImpresion from '../components/Configuracion/SeccionImpresion.jsx';
 import SeccionAvanzado from '../components/Configuracion/SeccionAvanzado.jsx';
 import SeccionWebPublica from '../components/Configuracion/SeccionWebPublica.jsx';
 import SeccionAlertas from '../components/Configuracion/SeccionAlertas.jsx';
+import SeccionAsistente from '../components/Configuracion/SeccionAsistente.jsx';
 import ActionDialog from '../components/ActionDialog.jsx';
 import { safeParseArray } from '../lib/pedidoForm.js';
 
@@ -43,6 +45,7 @@ const TABS = [
     hint: 'Comportamiento de la app de reparto',
   },
   { id: 'alertas', label: 'Alertas', icon: BellRing, hint: 'Sonidos y avisos de pedidos' },
+  { id: 'asistente', label: 'Asistente', icon: Bot, hint: 'El chat que consulta el negocio' },
   { id: 'impresion', label: 'Impresión', icon: Printer, hint: 'Comandas, tickets y formato' },
   { id: 'avanzado', label: 'Avanzado', icon: Settings, hint: 'Backups, auditoría y reinicio' },
 ];
@@ -500,6 +503,9 @@ export default function Configuracion() {
         {activeTab === 'rider' && <SeccionRider config={config} f={f} setConfig={setConfigSucio} />}
         {activeTab === 'alertas' && (
           <SeccionAlertas config={config} f={f} setConfig={setConfigSucio} />
+        )}
+        {activeTab === 'asistente' && (
+          <SeccionAsistente config={config} setConfig={setConfigSucio} />
         )}
         {activeTab === 'impresion' && (
           <SeccionImpresion

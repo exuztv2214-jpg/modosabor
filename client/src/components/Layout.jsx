@@ -22,6 +22,7 @@ import { socketManager } from '../lib/socket.js';
 import { runOrderAlert, useOrderAlertPlayback } from '../lib/orderAlerts.js';
 
 import GlobalOrderAlerts from './GlobalOrderAlerts.jsx';
+import AsistenteFlotante from './Asistente/AsistenteFlotante.jsx';
 import Sidebar from './SidebarModern.jsx';
 
 const SIDEBAR_WIDTH = 270;
@@ -544,6 +545,16 @@ export default function Layout() {
           </AnimatePresence>
         </main>
       </div>
+
+      {/*
+        Fuera de <main> a propósito: el botón va fijo a la ventana, y adentro
+        quedaría atrapado por el contenedor con scroll.
+
+        No se pone en la ruta del TPV: esa pantalla se usa con el local lleno,
+        de parado y contra reloj. Un botón flotante ahí es algo que se toca sin
+        querer, no una ayuda.
+      */}
+      <AsistenteFlotante />
     </div>
   );
 }

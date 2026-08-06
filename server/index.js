@@ -249,6 +249,7 @@ app.use('/api/fidelizacion', require('./routes/fidelizacion'));
 app.use('/api/operacion', require('./routes/operacion'));
 app.use('/api/tpv', require('./routes/tpvEspera'));
 app.use('/api/agente', require('./routes/agente'));
+app.use('/api/asistente', require('./routes/asistente'));
 app.use('/api/whatsapp-copiloto', require('./routes/whatsappCopiloto'));
 
 if (process.env.NODE_ENV === 'production' && fs.existsSync(clientIndexFile)) {

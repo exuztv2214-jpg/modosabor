@@ -116,7 +116,15 @@ const bootstrapImportKey = String(process.env.BOOTSTRAP_IMPORT_KEY || '').trim()
   nueva, se ignora ese campo. Sin eso, cada vez que tocaras cualquier otra
   opción de la pantalla se borraría la clave.
 */
-const SENSITIVE_KEYS = new Set(['mercadopago_token', 'gemini_api_key']);
+const SENSITIVE_KEYS = new Set([
+  'mercadopago_token',
+  // La voz de los avisos: siempre Gemini, con su propia clave.
+  'gemini_api_key',
+  // El asistente: una sola clave, la del proveedor que esté elegido. Son dos
+  // claves separadas a propósito, para poder usar Gemini en la voz y otro
+  // proveedor en el asistente sin que se pisen.
+  'ia_api_key',
+]);
 const SENSITIVE_PLACEHOLDER = '__CONFIGURED__';
 
 function rowsToConfig(rows) {
@@ -172,6 +180,7 @@ function getPublicConfig() {
   const config = sanitizeSensitiveConfig(full, { remove: true });
   config.mercadopago_token_configured = Boolean(full.mercadopago_token);
   config.gemini_api_key_configured = Boolean(full.gemini_api_key);
+  config.ia_api_key_configured = Boolean(full.ia_api_key);
   return config;
 }
 

@@ -7,16 +7,26 @@ function clientKey(req) {
   ).trim();
 }
 
+/**
+ * @param {object} [opciones]
+ * @param {Function} [opciones.keyGenerator] Con qué agrupar los intentos.
+ *   Por defecto la IP, que es lo correcto para rutas públicas.
+ *
+ *   En rutas donde todos están logueados conviene agrupar por usuario: varias
+ *   personas del local comparten la misma conexión, y con la IP el límite de
+ *   una las frena a todas.
+ */
 function createRateLimiter({
   windowMs = 60 * 1000,
   max = 60,
   message = 'Demasiados intentos. Proba de nuevo en unos minutos.',
+  keyGenerator = clientKey,
 } = {}) {
   const hits = new Map();
 
   return (req, res, next) => {
     const now = Date.now();
-    const key = clientKey(req);
+    const key = String(keyGenerator(req) || clientKey(req));
     const current = hits.get(key);
 
     if (!current || current.resetAt <= now) {

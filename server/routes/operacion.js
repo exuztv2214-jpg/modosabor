@@ -972,3 +972,14 @@ router.post('/menu-dia/nuevo', requirePermission('productos.edit'), (req, res) =
 });
 
 module.exports = router;
+
+/*
+  Se exponen para que el asistente arme el menú del día con exactamente la
+  misma lógica que la pantalla: la misma categoría, el mismo apagado del resto
+  de los platos, el mismo registro histórico.
+
+  Reimplementarlo aparte sería garantizar que en algún momento las dos versiones
+  se separen y el menú quede distinto según por dónde se cargue.
+*/
+module.exports.persistMenuDiaItems = persistMenuDiaItems;
+module.exports.loadMenuDiaLibrary = loadMenuDiaLibrary;
