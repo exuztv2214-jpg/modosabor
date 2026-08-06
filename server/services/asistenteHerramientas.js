@@ -1,5 +1,7 @@
 const db = require('../db');
 const { fechaLocal } = require('../utils/fechaLocal');
+const { buildCajaResumen } = require('../routes/caja');
+const { normalizePagoEstado, normalizeMetodoPago } = require('../utils/paymentStatus');
 
 /**
  * Lo que el asistente puede consultar.
@@ -282,6 +284,88 @@ function estadoDeCaja() {
   };
 }
 
+/*
+  ── El cierre de caja, explicado ───────────────────────────────────────────
+
+  La pantalla de caja da el número final. Esto da el número **y qué lo explica**:
+  los pedidos puntuales que no cuadran.
+
+  Son tres casos, y los tres son plata que se puede perder sin que nadie lo note
+  hasta que ya pasó:
+
+    · Entregado pero sin cobrar. El pedido salió, el cliente lo recibió y el
+      sistema no registra el cobro. O se cobró y no se cargó, o no se cobró.
+
+    · Sin método de pago. Entró por WhatsApp, nadie completó cómo pagó. En el
+      cierre no suma a ningún lado, así que la caja no cuadra y no se sabe por
+      qué.
+
+    · Cobrado pero cancelado. Si se cobró y después se anuló, hay que devolver
+      esa plata o el arqueo va a dar de más.
+
+  El efectivo esperado se calcula con la misma función que usa el cierre real,
+  no con una cuenta propia: si fueran dos, en algún momento darían distinto.
+*/
+function revisionDeCaja() {
+  const caja = db
+    .prepare(`SELECT * FROM cierres_caja WHERE estado = 'abierta' ORDER BY id DESC LIMIT 1`)
+    .get();
+
+  if (!caja) {
+    return { abierta: false, mensaje: 'No hay ninguna caja abierta para revisar.' };
+  }
+
+  const resumen = buildCajaResumen(caja.abierta_en, null, caja.id);
+  const esperado = Number(caja.monto_inicial || 0) + Number(resumen.efectivoNeto || 0);
+
+  const pedidos = db
+    .prepare(
+      `SELECT numero, estado, metodo_pago, pago_estado, total, origen, cliente_nombre,
+              repartidor_nombre, creado_en
+         FROM pedidos
+        WHERE datetime(creado_en) >= datetime(?)`
+    )
+    .all(caja.abierta_en);
+
+  const problemas = [];
+  pedidos.forEach((p) => {
+    const metodo = normalizeMetodoPago(p.metodo_pago);
+    const pago = normalizePagoEstado(p.pago_estado, { metodoPago: metodo, origen: p.origen });
+    const base = {
+      pedido: p.numero,
+      cliente: p.cliente_nombre,
+      repartidor: p.repartidor_nombre,
+      total_pesos: aPesos(p.total),
+    };
+
+    if (p.estado === 'cancelado' && pago === 'pagado') {
+      problemas.push({ ...base, problema: 'Está cancelado pero figura cobrado.' });
+      return;
+    }
+    if (p.estado === 'cancelado') return;
+
+    if (!String(p.metodo_pago || '').trim()) {
+      problemas.push({ ...base, problema: 'No tiene método de pago cargado.' });
+      return;
+    }
+    if (p.estado === 'entregado' && pago !== 'pagado') {
+      problemas.push({ ...base, problema: 'Se entregó pero figura sin cobrar.' });
+    }
+  });
+
+  return {
+    abierta: true,
+    abierta_en: caja.abierta_en,
+    monto_inicial_pesos: aPesos(caja.monto_inicial),
+    ventas_pesos: aPesos(resumen.totalVentas),
+    efectivo_de_ventas_pesos: aPesos(resumen.efectivoVentas),
+    // Lo que tendría que haber en el cajón si todo se cargó bien.
+    efectivo_esperado_pesos: aPesos(esperado),
+    pedidos_con_problemas: problemas,
+    total_en_problemas_pesos: problemas.reduce((s, p) => s + p.total_pesos, 0),
+  };
+}
+
 function clientesHabituales(args = {}) {
   const limite = Math.min(Math.max(Number(args.limite) || 10, 1), 30);
   const filas = db
@@ -375,6 +459,13 @@ const HERRAMIENTAS = [
       'Si hay una caja abierta, desde cuándo, quién la abrió, el monto inicial y los movimientos registrados. Montos en pesos.',
     parametros: { type: 'object', properties: {} },
     ejecutar: estadoDeCaja,
+  },
+  {
+    nombre: 'revision_de_caja',
+    descripcion:
+      'Revisa la caja abierta: cuánto efectivo debería haber, y qué pedidos puntuales no cuadran (entregados sin cobrar, sin método de pago, o cobrados y después cancelados). Usala cuando pregunten por el cierre, el arqueo o por qué no cuadra la caja.',
+    parametros: { type: 'object', properties: {} },
+    ejecutar: revisionDeCaja,
   },
   {
     nombre: 'clientes_habituales',

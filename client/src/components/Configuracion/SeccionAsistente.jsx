@@ -28,8 +28,15 @@ import {
 
 export default function SeccionAsistente({ config, setConfig }) {
   const [proveedores, setProveedores] = useState([]);
+  // Si la lista no se pudo traer hay que decirlo. Un desplegable vacío sin
+  // explicación deja a cualquiera pensando que la pantalla está rota.
+  const [falloLaLista, setFalloLaLista] = useState(false);
   const [probando, setProbando] = useState(false);
   const [prueba, setPrueba] = useState(null);
+  // El modelo se elige de una lista, pero también se puede escribir: los
+  // proveedores sacan modelos nuevos mucho más seguido de lo que se actualiza
+  // esta pantalla.
+  const [modeloAMano, setModeloAMano] = useState(false);
 
   const activo = String(config.ia_asistente_activo ?? '0') === '1';
   const proveedorId = String(config.ia_proveedor || 'gemini');
@@ -40,8 +47,17 @@ export default function SeccionAsistente({ config, setConfig }) {
     let vigente = true;
     api
       .get('/api/asistente/proveedores')
-      .then((datos) => vigente && setProveedores(datos?.proveedores || []))
-      .catch(() => vigente && setProveedores([]));
+      .then((datos) => {
+        if (!vigente) return;
+        const lista = datos?.proveedores || [];
+        setProveedores(lista);
+        setFalloLaLista(lista.length === 0);
+      })
+      .catch(() => {
+        if (!vigente) return;
+        setProveedores([]);
+        setFalloLaLista(true);
+      });
     return () => {
       vigente = false;
     };
@@ -66,6 +82,7 @@ export default function SeccionAsistente({ config, setConfig }) {
       ia_base_url: elegido?.baseUrl || '',
       ia_modelo: elegido?.modeloPorDefecto || '',
     }));
+    setModeloAMano(false);
     setPrueba(null);
   };
 
@@ -97,23 +114,88 @@ export default function SeccionAsistente({ config, setConfig }) {
 
         {activo ? (
           <>
+            {falloLaLista ? (
+              <p
+                className="mt-4 rounded-xl px-4 py-3 text-[12px] font-medium leading-relaxed"
+                style={{ background: '#FEF2F2', color: '#7A0F17' }}
+              >
+                No pude traer la lista de proveedores del servidor. Si acabás de agregar el
+                asistente, falta desplegar: los campos de abajo funcionan igual escribiéndolos a
+                mano, pero conviene desplegar primero.
+              </p>
+            ) : null}
+
             <div className="mt-4 grid items-end gap-3 lg:grid-cols-2">
               <SelectField
                 label="Proveedor"
                 description="Cualquiera de estos, o uno propio."
                 value={proveedorId}
                 onChange={(evento) => cambiarProveedor(evento.target.value)}
-                options={proveedores.map((p) => ({ value: p.id, label: p.nombre }))}
-              />
-              <InputField
-                label="Modelo"
-                description="Los nombres cambian seguido: si te da error, revisá cuál está vigente."
-                value={config.ia_modelo || ''}
-                onChange={(evento) =>
-                  setConfig((prev) => ({ ...prev, ia_modelo: evento.target.value }))
+                options={
+                  proveedores.length
+                    ? proveedores.map((p) => ({ value: p.id, label: p.nombre }))
+                    : // Sin lista, al menos que se vea cuál está guardado en vez de
+                      // un desplegable vacío que no dice nada.
+                      [{ value: proveedorId, label: proveedorId }]
                 }
-                placeholder={proveedor?.modeloPorDefecto || 'nombre-del-modelo'}
               />
+
+              {/*
+                Lista si el proveedor trae modelos conocidos, campo libre si no.
+
+                Las dos cosas hacen falta: la lista evita errores de tipeo en
+                nombres largos como "meta-llama/Llama-3.3-70B-Instruct-Turbo", y
+                el campo libre permite usar un modelo que salió después de que
+                se escribió esta pantalla, sin esperar una actualización.
+              */}
+              {proveedor?.modelos?.length && !modeloAMano ? (
+                <div>
+                  <SelectField
+                    label="Modelo"
+                    description="El primero es el recomendado."
+                    value={config.ia_modelo || ''}
+                    onChange={(evento) =>
+                      setConfig((prev) => ({ ...prev, ia_modelo: evento.target.value }))
+                    }
+                    options={[
+                      ...proveedor.modelos.map((m) => ({ value: m, label: m })),
+                      // Si lo que está guardado no figura en la lista, igual
+                      // tiene que verse elegido y no perderse.
+                      ...(config.ia_modelo && !proveedor.modelos.includes(config.ia_modelo)
+                        ? [{ value: config.ia_modelo, label: `${config.ia_modelo} (guardado)` }]
+                        : []),
+                    ]}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setModeloAMano(true)}
+                    className="mt-1.5 text-[11px] font-medium text-gray-500 underline transition hover:text-gray-700"
+                  >
+                    Escribir otro modelo
+                  </button>
+                </div>
+              ) : (
+                <div>
+                  <InputField
+                    label="Modelo"
+                    description="Escribí el nombre exacto que usa tu proveedor."
+                    value={config.ia_modelo || ''}
+                    onChange={(evento) =>
+                      setConfig((prev) => ({ ...prev, ia_modelo: evento.target.value }))
+                    }
+                    placeholder={proveedor?.modeloPorDefecto || 'nombre-del-modelo'}
+                  />
+                  {proveedor?.modelos?.length ? (
+                    <button
+                      type="button"
+                      onClick={() => setModeloAMano(false)}
+                      className="mt-1.5 text-[11px] font-medium text-gray-500 underline transition hover:text-gray-700"
+                    >
+                      Volver a la lista
+                    </button>
+                  ) : null}
+                </div>
+              )}
             </div>
 
             <div className="mt-3">

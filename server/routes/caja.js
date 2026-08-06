@@ -379,3 +379,11 @@ router.get('/cierre/:id/ticket', auth, requirePermission('caja.view'), (req, res
 });
 
 module.exports = router;
+
+/*
+  Se expone para que el asistente calcule el efectivo esperado con exactamente
+  la misma cuenta que el cierre de caja. Si usara una propia, tarde o temprano
+  diría una cifra distinta a la de la pantalla y no habría forma de saber cuál
+  es la buena.
+*/
+module.exports.buildCajaResumen = buildCajaResumen;

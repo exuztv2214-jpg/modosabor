@@ -25,10 +25,17 @@ const logger = require('../utils/logger');
  */
 
 /*
-  Los modelos por defecto son una sugerencia, no una verdad: salen nuevos todo
-  el tiempo y los viejos se dan de baja. Por eso el modelo es un campo editable
-  en Configuración. Si alguno de estos dejó de existir, se escribe el nombre
-  del que corresponda y listo, sin tocar código.
+  ── Sobre los modelos de esta lista ────────────────────────────────────────
+
+  Son una sugerencia, no una verdad. Salen modelos nuevos todo el tiempo y los
+  viejos se dan de baja, así que cualquier lista escrita hoy va a estar
+  incompleta en unos meses.
+
+  Por eso en Configuración el modelo se puede elegir de la lista **o escribir a
+  mano**. Si el proveedor sacó uno nuevo, se escribe el nombre y funciona, sin
+  esperar a que nadie actualice este archivo.
+
+  El primero de cada lista es el que se usa por defecto.
 */
 const PROVEEDORES = {
   gemini: {
@@ -36,6 +43,7 @@ const PROVEEDORES = {
     familia: 'gemini',
     baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
     modeloPorDefecto: 'gemini-2.5-flash',
+    modelos: ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.0-flash'],
     donde: 'aistudio.google.com/apikey',
     nota: 'Tiene nivel gratuito.',
   },
@@ -44,6 +52,7 @@ const PROVEEDORES = {
     familia: 'anthropic',
     baseUrl: 'https://api.anthropic.com/v1',
     modeloPorDefecto: 'claude-sonnet-4-20250514',
+    modelos: ['claude-sonnet-4-20250514', 'claude-opus-4-20250514', 'claude-3-5-haiku-20241022'],
     donde: 'console.anthropic.com',
     nota: 'Sin nivel gratuito.',
   },
@@ -52,6 +61,7 @@ const PROVEEDORES = {
     familia: 'openai',
     baseUrl: 'https://api.openai.com/v1',
     modeloPorDefecto: 'gpt-4o-mini',
+    modelos: ['gpt-4o-mini', 'gpt-4o', 'o4-mini'],
     donde: 'platform.openai.com/api-keys',
     nota: 'Sin nivel gratuito.',
   },
@@ -60,6 +70,7 @@ const PROVEEDORES = {
     familia: 'openai',
     baseUrl: 'https://api.moonshot.ai/v1',
     modeloPorDefecto: 'kimi-k2-0711-preview',
+    modelos: ['kimi-k2-0711-preview', 'moonshot-v1-32k', 'moonshot-v1-128k'],
     donde: 'platform.moonshot.ai',
     nota: 'Si tu cuenta es de China, la dirección termina en .cn — cambiala abajo.',
   },
@@ -68,6 +79,7 @@ const PROVEEDORES = {
     familia: 'openai',
     baseUrl: 'https://api.deepseek.com/v1',
     modeloPorDefecto: 'deepseek-chat',
+    modelos: ['deepseek-chat', 'deepseek-reasoner'],
     donde: 'platform.deepseek.com',
     nota: 'Muy barato para el volumen de un restaurante.',
   },
@@ -76,6 +88,7 @@ const PROVEEDORES = {
     familia: 'openai',
     baseUrl: 'https://api.groq.com/openai/v1',
     modeloPorDefecto: 'llama-3.3-70b-versatile',
+    modelos: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant'],
     donde: 'console.groq.com/keys',
     nota: 'Contesta muy rápido y tiene nivel gratuito.',
   },
@@ -84,6 +97,12 @@ const PROVEEDORES = {
     familia: 'openai',
     baseUrl: 'https://openrouter.ai/api/v1',
     modeloPorDefecto: 'anthropic/claude-3.5-sonnet',
+    modelos: [
+      'anthropic/claude-3.5-sonnet',
+      'openai/gpt-4o-mini',
+      'google/gemini-2.0-flash-001',
+      'deepseek/deepseek-chat',
+    ],
     donde: 'openrouter.ai/keys',
     nota: 'Una sola clave para cientos de modelos de distintas empresas.',
   },
@@ -92,6 +111,7 @@ const PROVEEDORES = {
     familia: 'openai',
     baseUrl: 'https://api.x.ai/v1',
     modeloPorDefecto: 'grok-2-latest',
+    modelos: ['grok-2-latest', 'grok-2-vision-latest'],
     donde: 'console.x.ai',
     nota: '',
   },
@@ -100,6 +120,7 @@ const PROVEEDORES = {
     familia: 'openai',
     baseUrl: 'https://api.mistral.ai/v1',
     modeloPorDefecto: 'mistral-small-latest',
+    modelos: ['mistral-small-latest', 'mistral-large-latest', 'pixtral-12b-2409'],
     donde: 'console.mistral.ai',
     nota: '',
   },
@@ -108,6 +129,7 @@ const PROVEEDORES = {
     familia: 'openai',
     baseUrl: 'https://api.together.xyz/v1',
     modeloPorDefecto: 'meta-llama/Llama-3.3-70B-Instruct-Turbo',
+    modelos: ['meta-llama/Llama-3.3-70B-Instruct-Turbo', 'Qwen/Qwen2.5-72B-Instruct-Turbo'],
     donde: 'api.together.ai',
     nota: '',
   },
@@ -116,6 +138,8 @@ const PROVEEDORES = {
     familia: 'openai',
     baseUrl: '',
     modeloPorDefecto: '',
+    // Vacío a propósito: en un proveedor propio los modelos los sabe el usuario.
+    modelos: [],
     donde: '',
     nota: 'Para cualquier proveedor que no esté en la lista, o un modelo corriendo en tu propia máquina. Escribí la dirección de su API.',
   },
@@ -154,9 +178,18 @@ function proveedorActivo(config = null) {
   // fuera del alcance de cualquiera que entre al admin.
   const clave = process.env.IA_API_KEY || cfg.ia_api_key || '';
 
-  // La dirección se puede sobrescribir incluso en los proveedores conocidos:
-  // algunos tienen dominios distintos por región.
-  const baseUrl = String(cfg.ia_base_url || definicion.baseUrl || '').replace(/\/+$/, '');
+  /*
+    La dirección se puede sobrescribir incluso en los proveedores conocidos:
+    algunos tienen dominios distintos por región.
+
+    Pero se ignora si no parece una dirección. En la configuración puede quedar
+    cualquier cosa —un valor a medio escribir, basura de una versión anterior— y
+    en ese caso es mejor usar la del proveedor que fallar con un error que no
+    explica nada.
+  */
+  const guardada = String(cfg.ia_base_url || '').trim();
+  const esDireccion = /^https?:\/\/.+/i.test(guardada);
+  const baseUrl = (esDireccion ? guardada : definicion.baseUrl || '').replace(/\/+$/, '');
 
   return {
     id: idValido,
@@ -181,14 +214,30 @@ function iaHabilitada(config = null) {
 /*
   ── Formato común ──────────────────────────────────────────────────────────
 
-  mensajes:     [{ rol: 'usuario' | 'asistente' | 'herramienta', texto, ... }]
+  mensajes:     [{ rol: 'usuario' | 'asistente' | 'herramienta', texto, imagen?, ... }]
   herramientas: [{ nombre, descripcion, parametros }]  (parametros = JSON Schema)
 
   Respuesta:    { texto, llamadas: [{ nombre, argumentos }] }
 
   Cuando el modelo quiere usar una herramienta devuelve `llamadas`; cuando ya
   tiene la respuesta devuelve `texto`. Puede devolver las dos cosas.
+
+  `imagen` es un data URL ("data:image/jpeg;base64,...") y sólo tiene sentido en
+  los mensajes del usuario. Se usa para leer la foto de un remito. Cada familia
+  lo manda distinto, y esa diferencia se resuelve acá adentro.
 */
+
+/**
+ * Parte un data URL en tipo y contenido.
+ *
+ * Devuelve `null` si no tiene la forma esperada: una imagen rota no puede
+ * tirar abajo toda la consulta, se manda el texto solo.
+ */
+function partirImagen(dataUrl) {
+  const coincidencia = /^data:(image\/[a-z0-9.+-]+);base64,(.+)$/i.exec(String(dataUrl || ''));
+  if (!coincidencia) return null;
+  return { tipo: coincidencia[1], base64: coincidencia[2] };
+}
 
 async function pedirConTimeout(url, opciones) {
   const controlador = new AbortController();
@@ -240,10 +289,14 @@ function aFormatoGemini(mensajes) {
         })),
       };
     }
-    return {
-      role: m.rol === 'asistente' ? 'model' : 'user',
-      parts: [{ text: m.texto || '' }],
-    };
+    const partes = [];
+    const imagen = m.rol === 'usuario' ? partirImagen(m.imagen) : null;
+    if (imagen) {
+      partes.push({ inlineData: { mimeType: imagen.tipo, data: imagen.base64 } });
+    }
+    partes.push({ text: m.texto || '' });
+
+    return { role: m.rol === 'asistente' ? 'model' : 'user', parts: partes };
   });
 }
 
@@ -308,6 +361,17 @@ function aFormatoOpenAI(mensajes) {
       });
       return;
     }
+    if (m.rol === 'usuario' && partirImagen(m.imagen)) {
+      // El formato de OpenAI acepta el data URL entero, sin partirlo.
+      salida.push({
+        role: 'user',
+        content: [
+          { type: 'text', text: m.texto || '' },
+          { type: 'image_url', image_url: { url: m.imagen } },
+        ],
+      });
+      return;
+    }
     salida.push({ role: m.rol === 'asistente' ? 'assistant' : 'user', content: m.texto || '' });
   });
   return salida;
@@ -369,6 +433,19 @@ function aFormatoAnthropic(mensajes) {
         contenido.push({ type: 'tool_use', id: l.id, name: l.nombre, input: l.argumentos || {} });
       });
       return { role: 'assistant', content: contenido };
+    }
+    const imagen = m.rol === 'usuario' ? partirImagen(m.imagen) : null;
+    if (imagen) {
+      return {
+        role: 'user',
+        content: [
+          {
+            type: 'image',
+            source: { type: 'base64', media_type: imagen.tipo, data: imagen.base64 },
+          },
+          { type: 'text', text: m.texto || '' },
+        ],
+      };
     }
     return { role: m.rol === 'asistente' ? 'assistant' : 'user', content: m.texto || '' };
   });
@@ -478,6 +555,7 @@ function catalogoDeProveedores() {
     familia: p.familia,
     baseUrl: p.baseUrl,
     modeloPorDefecto: p.modeloPorDefecto,
+    modelos: p.modelos || [],
     donde: p.donde,
     nota: p.nota,
   }));

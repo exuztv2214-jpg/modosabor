@@ -2,6 +2,7 @@ const db = require('../db');
 const marketingService = require('./marketingService');
 const { insertInventoryMovement, roundStock } = require('../utils/inventory');
 const { persistMenuDiaItems, loadMenuDiaLibrary } = require('../routes/operacion');
+const { registrarCompra } = require('../routes/compras');
 
 /**
  * Lo que el asistente puede MODIFICAR.
@@ -297,6 +298,84 @@ function ejecutarMenuDia(argumentos) {
   return `Menú del día armado con ${items.length} ${items.length === 1 ? 'plato' : 'platos'}.`;
 }
 
+// ── Compras ─────────────────────────────────────────────────────────────────
+
+function prepararCompra(args = {}) {
+  const items = Array.isArray(args.items) ? args.items : [];
+  if (!items.length) throw new ErrorDeAccion('Decime qué compraste.');
+
+  const resueltos = items.map((item) => {
+    const insumo = buscarInsumo(item?.insumo);
+    const cantidad = roundStock(item?.cantidad);
+    if (!Number.isFinite(cantidad) || cantidad <= 0) {
+      throw new ErrorDeAccion(`La cantidad de ${insumo.nombre} tiene que ser mayor que cero.`);
+    }
+
+    /*
+      El costo unitario es el punto donde más fácil se cuela un error caro.
+
+      "20 kilos de carne por 170.000" puede ser el total o el precio por kilo, y
+      la diferencia son dos órdenes de magnitud en el costo del insumo, que
+      después arrastra todos los cálculos de rentabilidad.
+
+      Por eso se pide siempre el unitario y el resumen muestra las dos cifras:
+      cuánto por unidad y cuánto en total. Así el error se ve antes de confirmar.
+    */
+    const costoUnitario = Number(item?.costo_unitario || 0);
+    if (costoUnitario < 0) throw new ErrorDeAccion('El costo no puede ser negativo.');
+
+    return {
+      insumo_id: insumo.id,
+      nombre: insumo.nombre,
+      unidad: insumo.unidad,
+      stockAnterior: roundStock(insumo.stock_actual),
+      cantidad,
+      costoUnitarioCentavos: aCentavos(costoUnitario),
+      subtotalCentavos: aCentavos(costoUnitario * cantidad),
+    };
+  });
+
+  const totalCentavos = resueltos.reduce((suma, i) => suma + i.subtotalCentavos, 0);
+  const proveedor = String(args.proveedor || '').trim();
+
+  const detalles = resueltos.map((i) => ({
+    etiqueta: `${i.nombre} · ${i.cantidad} ${i.unidad}`,
+    valor: `${pesos(i.costoUnitarioCentavos)} c/u = ${pesos(i.subtotalCentavos)}`,
+  }));
+  detalles.push({ etiqueta: 'Total', valor: pesos(totalCentavos) });
+  if (proveedor) detalles.push({ etiqueta: 'Proveedor', valor: proveedor });
+  detalles.push({ etiqueta: 'Pago', valor: String(args.metodo_pago || 'efectivo') });
+
+  return {
+    resumen: `Registrar una compra de ${pesos(totalCentavos)}${
+      proveedor ? ` a ${proveedor}` : ''
+    }.`,
+    detalles,
+    advertencia: `Suma el stock de ${
+      resueltos.length === 1 ? 'ese insumo' : 'esos insumos'
+    } y actualiza su costo al de esta compra.`,
+    argumentosResueltos: {
+      proveedor,
+      metodo_pago: String(args.metodo_pago || 'efectivo'),
+      notas: String(args.notas || 'Cargada desde el asistente'),
+      total: totalCentavos,
+      items: resueltos.map((i) => ({
+        insumo_id: i.insumo_id,
+        cantidad: i.cantidad,
+        costo_unitario: i.costoUnitarioCentavos,
+      })),
+    },
+  };
+}
+
+function ejecutarCompra(argumentos, contexto = {}) {
+  const compraId = registrarCompra(argumentos, {
+    actor_id: contexto.actorId ?? null,
+    actor_nombre: contexto.actorNombre || 'Asistente',
+  });
+  return `Compra #${compraId} registrada. El stock quedó actualizado.`;
+}
+
 // ── Catálogo ────────────────────────────────────────────────────────────────
 
 const ACCIONES = [
@@ -376,6 +455,34 @@ const ACCIONES = [
     preparar: prepararMenuDia,
     ejecutar: ejecutarMenuDia,
   },
+  {
+    nombre: 'proponer_compra',
+    descripcion:
+      'Registrar una compra de insumos: suma el stock y actualiza el costo. El costo_unitario es el precio POR UNIDAD en pesos, no el total. Si el usuario te da el total, dividilo por la cantidad antes de llamar. Si no queda claro cuál de los dos te dijo, preguntá.',
+    parametros: {
+      type: 'object',
+      properties: {
+        proveedor: { type: 'string' },
+        metodo_pago: { type: 'string', description: 'efectivo, transferencia, etc.' },
+        notas: { type: 'string' },
+        items: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              insumo: { type: 'string', description: 'Nombre del insumo.' },
+              cantidad: { type: 'number' },
+              costo_unitario: { type: 'number', description: 'Precio por unidad, en pesos.' },
+            },
+            required: ['insumo', 'cantidad', 'costo_unitario'],
+          },
+        },
+      },
+      required: ['items'],
+    },
+    preparar: prepararCompra,
+    ejecutar: ejecutarCompra,
+  },
 ];
 
 function catalogoDeAcciones() {
@@ -410,10 +517,12 @@ function prepararAccion(nombre, args = {}) {
 }
 
 /** Ejecuta una propuesta ya confirmada por el usuario. */
-function ejecutarAccion(nombre, argumentosResueltos) {
+async function ejecutarAccion(nombre, argumentosResueltos, contexto = {}) {
   const accion = ACCIONES.find((a) => a.nombre === nombre);
   if (!accion) throw new ErrorDeAccion(`No existe la acción "${nombre}".`);
-  return accion.ejecutar(argumentosResueltos || {});
+  // El contexto lleva quién confirmó: la compra queda a nombre de la persona y
+  // no de "Sistema", que es lo que haría falta para auditarla después.
+  return accion.ejecutar(argumentosResueltos || {}, contexto);
 }
 
 module.exports = {

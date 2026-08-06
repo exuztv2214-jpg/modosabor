@@ -167,6 +167,18 @@ function testProveedores() {
       assert.ok(p.modeloPorDefecto, `"${p.id}" necesita un modelo sugerido.`);
       // Una barra al final duplicaría la del armado de la URL.
       assert.ok(!p.baseUrl.endsWith('/'), `La dirección de "${p.id}" no debe terminar en barra.`);
+
+      assert.ok(p.modelos.length > 0, `"${p.id}" necesita al menos un modelo en la lista.`);
+      /*
+        El desplegable de Configuración muestra la lista y deja el primero
+        elegido. Si el modelo por defecto no estuviera entre ellos, la pantalla
+        abriría con un modelo distinto al que usaría el servidor.
+      */
+      assert.strictEqual(
+        p.modelos[0],
+        p.modeloPorDefecto,
+        `El primer modelo de "${p.id}" tiene que ser el que se usa por defecto.`
+      );
     }
   });
 

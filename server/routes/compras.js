@@ -31,18 +31,24 @@ router.get('/:id', auth, requirePermission('productos.edit'), (req, res) => {
   res.json({ ...compra, items });
 });
 
-router.post('/', auth, requirePermission('productos.edit'), (req, res) => {
-  const { proveedor, total, metodo_pago, referencia_pago, notas, items } = req.body;
-
+/**
+ * Registra una compra: cabecera, items, stock y movimientos de inventario.
+ *
+ * Está separada de la ruta para que el asistente registre compras con
+ * exactamente esta lógica. Si fueran dos implementaciones, en algún momento se
+ * separarían y el stock quedaría distinto según por dónde se cargue la compra.
+ *
+ * Los montos llegan en centavos, como en toda la base. La ruta los recibe ya
+ * convertidos por el middleware; quien la llame desde adentro tiene que
+ * convertirlos por su cuenta.
+ */
+function registrarCompra({ proveedor, total, metodo_pago, referencia_pago, notas, items }, actor) {
   if (!items || !Array.isArray(items) || items.length === 0) {
-    return res.status(400).json({ error: 'Debes incluir al menos un insumo en la compra' });
+    throw new Error('Debes incluir al menos un insumo en la compra');
   }
 
-  const actor = actorFromRequest(req);
-
+  db.exec('BEGIN');
   try {
-    db.exec('BEGIN');
-
     // 1. Crear la cabecera de la compra
     const result = db
       .prepare(
@@ -110,11 +116,22 @@ router.post('/', auth, requirePermission('productos.edit'), (req, res) => {
       detalle: { proveedor, total, items_count: items.length },
     });
 
-    res.json({ id: compraId, success: true });
+    return compraId;
   } catch (error) {
     db.exec('ROLLBACK');
-    res.status(500).json({ error: error.message });
+    throw error;
+  }
+}
+
+router.post('/', auth, requirePermission('productos.edit'), (req, res) => {
+  try {
+    const compraId = registrarCompra(req.body || {}, actorFromRequest(req));
+    res.json({ id: compraId, success: true });
+  } catch (error) {
+    const esDeValidacion = /al menos un insumo/i.test(String(error.message || ''));
+    res.status(esDeValidacion ? 400 : 500).json({ error: error.message });
   }
 });
 
 module.exports = router;
+module.exports.registrarCompra = registrarCompra;

@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { AlertTriangle, Bot, Check, Loader2, Send, X } from 'lucide-react';
+import { AlertTriangle, Bot, Camera, Check, Loader2, Send, X } from 'lucide-react';
 
 import api from '../../lib/api.js';
 import { BRAND, STROKE, Z } from '../../lib/theme.js';
 import { useCerrarConEscape } from '../../hooks/useCerrarConEscape.js';
+import { achicarImagen } from '../../lib/achicarImagen.js';
 
 /**
  * Asistente flotante del panel.
@@ -32,7 +33,7 @@ const EJEMPLOS = [
   '¿Cuánto vendí hoy?',
   'Sumá 20 kilos de carne al stock',
   'Armá el menú de hoy: milanesa con puré y ravioles, a $7.000',
-  'Creá una promo del 15% para los martes',
+  'Sacale una foto al remito y te lo cargo',
 ];
 
 export default function AsistenteFlotante() {
@@ -44,7 +45,10 @@ export default function AsistenteFlotante() {
   // Cuál propuesta se está aplicando: sin esto, dos clics seguidos ejecutarían
   // el cambio dos veces.
   const [aplicando, setAplicando] = useState(null);
+  // La foto de un remito, ya achicada y lista para mandar.
+  const [foto, setFoto] = useState(null);
   const finDeLista = useRef(null);
+  const campoFoto = useRef(null);
 
   useCerrarConEscape(abierto, () => setAbierto(false));
 
@@ -68,20 +72,38 @@ export default function AsistenteFlotante() {
     finDeLista.current?.scrollIntoView({ behavior: 'smooth' });
   }, [mensajes, pensando]);
 
+  const elegirFoto = async (evento) => {
+    const archivo = evento.target.files?.[0];
+    // El input se limpia siempre: si no, elegir la misma foto dos veces
+    // seguidas no dispara el evento la segunda vez.
+    evento.target.value = '';
+    if (!archivo) return;
+    setFoto(await achicarImagen(archivo));
+  };
+
   const preguntar = async (preguntaCruda) => {
     const pregunta = String(preguntaCruda ?? texto).trim();
-    if (!pregunta || pensando) return;
+    if ((!pregunta && !foto) || pensando) return;
 
     // El historial se arma antes de agregar la pregunta nueva: el servidor
     // espera la conversación previa por un lado y la pregunta por otro.
     const historial = mensajes.map((m) => ({ rol: m.rol, texto: m.texto }));
 
-    setMensajes((prev) => [...prev, { rol: 'usuario', texto: pregunta }]);
+    const imagen = foto;
+    setMensajes((prev) => [
+      ...prev,
+      { rol: 'usuario', texto: pregunta || 'Te mando esta foto.', imagen },
+    ]);
     setTexto('');
+    setFoto(null);
     setPensando(true);
 
     try {
-      const datos = await api.post('/api/asistente/consulta', { pregunta, historial });
+      const datos = await api.post('/api/asistente/consulta', {
+        pregunta: pregunta || 'Leé esta foto y decime qué ves.',
+        historial,
+        imagen,
+      });
       setMensajes((prev) => [
         ...prev,
         { rol: 'asistente', texto: datos.respuesta, propuesta: datos.propuesta || null },
@@ -237,6 +259,13 @@ export default function AsistenteFlotante() {
                           : 'bg-gray-100 text-gray-800'
                     }`}
                   >
+                    {mensaje.imagen ? (
+                      <img
+                        src={mensaje.imagen}
+                        alt="Foto enviada"
+                        className="mb-2 max-h-40 rounded-lg object-cover"
+                      />
+                    ) : null}
                     {mensaje.texto}
                   </div>
                 </div>
@@ -338,24 +367,62 @@ export default function AsistenteFlotante() {
               evento.preventDefault();
               preguntar();
             }}
-            className="flex shrink-0 items-center gap-2 border-t px-3 py-3"
+            className="shrink-0 border-t px-3 py-3"
             style={{ borderColor: STROKE }}
           >
-            <input
-              value={texto}
-              onChange={(evento) => setTexto(evento.target.value)}
-              placeholder="Preguntá algo..."
-              className="h-11 flex-1 rounded-xl border border-gray-200 px-3.5 text-[14px] text-gray-900 outline-none transition focus:border-gray-400"
-            />
-            <button
-              type="submit"
-              disabled={pensando || !texto.trim()}
-              aria-label="Enviar"
-              style={{ background: BRAND }}
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-white transition hover:brightness-110 disabled:opacity-40"
-            >
-              <Send size={17} strokeWidth={STROKE} />
-            </button>
+            {/*
+              La foto elegida se muestra antes de mandarla. Sin esto, quien saca
+              una foto movida se entera recién cuando el asistente contesta que
+              no se lee.
+            */}
+            {foto ? (
+              <div className="mb-2 flex items-center gap-2 rounded-xl bg-gray-50 p-2">
+                <img src={foto} alt="Foto a enviar" className="h-12 w-12 rounded-lg object-cover" />
+                <span className="flex-1 text-[12px] text-gray-600">Foto lista para mandar</span>
+                <button
+                  type="button"
+                  onClick={() => setFoto(null)}
+                  aria-label="Quitar la foto"
+                  className="rounded-lg p-1.5 text-gray-400 transition hover:bg-gray-200 hover:text-gray-600"
+                >
+                  <X size={15} strokeWidth={STROKE} />
+                </button>
+              </div>
+            ) : null}
+
+            <div className="flex items-center gap-2">
+              <input
+                ref={campoFoto}
+                type="file"
+                accept="image/*"
+                onChange={elegirFoto}
+                className="hidden"
+              />
+              <button
+                type="button"
+                onClick={() => campoFoto.current?.click()}
+                aria-label="Adjuntar una foto"
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border text-gray-500 transition hover:bg-gray-50"
+                style={{ borderColor: STROKE }}
+              >
+                <Camera size={17} strokeWidth={STROKE} />
+              </button>
+              <input
+                value={texto}
+                onChange={(evento) => setTexto(evento.target.value)}
+                placeholder="Preguntá algo..."
+                className="h-11 flex-1 rounded-xl border border-gray-200 px-3.5 text-[14px] text-gray-900 outline-none transition focus:border-gray-400"
+              />
+              <button
+                type="submit"
+                disabled={pensando || (!texto.trim() && !foto)}
+                aria-label="Enviar"
+                style={{ background: BRAND }}
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-white transition hover:brightness-110 disabled:opacity-40"
+              >
+                <Send size={17} strokeWidth={STROKE} />
+              </button>
+            </div>
           </form>
         </div>
       ) : null}
