@@ -308,6 +308,43 @@ function testAccionesNoEjecutanAlPrepararse() {
   console.log('  OK las acciones separan proponer de ejecutar');
 }
 
+function testLaListaDelClienteCoincide() {
+  /*
+    La pantalla de Configuración lee los proveedores de un archivo propio, no
+    del servidor. Se hizo así porque depender de una llamada a la API para
+    llenar un desplegable fijo dejaba la pantalla inutilizable cada vez que
+    fallaba la red, la sesión o el despliegue.
+
+    El precio de esa decisión es tener la lista en dos lugares. Este test es lo
+    que hace que ese precio sea aceptable: si alguien agrega un proveedor de un
+    solo lado, acá salta. Sin esto, la pantalla ofrecería un proveedor que el
+    servidor no sabe usar, y el error aparecería recién al probar la conexión.
+  */
+  const fs = require('fs');
+  const path = require('path');
+  const rutaCliente = path.resolve(__dirname, '../../../client/src/lib/proveedoresIa.json');
+
+  const delCliente = JSON.parse(fs.readFileSync(rutaCliente, 'utf8'));
+  const delServidor = catalogoDeProveedores();
+
+  assert.deepStrictEqual(
+    delCliente.map((p) => p.id).sort(),
+    delServidor.map((p) => p.id).sort(),
+    'Los proveedores del cliente y del servidor no son los mismos. Actualizá client/src/lib/proveedoresIa.json.'
+  );
+
+  delServidor.forEach((servidor) => {
+    const cliente = delCliente.find((p) => p.id === servidor.id);
+    assert.deepStrictEqual(
+      cliente,
+      servidor,
+      `El proveedor "${servidor.id}" difiere entre cliente y servidor. Regenerá client/src/lib/proveedoresIa.json desde catalogoDeProveedores().`
+    );
+  });
+
+  console.log('  OK la lista del cliente coincide con la del servidor');
+}
+
 function run() {
   console.log('\nTests del asistente');
   testCentavos();
@@ -318,6 +355,7 @@ function run() {
   testElModeloNoPuedeFijarPrecios();
   testInstruccionesTraenElBlindaje();
   testProveedores();
+  testLaListaDelClienteCoincide();
   testFirmaDePropuestas();
   testAccionesNoEjecutanAlPrepararse();
   console.log('Todos los tests del asistente pasaron\n');

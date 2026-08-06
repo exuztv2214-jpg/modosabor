@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Bot, CheckCircle2, Loader2, Plug, ShieldCheck, XCircle } from 'lucide-react';
 
 import api from '../../lib/api.js';
+import PROVEEDORES_IA from '../../lib/proveedoresIa.json';
 import { BRAND, STROKE } from '../../lib/theme.js';
 import {
   SectionCard,
@@ -22,15 +23,23 @@ import {
  * una opción en pantalla y no una decisión enterrada en el código significa
  * poder cambiar en dos minutos, sin depender de nadie.
  *
- * La lista viene del servidor en vez de estar repetida acá: si mañana se
- * agrega un proveedor, aparece solo en el desplegable.
+ * ── Por qué la lista está en un archivo y no se pide al servidor ───────────
+ *
+ * Antes se traía con una llamada a la API. Fue un error: la lista es fija, no
+ * cambia nunca en tiempo de ejecución, y no hay ningún motivo para que elegir
+ * un proveedor dependa de que la red funcione, de que la sesión llegue o de que
+ * el servidor esté al día.
+ *
+ * Cada vez que esa llamada fallaba —por sesión, por CORS, por un despliegue a
+ * medias— el desplegable aparecía vacío y no se podía configurar nada. Un
+ * archivo estático no falla nunca.
+ *
+ * El servidor mantiene su propia copia porque la necesita para hablar con cada
+ * proveedor. Un test compara las dos y falla si se separan.
  */
 
 export default function SeccionAsistente({ config, setConfig }) {
-  const [proveedores, setProveedores] = useState([]);
-  // Si la lista no se pudo traer hay que decirlo. Un desplegable vacío sin
-  // explicación deja a cualquiera pensando que la pantalla está rota.
-  const [falloLaLista, setFalloLaLista] = useState(false);
+  const proveedores = PROVEEDORES_IA;
   const [probando, setProbando] = useState(false);
   const [prueba, setPrueba] = useState(null);
   // El modelo se elige de una lista, pero también se puede escribir: los
@@ -42,26 +51,6 @@ export default function SeccionAsistente({ config, setConfig }) {
   const proveedorId = String(config.ia_proveedor || 'gemini');
   const proveedor = proveedores.find((p) => p.id === proveedorId);
   const claveGuardada = config.ia_api_key_configured && config.ia_api_key === SECRET_PLACEHOLDER;
-
-  useEffect(() => {
-    let vigente = true;
-    api
-      .get('/api/asistente/proveedores')
-      .then((datos) => {
-        if (!vigente) return;
-        const lista = datos?.proveedores || [];
-        setProveedores(lista);
-        setFalloLaLista(lista.length === 0);
-      })
-      .catch(() => {
-        if (!vigente) return;
-        setProveedores([]);
-        setFalloLaLista(true);
-      });
-    return () => {
-      vigente = false;
-    };
-  }, []);
 
   const setToggle = (clave, encendido) => {
     setConfig((prev) => ({ ...prev, [clave]: encendido ? '1' : '0' }));
@@ -114,30 +103,13 @@ export default function SeccionAsistente({ config, setConfig }) {
 
         {activo ? (
           <>
-            {falloLaLista ? (
-              <p
-                className="mt-4 rounded-xl px-4 py-3 text-[12px] font-medium leading-relaxed"
-                style={{ background: '#FEF2F2', color: '#7A0F17' }}
-              >
-                No pude traer la lista de proveedores del servidor. Si acabás de agregar el
-                asistente, falta desplegar: los campos de abajo funcionan igual escribiéndolos a
-                mano, pero conviene desplegar primero.
-              </p>
-            ) : null}
-
             <div className="mt-4 grid items-end gap-3 lg:grid-cols-2">
               <SelectField
                 label="Proveedor"
                 description="Cualquiera de estos, o uno propio."
                 value={proveedorId}
                 onChange={(evento) => cambiarProveedor(evento.target.value)}
-                options={
-                  proveedores.length
-                    ? proveedores.map((p) => ({ value: p.id, label: p.nombre }))
-                    : // Sin lista, al menos que se vea cuál está guardado en vez de
-                      // un desplegable vacío que no dice nada.
-                      [{ value: proveedorId, label: proveedorId }]
-                }
+                options={proveedores.map((p) => ({ value: p.id, label: p.nombre }))}
               />
 
               {/*
