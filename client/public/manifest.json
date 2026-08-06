@@ -19,7 +19,7 @@
   "start_url": "/admin/dashboard",
   "display": "standalone",
   "display_override": ["window-controls-overlay", "standalone", "browser"],
-  "theme_color": "#5D87FF",
+  "theme_color": "#DC1F2D",
   "background_color": "#F4F7FB",
   "orientation": "landscape",
   "scope": "/admin",
