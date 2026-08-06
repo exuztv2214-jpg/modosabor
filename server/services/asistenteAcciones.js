@@ -3,6 +3,9 @@ const marketingService = require('./marketingService');
 const { insertInventoryMovement, roundStock } = require('../utils/inventory');
 const { persistMenuDiaItems, loadMenuDiaLibrary } = require('../routes/operacion');
 const { registrarCompra } = require('../routes/compras');
+const { buildPedidoPayload, createPedidoWithInventory, hydratePedido } = require('./pedidoService');
+const { resolveInitialPagoEstado } = require('../utils/paymentStatus');
+const { emitNuevoPedido, emitPedidoActualizado } = require('../utils/socketRooms');
 
 /**
  * Lo que el asistente puede MODIFICAR.
@@ -376,6 +379,146 @@ function ejecutarCompra(argumentos, contexto = {}) {
   return `Compra #${compraId} registrada. El stock quedó actualizado.`;
 }
 
+// ── Pedidos ─────────────────────────────────────────────────────────────────
+
+/*
+  ── Por qué el pedido se arma con el flujo público ─────────────────────────
+
+  Se carga con `origen: 'whatsapp'`, que el sistema trata como canal público. Eso
+  significa que **los precios los rebusca el servidor desde la base**, ignorando
+  cualquier precio que venga en la propuesta.
+
+  Es la decisión más importante de esta acción: el modelo no puede fijar precios.
+  Aunque alguien lo convenza de cargar una milanesa a un peso, el precio que se
+  guarda es el del catálogo. Lo único que el modelo elige es qué producto y qué
+  cantidad.
+
+  De paso se hereda todo lo demás que ya hace ese flujo: el costo de envío por
+  zona, el control de turno abierto, la geocodificación de la dirección para que
+  el rider tenga mapa, y el descuento de stock.
+*/
+const ORIGEN_ASISTENTE = 'whatsapp';
+
+function armarCuerpoDePedido(args = {}, itemsResueltos) {
+  const tipoEntrega = String(args.tipo_entrega || 'delivery').toLowerCase();
+  return {
+    origen: ORIGEN_ASISTENTE,
+    tipo_entrega: tipoEntrega,
+    cliente_nombre: String(args.cliente_nombre || '').trim(),
+    cliente_telefono: String(args.cliente_telefono || '').trim(),
+    cliente_direccion: tipoEntrega === 'delivery' ? String(args.direccion || '').trim() : '',
+    metodo_pago: String(args.metodo_pago || '').trim(),
+    notas: String(args.notas || '').trim(),
+    items: itemsResueltos.map((i) => ({
+      producto_id: i.producto_id,
+      cantidad: i.cantidad,
+      variantes: i.variantes,
+      extras: i.extras,
+    })),
+  };
+}
+
+async function prepararPedido(args = {}) {
+  const pedidos = Array.isArray(args.items) ? args.items : [];
+  if (!pedidos.length) throw new ErrorDeAccion('Decime qué productos lleva el pedido.');
+
+  const nombre = String(args.cliente_nombre || '').trim();
+  if (!nombre) throw new ErrorDeAccion('Decime a nombre de quién va el pedido.');
+
+  const tipoEntrega = String(args.tipo_entrega || 'delivery').toLowerCase();
+  if (tipoEntrega === 'delivery' && !String(args.direccion || '').trim()) {
+    throw new ErrorDeAccion('Para un delivery necesito la dirección.');
+  }
+
+  const itemsResueltos = pedidos.map((item) => {
+    const producto = buscarProducto(item?.producto);
+    const cantidad = Math.max(1, Math.round(Number(item?.cantidad || 1)));
+    return {
+      producto_id: producto.id,
+      nombre: producto.nombre,
+      cantidad,
+      variantes: item?.variantes || {},
+      extras: Array.isArray(item?.extras) ? item.extras : [],
+    };
+  });
+
+  /*
+    Se arma el pedido completo pero no se guarda: sirve para que el resumen
+    muestre los totales de verdad —con el envío calculado por zona— y no una
+    estimación que después no coincida con lo que se cobra.
+  */
+  const cuerpo = armarCuerpoDePedido(args, itemsResueltos);
+  let calculado;
+  try {
+    calculado = await buildPedidoPayload(cuerpo);
+  } catch (error) {
+    // Los errores de este flujo ya están escritos para que los lea una persona
+    // ("estamos fuera de turno", "la dirección está fuera de la zona").
+    throw new ErrorDeAccion(String(error?.message || 'No pude armar el pedido.'));
+  }
+
+  const detalles = itemsResueltos.map((i) => ({
+    etiqueta: `${i.cantidad} × ${i.nombre}`,
+    valor: '',
+  }));
+  detalles.push({ etiqueta: 'Cliente', valor: nombre });
+  if (args.cliente_telefono) {
+    detalles.push({ etiqueta: 'Teléfono', valor: String(args.cliente_telefono) });
+  }
+  detalles.push({
+    etiqueta: 'Entrega',
+    valor: tipoEntrega === 'delivery' ? `Delivery a ${args.direccion}` : 'Retira en el local',
+  });
+  detalles.push({ etiqueta: 'Subtotal', valor: pesos(calculado.subtotal) });
+  if (Number(calculado.costo_envio || 0) > 0) {
+    detalles.push({ etiqueta: 'Envío', valor: pesos(calculado.costo_envio) });
+  }
+  detalles.push({ etiqueta: 'Total', valor: pesos(calculado.total) });
+  detalles.push({
+    etiqueta: 'Pago',
+    valor: String(args.metodo_pago || 'sin especificar'),
+  });
+
+  return {
+    resumen: `Cargar un pedido de ${pesos(calculado.total)} para ${nombre}.`,
+    detalles,
+    advertencia: String(args.metodo_pago || '').trim()
+      ? ''
+      : 'No aclaraste la forma de pago. Se puede cargar igual y corregirla después, pero mientras tanto la caja no va a cuadrar.',
+    // Se guardan los argumentos originales y no el pedido ya calculado: al
+    // confirmar se vuelve a calcular todo, para que los precios sean los de ese
+    // momento y no los de hace cinco minutos.
+    argumentosResueltos: { cuerpo },
+  };
+}
+
+async function ejecutarPedido(argumentos, contexto = {}) {
+  const normalizado = await buildPedidoPayload(argumentos.cuerpo);
+  const pedido = createPedidoWithInventory({
+    ...normalizado,
+    pago_estado: resolveInitialPagoEstado({
+      metodoPago: normalizado.metodo_pago,
+      origen: normalizado.origen,
+    }),
+  });
+
+  /*
+    Avisarle a la cocina.
+
+    Sin esto el pedido queda guardado pero no suena la alarma ni aparece en el
+    KDS: entraría en silencio y se cocinaría tarde, que es peor que no tener la
+    función.
+  */
+  const io = contexto.io;
+  if (io) {
+    const hidratado = hydratePedido(pedido);
+    emitNuevoPedido(io, hidratado);
+    emitPedidoActualizado(io, hidratado);
+  }
+
+  return `Pedido #${pedido.numero} cargado. Ya está en cocina.`;
+}
+
 // ── Catálogo ────────────────────────────────────────────────────────────────
 
 const ACCIONES = [
@@ -482,6 +625,45 @@ const ACCIONES = [
     },
     preparar: prepararCompra,
     ejecutar: ejecutarCompra,
+  },
+  {
+    nombre: 'proponer_pedido',
+    descripcion:
+      'Cargar un pedido en el sistema. Los precios los calcula el servidor desde el catálogo: no los mandes ni los estimes. Para delivery hace falta la dirección. Si no te dijeron la forma de pago, cargalo igual pero avisá que falta.',
+    parametros: {
+      type: 'object',
+      properties: {
+        cliente_nombre: { type: 'string' },
+        cliente_telefono: { type: 'string' },
+        tipo_entrega: { type: 'string', enum: ['delivery', 'retira'] },
+        direccion: { type: 'string', description: 'Obligatoria si es delivery.' },
+        metodo_pago: { type: 'string', description: 'efectivo, transferencia, mercadopago...' },
+        notas: { type: 'string', description: 'Aclaraciones para la cocina.' },
+        items: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              producto: { type: 'string', description: 'Nombre del producto.' },
+              cantidad: { type: 'integer' },
+              variantes: {
+                type: 'object',
+                description: 'Opciones elegidas, por ejemplo { "Guarnición": "Papas" }.',
+              },
+              extras: {
+                type: 'array',
+                description: 'Agregados sueltos.',
+                items: { type: 'object', properties: { nombre: { type: 'string' } } },
+              },
+            },
+            required: ['producto', 'cantidad'],
+          },
+        },
+      },
+      required: ['cliente_nombre', 'items'],
+    },
+    preparar: prepararPedido,
+    ejecutar: ejecutarPedido,
   },
 ];
 

@@ -1,6 +1,5 @@
 const assert = require('assert');
 const Module = require('module');
-const path = require('path');
 
 /**
  * Verifica que el precio de los pedidos públicos lo ponga el servidor y no el
@@ -48,8 +47,27 @@ const dbFalsa = {
   },
 };
 
+/*
+  ── Por qué se limpia el caché antes de cargar ─────────────────────────────
+
+  El truco de abajo intercepta el `require('../db')` de preciosServidor para
+  darle una base falsa. Pero eso sólo funciona si el módulo se carga *acá*: si
+  otro test lo cargó antes, `require` devuelve la copia que ya está en el caché,
+  con la base real adentro, y el stub no se aplica nunca.
+
+  Eso pasó de verdad. Al agregarse los tests del asistente —que cargan media
+  aplicación, y con ella preciosServidor— este archivo empezó a fallar sin que
+  nadie hubiera tocado preciosServidor. Los tests corren por orden alfabético,
+  así que "asistente" cae antes que "preciosServidor".
+
+  Borrando la entrada del caché, el módulo se carga de cero y el resultado no
+  depende de qué corrió antes. Un test que sólo pasa según el orden no sirve
+  para nada.
+*/
+const rutaPrecios = require.resolve('../../services/preciosServidor');
+delete require.cache[rutaPrecios];
+
 // Interceptar el require de '../db' para inyectar la base falsa.
-const rutaDb = path.resolve(__dirname, '../../db');
 const originalLoad = Module._load;
 Module._load = function (request, parent, isMain) {
   if (parent && request === '../db' && parent.filename.includes('preciosServidor')) {
@@ -64,6 +82,13 @@ const {
 } = require('../../services/preciosServidor');
 
 Module._load = originalLoad;
+
+/*
+  Y se saca de nuevo al terminar: si quedara la copia con la base falsa, el
+  problema pasaría al revés y rompería a cualquier test posterior que necesite
+  la base real.
+*/
+delete require.cache[rutaPrecios];
 
 console.log('\nTests de preciosServidor.js');
 let fallos = 0;

@@ -85,6 +85,41 @@ function testCatalogoEsSoloLectura() {
   console.log('  OK ninguna herramienta puede escribir');
 }
 
+function testElModeloNoPuedeFijarPrecios() {
+  const { ACCIONES } = require('../../services/asistenteAcciones');
+  const pedido = ACCIONES.find((a) => a.nombre === 'proponer_pedido');
+  assert.ok(pedido, 'tiene que existir la acción de cargar pedidos');
+
+  /*
+    La garantía central de cargar pedidos por chat.
+
+    El pedido se guarda con origen de canal público, y en ese flujo el servidor
+    reconstruye cada precio desde el catálogo. Pero eso sólo alcanza si el
+    modelo tampoco *puede* mandar un precio: si el esquema aceptara un campo de
+    plata, un día alguien lo usaría y se cargarían pedidos a precio inventado.
+
+    Acá se verifica lo mismo desde el otro lado: que ni siquiera exista el campo.
+  */
+  const camposDeItem = Object.keys(pedido.parametros.properties.items.items.properties);
+  const camposDePedido = Object.keys(pedido.parametros.properties);
+  const esPlata = /precio|total|subtotal|monto|descuento|envio|envío/i;
+
+  camposDeItem.forEach((campo) => {
+    assert.ok(
+      !esPlata.test(campo),
+      `El item del pedido acepta "${campo}". Los importes los calcula el servidor: el modelo no puede mandarlos.`
+    );
+  });
+  camposDePedido.forEach((campo) => {
+    assert.ok(
+      !esPlata.test(campo),
+      `El pedido acepta "${campo}". Los importes los calcula el servidor.`
+    );
+  });
+
+  console.log('  OK el modelo no puede fijar precios de un pedido');
+}
+
 function testHistorialSaneado() {
   const sucio = [
     { rol: 'usuario', texto: 'hola' },
@@ -280,6 +315,7 @@ function run() {
   testHerramientaInexistente();
   testCatalogoEsSoloLectura();
   testHistorialSaneado();
+  testElModeloNoPuedeFijarPrecios();
   testInstruccionesTraenElBlindaje();
   testProveedores();
   testFirmaDePropuestas();

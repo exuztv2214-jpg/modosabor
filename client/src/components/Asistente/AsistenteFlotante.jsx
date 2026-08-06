@@ -31,9 +31,9 @@ import { achicarImagen } from '../../lib/achicarImagen.js';
 
 const EJEMPLOS = [
   '¿Cuánto vendí hoy?',
+  'Revisá la caja y decime qué no cuadra',
   'Sumá 20 kilos de carne al stock',
-  'Armá el menú de hoy: milanesa con puré y ravioles, a $7.000',
-  'Sacale una foto al remito y te lo cargo',
+  'Pedido de Juan, 2 milanesas a Rivadavia 450, paga en efectivo',
 ];
 
 export default function AsistenteFlotante() {
@@ -216,9 +216,10 @@ export default function AsistenteFlotante() {
             {mensajes.length === 0 ? (
               <div className="pt-2">
                 <p className="text-[13px] leading-relaxed text-gray-500">
-                  Preguntame cómo va el negocio, o pedime que cargue stock, arme el menú del día o
-                  cree una promo. Los cambios te los muestro antes: no se aplica nada sin que lo
-                  confirmes.
+                  Preguntame cómo va el negocio, o pedime que cargue un pedido, ajuste el stock,
+                  registre una compra, arme el menú del día o cree una promo. También podés mandarme
+                  la foto de un remito. Los cambios te los muestro antes: no se aplica nada sin que
+                  lo confirmes.
                 </p>
                 <div className="mt-4 space-y-2">
                   {EJEMPLOS.map((ejemplo) => (
