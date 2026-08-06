@@ -16,6 +16,7 @@ const db = require('../db');
 const auth = require('../middleware/auth');
 const { requirePermission } = require('../utils/permissions');
 
+const { fechaLocal } = require('../utils/fechaLocal');
 /** Normaliza un rango de fechas con defaults sensatos (últimos 7 días). */
 function parseRango(query) {
   const hoy = new Date();
@@ -68,7 +69,7 @@ function cargarPedidosConHitos(desde, hasta) {
        FROM pedidos p
        LEFT JOIN pedido_eventos e ON e.pedido_id = p.id
        WHERE p.tipo_entrega = 'delivery'
-         AND DATE(p.creado_en) BETWEEN ? AND ?
+         AND ${fechaLocal('p.creado_en')} BETWEEN ? AND ?
        GROUP BY p.id
        ORDER BY p.creado_en DESC`
     )

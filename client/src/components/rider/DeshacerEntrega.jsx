@@ -84,7 +84,7 @@ export default function DeshacerEntrega({ pedido, ventanaMin = 5, onDeshacer, on
             {!confirmando ? (
               <div className="flex items-center gap-3 px-4 py-3">
                 <div className="min-w-0 flex-1">
-                  <p className="text-[11px] font-black uppercase tracking-widest text-white">
+                  <p className="text-[13px] font-semibold text-white">
                     Pedido #{pedido.numero} entregado
                   </p>
                   <p className="mt-0.5 text-[10px] font-semibold text-gray-400">
@@ -97,7 +97,7 @@ export default function DeshacerEntrega({ pedido, ventanaMin = 5, onDeshacer, on
                     haptic('tap');
                     setConfirmando(true);
                   }}
-                  className="flex shrink-0 items-center gap-1.5 rounded-xl bg-white/15 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-white active:scale-95"
+                  className="flex shrink-0 items-center gap-1.5 rounded-xl bg-white/15 px-3 py-2 text-[13px] font-semibold text-white active:scale-95"
                 >
                   <Undo2 size={13} strokeWidth={3} />
                   Deshacer
@@ -116,7 +116,7 @@ export default function DeshacerEntrega({ pedido, ventanaMin = 5, onDeshacer, on
                   <button
                     type="button"
                     onClick={() => setConfirmando(false)}
-                    className="h-10 rounded-xl bg-white/10 text-[10px] font-black uppercase tracking-widest text-gray-300"
+                    className="h-10 rounded-xl bg-white/10 text-[13px] font-semibold text-gray-300"
                   >
                     Cancelar
                   </button>
@@ -124,7 +124,7 @@ export default function DeshacerEntrega({ pedido, ventanaMin = 5, onDeshacer, on
                     type="button"
                     onClick={confirmar}
                     disabled={enviando}
-                    className="h-10 rounded-xl bg-amber-500 text-[10px] font-black uppercase tracking-widest text-gray-900 disabled:opacity-60"
+                    className="h-10 rounded-xl bg-amber-500 text-[13px] font-semibold text-gray-900 disabled:opacity-60"
                   >
                     {enviando ? 'Deshaciendo...' : 'Sí, deshacer'}
                   </button>

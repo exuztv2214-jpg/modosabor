@@ -13,7 +13,6 @@ import {
   X,
   Users,
   CalendarDays,
-  Utensils,
 } from 'lucide-react';
 
 import api from '../lib/api.js';
@@ -21,13 +20,17 @@ import { socketManager } from '../lib/socket.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import ActionDialog from '../components/ActionDialog.jsx';
 import tableImg from '../image/table/table.jpg';
+import { BRAND, STROKE, Z, estadoTono } from '../lib/theme.js';
+import { minutosDesde as minutosDesdeServidor, parseFechaServidor } from '../lib/fechas.js';
 
 const fmt = (n) => `$${Number(n || 0).toLocaleString('es-AR')}`;
 
+// La base guarda `creado_en` en UTC pero sin marcarlo. Normalizar sólo el
+// espacio no alcanzaba: el navegador lo leía como hora local y en Tucumán la
+// fecha quedaba 3 horas adelantada, así que el tiempo en mesa daba negativo y
+// se mostraba siempre "0m". Ver lib/fechas.js.
 function minutesElapsed(dateStr) {
-  if (!dateStr) return null;
-  const diff = Date.now() - new Date(dateStr).getTime();
-  return Math.max(0, Math.floor(diff / 60000));
+  return minutosDesdeServidor(dateStr);
 }
 
 function fmtElapsed(min) {
@@ -36,11 +39,11 @@ function fmtElapsed(min) {
   return `${Math.floor(min / 60)}h ${min % 60}m`;
 }
 
-function elapsedTint(min) {
-  if (min === null) return 'bg-white/20 text-white/80';
-  if (min < 45) return 'bg-emerald-400/30 text-emerald-100';
-  if (min < 90) return 'bg-amber-400/30 text-amber-100';
-  return 'bg-rose-400/40 text-rose-100';
+function elapsedTono(min) {
+  if (min === null) return { bg: '#F1F5F9', fg: '#64748B' };
+  if (min < 45) return { bg: '#ECFDF5', fg: '#047857' };
+  if (min < 90) return { bg: '#FEF6E7', fg: '#92400E' };
+  return { bg: '#FEF2F2', fg: '#B91C1C' };
 }
 
 function isToday(dateStr) {
@@ -56,30 +59,10 @@ function isToday(dateStr) {
 }
 
 const STATE_META = {
-  nuevo: {
-    label: 'NUEVO',
-    classes: 'bg-primary-50 text-primary-500',
-    next: 'confirmado',
-    nextLabel: 'CONFIRMAR',
-  },
-  confirmado: {
-    label: 'CONFIRMADO',
-    classes: 'bg-success-50 text-success-500',
-    next: 'preparando',
-    nextLabel: 'PREPARAR',
-  },
-  preparando: {
-    label: 'COCINA',
-    classes: 'bg-warning-50 text-warning-500',
-    next: 'listo',
-    nextLabel: 'LISTO',
-  },
-  listo: {
-    label: 'LISTO',
-    classes: 'bg-success-50 text-success-500',
-    next: 'entregado',
-    nextLabel: 'CERRAR',
-  },
+  nuevo: { next: 'confirmado', nextLabel: 'Confirmar' },
+  confirmado: { next: 'preparando', nextLabel: 'Preparar' },
+  preparando: { next: 'listo', nextLabel: 'Listo' },
+  listo: { next: 'entregado', nextLabel: 'Cerrar' },
 };
 
 function parseMesaNames(config) {
@@ -91,28 +74,27 @@ function parseMesaNames(config) {
   return custom.length > 0 ? custom : Array.from({ length: cantidad }, (_, i) => String(i + 1));
 }
 
-function StatCard({ icon: Icon, label, value, tint = 'blue' }) {
-  const tints = {
-    blue: 'bg-primary-50 text-primary-500',
-    emerald: 'bg-success-50 text-success-500',
-    amber: 'bg-warning-50 text-warning-500',
-    rose: 'bg-danger-50 text-danger-500',
-    slate: 'bg-gray-50 text-gray-600',
-  };
+const STAT_TONES = {
+  brand: { bg: '#FEF2F2', fg: BRAND },
+  emerald: { bg: '#ECFDF5', fg: '#047857' },
+  amber: { bg: '#FEF6E7', fg: '#92400E' },
+  slate: { bg: '#F1F5F9', fg: '#475569' },
+};
 
+function StatCard({ icon: Icon, label, value, tone = 'slate' }) {
+  const t = STAT_TONES[tone] || STAT_TONES.slate;
   return (
-    <div className="group rounded-[32px] border border-gray-100 bg-white p-5 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-lg">
+    <div className="rounded-2xl bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.06)]">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 mb-1">
-            {label}
-          </p>
-          <p className="text-xl font-black text-gray-900 tracking-tight">{value}</p>
+          <p className="mb-1 text-[12px] font-medium text-gray-400">{label}</p>
+          <p className="text-xl font-semibold text-gray-900">{value}</p>
         </div>
         <div
-          className={`flex h-10 w-10 items-center justify-center rounded-2xl shadow-sm transition-transform duration-300 group-hover:rotate-6 ${tints[tint]}`}
+          className="flex h-10 w-10 items-center justify-center rounded-xl"
+          style={{ background: t.bg, color: t.fg }}
         >
-          <Icon size={20} strokeWidth={2.5} />
+          <Icon size={20} strokeWidth={STROKE} />
         </div>
       </div>
     </div>
@@ -134,6 +116,7 @@ export default function Mesas() {
   const [moveDestination, setMoveDestination] = useState('');
   const [movingLoading, setMovingLoading] = useState(false);
   const [reservationOpen, setReservationOpen] = useState(false);
+  const [reservationLoading, setReservationLoading] = useState(false);
   const emptyReservationForm = {
     mesa: '',
     cliente_nombre: '',
@@ -160,8 +143,8 @@ export default function Mesas() {
       setConfig(configData);
       setPedidos(pedidosData);
       setReservas(reservasData);
-    } catch {
-      toast.error('Error al cargar salón');
+    } catch (error) {
+      toast.error(error?.error || 'Error al cargar salón');
     } finally {
       setLoading(false);
     }
@@ -231,8 +214,8 @@ export default function Mesas() {
       await api.put(`/pedidos/${pedido.id}/estado`, { estado });
       toast.success(estado === 'entregado' ? 'Mesa cerrada' : 'Actualizado');
       await cargar();
-    } catch {
-      toast.error('Error');
+    } catch (error) {
+      toast.error(error?.error || 'No se pudo actualizar el pedido');
     } finally {
       setUpdatingKey('');
     }
@@ -243,11 +226,19 @@ export default function Mesas() {
     try {
       const res = await api.post(`/pedidos/mesa/${encodeURIComponent(mesa)}/precuenta`);
       const win = window.open('', '_blank');
+      // `window.open` devuelve null si el navegador bloquea la ventana, cosa
+      // que pasa seguido. Sin esta guarda, `win.document` tiraba TypeError,
+      // lo agarraba el catch de abajo y el mozo veía "Error al imprimir" sin
+      // saber que el problema era el bloqueador de pop-ups.
+      if (!win) {
+        toast.error('El navegador bloqueó la ventana de impresión. Permití los pop-ups del sitio.');
+        return;
+      }
       win.document.write(res.html);
       win.document.close();
-      toast.success('Precuenta enviada a ticketera');
-    } catch {
-      toast.error('Error al imprimir');
+      toast.success('Precuenta enviada a la ticketera');
+    } catch (error) {
+      toast.error(error?.error || 'No se pudo generar la precuenta');
     } finally {
       setPrintingMesa('');
     }
@@ -286,58 +277,74 @@ export default function Mesas() {
     }
   };
 
+  const handleCrearReserva = async () => {
+    if (!reservationForm.mesa || !reservationForm.horario_reserva) {
+      toast.error('Elegí una mesa y un horario');
+      return;
+    }
+    setReservationLoading(true);
+    try {
+      await api.post('/pedidos/mesas/reservas', reservationForm);
+      toast.success('Reserva creada');
+      setReservationOpen(false);
+      setReservationForm(emptyReservationForm);
+      cargar();
+    } catch (error) {
+      toast.error(error?.error || 'No se pudo crear la reserva');
+    } finally {
+      setReservationLoading(false);
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-background px-4 py-8 sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-7xl space-y-8">
-        {/* Header Modernize */}
+    <div className="min-h-screen bg-[#F6F7F9] px-4 py-8 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-7xl space-y-6">
+        {/* Header */}
         <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <div className="flex items-center gap-3 mb-2">
-              <div className="h-8 w-1 bg-primary-500 rounded-full"></div>
-              <p className="text-sm font-black text-primary-500 uppercase tracking-[0.3em]">
-                Operación de Salón
-              </p>
-            </div>
-            <h1 className="text-3xl font-black text-gray-900 tracking-tight">Mesas y Comandas</h1>
-            <p className="mt-1 text-gray-500 font-medium">
-              Gestiona la ocupación y flujo de clientes en tiempo real.
+            <p className="text-[12px] font-medium text-gray-400">Operación de salón</p>
+            <h1 className="mt-1 text-2xl font-semibold text-gray-900">Mesas y comandas</h1>
+            <p className="mt-1 text-[13px] text-gray-500">
+              Ocupación y flujo de clientes en tiempo real.
             </p>
           </div>
 
           <div className="flex flex-wrap gap-3">
             <button
               onClick={() => setReservationOpen(true)}
-              className="flex h-12 items-center gap-2 rounded-2xl bg-white border border-gray-100 px-6 text-sm font-black text-gray-700 shadow-sm hover:bg-gray-50 active:scale-95 transition-all"
+              className="flex h-11 items-center gap-2 rounded-xl bg-white border border-gray-200 px-5 text-[14px] font-medium text-gray-700 shadow-[0_1px_2px_rgba(15,23,42,0.06)] hover:bg-gray-50 active:scale-[0.98] transition-all"
             >
-              <CalendarDays size={18} className="text-primary-500" strokeWidth={3} />
-              NUEVA RESERVA
+              <CalendarDays size={16} style={{ color: BRAND }} strokeWidth={STROKE} />
+              Nueva reserva
             </button>
             <button
               onClick={cargar}
-              className="flex h-12 items-center justify-center rounded-2xl bg-primary-500 px-5 text-white shadow-lg shadow-primary-100 transition-all active:scale-95 hover:bg-primary-600"
+              className="flex h-11 w-11 items-center justify-center rounded-xl text-white shadow-sm transition-all active:scale-[0.98]"
+              style={{ background: BRAND }}
+              aria-label="Actualizar"
             >
-              <RefreshCw size={18} strokeWidth={3} className={loading ? 'animate-spin' : ''} />
+              <RefreshCw size={16} strokeWidth={STROKE} className={loading ? 'animate-spin' : ''} />
             </button>
           </div>
         </div>
 
-        {/* Metricas de Salón */}
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5 lg:gap-6">
-          <StatCard icon={Armchair} label="Mesas Totales" value={stats.total} tint="slate" />
-          <StatCard icon={DoorOpen} label="Mesas Libres" value={stats.libres} tint="emerald" />
-          <StatCard icon={CookingPot} label="En Servicio" value={stats.ocupadas} tint="blue" />
-          <StatCard icon={Users} label="Reservas Hoy" value={stats.reservas} tint="amber" />
+        {/* Métricas de salón */}
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5 lg:gap-4">
+          <StatCard icon={Armchair} label="Mesas totales" value={stats.total} tone="slate" />
+          <StatCard icon={DoorOpen} label="Mesas libres" value={stats.libres} tone="emerald" />
+          <StatCard icon={CookingPot} label="En servicio" value={stats.ocupadas} tone="brand" />
+          <StatCard icon={Users} label="Reservas hoy" value={stats.reservas} tone="amber" />
           <StatCard
             icon={Receipt}
-            label="Total en Mesas"
+            label="Total en mesas"
             value={fmt(stats.totalDinero)}
-            tint="blue"
+            tone="brand"
           />
         </div>
 
-        {/* Grid de Mesas Estilo Modernize */}
-        <div className="rounded-[40px] bg-white p-8 shadow-sm border border-gray-100">
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-8">
+        {/* Grid de mesas */}
+        <div className="rounded-2xl bg-white p-6 shadow-[0_1px_2px_rgba(15,23,42,0.06)]">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-6">
             {mesas.map((mesa) => {
               const info = ocupacion.get(mesa);
               const libre = info.abiertos.length === 0;
@@ -347,56 +354,56 @@ export default function Mesas() {
               const oldestCreatedAt =
                 !libre && info.abiertos.length > 0
                   ? info.abiertos.reduce((oldest, p) => {
-                      const t = new Date(p.creado_en).getTime();
+                      const t = parseFechaServidor(p.creado_en).getTime();
+                      if (!Number.isFinite(t)) return oldest;
                       return t < oldest ? t : oldest;
                     }, Infinity)
                   : null;
-              const mesaMin = oldestCreatedAt
-                ? minutesElapsed(new Date(oldestCreatedAt).toISOString())
-                : null;
+              const mesaMin =
+                oldestCreatedAt && Number.isFinite(oldestCreatedAt)
+                  ? Math.max(0, Math.floor((Date.now() - oldestCreatedAt) / 60000))
+                  : null;
+              const mesaTono = elapsedTono(mesaMin);
 
               return (
                 <div key={mesa} className="flex flex-col items-center group">
                   <button
                     onClick={() => (libre ? abrirMesa(mesa) : null)}
-                    className={`relative h-32 w-32 rounded-[40px] flex flex-col items-center justify-center transition-all duration-300 border-4 overflow-hidden group/btn ${
+                    className="relative h-28 w-28 rounded-3xl flex flex-col items-center justify-center transition-all duration-200 overflow-hidden"
+                    style={
                       reservada
-                        ? 'bg-warning-50 border-amber-100 text-warning-600 shadow-lg shadow-amber-50'
+                        ? { background: '#FEF6E7', color: '#92400E', border: '1px solid #FDE9C4' }
                         : libre
-                          ? 'bg-white border-gray-100 text-gray-300 hover:border-primary-500 hover:text-primary-500 hover:shadow-xl hover:-translate-y-1'
-                          : 'bg-primary-500 border-primary-500 text-white shadow-xl shadow-primary-100 scale-105'
-                    }`}
+                          ? { background: '#fff', color: '#9CA3AF', border: '1px solid #E5E7EB' }
+                          : { background: BRAND, color: '#fff', border: `1px solid ${BRAND}` }
+                    }
                   >
                     {/* Imagen de fondo con overlay */}
                     <img
                       src={tableImg}
-                      className={`absolute inset-0 w-full h-full object-cover transition-all duration-500 group-hover/btn:scale-110 ${
-                        libre && !reservada ? 'opacity-10 grayscale' : 'opacity-30'
-                      }`}
+                      className="absolute inset-0 h-full w-full object-cover"
+                      style={{ opacity: libre && !reservada ? 0.08 : 0.22 }}
                       alt=""
                     />
 
                     <div className="relative z-10 flex flex-col items-center justify-center">
                       {!libre && (
-                        <div className="absolute -top-10 -right-10 h-8 w-8 rounded-full bg-danger-500 text-white flex items-center justify-center font-black text-xs shadow-md border-2 border-white">
+                        <div className="absolute -top-9 -right-9 flex h-6 w-6 items-center justify-center rounded-full border-2 border-white bg-rose-600 text-[11px] font-semibold text-white">
                           {info.abiertos.length}
                         </div>
                       )}
-                      <span
-                        className={`text-[10px] font-black uppercase tracking-widest mb-1 ${libre && !reservada ? 'text-gray-400' : 'text-current opacity-80'}`}
-                      >
-                        Mesa
-                      </span>
-                      <span className="text-3xl font-black">{mesa}</span>
-                      {reservada && <CalendarDays size={16} className="mt-2 animate-bounce" />}
+                      <span className="text-[11px] font-medium opacity-75">Mesa</span>
+                      <span className="text-2xl font-semibold">{mesa}</span>
+                      {reservada && <CalendarDays size={14} className="mt-2" />}
                       {!libre && (
-                        <p className="mt-1 text-[10px] font-black bg-white/20 px-2 py-0.5 rounded-lg backdrop-blur-sm">
+                        <p className="mt-1 rounded-md bg-white/20 px-2 py-0.5 text-[11px] font-medium backdrop-blur-sm">
                           {fmt(info.total)}
                         </p>
                       )}
                       {mesaMin !== null && (
                         <p
-                          className={`mt-1 text-[9px] font-black px-2 py-0.5 rounded-lg ${elapsedTint(mesaMin)}`}
+                          className="mt-1 rounded-md px-2 py-0.5 text-[10px] font-medium"
+                          style={{ background: mesaTono.bg, color: mesaTono.fg }}
                         >
                           ⏱ {fmtElapsed(mesaMin)}
                         </p>
@@ -404,51 +411,56 @@ export default function Mesas() {
                     </div>
                   </button>
 
-                  <div className="mt-4 w-full space-y-3">
-                    {/* Detalle de Pedidos si está ocupada */}
+                  <div className="mt-3 w-full space-y-2.5">
+                    {/* Detalle de pedidos si está ocupada */}
                     {info.abiertos.map((p) => {
                       const meta = STATE_META[p.estado] || STATE_META.nuevo;
+                      const tono = estadoTono(p.estado);
                       const ordenMin = minutesElapsed(p.creado_en);
+                      const ordenTono = elapsedTono(ordenMin);
                       return (
                         <div
                           key={p.id}
-                          className="rounded-2xl bg-gray-50 border border-gray-100 p-3 text-center"
+                          className="rounded-xl bg-gray-50 border border-gray-100 p-3 text-center"
                         >
-                          <div className="flex items-center justify-between mb-2">
-                            <p className="text-[10px] font-black text-gray-400">
-                              ORDEN #{p.numero}
+                          <div className="mb-2 flex items-center justify-between">
+                            <p className="text-[11px] font-medium text-gray-400">
+                              Orden #{p.numero}
                             </p>
                             {ordenMin !== null && (
                               <span
-                                className={`text-[9px] font-black px-1.5 py-0.5 rounded-md ${
-                                  ordenMin < 45
-                                    ? 'bg-success-100 text-success-600'
-                                    : ordenMin < 90
-                                      ? 'bg-warning-100 text-warning-600'
-                                      : 'bg-danger-100 text-danger-600'
-                                }`}
+                                className="rounded-md px-1.5 py-0.5 text-[10px] font-medium"
+                                style={{ background: ordenTono.bg, color: ordenTono.fg }}
                               >
                                 ⏱ {fmtElapsed(ordenMin)}
                               </span>
                             )}
                           </div>
                           <div
-                            className={`inline-block px-3 py-1 rounded-lg text-[9px] font-black uppercase mb-3 ${meta.classes}`}
+                            className="mb-3 inline-block rounded-lg px-3 py-1 text-[11px] font-medium"
+                            style={{ background: tono.bg, color: tono.fg }}
                           >
-                            {meta.label}
+                            {tono.label}
                           </div>
-                          <div className="flex gap-1 justify-center">
-                            <button
-                              onClick={() => handleEstado(p, meta.next)}
-                              className="h-8 px-3 rounded-xl bg-white border border-gray-200 text-[9px] font-black hover:bg-primary-500 hover:text-white transition-all"
-                            >
-                              {meta.nextLabel}
-                            </button>
+                          <div className="flex justify-center gap-1.5">
+                            {meta.next && (
+                              <button
+                                onClick={() => handleEstado(p, meta.next)}
+                                disabled={updatingKey === `${p.id}:${meta.next}`}
+                                className="h-8 rounded-lg border border-gray-200 bg-white px-3 text-[11px] font-medium text-gray-700 transition-colors hover:text-white disabled:opacity-60"
+                                style={{ '--hover-bg': BRAND }}
+                                onMouseEnter={(e) => (e.currentTarget.style.background = BRAND)}
+                                onMouseLeave={(e) => (e.currentTarget.style.background = '')}
+                              >
+                                {meta.nextLabel}
+                              </button>
+                            )}
                             <button
                               onClick={() => handleImprimir(mesa)}
-                              className="h-8 w-8 rounded-xl bg-white border border-gray-200 flex items-center justify-center text-gray-400 hover:text-primary-500"
+                              disabled={printingMesa === mesa}
+                              className="flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-400 hover:text-gray-700 disabled:opacity-60"
                             >
-                              <Printer size={12} />
+                              <Printer size={13} strokeWidth={STROKE} />
                             </button>
                           </div>
                         </div>
@@ -461,39 +473,39 @@ export default function Mesas() {
                           setMoveState(mesa);
                           setMoveDestination('');
                         }}
-                        className="w-full h-9 flex items-center justify-center gap-1.5 rounded-xl bg-white border border-gray-200 text-[10px] font-black text-gray-500 uppercase tracking-widest hover:border-primary-500 hover:text-primary-500 transition-all"
+                        className="flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-gray-200 bg-white text-[12px] font-medium text-gray-500 hover:text-gray-700 transition-colors"
                       >
-                        <ArrowRightLeft size={12} />
+                        <ArrowRightLeft size={13} strokeWidth={STROKE} />
                         Mover pedido
                       </button>
                     )}
 
-                    {/* Botones para Reservas */}
+                    {/* Botones para reservas */}
                     {reservada && (
                       <div className="text-center">
-                        <p className="text-[10px] font-black text-warning-600 uppercase mb-2 truncate px-2">
+                        <p className="mb-2 truncate px-2 text-[12px] font-medium text-amber-700">
                           {info.reserva.cliente_nombre}
                         </p>
                         <button
                           onClick={() => abrirMesa(mesa)}
-                          className="w-full py-2 rounded-xl bg-warning-500 text-white text-[10px] font-black shadow-lg shadow-warning-100 uppercase tracking-widest"
+                          className="w-full rounded-lg bg-amber-500 py-2 text-[12px] font-medium text-white shadow-sm"
                         >
-                          OCUPAR
+                          Ocupar
                         </button>
                         <div className="mt-2 flex gap-1.5">
                           <button
                             onClick={() => handleReservaEstado(info.reserva, 'atendida')}
                             disabled={reservaAccion === `${info.reserva.id}:atendida`}
-                            className="flex-1 h-8 flex items-center justify-center gap-1 rounded-xl bg-success-50 text-success-600 text-[9px] font-black uppercase tracking-widest hover:bg-success-100 transition-all disabled:opacity-60"
+                            className="flex h-8 flex-1 items-center justify-center gap-1 rounded-lg bg-emerald-50 text-[11px] font-medium text-emerald-700 hover:bg-emerald-100 transition-all disabled:opacity-60"
                           >
-                            <Check size={12} />
+                            <Check size={13} strokeWidth={STROKE} />
                             Atendida
                           </button>
                           <button
                             onClick={() => setCancelReservaTarget(info.reserva)}
-                            className="flex-1 h-8 flex items-center justify-center gap-1 rounded-xl bg-danger-50 text-danger-600 text-[9px] font-black uppercase tracking-widest hover:bg-danger-100 transition-all"
+                            className="flex h-8 flex-1 items-center justify-center gap-1 rounded-lg bg-rose-50 text-[11px] font-medium text-rose-600 hover:bg-rose-100 transition-all"
                           >
-                            <X size={12} />
+                            <X size={13} strokeWidth={STROKE} />
                             Cancelar
                           </button>
                         </div>
@@ -501,8 +513,8 @@ export default function Mesas() {
                     )}
 
                     {libre && !reservada && (
-                      <div className="opacity-0 group-hover:opacity-100 transition-opacity flex justify-center">
-                        <span className="text-[10px] font-black text-primary-500 uppercase tracking-widest">
+                      <div className="flex justify-center opacity-0 transition-opacity group-hover:opacity-100">
+                        <span className="text-[12px] font-medium" style={{ color: BRAND }}>
                           Libre
                         </span>
                       </div>
@@ -515,45 +527,38 @@ export default function Mesas() {
         </div>
       </div>
 
-      {/* Modal Reserva (Modern) */}
+      {/* Modal reserva */}
       {reservationOpen && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 p-4 backdrop-blur-sm"
+          className="fixed inset-0 flex items-center justify-center bg-slate-900/30 p-4 backdrop-blur-sm"
+          style={{ zIndex: Z.modal }}
           onClick={() => setReservationOpen(false)}
         >
           <div
-            className="w-full max-w-xl rounded-[40px] bg-white p-8 shadow-2xl animate-in zoom-in-95 duration-200"
+            className="w-full max-w-xl rounded-2xl bg-white p-6 shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="mb-8 flex items-center justify-between">
+            <div className="mb-6 flex items-center justify-between">
               <div>
-                <div className="flex items-center gap-2 mb-1">
-                  <div className="h-6 w-1 bg-primary-500 rounded-full"></div>
-                  <p className="text-xs font-black text-primary-500 uppercase tracking-[0.2em]">
-                    Agenda de Salón
-                  </p>
-                </div>
-                <h3 className="text-2xl font-black text-gray-900 tracking-tight uppercase">
-                  Nueva Reserva
-                </h3>
+                <p className="text-[12px] font-medium text-gray-400">Agenda de salón</p>
+                <h3 className="text-lg font-semibold text-gray-900">Nueva reserva</h3>
               </div>
               <button
                 onClick={() => setReservationOpen(false)}
                 className="rounded-full p-2 hover:bg-gray-100"
               >
-                <X size={24} />
+                <X size={20} strokeWidth={STROKE} />
               </button>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-3">
               <div className="col-span-2 sm:col-span-1">
-                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
-                  Mesa
-                </label>
+                <label className="ml-1 text-[12px] font-medium text-gray-400">Mesa</label>
                 <select
                   value={reservationForm.mesa}
                   onChange={(e) => setReservationForm({ ...reservationForm, mesa: e.target.value })}
-                  className="h-12 w-full rounded-2xl bg-gray-50 border-none px-4 text-sm font-bold mt-1 outline-none focus:ring-2 focus:ring-[#5D87FF]/20"
+                  className="mt-1 h-11 w-full rounded-xl border-none bg-gray-50 px-4 text-[14px] font-medium outline-none focus:ring-2"
+                  style={{ '--tw-ring-color': `${BRAND}33` }}
                 >
                   <option value="">Elegir mesa...</option>
                   {mesas.map((m) => (
@@ -564,16 +569,14 @@ export default function Mesas() {
                 </select>
               </div>
               <div className="col-span-2 sm:col-span-1">
-                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
-                  Horario
-                </label>
+                <label className="ml-1 text-[12px] font-medium text-gray-400">Horario</label>
                 <input
                   type="datetime-local"
                   value={reservationForm.horario_reserva}
                   onChange={(e) =>
                     setReservationForm({ ...reservationForm, horario_reserva: e.target.value })
                   }
-                  className="h-12 w-full rounded-2xl bg-gray-50 border-none px-4 text-sm font-bold mt-1 outline-none focus:ring-2 focus:ring-[#5D87FF]/20"
+                  className="mt-1 h-11 w-full rounded-xl border-none bg-gray-50 px-4 text-[14px] font-medium outline-none"
                 />
               </div>
               <input
@@ -582,7 +585,7 @@ export default function Mesas() {
                 onChange={(e) =>
                   setReservationForm({ ...reservationForm, cliente_nombre: e.target.value })
                 }
-                className="h-12 w-full rounded-2xl bg-gray-50 border-none px-4 text-sm font-bold col-span-2 outline-none focus:ring-2 focus:ring-[#5D87FF]/20"
+                className="col-span-2 h-11 w-full rounded-xl border-none bg-gray-50 px-4 text-[14px] font-medium outline-none"
               />
               <input
                 placeholder="Teléfono"
@@ -590,7 +593,7 @@ export default function Mesas() {
                 onChange={(e) =>
                   setReservationForm({ ...reservationForm, cliente_telefono: e.target.value })
                 }
-                className="h-12 w-full rounded-2xl bg-gray-50 border-none px-4 text-sm font-bold col-span-2 sm:col-span-1 outline-none focus:ring-2 focus:ring-[#5D87FF]/20"
+                className="col-span-2 h-11 w-full rounded-xl border-none bg-gray-50 px-4 text-[14px] font-medium outline-none sm:col-span-1"
               />
 
               <input
@@ -600,66 +603,52 @@ export default function Mesas() {
                 onChange={(e) =>
                   setReservationForm({ ...reservationForm, cantidad_personas: e.target.value })
                 }
-                className="h-12 w-full rounded-2xl bg-gray-50 border-none px-4 text-sm font-bold col-span-2 sm:col-span-1 outline-none focus:ring-2 focus:ring-[#5D87FF]/20"
+                className="col-span-2 h-11 w-full rounded-xl border-none bg-gray-50 px-4 text-[14px] font-medium outline-none sm:col-span-1"
               />
               <textarea
                 placeholder="Notas especiales..."
                 value={reservationForm.notas}
                 onChange={(e) => setReservationForm({ ...reservationForm, notas: e.target.value })}
-                className="h-24 w-full rounded-2xl bg-gray-50 border-none px-4 py-3 text-sm font-bold col-span-2 resize-none outline-none focus:ring-2 focus:ring-[#5D87FF]/20"
+                className="col-span-2 h-20 w-full resize-none rounded-xl border-none bg-gray-50 px-4 py-3 text-[14px] font-medium outline-none"
               />
             </div>
 
-            <div className="mt-8 flex gap-3">
+            <div className="mt-6 flex gap-3">
               <button
                 onClick={() => setReservationOpen(false)}
-                className="flex-1 h-14 rounded-2xl border border-gray-200 text-xs font-black text-gray-400 uppercase tracking-widest hover:bg-gray-50 transition-all"
+                className="h-12 flex-1 rounded-xl border border-gray-200 text-[13px] font-medium text-gray-500 hover:bg-gray-50 transition-all"
               >
-                CANCELAR
+                Cancelar
               </button>
               <button
-                onClick={async () => {
-                  try {
-                    await api.post('/pedidos/mesas/reservas', reservationForm);
-                    toast.success('Reserva creada');
-                    setReservationOpen(false);
-                    setReservationForm(emptyReservationForm);
-                    cargar();
-                  } catch {
-                    toast.error('Error');
-                  }
-                }}
-                className="flex-[2] h-14 rounded-2xl bg-primary-500 text-xs font-black uppercase tracking-widest text-white shadow-lg shadow-primary-100 transition-all active:scale-95 hover:bg-primary-600"
+                onClick={handleCrearReserva}
+                disabled={reservationLoading}
+                className="h-12 flex-[2] rounded-xl text-[13px] font-medium text-white shadow-sm transition-all active:scale-[0.98] disabled:opacity-60"
+                style={{ background: BRAND }}
               >
-                CONFIRMAR RESERVA
+                {reservationLoading ? 'Creando...' : 'Confirmar reserva'}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Modal Mover Pedido */}
+      {/* Modal mover pedido */}
       {moveState && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 p-4 backdrop-blur-sm"
+          className="fixed inset-0 flex items-center justify-center bg-slate-900/30 p-4 backdrop-blur-sm"
+          style={{ zIndex: Z.modal }}
           onClick={() => setMoveState(null)}
         >
           <div
-            className="w-full max-w-md rounded-[40px] bg-white p-8 shadow-2xl animate-in zoom-in-95 duration-200"
+            className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="mb-6 flex items-center justify-between">
+            <div className="mb-5 flex items-center justify-between">
               <div>
-                <div className="flex items-center gap-2 mb-1">
-                  <div className="h-6 w-1 bg-primary-500 rounded-full"></div>
-                  <p className="text-xs font-black text-primary-500 uppercase tracking-[0.2em]">
-                    Operación de Salón
-                  </p>
-                </div>
-                <h3 className="text-2xl font-black text-gray-900 tracking-tight uppercase">
-                  Mover Pedido
-                </h3>
-                <p className="mt-1 text-sm text-gray-500 font-medium">
+                <p className="text-[12px] font-medium text-gray-400">Operación de salón</p>
+                <h3 className="text-lg font-semibold text-gray-900">Mover pedido</h3>
+                <p className="mt-1 text-[13px] text-gray-500">
                   Mesa {moveState} pasará a otra mesa
                 </p>
               </div>
@@ -667,17 +656,15 @@ export default function Mesas() {
                 onClick={() => setMoveState(null)}
                 className="rounded-full p-2 hover:bg-gray-100"
               >
-                <X size={24} />
+                <X size={20} strokeWidth={STROKE} />
               </button>
             </div>
 
-            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
-              Mesa destino
-            </label>
+            <label className="ml-1 text-[12px] font-medium text-gray-400">Mesa destino</label>
             <select
               value={moveDestination}
               onChange={(e) => setMoveDestination(e.target.value)}
-              className="h-12 w-full rounded-2xl bg-gray-50 border-none px-4 text-sm font-bold mt-1 outline-none focus:ring-2 focus:ring-[#5D87FF]/20"
+              className="mt-1 h-11 w-full rounded-xl border-none bg-gray-50 px-4 text-[14px] font-medium outline-none"
             >
               <option value="">Elegir mesa destino...</option>
               {mesas
@@ -693,19 +680,20 @@ export default function Mesas() {
                 })}
             </select>
 
-            <div className="mt-8 flex gap-3">
+            <div className="mt-6 flex gap-3">
               <button
                 onClick={() => setMoveState(null)}
-                className="flex-1 h-14 rounded-2xl border border-gray-200 text-xs font-black text-gray-400 uppercase tracking-widest hover:bg-gray-50 transition-all"
+                className="h-12 flex-1 rounded-xl border border-gray-200 text-[13px] font-medium text-gray-500 hover:bg-gray-50 transition-all"
               >
-                CANCELAR
+                Cancelar
               </button>
               <button
                 onClick={handleMoverPedido}
                 disabled={!moveDestination || movingLoading}
-                className="flex-[2] h-14 rounded-2xl bg-primary-500 text-xs font-black uppercase tracking-widest text-white shadow-lg shadow-primary-100 transition-all active:scale-95 hover:bg-primary-600 disabled:opacity-60"
+                className="h-12 flex-[2] rounded-xl text-[13px] font-medium text-white shadow-sm transition-all active:scale-[0.98] disabled:opacity-60"
+                style={{ background: BRAND }}
               >
-                {movingLoading ? 'MOVIENDO...' : 'CONFIRMAR MOVIMIENTO'}
+                {movingLoading ? 'Moviendo...' : 'Confirmar movimiento'}
               </button>
             </div>
           </div>

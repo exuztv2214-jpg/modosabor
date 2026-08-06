@@ -168,11 +168,20 @@ function runSeed(db) {
     tiempo_delivery: '25',
     tiempo_retiro: '20',
     delivery_validacion_activa: '0',
+    // Modo Sabor no cobra envio: reparte gratis en todo Monteros.
+    // Las zonas quedan porque siguen sirviendo para estimar la demora, pero
+    // todas van en 0. Antes 'cerca' y 'extendida' venian con 1500 y 2500.
+    //
+    // `catchAll` en Monteros es importante: sin eso, si algun dia se prende
+    // `delivery_validacion_activa`, cualquier direccion que no contenga una
+    // de las palabras clave se rechaza. Con catchAll, Monteros absorbe todo
+    // lo que no matchee otra zona.
     delivery_zonas: JSON.stringify([
       {
         id: 'monteros',
         nombre: 'Monteros',
         keywords: ['monteros', 'centro', 'casco centrico', 'las piedras'],
+        catchAll: true,
         costo_envio: 0,
         tiempo_estimado_min: 25,
         activa: true,
@@ -181,7 +190,7 @@ function runSeed(db) {
         id: 'cerca',
         nombre: 'Fuera de Monteros - cerca',
         keywords: ['santa lucia', 'santalucia', 'villa quinteros'],
-        costo_envio: 1500,
+        costo_envio: 0,
         tiempo_estimado_min: 40,
         activa: true,
       },
@@ -189,7 +198,7 @@ function runSeed(db) {
         id: 'extendida',
         nombre: 'Fuera de Monteros - extendida',
         keywords: ['ruta', 'km', 'afuera', 'rio seco', 'famailla', 'concepcion'],
-        costo_envio: 2500,
+        costo_envio: 0,
         tiempo_estimado_min: 55,
         activa: true,
       },
@@ -224,10 +233,14 @@ function runSeed(db) {
     web_popup_accion_tipo: 'none',
     web_popup_accion_valor: '',
     web_popup_frecuencia_horas: '12',
+    // A6 sobre papel A4: el local imprime en una impresora hogareña y usa
+    // documentos chicos que después corta. Si algún día entra una térmica,
+    // se cambia a ticket80 desde Configuración y todo se reacomoda solo.
     impresion_formato: 'a6',
     impresion_auto_tpv: '0',
     impresion_auto_web: '0',
-    impresion_margen_mm: '8',
+    impresion_margen_mm: '6',
+    impresion_hoja_reparto_activa: '1',
     impresion_escala_fuente: '1',
     impresion_mensaje_ticket: 'Gracias por elegirnos',
     impresion_copias_comanda: '1',

@@ -1,25 +1,7 @@
-import ActionDialog from '../../components/ActionDialog.jsx';
-
-export default function DeleteDialog({
-  open,
-  title,
-  description,
-  confirmLabel,
-  cancelLabel,
-  tone,
-  onConfirm,
-  onClose,
-}) {
-  return (
-    <ActionDialog
-      open={open}
-      title={title}
-      description={description}
-      confirmLabel={confirmLabel}
-      cancelLabel={cancelLabel}
-      tone={tone}
-      onConfirm={onConfirm}
-      onClose={onClose}
-    />
-  );
-}
+/**
+ * OBSOLETO — se puede borrar.
+ *
+ * Recibía ocho props y las reenviaba idénticas a `ActionDialog`, sin agregar
+ * comportamiento ni estilo. `index.jsx` usa `ActionDialog` directo.
+ */
+export default null;

@@ -1,57 +1,72 @@
 import { useState } from 'react';
 
+import { estadoTono } from '../../lib/theme.js';
+import { Card, Empty } from './clientesUi.jsx';
+
 export default function HistorialPedidosPanel({ pedidos, formatPedidoDate, fmtMoney }) {
   const [mostrarTodos, setMostrarTodos] = useState(false);
-  const total = pedidos?.length || 0;
-  const visibles = mostrarTodos ? pedidos : (pedidos || []).slice(0, 4);
-  const hayMas = total > 4;
+  const lista = Array.isArray(pedidos) ? pedidos : [];
+  const visibles = mostrarTodos ? lista : lista.slice(0, 5);
+  const hayMas = lista.length > 5;
+
+  const totalGastado = lista.reduce((acc, p) => acc + Number(p.total || 0), 0);
 
   return (
-    <div className="rounded-[32px] border border-white bg-white p-6 shadow-sm">
-      <div className="mb-4 flex items-center justify-between">
-        <h4 className="text-[10px] font-black uppercase tracking-[0.3em] text-gray-400">
-          Últimos pedidos
-        </h4>
-        {hayMas && (
+    <Card
+      title="Pedidos del cliente"
+      helper={
+        lista.length
+          ? `${lista.length} ${lista.length === 1 ? 'pedido' : 'pedidos'} · ${fmtMoney(totalGastado)} en total`
+          : undefined
+      }
+      action={
+        hayMas ? (
           <button
+            type="button"
             onClick={() => setMostrarTodos((prev) => !prev)}
-            className="text-[9px] font-black uppercase tracking-widest text-primary-500 hover:underline"
+            className="shrink-0 text-[12px] font-semibold text-gray-500 transition hover:text-gray-900"
           >
-            {mostrarTodos ? 'Ver menos' : 'Ver historial'}
+            {mostrarTodos ? 'Ver menos' : `Ver los ${lista.length}`}
           </button>
-        )}
-      </div>
-      <div className="space-y-3">
-        {visibles?.length > 0 ? (
-          visibles.map((p) => (
-            <div
-              key={p.id}
-              className="flex items-center justify-between rounded-[24px] border border-gray-100 bg-[#F8FAFD] px-4 py-4"
-            >
-              <div className="flex items-center gap-3">
-                <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-xs font-black text-gray-800 shadow-sm">
-                  #{p.numero}
-                </div>
-                <div>
-                  <p className="text-sm font-black text-gray-900">
+        ) : null
+      }
+    >
+      {visibles.length ? (
+        <div className="space-y-1.5">
+          {visibles.map((p) => {
+            const tono = estadoTono(p.estado);
+            return (
+              <div
+                key={p.id}
+                className="flex items-center justify-between gap-3 rounded-xl bg-gray-50 px-3 py-2.5"
+              >
+                <div className="min-w-0">
+                  <p className="text-[13px] font-medium tabular-nums text-gray-900">#{p.numero}</p>
+                  <p className="mt-0.5 text-[11px] text-gray-400">
                     {formatPedidoDate(p.creado_en)}
                   </p>
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
-                    {p.estado}
-                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-3">
+                  <span
+                    className="rounded-full px-2 py-0.5 text-[11px] font-medium"
+                    style={{ background: tono.bg, color: tono.fg }}
+                  >
+                    {tono.label}
+                  </span>
+                  <span className="text-[13px] font-bold tabular-nums text-gray-900">
+                    {fmtMoney(p.total)}
+                  </span>
                 </div>
               </div>
-              <div className="text-right">
-                <p className="font-black text-gray-900">{fmtMoney(p.total)}</p>
-              </div>
-            </div>
-          ))
-        ) : (
-          <p className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 py-4 text-center text-xs font-bold uppercase text-gray-400">
-            Sin pedidos registrados
-          </p>
-        )}
-      </div>
-    </div>
+            );
+          })}
+        </div>
+      ) : (
+        <Empty
+          title="Sin pedidos registrados"
+          description="Cuando este cliente compre desde el TPV o la web, los pedidos aparecen acá."
+        />
+      )}
+    </Card>
   );
 }

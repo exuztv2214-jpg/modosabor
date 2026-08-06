@@ -1,139 +1,257 @@
-import { Gift, History, MapPin, ShieldAlert, Star } from 'lucide-react';
+import { Gift, MapPin, PauseCircle, Phone } from 'lucide-react';
+
+import { STROKE } from '../../lib/theme.js';
+import {
+  AvatarDisplay,
+  Empty,
+  METRICA_TONOS,
+  nivelEstilo,
+  segmentoTono,
+} from '../../pages/Clientes/clientesUi.jsx';
+
+const VERDE_BANDA = '#E7F5EF';
+const VERDE_FUERTE = '#047857';
+const VERDE_TEXTO = '#065F46';
 
 export default function ClientesGrid({
   filtered,
   abrirDetalle,
-  AvatarDisplay,
-  getEstadoBadge,
-  fmtMoney,
-  sellosParaPremio,
+  getClienteEstado,
   getCardQuickAction,
+  fmtMoney,
+  formatPedidoDate,
+  sellosParaPremio,
+  hayFiltros,
+  onLimpiarFiltros,
+  onNuevo,
   toast,
 }) {
+  if (!filtered.length) {
+    return (
+      <Empty
+        title={hayFiltros ? 'Ningún cliente coincide' : 'Todavía no hay clientes'}
+        description={
+          hayFiltros
+            ? 'Probá con otro término de búsqueda o sacá alguno de los filtros.'
+            : 'Los clientes se cargan desde el TPV al cobrar, desde la web pública o a mano acá.'
+        }
+        action={
+          hayFiltros ? (
+            <button
+              type="button"
+              onClick={onLimpiarFiltros}
+              className="h-10 rounded-xl bg-gray-100 px-4 text-[13px] font-semibold text-gray-700 transition hover:bg-gray-200"
+            >
+              Limpiar filtros
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={onNuevo}
+              style={{ background: nivelEstilo('Oro').fuerte }}
+              className="h-10 rounded-xl px-4 text-[13px] font-semibold text-white transition hover:brightness-110"
+            >
+              Cargar el primero
+            </button>
+          )
+        }
+      />
+    );
+  }
+
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-      {filtered.map((c) => (
-        <div
-          key={c.id}
-          onClick={() => abrirDetalle(c)}
-          className={`group cursor-pointer rounded-[32px] bg-white p-6 border border-gray-100 shadow-sm transition-all duration-300 hover:shadow-xl hover:-translate-y-1 text-center ${!c.fidelizacion_activa ? 'opacity-60 grayscale-[0.5]' : ''}`}
-        >
-          <div className="mx-auto w-24 h-24 mb-4 relative">
-            <AvatarDisplay url={c.avatar_url} nombre={c.nombre} size="w-full h-full" />
-            <div className="absolute -bottom-2 -right-2 px-3 py-1 rounded-lg bg-primary-500 text-white text-[10px] font-black uppercase shadow-md border-2 border-white">
-              {c.nivel}
-            </div>
-            {!c.fidelizacion_activa && (
-              <div
-                className="absolute top-0 right-0 h-6 w-6 rounded-full bg-danger-500 flex items-center justify-center text-white border-2 border-white"
-                title="Lealtad Desactivada"
-              >
-                <ShieldAlert size={12} strokeWidth={3} />
-              </div>
-            )}
-          </div>
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+      {filtered.map((cliente) => {
+        // Se llamaba dos veces por tarjeta, una para el label y otra para el href.
+        const accion = getCardQuickAction(cliente);
+        const sellos = Math.min(Number(cliente.sellos_actuales || 0), sellosParaPremio);
+        const premios = Number(cliente.recompensas_pendientes || 0);
+        const sinTelefono = !String(cliente.telefono || '').trim();
+        const conPremio = premios > 0;
+        const nivel = nivelEstilo(cliente.nivel);
+        const estado = segmentoTono(getClienteEstado(cliente));
 
-          <div className="mb-6">
-            <div className="flex items-center justify-center gap-1.5 mb-1">
-              <h4 className="font-black text-gray-900 uppercase tracking-tight text-lg truncate">
-                {c.nombre}
-              </h4>
-            </div>
-            <div className="mb-2 flex items-center justify-center gap-2">
-              <span
-                className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-wider ${getEstadoBadge(c).className}`}
-              >
-                {getEstadoBadge(c).label}
-              </span>
-            </div>
-            <p className="text-[10px] font-black text-primary-500 bg-primary-50 px-2 py-0.5 rounded-full inline-block mb-2">
-              {c.codigo_tarjeta}
-            </p>
-            <p className="text-xs font-bold text-gray-400 uppercase tracking-widest flex items-center justify-center gap-1 text-center">
-              <MapPin size={12} /> {c.direccion || 'Sin dirección'}
-            </p>
-          </div>
+        /*
+          La cabecera se pinta con el color del nivel del cliente. Es la única
+          parte con color fuerte de la tarjeta, y no es decoración: scrolleás
+          la grilla y ves de un vistazo quiénes son tus Oro sin leer nada.
 
-          <div className="row grid grid-cols-2 gap-3 mb-6">
-            <div className="py-3 px-2 bg-gray-50 rounded-[20px] flex items-center gap-2">
-              <div className="h-8 w-8 rounded-lg bg-primary-100 flex items-center justify-center text-primary-500 shrink-0">
-                <History size={16} />
-              </div>
-              <div className="text-left min-w-0">
-                <p className="text-[9px] font-black text-gray-400 uppercase leading-none mb-1 truncate">
-                  Pedidos
-                </p>
-                <p className="text-sm font-black text-gray-800 leading-none">
-                  {c.total_pedidos || 0}
-                </p>
-              </div>
-            </div>
-            <div className="py-3 px-2 bg-gray-50 rounded-[20px] flex items-center gap-2">
-              <div className="h-8 w-8 rounded-lg bg-warning-100 flex items-center justify-center text-warning-500 shrink-0">
-                <Star size={16} />
-              </div>
-              <div className="text-left min-w-0">
-                <p className="text-[9px] font-black text-gray-400 uppercase leading-none mb-1 truncate">
-                  Invertido
-                </p>
-                <p className="text-sm font-black text-primary-500 leading-none truncate">
-                  {fmtMoney(c.total_gastado)}
-                </p>
-              </div>
-            </div>
-          </div>
+          La excepción es cuando hay un premio esperando. Ahí manda el verde,
+          porque esa es la tarjeta a la que hay que escribirle hoy y tiene que
+          ganarle en atención al nivel.
+        */
+        const banda = conPremio ? VERDE_BANDA : nivel.banda;
+        const acento = conPremio ? VERDE_FUERTE : nivel.fuerte;
+        const textoBanda = conPremio ? VERDE_TEXTO : nivel.texto;
+        const textoSuave = conPremio ? VERDE_FUERTE : nivel.apagado;
 
-          <div className="space-y-2">
-            <div className="flex justify-between items-center px-1">
-              <span className="text-[10px] font-black uppercase tracking-widest text-primary-500">
-                PROGRESO SELLO
-              </span>
-              <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">
-                {c.sellos_actuales || 0} / {sellosParaPremio}
-              </span>
-            </div>
-            <div className="h-2 w-full bg-gray-100 rounded-full overflow-hidden p-0.5 border border-gray-50">
-              <div
-                className="h-full rounded-full transition-all duration-700 bg-gradient-to-r from-primary-500 to-info-500 shadow-[0_0_10px_rgba(93,135,255,0.3)]"
-                style={{
-                  width: `${Math.min(100, ((c.sellos_actuales || 0) / sellosParaPremio) * 100)}%`,
-                }}
-              />
-            </div>
-            {c.recompensas_pendientes > 0 && (
-              <div className="pt-1 flex items-center justify-center gap-1 text-[9px] font-black text-success-500 uppercase animate-pulse">
-                <Gift size={12} /> ¡{c.recompensas_pendientes} PREMIO LISTO!
-              </div>
-            )}
-          </div>
-
-          <div className="mt-4 grid grid-cols-2 gap-2">
+        return (
+          <div
+            key={cliente.id}
+            className="group overflow-hidden rounded-2xl bg-white shadow-[0_1px_2px_rgba(15,23,42,0.06)] transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_8px_24px_rgba(15,23,42,0.10)]"
+          >
             <button
-              onClick={(e) => {
-                e.stopPropagation();
-                abrirDetalle(c);
-              }}
-              className="rounded-[18px] border border-gray-100 bg-background px-3 py-3 text-[10px] font-black uppercase tracking-widest text-gray-700 transition-all hover:text-primary-500"
+              type="button"
+              onClick={() => abrirDetalle(cliente)}
+              className="flex w-full items-center gap-3 px-4 py-3 text-left"
+              style={{ background: banda }}
             >
-              Ver ficha
+              <span className="shrink-0 rounded-[14px] p-[2px]" style={{ background: acento }}>
+                <AvatarDisplay
+                  url={cliente.avatar_url}
+                  fallbackId={cliente.id}
+                  nombre={cliente.nombre}
+                  size="h-11 w-11"
+                />
+              </span>
+
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-[14px] font-semibold" style={{ color: textoBanda }}>
+                  {cliente.nombre || 'Cliente sin nombre'}
+                </p>
+                <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                  <span
+                    className="rounded-full bg-white/80 px-2 py-0.5 text-[11px] font-semibold"
+                    style={{ color: nivel.fg }}
+                  >
+                    {cliente.nivel || 'Bronce'}
+                  </span>
+                  <span
+                    className="rounded-full bg-white/80 px-2 py-0.5 text-[11px] font-medium"
+                    style={{ color: estado.fg }}
+                  >
+                    {estado.label}
+                  </span>
+                  {!cliente.fidelizacion_activa ? (
+                    <span
+                      className="inline-flex items-center gap-1 text-[11px]"
+                      style={{ color: textoSuave }}
+                      title="Este cliente no acumula sellos"
+                    >
+                      <PauseCircle size={11} strokeWidth={STROKE} />
+                      Pausado
+                    </span>
+                  ) : null}
+                </div>
+              </div>
             </button>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                const action = getCardQuickAction(c);
-                if (!c.telefono) {
-                  toast.error('Este cliente no tiene telefono cargado');
-                  return;
-                }
-                window.open(action.href, '_blank');
-              }}
-              className="rounded-[18px] border border-gray-100 bg-background px-3 py-3 text-[10px] font-black uppercase tracking-widest text-gray-700 transition-all hover:text-success-500"
-            >
-              {getCardQuickAction(c).label}
-            </button>
+
+            <div className="p-4">
+              <div className="grid grid-cols-2 gap-2">
+                <div
+                  className="rounded-xl px-3 py-2"
+                  style={{ background: METRICA_TONOS.gastado.bg }}
+                >
+                  <p className="text-[11px]" style={{ color: METRICA_TONOS.gastado.label }}>
+                    Gastado
+                  </p>
+                  <p
+                    className="mt-0.5 truncate text-[15px] font-bold tabular-nums"
+                    style={{ color: METRICA_TONOS.gastado.valor }}
+                  >
+                    {fmtMoney(cliente.total_gastado)}
+                  </p>
+                </div>
+                <div
+                  className="rounded-xl px-3 py-2"
+                  style={{ background: METRICA_TONOS.pedidos.bg }}
+                >
+                  <p className="text-[11px]" style={{ color: METRICA_TONOS.pedidos.label }}>
+                    Pedidos
+                  </p>
+                  <p
+                    className="mt-0.5 text-[15px] font-bold tabular-nums"
+                    style={{ color: METRICA_TONOS.pedidos.valor }}
+                  >
+                    {cliente.total_pedidos || 0}
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-3 space-y-1 text-[12px] text-gray-500">
+                <p className="flex items-center gap-1.5">
+                  <Phone size={12} strokeWidth={STROKE} className="shrink-0 text-gray-400" />
+                  {sinTelefono ? (
+                    <span className="text-gray-400">Sin teléfono cargado</span>
+                  ) : (
+                    <span className="tabular-nums">{cliente.telefono}</span>
+                  )}
+                </p>
+                <p className="flex items-center gap-1.5">
+                  <MapPin size={12} strokeWidth={STROKE} className="shrink-0 text-gray-400" />
+                  <span className="truncate">{cliente.direccion || 'Sin dirección'}</span>
+                </p>
+              </div>
+
+              <div className="mt-3">
+                {conPremio ? (
+                  <div
+                    className="flex items-center gap-2 rounded-xl px-3 py-2"
+                    style={{ background: VERDE_BANDA }}
+                  >
+                    <Gift size={15} strokeWidth={STROKE} style={{ color: VERDE_FUERTE }} />
+                    <p className="text-[12px] font-semibold" style={{ color: VERDE_TEXTO }}>
+                      {premios === 1 ? 'Tiene un premio esperando' : `Tiene ${premios} premios`}
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="truncate text-[11px] text-gray-400">
+                        {cliente.ultima_compra
+                          ? `Última compra ${formatPedidoDate(cliente.ultima_compra)}`
+                          : 'Sin compras registradas'}
+                      </p>
+                      <span className="shrink-0 text-[11px] tabular-nums text-gray-400">
+                        {sellos}/{sellosParaPremio}
+                      </span>
+                    </div>
+                    <div className="mt-1.5 flex gap-1">
+                      {Array.from({ length: sellosParaPremio }, (_, i) => i).map((i) => (
+                        <span
+                          key={i}
+                          className="h-1.5 flex-1 rounded-full transition-all duration-500"
+                          style={{ background: i < sellos ? nivel.fuerte : '#EEF0F3' }}
+                        />
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => abrirDetalle(cliente)}
+                  className="h-9 rounded-xl bg-gray-100 text-[12px] font-semibold text-gray-700 transition hover:bg-gray-200"
+                >
+                  Ver ficha
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    // Acá reventaba: `toast` llegaba undefined desde el hook,
+                    // así que el cliente sin teléfono —el único caso que este
+                    // aviso existía para cubrir— tiraba un TypeError y dejaba
+                    // la pantalla en blanco.
+                    if (sinTelefono) {
+                      toast?.error?.('Este cliente no tiene teléfono cargado');
+                      return;
+                    }
+                    window.open(accion.href, '_blank', 'noopener,noreferrer');
+                  }}
+                  disabled={sinTelefono}
+                  style={sinTelefono ? undefined : { background: acento, color: '#fff' }}
+                  className="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl bg-gray-100 text-[12px] font-semibold text-gray-700 transition hover:brightness-110 disabled:opacity-40"
+                >
+                  <accion.icon size={13} strokeWidth={STROKE} />
+                  {accion.label}
+                </button>
+              </div>
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

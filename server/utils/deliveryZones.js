@@ -52,6 +52,17 @@ function getLocationDisplay(latitud, longitud) {
   return { text: 'Fuera de zona de cobertura', valid: false };
 }
 
+/**
+ * Zonas por defecto, usadas cuando no hay ninguna configurada.
+ *
+ * Modo Sabor no cobra envio: reparte gratis en todo Monteros. Estas zonas
+ * existen para estimar la demora, no para tarifar.
+ *
+ * Antes 'cerca' y 'extendida' forzaban un piso con `Math.max(baseCost, 1500)`
+ * y `Math.max(baseCost, 2500)`: aunque el costo base estuviera en 0, esas dos
+ * zonas cobraban igual y no habia forma de bajarlas desde la configuracion,
+ * porque el piso estaba escrito en el codigo. Ahora respetan el costo base.
+ */
 function defaultZones(config = {}) {
   const baseCost = toNumber(config.costo_envio_base, 0);
   const baseTime = toNumber(config.tiempo_delivery, 25);
@@ -69,7 +80,7 @@ function defaultZones(config = {}) {
       id: 'cerca',
       nombre: 'Fuera de Monteros - cerca',
       keywords: ['santa lucia', 'santalucia', 'villa quinteros'],
-      costo_envio: Math.max(baseCost, 1500),
+      costo_envio: baseCost,
       tiempo_estimado_min: baseTime + 15,
       activa: true,
     },
@@ -77,7 +88,7 @@ function defaultZones(config = {}) {
       id: 'extendida',
       nombre: 'Fuera de Monteros - extendida',
       keywords: ['ruta', 'km', 'afuera', 'rio seco', 'famailla'],
-      costo_envio: Math.max(baseCost, 2500),
+      costo_envio: baseCost,
       tiempo_estimado_min: baseTime + 30,
       activa: true,
     },

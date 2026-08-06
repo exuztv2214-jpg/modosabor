@@ -15,6 +15,46 @@ const MONEY_PATTERNS = [
   'valor',
 ];
 
+/**
+ * Campos de plata cuyo nombre no contiene ninguno de los patrones de arriba.
+ *
+ * La base guarda todo en centavos y el middleware de respuesta divide por 100
+ * solamente los campos que reconoce como plata. Estos siete no los reconocia,
+ * asi que viajaban en centavos y la pantalla los mostraba cien veces mas
+ * grandes: un ticket promedio de $8.500 se leia "$850.000", los pagos
+ * digitales del cierre de caja igual, y la ganancia operativa del control
+ * diario tambien.
+ *
+ * Va por igualdad exacta y no por substring a proposito: "pendiente" o
+ * "gastos" como fragmento pisarian contadores como `recompensas_pendientes`
+ * o `publicaciones_pendientes`, que son cantidades y no plata.
+ */
+const MONEY_KEYS = new Set([
+  'digitales',
+  'ticketPromedio',
+  'pendiente',
+  'gastos',
+  'ingresosExtra',
+  'deliveryDiario',
+  'gananciaOperativa',
+  // ── Personal ──
+  // `neto_sugerido_base` sale de `monto_base - pendiente_total`. Los dos
+  // sumandos si estaban reconocidos y se dividian por 100, pero el resultado
+  // no: la ficha del empleado mostraba "Sueldo base $300.000", "Pendiente
+  // $50.000" y "Neto a liquidar $25.000.000".
+  'neto_sugerido_base',
+  // Mismo caso: el desglose de lo que se le debe a alguien. `descuentos` ya
+  // entraba por el patron 'descuento', estos dos hermanos no.
+  'pendiente_adelantos',
+  'pendiente_consumos',
+  'adelantos',
+  'consumos',
+  // Saldo vivo de un movimiento y lo que queda despues de aplicarlo en una
+  // liquidacion. Hoy no se muestran en pantalla, pero viajan en centavos.
+  'saldo_pendiente',
+  'saldo_restante',
+]);
+
 const EXCLUDED_KEYS = new Set([
   'puntos_disponibles',
   'puntos_reconocimiento',
@@ -33,6 +73,7 @@ const EXCLUDED_KEYS = new Set([
 
 function isMoneyKey(key) {
   if (EXCLUDED_KEYS.has(key)) return false;
+  if (MONEY_KEYS.has(key)) return true;
   const lower = String(key).toLowerCase();
   return MONEY_PATTERNS.some((pat) => lower.includes(pat));
 }
@@ -74,4 +115,11 @@ function centsToPesos(obj) {
   return obj;
 }
 
-module.exports = { isMoneyKey, pesosToCents, centsToPesos, MONEY_PATTERNS, EXCLUDED_KEYS };
+module.exports = {
+  isMoneyKey,
+  pesosToCents,
+  centsToPesos,
+  MONEY_PATTERNS,
+  MONEY_KEYS,
+  EXCLUDED_KEYS,
+};

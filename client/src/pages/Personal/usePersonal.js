@@ -1,13 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
-import { format, parseISO } from 'date-fns';
-import { es } from 'date-fns/locale';
 import api from '../../lib/api.js';
-import {
-  formatAmountForInput,
-  formatAmountPreview,
-  parseLocalizedAmount,
-} from '../../lib/amountInput.js';
+import { formatAmountForInput, parseLocalizedAmount } from '../../lib/amountInput.js';
 import { buildPublicAppUrl, getPublicAppUrlDiagnostics } from '../../lib/publicUrls.js';
 import { useAppConfig } from '../../context/AppConfigContext.jsx';
 import {
@@ -18,7 +12,9 @@ import {
   EMPTY_GOAL,
   EMPTY_PRODUCT_CONSUMPTION,
   EMPTY_WEEKLY_EDITOR,
-  todayIso,
+  hoyIso,
+  isoAInputLocal,
+  inputLocalAIso,
   fmt,
 } from './constants.js';
 
@@ -31,14 +27,14 @@ export function usePersonal() {
   const [attendanceSummary, setAttendanceSummary] = useState(null);
   const [attendanceAnalytics, setAttendanceAnalytics] = useState({
     ranking: [],
-    desde: todayIso,
-    hasta: todayIso,
+    desde: hoyIso(),
+    hasta: hoyIso(),
   });
   const [weeklyBoard, setWeeklyBoard] = useState({
     dias: [],
     items: [],
-    desde: todayIso,
-    hasta: todayIso,
+    desde: hoyIso(),
+    hasta: hoyIso(),
   });
   const [productCatalog, setProductCatalog] = useState([]);
   const [activeTab, setActiveTab] = useState('resumen');
@@ -56,7 +52,7 @@ export function usePersonal() {
   const [attendanceForm, setAttendanceForm] = useState(EMPTY_ATTENDANCE);
   const [goalForm, setGoalForm] = useState(EMPTY_GOAL);
   const [productConsumptionForm, setProductConsumptionForm] = useState(EMPTY_PRODUCT_CONSUMPTION);
-  const [attendanceRange, setAttendanceRange] = useState({ desde: todayIso, hasta: todayIso });
+  const [attendanceRange, setAttendanceRange] = useState({ desde: hoyIso(), hasta: hoyIso() });
   const [weeklyEditor, setWeeklyEditor] = useState(EMPTY_WEEKLY_EDITOR);
   const [saving, setSaving] = useState(false);
   const [premiosModal, setPremiosModal] = useState(false);
@@ -68,6 +64,9 @@ export function usePersonal() {
   });
   const [reconocimientoSaving, setReconocimientoSaving] = useState(false);
   const [deleteDialog, setDeleteDialog] = useState(null);
+  const [reconocimientosConfig, setReconocimientosConfig] = useState(null);
+  const [busqueda, setBusqueda] = useState('');
+  const [filtroEstado, setFiltroEstado] = useState('activos');
   const fileInputRef = useRef(null);
 
   const cargar = async (preferredSelectedId = null) => {
@@ -85,13 +84,36 @@ export function usePersonal() {
       } else if (items[0]) {
         setSelectedId(String(items[0].id));
       }
-    } catch {
-      toast.error('No se pudo cargar el personal');
+    } catch (error) {
+      toast.error(error?.error || 'No se pudo cargar el personal');
     }
   };
 
   useEffect(() => {
     cargar();
+  }, []);
+
+  /**
+   * Config de reconocimientos.
+   *
+   * El endpoint `/personal/reconocimientos/config` ya existía con los puntos
+   * por puntualidad, feedback y venta destacada, más el umbral de canje y la
+   * recompensa en pesos. El cliente nunca lo llamaba: la modal de premios
+   * mostraba una tabla escrita a mano (+5/+10/+15/+20) que no tenía relación
+   * con lo configurado y no mencionaba el canje.
+   */
+  const cargarConfigReconocimientos = async () => {
+    try {
+      const data = await api.get('/personal/reconocimientos/config');
+      setReconocimientosConfig(data || null);
+    } catch {
+      // No es crítico: la modal cae a un mensaje genérico si esto falla.
+      setReconocimientosConfig(null);
+    }
+  };
+
+  useEffect(() => {
+    cargarConfigReconocimientos();
   }, []);
 
   const cargarAnaliticaAsistencia = async (
@@ -110,7 +132,7 @@ export function usePersonal() {
     cargarAnaliticaAsistencia();
   }, []);
 
-  const cargarPlanillaSemanal = async (desde = todayIso) => {
+  const cargarPlanillaSemanal = async (desde = hoyIso()) => {
     try {
       const data = await api.get(`/personal/asistencia/planilla-semanal?desde=${desde}`);
       setWeeklyBoard(data || { dias: [], items: [], desde, hasta: desde });
@@ -120,7 +142,7 @@ export function usePersonal() {
   };
 
   useEffect(() => {
-    cargarPlanillaSemanal(todayIso);
+    cargarPlanillaSemanal(hoyIso());
   }, []);
 
   const cargarDetalle = async (id) => {
@@ -144,11 +166,37 @@ export function usePersonal() {
     () => personal.find((item) => String(item.id) === String(selectedId)) || null,
     [personal, selectedId]
   );
-  const sueldoPreview = useMemo(() => formatAmountPreview(form.monto_base || 0), [form.monto_base]);
-  const movimientoPreview = useMemo(
-    () => formatAmountPreview(movementForm.monto || 0),
-    [movementForm.monto]
-  );
+
+  /**
+   * Filtro de la lista lateral.
+   *
+   * No había ninguno: la lista mostraba a todo el mundo, activos e inactivos
+   * mezclados, y para encontrar a alguien había que scrollear. Los que ya no
+   * trabajan no se pueden ocultar del todo (hay que poder abrir su ficha para
+   * ver movimientos viejos), así que por defecto se muestran sólo los activos
+   * y hay un filtro para verlos.
+   *
+   * El `.toLowerCase()` va sobre `String(...)`: un empleado sin rol cargado
+   * hacía explotar el filtro y la lista quedaba en blanco.
+   */
+  const personalFiltrado = useMemo(() => {
+    const q = busqueda.trim().toLowerCase();
+    return personal
+      .filter((item) => {
+        if (filtroEstado === 'activos' && !item.activo) return false;
+        if (filtroEstado === 'inactivos' && item.activo) return false;
+        if (!q) return true;
+        return [item.nombre, item.rol_operativo, item.telefono].some((campo) =>
+          String(campo || '')
+            .toLowerCase()
+            .includes(q)
+        );
+      })
+      .sort((a, b) => String(a.nombre || '').localeCompare(String(b.nombre || '')));
+  }, [personal, busqueda, filtroEstado]);
+  // `sueldoPreview` y `movimientoPreview` se calculaban acá y se exportaban,
+  // pero ningún componente los leía: los dos formularios formatean el monto
+  // en el `onBlur` del propio input.
   const liquidacionPreview = useMemo(() => {
     const unidades = Math.max(0, parseLocalizedAmount(settlementForm.unidades || 1, 1));
     const bruto = Number(selectedPerson?.monto_base || 0) * unidades;
@@ -161,7 +209,9 @@ export function usePersonal() {
     () => ({
       total: personal.length,
       activos: personal.filter((item) => item.activo).length,
-      manana: personal.filter((item) => item.activo && item.turno_preferido === 'manana').length,
+      // `manana` contaba los del turno mañana y no se mostraba en ningún lado.
+      // En su lugar: a cuánta gente le debés plata, que sí es accionable.
+      conPendiente: personal.filter((item) => Number(item.pendiente_total || 0) > 0).length,
       pendiente: personal.reduce((acc, item) => acc + Number(item.pendiente_total || 0), 0),
     }),
     [personal]
@@ -274,8 +324,8 @@ export function usePersonal() {
     setWeeklyEditor({
       fecha_operativa: preferredDay?.fecha || '',
       estado: preferredDay?.estado || 'presente',
-      ingreso_en: preferredDay?.ingreso_en ? String(preferredDay.ingreso_en).slice(0, 16) : '',
-      salida_en: preferredDay?.salida_en ? String(preferredDay.salida_en).slice(0, 16) : '',
+      ingreso_en: isoAInputLocal(preferredDay?.ingreso_en),
+      salida_en: isoAInputLocal(preferredDay?.salida_en),
       notas: '',
       turno_id: preferredDay?.turno_id || weeklyRow.turno_preferido || '',
     });
@@ -304,10 +354,14 @@ export function usePersonal() {
       const res = await api.post('/personal/upload-avatar', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
-      setForm({ ...form, avatar_url: res.url });
+      // Era `setForm({ ...form, ... })`, que captura el `form` del render en
+      // que se montó el handler: si editabas un campo y subías la foto sin
+      // soltar el foco, se perdía ese cambio.
+      setForm((prev) => ({ ...prev, avatar_url: res.url }));
+      setAvatarPickerOpen(false);
       toast.success('Imagen cargada');
-    } catch {
-      toast.error('Error al subir imagen');
+    } catch (error) {
+      toast.error(error?.error || 'No se pudo subir la imagen');
     }
   };
 
@@ -317,8 +371,16 @@ export function usePersonal() {
     const puntos = Number(reconocimientoForm.puntos) || 0;
     setReconocimientoSaving(true);
     try {
+      // El formulario mandaba `{ motivo, puntos, descripcion }`, pero
+      // `agregarReconocimiento` sólo lee `tipo`, `puntos` y `descripcion`:
+      // el motivo —que el formulario exige como obligatorio— se descartaba
+      // en silencio y `tipo` se guardaba en NULL. Por eso el historial
+      // mostraba filas sin título.
+      //
+      // `motivo` es exactamente el rótulo corto que espera `tipo`, así que
+      // se manda ahí y no hace falta tocar el esquema de la base.
       await api.post(`/personal/${detail.item.id}/reconocimientos`, {
-        motivo: reconocimientoForm.motivo.trim(),
+        tipo: reconocimientoForm.motivo.trim(),
         puntos,
         descripcion: reconocimientoForm.descripcion.trim(),
       });
@@ -349,7 +411,7 @@ export function usePersonal() {
       await cargar(selectedId);
       await cargarDetalle(selectedId);
       await cargarAnaliticaAsistencia();
-      await cargarPlanillaSemanal(weeklyBoard?.desde || todayIso);
+      await cargarPlanillaSemanal(weeklyBoard?.desde || hoyIso());
     } catch (error) {
       toast.error(error?.error || 'No se pudo registrar la asistencia');
     } finally {
@@ -362,8 +424,8 @@ export function usePersonal() {
     setWeeklyEditor({
       fecha_operativa: day.fecha || '',
       estado: day.estado || 'presente',
-      ingreso_en: day.ingreso_en ? String(day.ingreso_en).slice(0, 16) : '',
-      salida_en: day.salida_en ? String(day.salida_en).slice(0, 16) : '',
+      ingreso_en: isoAInputLocal(day.ingreso_en),
+      salida_en: isoAInputLocal(day.salida_en),
       notas: '',
       turno_id: day.turno_id || weeklyRow?.turno_preferido || '',
     });
@@ -374,16 +436,17 @@ export function usePersonal() {
       return toast.error('Elegí un día de la planilla');
     setSaving(true);
     try {
+      // El editor trabaja en hora local; el servidor guarda ISO en UTC.
       await api.put(`/personal/${selectedId}/asistencia/manual`, {
         ...weeklyEditor,
-        ingreso_en: weeklyEditor.ingreso_en || null,
-        salida_en: weeklyEditor.salida_en || null,
+        ingreso_en: inputLocalAIso(weeklyEditor.ingreso_en),
+        salida_en: inputLocalAIso(weeklyEditor.salida_en),
       });
       toast.success('Asistencia semanal actualizada');
       await cargar(selectedId);
       await cargarDetalle(selectedId);
       await cargarAnaliticaAsistencia(attendanceRange.desde, attendanceRange.hasta);
-      await cargarPlanillaSemanal(weeklyBoard?.desde || todayIso);
+      await cargarPlanillaSemanal(weeklyBoard?.desde || hoyIso());
     } catch (error) {
       toast.error(error?.error || 'No se pudo actualizar la asistencia semanal');
     } finally {
@@ -447,7 +510,10 @@ export function usePersonal() {
   };
 
   const abrirNuevo = () => {
-    setForm(EMPTY_FORM);
+    // `EMPTY_FORM.fecha_ingreso` se calcula una sola vez al importar el módulo.
+    // Si la pestaña queda abierta de un día para el otro, todos los ingresos
+    // nuevos se cargaban con la fecha del día en que se abrió la app.
+    setForm({ ...EMPTY_FORM, fecha_ingreso: hoyIso() });
     setModal('nuevo');
   };
   const abrirEditar = (item) => {
@@ -475,7 +541,10 @@ export function usePersonal() {
       }
       setModal(null);
     } catch (error) {
-      toast.error('No se pudo guardar');
+      // Se descartaba el error y se mostraba siempre "No se pudo guardar".
+      // El servidor valida nombre duplicado y PIN de fichada repetido, y esos
+      // mensajes nunca llegaban: la modal se quedaba trabada sin explicar por qué.
+      toast.error(error?.error || 'No se pudo guardar');
     } finally {
       setSaving(false);
     }
@@ -493,7 +562,7 @@ export function usePersonal() {
       await cargarDetalle(selectedId);
       await cargar(selectedId);
     } catch (error) {
-      toast.error(error?.error || 'Error');
+      toast.error(error?.error || 'No se pudo completar la operación');
     } finally {
       setSaving(false);
     }
@@ -508,7 +577,7 @@ export function usePersonal() {
       await cargarDetalle(selectedId);
       await cargar(selectedId);
     } catch (error) {
-      toast.error(error?.error || 'Error');
+      toast.error(error?.error || 'No se pudo completar la operación');
     } finally {
       setSaving(false);
     }
@@ -530,7 +599,7 @@ export function usePersonal() {
       setSettlementModal(false);
       await cargarDetalle(selectedId);
       await cargar(selectedId);
-      await cargarPlanillaSemanal(weeklyBoard?.desde || todayIso);
+      await cargarPlanillaSemanal(weeklyBoard?.desde || hoyIso());
     } catch (error) {
       toast.error(error?.error || 'No se pudo liquidar automáticamente');
     } finally {
@@ -549,8 +618,11 @@ export function usePersonal() {
       toast.success('Eliminado');
       setDeleteDialog(null);
       await cargar();
-    } catch {
-      toast.error('Error');
+    } catch (error) {
+      // Decía sólo "Error". El backend rechaza borrar a alguien con saldo
+      // pendiente o con liquidaciones asociadas; sin el mensaje real parecía
+      // que el sistema estaba roto.
+      toast.error(error?.error || 'No se pudo eliminar');
     }
   };
 
@@ -605,10 +677,14 @@ export function usePersonal() {
     setReconocimientoSaving,
     deleteDialog,
     setDeleteDialog,
+    reconocimientosConfig,
+    busqueda,
+    setBusqueda,
+    filtroEstado,
+    setFiltroEstado,
+    personalFiltrado,
     fileInputRef,
     selectedPerson,
-    sueldoPreview,
-    movimientoPreview,
     liquidacionPreview,
     stats,
     currentAttendance,

@@ -36,14 +36,14 @@ function DraftCard({ draft, busy, onConfirm, onDiscard }) {
       <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded-full bg-emerald-50 px-3 py-1 text-[11px] font-black uppercase tracking-[0.18em] text-emerald-600">
+            <span className="rounded-full bg-emerald-50 px-3 py-1 text-[11px] font-semibold text-emerald-600">
               Borrador WhatsApp
             </span>
-            <span className="rounded-full bg-primary-50 px-3 py-1 text-[11px] font-black uppercase tracking-[0.18em] text-primary-600">
+            <span className="rounded-full bg-brand-50 px-3 py-1 text-[11px] font-semibold text-brand-600">
               #{draft.id}
             </span>
           </div>
-          <h3 className="mt-3 text-2xl font-black text-gray-950">
+          <h3 className="mt-3 text-2xl font-semibold text-gray-950">
             {draft.cliente_nombre || draft.conversacion_nombre || 'Cliente sin nombre'}
           </h3>
           <div className="mt-2 flex flex-wrap gap-3 text-sm font-bold text-gray-500">
@@ -52,7 +52,7 @@ function DraftCard({ draft, busy, onConfirm, onDiscard }) {
               {draft.telefono || 'Sin telefono'}
             </span>
             <span className="inline-flex items-center gap-2">
-              <ShoppingBag size={16} className="text-primary-500" />
+              <ShoppingBag size={16} className="text-brand-500" />
               {draft.tipo_entrega || 'delivery'}
             </span>
             <span>{dateTime(draft.actualizado_en)}</span>
@@ -68,10 +68,8 @@ function DraftCard({ draft, busy, onConfirm, onDiscard }) {
         </div>
 
         <div className="rounded-2xl bg-gray-50 px-5 py-4 text-right">
-          <p className="text-[11px] font-black uppercase tracking-[0.2em] text-gray-400">
-            Total estimado
-          </p>
-          <p className="mt-1 text-3xl font-black text-gray-950">{money(draft.total)}</p>
+          <p className="text-[11px] font-semibold text-gray-400">Total estimado</p>
+          <p className="mt-1 text-3xl font-semibold text-gray-950">{money(draft.total)}</p>
           <p className="text-xs font-bold text-gray-400">{draft.metodo_pago || 'efectivo'}</p>
         </div>
       </div>
@@ -83,14 +81,14 @@ function DraftCard({ draft, busy, onConfirm, onDiscard }) {
             className="grid grid-cols-[1fr_auto] gap-3 border-b border-gray-100 px-4 py-3 last:border-b-0"
           >
             <div>
-              <p className="font-black text-gray-950">
+              <p className="font-semibold text-gray-950">
                 {item.cantidad}x {item.nombre}
               </p>
               {item.descripcion ? (
                 <p className="mt-1 text-xs font-semibold text-gray-500">{item.descripcion}</p>
               ) : null}
             </div>
-            <p className="font-black text-gray-900">{money(item.precio_unitario)}</p>
+            <p className="font-semibold text-gray-900">{money(item.precio_unitario)}</p>
           </div>
         ))}
       </div>
@@ -100,7 +98,7 @@ function DraftCard({ draft, busy, onConfirm, onDiscard }) {
           type="button"
           disabled={busy}
           onClick={() => onConfirm(draft.id)}
-          className="inline-flex flex-1 items-center justify-center gap-2 rounded-2xl bg-primary-500 px-5 py-4 text-sm font-black uppercase tracking-wider text-white shadow-lg shadow-primary-100 transition hover:bg-primary-600 disabled:opacity-50"
+          className="inline-flex flex-1 items-center justify-center gap-2 rounded-2xl bg-brand-500 px-5 py-4 text-sm font-semibold text-white shadow-lg shadow-brand-100 transition hover:bg-brand-600 disabled:opacity-50"
         >
           <CheckCircle2 size={18} />
           Confirmar pedido
@@ -109,7 +107,7 @@ function DraftCard({ draft, busy, onConfirm, onDiscard }) {
           type="button"
           disabled={busy}
           onClick={() => onDiscard(draft.id)}
-          className="inline-flex items-center justify-center gap-2 rounded-2xl border border-rose-100 bg-rose-50 px-5 py-4 text-sm font-black uppercase tracking-wider text-rose-600 transition hover:bg-rose-100 disabled:opacity-50"
+          className="inline-flex items-center justify-center gap-2 rounded-2xl border border-rose-100 bg-rose-50 px-5 py-4 text-sm font-semibold text-rose-600 transition hover:bg-rose-100 disabled:opacity-50"
         >
           <Trash2 size={18} />
           Descartar
@@ -188,11 +186,11 @@ export default function WhatsAppCopiloto() {
       <div className="mx-auto max-w-7xl">
         <header className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <p className="inline-flex items-center gap-2 text-[12px] font-black uppercase tracking-[0.28em] text-emerald-600">
+            <p className="inline-flex items-center gap-2 text-[12px] font-semibold text-emerald-600">
               <MessageCircle size={18} />
               Copiloto WhatsApp
             </p>
-            <h1 className="mt-3 text-4xl font-black tracking-tight text-gray-950">
+            <h1 className="mt-3 text-4xl font-semibold tracking-tight text-gray-950">
               Pedidos detectados con #dale
             </h1>
             <p className="mt-2 max-w-2xl text-base font-semibold text-gray-500">
@@ -203,7 +201,7 @@ export default function WhatsAppCopiloto() {
           <button
             type="button"
             onClick={loadDrafts}
-            className="inline-flex items-center justify-center gap-2 rounded-2xl border border-gray-100 bg-white px-5 py-4 text-sm font-black uppercase tracking-wider text-gray-700 shadow-sm transition hover:border-primary-200 hover:text-primary-600"
+            className="inline-flex items-center justify-center gap-2 rounded-2xl border border-gray-100 bg-white px-5 py-4 text-sm font-semibold text-gray-700 shadow-sm transition hover:border-brand-200 hover:text-brand-600"
           >
             <RefreshCcw size={18} />
             Actualizar
@@ -212,29 +210,23 @@ export default function WhatsAppCopiloto() {
 
         <section className="mt-8 grid gap-4 md:grid-cols-3">
           <div className="rounded-3xl border border-gray-100 bg-white p-5 shadow-sm">
-            <p className="text-[11px] font-black uppercase tracking-[0.22em] text-gray-400">
-              Pendientes
-            </p>
-            <p className="mt-2 text-4xl font-black text-gray-950">{totals.count}</p>
+            <p className="text-[11px] font-semibold text-gray-400">Pendientes</p>
+            <p className="mt-2 text-4xl font-semibold text-gray-950">{totals.count}</p>
           </div>
           <div className="rounded-3xl border border-gray-100 bg-white p-5 shadow-sm">
-            <p className="text-[11px] font-black uppercase tracking-[0.22em] text-gray-400">
-              Total estimado
-            </p>
-            <p className="mt-2 text-4xl font-black text-gray-950">{money(totals.amount)}</p>
+            <p className="text-[11px] font-semibold text-gray-400">Total estimado</p>
+            <p className="mt-2 text-4xl font-semibold text-gray-950">{money(totals.amount)}</p>
           </div>
-          <div className="rounded-3xl border border-primary-100 bg-primary-50 p-5">
-            <p className="text-[11px] font-black uppercase tracking-[0.22em] text-primary-500">
-              Palabra clave
-            </p>
-            <p className="mt-2 text-4xl font-black text-primary-700">#dale</p>
+          <div className="rounded-3xl border border-brand-100 bg-brand-50 p-5">
+            <p className="text-[11px] font-semibold text-brand-500">Palabra clave</p>
+            <p className="mt-2 text-4xl font-semibold text-brand-700">#dale</p>
           </div>
         </section>
 
         <section className="mt-8 space-y-4">
           {loading ? (
             <div className="flex h-64 items-center justify-center rounded-3xl border border-gray-100 bg-white">
-              <div className="h-10 w-10 animate-spin rounded-full border-4 border-primary-500 border-t-transparent" />
+              <div className="h-10 w-10 animate-spin rounded-full border-4 border-brand-500 border-t-transparent" />
             </div>
           ) : drafts.length ? (
             drafts.map((draft) => (
@@ -251,7 +243,9 @@ export default function WhatsAppCopiloto() {
               <div className="flex h-16 w-16 items-center justify-center rounded-3xl bg-gray-50 text-gray-400">
                 <UserRound size={28} />
               </div>
-              <h2 className="mt-5 text-2xl font-black text-gray-950">Sin borradores pendientes</h2>
+              <h2 className="mt-5 text-2xl font-semibold text-gray-950">
+                Sin borradores pendientes
+              </h2>
               <p className="mt-2 max-w-md text-sm font-semibold text-gray-500">
                 Cuando escribas #dale en una conversacion de WhatsApp y n8n mande el resumen, el
                 pedido aparece aca para confirmarlo.

@@ -1,5 +1,12 @@
-import { Plus, MinusCircle, X } from 'lucide-react';
+import { MinusCircle, Plus, X } from 'lucide-react';
+
+import { BRAND, STROKE } from '../../lib/theme.js';
 import { CONTROL } from './constants';
+
+const MOTIVOS = {
+  entrada: ['Reposición', 'Compra sin remito', 'Devolución', 'Corrección de conteo'],
+  salida: ['Rotura', 'Vencimiento', 'Consumo interno', 'Corrección de conteo'],
+};
 
 export default function AjusteStockModal({
   movementModal,
@@ -11,87 +18,141 @@ export default function AjusteStockModal({
 }) {
   if (!movementModal) return null;
 
+  const esEntrada = movementForm.tipo === 'entrada';
+  const cantidad = Number(movementForm.cantidad || 0);
+  const actual = Number(movementModal.stock_actual || 0);
+  // Antes cargabas un número a ciegas: no se veía el stock actual ni cómo
+  // quedaba después del movimiento.
+  const resultado = esEntrada ? actual + cantidad : actual - cantidad;
+  const dejaNegativo = !esEntrada && cantidad > 0 && resultado < 0;
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-lg rounded-[40px] bg-white p-8 shadow-2xl animate-in zoom-in-95 duration-200">
-        <div className="mb-8 flex items-center justify-between">
-          <div>
-            <div className="flex items-center gap-2 mb-1">
-              <div className="h-6 w-1 bg-primary-500 rounded-full"></div>
-              <p className="text-xs font-black text-primary-500 uppercase tracking-[0.2em]">
-                Movimiento manual
-              </p>
-            </div>
-            <h3 className="text-2xl font-black text-gray-900 tracking-tight uppercase">
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/35 p-4 backdrop-blur-sm"
+      onClick={onCloseMovementModal}
+    >
+      <div
+        className="w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-2xl"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-center justify-between gap-4 border-b border-gray-100 px-5 py-4">
+          <div className="min-w-0">
+            <h3 className="truncate text-[17px] font-semibold text-gray-900">
               {movementModal.nombre}
             </h3>
+            <p className="mt-0.5 text-[12px] text-gray-500">
+              Tiene {actual} {movementModal.unidad} en stock
+            </p>
           </div>
           <button
+            type="button"
             onClick={onCloseMovementModal}
-            className="rounded-full p-2 hover:bg-gray-100 transition-colors"
+            aria-label="Cerrar"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
           >
-            <X size={24} className="text-gray-400" />
+            <X size={18} strokeWidth={STROKE} />
           </button>
         </div>
 
-        <div className="space-y-6">
-          <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-4 px-5 py-5">
+          <div className="grid grid-cols-2 gap-2">
             <button
               type="button"
               onClick={() => onSetMovementForm((prev) => ({ ...prev, tipo: 'entrada' }))}
-              className={`flex h-14 items-center justify-center gap-2 rounded-2xl border-2 font-black text-xs uppercase tracking-widest ${movementForm.tipo === 'entrada' ? 'border-emerald-200 bg-success-50 text-success-600' : 'border-gray-100 text-gray-400'}`}
+              className={`flex h-11 items-center justify-center gap-1.5 rounded-xl border text-[13px] font-semibold transition ${
+                esEntrada
+                  ? 'border-emerald-600 bg-emerald-50 text-emerald-700'
+                  : 'border-gray-200 text-gray-500 hover:bg-gray-50'
+              }`}
             >
-              <Plus size={16} />
-              Entrada
+              <Plus size={15} strokeWidth={STROKE} />
+              Entra
             </button>
             <button
               type="button"
               onClick={() => onSetMovementForm((prev) => ({ ...prev, tipo: 'salida' }))}
-              className={`flex h-14 items-center justify-center gap-2 rounded-2xl border-2 font-black text-xs uppercase tracking-widest ${movementForm.tipo === 'salida' ? 'border-rose-200 bg-danger-50 text-rose-500' : 'border-gray-100 text-gray-400'}`}
+              style={!esEntrada ? { borderColor: BRAND, color: BRAND } : undefined}
+              className={`flex h-11 items-center justify-center gap-1.5 rounded-xl border text-[13px] font-semibold transition ${
+                !esEntrada ? 'bg-red-50' : 'border-gray-200 text-gray-500 hover:bg-gray-50'
+              }`}
             >
-              <MinusCircle size={16} />
-              Salida
+              <MinusCircle size={15} strokeWidth={STROKE} />
+              Sale
             </button>
           </div>
 
           <div>
-            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
-              Cantidad
-            </label>
+            <label className="block text-[12px] font-medium text-gray-600">Cantidad</label>
             <input
               type="number"
+              min="0"
               value={movementForm.cantidad}
               onChange={(e) => onSetMovementForm((prev) => ({ ...prev, cantidad: e.target.value }))}
-              className={CONTROL + ' mt-1'}
+              className={`${CONTROL} mt-1 text-[18px] font-semibold tabular-nums`}
+              placeholder="0"
             />
           </div>
 
+          {cantidad > 0 ? (
+            <div
+              className="flex items-center justify-between gap-3 rounded-xl px-3 py-2.5"
+              style={{ background: dejaNegativo ? '#FEF2F2' : '#F3F4F6' }}
+            >
+              <span className="text-[13px] text-gray-600">Queda en</span>
+              <span
+                className="text-[16px] font-bold tabular-nums"
+                style={{ color: dejaNegativo ? BRAND : '#111827' }}
+              >
+                {resultado} {movementModal.unidad}
+              </span>
+            </div>
+          ) : null}
+
+          {dejaNegativo ? (
+            <p className="text-[12px] leading-4" style={{ color: BRAND }}>
+              La salida es mayor al stock que hay cargado. Revisá la cantidad antes de confirmar.
+            </p>
+          ) : null}
+
           <div>
-            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
-              Motivo
-            </label>
+            <label className="block text-[12px] font-medium text-gray-600">Motivo</label>
             <input
               value={movementForm.motivo}
               onChange={(e) => onSetMovementForm((prev) => ({ ...prev, motivo: e.target.value }))}
-              placeholder="Ej: rotura, reposicion, consumo interno"
-              className={CONTROL + ' mt-1'}
+              placeholder="Por qué se ajusta"
+              className={`${CONTROL} mt-1`}
             />
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {(MOTIVOS[movementForm.tipo] || []).map((motivo) => (
+                <button
+                  key={motivo}
+                  type="button"
+                  onClick={() => onSetMovementForm((prev) => ({ ...prev, motivo }))}
+                  className="rounded-lg bg-gray-100 px-2.5 py-1 text-[12px] font-medium text-gray-700 transition hover:bg-gray-200"
+                >
+                  {motivo}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
-        <div className="mt-8 flex gap-3">
+        <div className="flex justify-end gap-2 border-t border-gray-100 px-5 py-4">
           <button
+            type="button"
             onClick={onCloseMovementModal}
-            className="flex-1 h-14 rounded-2xl border border-gray-200 text-sm font-black text-gray-500 uppercase tracking-widest hover:bg-gray-50 transition-all"
+            className="h-11 rounded-xl bg-gray-100 px-5 text-[13px] font-semibold text-gray-700 transition hover:bg-gray-200"
           >
             Cancelar
           </button>
           <button
+            type="button"
             onClick={onRegistrarMovimiento}
-            disabled={saving}
-            className="flex-[2] h-14 rounded-2xl bg-primary-500 text-sm font-black text-white uppercase tracking-widest shadow-lg shadow-primary-100 hover:bg-primary-600 transition-all disabled:opacity-50"
+            disabled={saving || cantidad <= 0}
+            style={{ background: BRAND }}
+            className="h-11 rounded-xl px-6 text-[13px] font-semibold text-white transition hover:brightness-110 disabled:opacity-40"
           >
-            {saving ? 'Guardando...' : 'Confirmar movimiento'}
+            {saving ? 'Guardando…' : 'Registrar movimiento'}
           </button>
         </div>
       </div>

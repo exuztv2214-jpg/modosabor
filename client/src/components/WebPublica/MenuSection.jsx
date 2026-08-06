@@ -1,4 +1,4 @@
-import { Search, X, ShoppingBag, ArrowUpRight } from 'lucide-react';
+import { Search, X, ShoppingBag, ArrowUpRight, Plus } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { fmt, isVisibleOnPublicMenu, getCategoryDescription } from '../../lib/webPublicaHelpers.js';
 import ProductoCard from './ProductoCard.jsx';
@@ -36,72 +36,87 @@ export default function MenuSection({
 
   return (
     <main className="mx-auto max-w-[1400px] px-4 pb-28 md:px-8">
+      {/*
+        ── El menú del día es la portada real ────────────────────────────────
+
+        El negocio son los platos de hoy: cambian cada día y es lo único que
+        alguien quiere saber al mediodía. Antes esta sección era un bloque de
+        marketing que hablaba *sobre* la sección ("Una sección bien visible
+        para resolver rápido...") en vez de mostrar la comida, con las tarjetas
+        apretadas en una columna lateral y sin poder pedir desde ahí.
+
+        Ahora: la fecha bien visible —que es lo que le da valor a "del día"—,
+        los platos en tarjetas grandes y el botón de agregar en cada uno. El
+        camino de ver el plato a tenerlo en el carrito es un toque.
+      */}
       {browseAll && menuDelDiaItems.length > 0 && (
-        <section
-          className="mb-12 overflow-hidden rounded-[30px] border text-gray-900 shadow-[0_24px_56px_rgba(20,20,20,0.08)] backdrop-blur-sm"
-          style={{
-            backgroundColor: theme?.panel || 'rgba(255,255,255,0.92)',
-            borderColor: theme?.border || '#f1dfd7',
-          }}
-        >
-          <div className="grid gap-0 lg:grid-cols-[0.95fr,1.05fr]">
-            <div className="p-8 md:p-10">
-              <p
-                className="text-xs font-black uppercase tracking-[0.22em]"
-                style={{ color: colorPrimario }}
-              >
-                Hoy se mueve fuerte
+        <section className="-mt-2 mb-12">
+          <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <p className="text-[13px] font-semibold capitalize" style={{ color: colorPrimario }}>
+                {new Date().toLocaleDateString('es-AR', {
+                  weekday: 'long',
+                  day: 'numeric',
+                  month: 'long',
+                })}
               </p>
-              <h2 className="mt-3 text-3xl font-black md:text-4xl">Menú del día</h2>
-              <p className="mt-4 max-w-xl text-base text-gray-600 leading-relaxed font-medium">
-                Una sección bien visible para resolver rápido el almuerzo o la cena. Todos los
-                platos cargados hoy salen desde {fmt(menuDelDiaItems[0]?.precio || 0)} y podés
-                pedirlos igual que cualquier otro producto.
-              </p>
-              <div className="mt-8 flex flex-wrap gap-4">
-                <button
-                  onClick={() => {
-                    setCatActiva(menuDelDiaCategoria?.id || null);
-                    setBusqueda('');
-                    document
-                      .getElementById('menu-publico')
-                      ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                  }}
-                  className="inline-flex h-12 items-center gap-2 rounded-xl px-6 text-base font-black text-white shadow-lg transition active:scale-95 hover:brightness-110"
-                  style={{ backgroundColor: colorPrimario }}
-                >
-                  Ver menú del día
-                  <ArrowUpRight size={18} />
-                </button>
-                <div
-                  className="inline-flex h-12 items-center rounded-xl border bg-white px-5 text-base font-bold text-gray-600 shadow-sm"
-                  style={{ borderColor: theme?.border || '#f1dfd7' }}
-                >
-                  {menuDelDiaItems.length} opciones activas
-                </div>
-              </div>
+              <h2 className="mt-0.5 text-[26px] font-bold leading-tight text-gray-900 md:text-3xl">
+                Menú de hoy
+              </h2>
             </div>
-            <div className="grid gap-3 bg-[#fff4ec] p-5 md:grid-cols-2">
-              {menuDelDiaItems.slice(0, 5).map((item) => (
+            <button
+              onClick={() => {
+                setCatActiva(menuDelDiaCategoria?.id || null);
+                setBusqueda('');
+                document
+                  .getElementById('menu-publico')
+                  ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              }}
+              className="inline-flex h-10 items-center gap-1.5 rounded-xl px-4 text-[14px] font-medium transition hover:bg-gray-100"
+              style={{ color: colorPrimario }}
+            >
+              Ver todo
+              <ArrowUpRight size={16} />
+            </button>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {menuDelDiaItems.slice(0, 6).map((item) => (
+              <article
+                key={item.id}
+                className="flex flex-col rounded-2xl border bg-white p-4 shadow-[0_1px_3px_rgba(20,20,20,0.06)] transition hover:shadow-md"
+                style={{ borderColor: theme?.border || '#f1dfd7' }}
+              >
                 <button
-                  key={item.id}
                   onClick={() => onVerDetalle(item)}
-                  className="rounded-2xl border bg-white p-5 text-left transition hover:-translate-y-1 hover:shadow-lg"
-                  style={{ borderColor: theme?.border || '#f1dfd7' }}
+                  className="flex-1 text-left"
+                  aria-label={`Ver ${item.nombre}`}
                 >
-                  <p className="text-xs font-black uppercase tracking-[0.16em] text-gray-400">
-                    Listo para pedir
-                  </p>
-                  <h3 className="mt-2 text-lg font-black leading-tight">{item.nombre}</h3>
-                  <p className="mt-2 text-base font-bold" style={{ color: colorPrimario }}>
-                    {fmt(item.precio)}
-                  </p>
+                  <h3 className="text-[17px] font-semibold leading-snug text-gray-900">
+                    {item.nombre}
+                  </h3>
                   {item.descripcion ? (
-                    <p className="mt-2 text-sm text-gray-600 leading-relaxed">{item.descripcion}</p>
+                    <p className="mt-1.5 line-clamp-2 text-[14px] leading-snug text-gray-600">
+                      {item.descripcion}
+                    </p>
                   ) : null}
                 </button>
-              ))}
-            </div>
+
+                <div className="mt-4 flex items-center justify-between gap-3">
+                  <span className="text-[20px] font-bold" style={{ color: colorPrimario }}>
+                    {fmt(item.precio)}
+                  </span>
+                  <button
+                    onClick={() => onAgregar(item)}
+                    className="inline-flex h-10 items-center gap-1.5 rounded-xl px-4 text-[14px] font-semibold text-white transition active:scale-95 hover:brightness-110"
+                    style={{ backgroundColor: colorPrimario }}
+                  >
+                    <Plus size={16} strokeWidth={2.5} />
+                    Agregar
+                  </button>
+                </div>
+              </article>
+            ))}
           </div>
         </section>
       )}

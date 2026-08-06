@@ -8,6 +8,7 @@ const { insertInventoryMovement, roundStock } = require('../utils/inventory');
 const { summarizePaymentRows } = require('../utils/paymentStatus');
 const { recalculateClienteStats } = require('../utils/loyalty');
 
+const { fechaLocal } = require('../utils/fechaLocal');
 router.use(auth);
 
 const BASE_INSUMOS = [
@@ -179,6 +180,10 @@ function loadMenuDiaLibrary() {
       p.tiempo_preparacion,
       p.destacado,
       p.activo,
+      -- La foto del plato viaja al panel para que el control diario pueda
+      -- mostrarla igual que la web pública. Sin ella, elegir el menú del día
+      -- es leer una lista de nombres.
+      p.imagen,
       p.menu_dia_base,
       p.menu_dia_disponible_hoy,
       p.menu_dia_tipo,
@@ -456,7 +461,7 @@ function buildDailyClose(fecha = today()) {
       `
     SELECT *
     FROM pedidos
-    WHERE DATE(creado_en) = ?
+    WHERE ${fechaLocal('creado_en')} = ?
     ORDER BY datetime(creado_en) DESC
   `
     )
@@ -468,7 +473,7 @@ function buildDailyClose(fecha = today()) {
       `
     SELECT *
     FROM caja_movimientos
-    WHERE DATE(creado_en) = ?
+    WHERE ${fechaLocal('creado_en')} = ?
     ORDER BY datetime(creado_en) DESC
   `
     )
@@ -497,7 +502,7 @@ function buildDailyClose(fecha = today()) {
     SELECT pi.nombre, SUM(pi.cantidad) AS cantidad, SUM(pi.subtotal) AS total
     FROM pedido_items pi
     JOIN pedidos p ON p.id = pi.pedido_id
-    WHERE DATE(p.creado_en) = ?
+    WHERE ${fechaLocal('p.creado_en')} = ?
       AND p.estado != 'cancelado'
     GROUP BY pi.nombre
     ORDER BY cantidad DESC, total DESC
@@ -830,6 +835,41 @@ router.post('/menu-dia/copiar-ayer', requirePermission('productos.edit'), (_req,
   } catch (error) {
     res.status(400).json({ error: error.message || 'No se pudo copiar el menú del día anterior' });
   }
+});
+
+/**
+ * Archiva un plato de la biblioteca del menú del día.
+ *
+ * No borra la fila: la desactiva. Un plato puede aparecer en pedidos viejos,
+ * en reportes y en el historial de un cliente, así que eliminarlo dejaría
+ * huérfanas esas referencias y rompería el detalle de ventas pasadas. Con
+ * `activo = 0` desaparece del panel y de la web, y todo lo histórico sigue
+ * mostrando qué se vendió.
+ *
+ * También apaga `menu_dia_disponible_hoy` para que no quede colgado saliendo
+ * en la carta pública si se archiva estando activo.
+ */
+router.delete('/menu-dia/:productoId', requirePermission('productos.edit'), (req, res) => {
+  const producto = db
+    .prepare('SELECT id, nombre FROM productos WHERE id = ?')
+    .get(req.params.productoId);
+
+  if (!producto) {
+    return res.status(404).json({ error: 'El plato no existe' });
+  }
+
+  db.prepare(
+    `UPDATE productos
+        SET activo = 0,
+            menu_dia_disponible_hoy = 0
+      WHERE id = ?`
+  ).run(producto.id);
+
+  return res.json({
+    success: true,
+    archivado: producto.nombre,
+    ...buildMenuDiaManagerPayload(),
+  });
 });
 
 /**

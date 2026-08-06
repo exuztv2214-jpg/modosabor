@@ -1,3 +1,16 @@
+import { Check, Copy, ExternalLink, Send, X } from 'lucide-react';
+
+import { BRAND, STROKE } from '../../lib/theme.js';
+import { AvatarDisplay, Card, Empty, Stat } from '../../pages/Clientes/clientesUi.jsx';
+
+/**
+ * Campañas de WhatsApp por segmento.
+ *
+ * Esto vivía arriba de todo en el módulo: cuatro tarjetas de segmento, cuatro
+ * métricas de CRM y dos paneles de analítica antes de ver un solo cliente. En
+ * una pantalla que se llama "Clientes" había que scrollear un tablero de
+ * marketing para encontrar a alguien. Ahora es una pestaña aparte.
+ */
 export default function ClientesCampaignsSection({
   segmentHighlights,
   setFiltroEstado,
@@ -28,295 +41,176 @@ export default function ClientesCampaignsSection({
   filteredCampaignHistory,
   reopenCampaignFromHistory,
 }) {
+  const seleccionados = campaignModal?.selectedIds?.length || 0;
+  const totalDestinatarios = campaignModal?.clients?.length || 0;
+
   return (
-    <>
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {segmentHighlights.map((segment) => {
-          const Icon = segment.icon;
-          return (
-            <div
-              key={segment.key}
-              className={`rounded-[28px] border p-5 shadow-sm ${segment.tone}`}
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-[10px] font-black uppercase tracking-[0.3em] opacity-70">
-                    {segment.label}
-                  </p>
-                  <p className="mt-2 text-3xl font-black">{segment.count}</p>
-                </div>
-                <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/80 shadow-sm">
-                  <Icon size={20} />
-                </div>
-              </div>
-              <div className="mt-4 flex gap-2">
-                <button
-                  onClick={() => setFiltroEstado(segment.filter)}
-                  className="flex-1 rounded-[18px] bg-white px-4 py-3 text-[10px] font-black uppercase tracking-widest shadow-sm transition-all hover:opacity-90"
-                >
-                  Ver
-                </button>
-                <button
-                  onClick={() => launchSegmentCampaign(segment.key)}
-                  className="flex-1 rounded-[18px] border border-white/70 px-4 py-3 text-[10px] font-black uppercase tracking-widest transition-all hover:bg-white/40"
-                >
-                  {segment.cta}
-                </button>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <div className="rounded-[28px] border border-gray-100 bg-white p-5 shadow-sm">
-          <p className="text-[10px] font-black uppercase tracking-[0.3em] text-gray-400">
-            Campañas CRM
-          </p>
-          <p className="mt-3 text-3xl font-black text-gray-900">
-            {campaignDashboardStats.campanas || 0}
-          </p>
-          <p className="mt-2 text-[10px] font-bold uppercase tracking-widest text-gray-400">
-            Historial premium activo
-          </p>
-        </div>
-        <div className="rounded-[28px] border border-gray-100 bg-white p-5 shadow-sm">
-          <p className="text-[10px] font-black uppercase tracking-[0.3em] text-gray-400">
-            Tasa de conversión
-          </p>
-          <p className="mt-3 text-3xl font-black text-gray-900">
-            {campaignDashboardStats.tasa_conversion || 0}%
-          </p>
-          <p className="mt-2 text-[10px] font-bold uppercase tracking-widest text-gray-400">
-            {campaignDashboardStats.convertidos || 0} clientes recuperados
-          </p>
-        </div>
-        <div className="rounded-[28px] border border-gray-100 bg-white p-5 shadow-sm">
-          <p className="text-[10px] font-black uppercase tracking-[0.3em] text-gray-400">
-            Ingresos atribuidos
-          </p>
-          <p className="mt-3 text-3xl font-black text-gray-900">
-            {fmtMoney(campaignDashboardStats.ingreso || 0)}
-          </p>
-          <p className="mt-2 text-[10px] font-bold uppercase tracking-widest text-gray-400">
-            Pedidos posteriores en 30 dias
-          </p>
-        </div>
-        <div className="rounded-[28px] border border-gray-100 bg-white p-5 shadow-sm">
-          <p className="text-[10px] font-black uppercase tracking-[0.3em] text-gray-400">
-            Tasa de envío
-          </p>
-          <p className="mt-3 text-3xl font-black text-gray-900">
-            {campaignDashboardStats.tasa_envio || 0}%
-          </p>
-          <p className="mt-2 text-[10px] font-bold uppercase tracking-widest text-gray-400">
-            {campaignDashboardStats.enviados_ok || 0} impactos exitosos
-          </p>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.1fr_0.9fr]">
-        <div className="rounded-[28px] border border-gray-100 bg-white p-5 shadow-sm">
-          <div className="mb-4 flex items-center justify-between">
-            <p className="text-[10px] font-black uppercase tracking-[0.3em] text-gray-400">
-              Segmentos que mejor convierten
-            </p>
-            <span className="text-[10px] font-black uppercase tracking-widest text-primary-500">
-              {campaignSegmentStats.length} segmentos
-            </span>
-          </div>
-          <div className="space-y-3">
-            {campaignSegmentStats.slice(0, 4).map((item) => (
-              <div key={item.segmento} className="rounded-[22px] bg-background p-4">
-                <div className="flex items-center justify-between gap-3">
+    <div className="space-y-4">
+      {/* ── Segmentos accionables ── */}
+      <Card
+        title="Segmentos"
+        helper="Cada grupo abre una campaña de WhatsApp con un mensaje ya escrito"
+      >
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {segmentHighlights.map((segment) => {
+            const Icon = segment.icon;
+            const vacio = segment.count === 0;
+            return (
+              <div key={segment.key} className="rounded-xl border border-gray-100 p-4">
+                <div className="flex items-start justify-between gap-2">
                   <div>
-                    <p className="text-xs font-black uppercase tracking-widest text-gray-900">
-                      {item.segmento}
-                    </p>
-                    <p className="mt-1 text-[10px] font-bold uppercase tracking-widest text-gray-400">
-                      {item.campanas} campañas · {item.clientes} clientes
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-lg font-black text-gray-900">{item.tasa_conversion || 0}%</p>
-                    <p className="text-[10px] font-black uppercase tracking-widest text-success-600">
-                      {fmtMoney(item.ingreso || 0)}
+                    <p className="text-[12px] text-gray-500">{segment.label}</p>
+                    <p
+                      className="mt-1 text-[26px] font-bold leading-none tabular-nums"
+                      style={{ color: vacio ? '#9CA3AF' : '#111827' }}
+                    >
+                      {segment.count}
                     </p>
                   </div>
+                  <Icon size={18} strokeWidth={STROKE} className="mt-0.5 text-gray-300" />
+                </div>
+                <div className="mt-3 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setFiltroEstado(segment.filter)}
+                    disabled={vacio}
+                    className="h-9 flex-1 rounded-xl bg-gray-100 text-[12px] font-semibold text-gray-700 transition hover:bg-gray-200 disabled:opacity-40"
+                  >
+                    Ver
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => launchSegmentCampaign(segment.key)}
+                    disabled={vacio}
+                    style={vacio ? undefined : { background: BRAND }}
+                    className="h-9 flex-1 rounded-xl text-[12px] font-semibold text-white transition hover:brightness-110 disabled:bg-gray-200 disabled:text-gray-400"
+                  >
+                    {segment.cta}
+                  </button>
                 </div>
               </div>
-            ))}
-          </div>
+            );
+          })}
         </div>
+      </Card>
 
-        <div className="rounded-[28px] border border-gray-100 bg-white p-5 shadow-sm">
-          <div className="mb-4 flex items-center justify-between">
-            <p className="text-[10px] font-black uppercase tracking-[0.3em] text-gray-400">
-              Mejor campaña
-            </p>
-            <span className="text-[10px] font-black uppercase tracking-widest text-primary-500">
-              Top performance
-            </span>
-          </div>
-          {campaignTopCampaign ? (
-            <div className="rounded-[24px] bg-background p-5">
-              <p className="text-sm font-black uppercase tracking-widest text-gray-900">
-                {campaignTopCampaign.titulo || campaignTopCampaign.segmento}
-              </p>
-              <p className="mt-2 text-[10px] font-bold uppercase tracking-widest text-gray-400">
-                {campaignTopCampaign.segmento} · {formatPedidoDate(campaignTopCampaign.creado_en)}
-              </p>
-              <div className="mt-4 grid grid-cols-2 gap-3">
-                <div className="rounded-[18px] bg-white p-3">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">
-                    Conversión
-                  </p>
-                  <p className="mt-2 text-xl font-black text-gray-900">
-                    {campaignTopCampaign.metricas?.tasa_conversion || 0}%
-                  </p>
-                </div>
-                <div className="rounded-[18px] bg-white p-3">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">
-                    Ingresos
-                  </p>
-                  <p className="mt-2 text-xl font-black text-gray-900">
-                    {fmtMoney(campaignTopCampaign.metricas?.ingreso_generado || 0)}
-                  </p>
-                </div>
-              </div>
-              <p className="mt-4 text-xs font-medium text-gray-600 line-clamp-3">
-                {campaignTopCampaign.mensaje}
-              </p>
-            </div>
-          ) : (
-            <div className="rounded-[24px] border border-dashed border-gray-200 bg-background px-4 py-8 text-center text-[10px] font-black uppercase tracking-widest text-gray-400">
-              Sin datos suficientes todavia
-            </div>
-          )}
-        </div>
-      </div>
-
-      {campaignModal && (
-        <div className="rounded-[32px] border border-gray-100 bg-white p-6 shadow-sm">
-          <div className="mb-6 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-[0.3em] text-primary-500">
-                Campaña rápida
-              </p>
-              <h3 className="mt-2 text-2xl font-black tracking-tight text-gray-900">
-                {campaignModal.title}
-              </h3>
-              <p className="mt-1 text-sm font-medium text-gray-500">
-                {campaignModal.selectedIds?.length || 0} clientes seleccionados de{' '}
-                {campaignModal.clients.length}
-              </p>
-            </div>
-            <div className="flex gap-3">
+      {/* ── Campaña activa ── */}
+      {campaignModal ? (
+        <Card
+          title={`Campaña: ${campaignModal.title}`}
+          helper={`${seleccionados} de ${totalDestinatarios} destinatarios seleccionados`}
+          action={
+            <div className="flex shrink-0 gap-2">
               <button
+                type="button"
                 onClick={() => setCampaignMessage(getSegmentMessage(campaignModal.segment))}
-                className="rounded-[18px] border border-gray-200 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-gray-700"
+                className="h-10 rounded-xl bg-gray-100 px-3 text-[12px] font-semibold text-gray-700 transition hover:bg-gray-200"
               >
-                Reset
+                Restaurar texto
               </button>
               <button
+                type="button"
                 onClick={sendCampaign}
-                disabled={campaignSending}
-                className="rounded-[18px] bg-primary-500 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white shadow-lg shadow-primary-100 disabled:opacity-50"
+                disabled={campaignSending || seleccionados === 0}
+                style={{ background: BRAND }}
+                className="inline-flex h-10 items-center gap-1.5 rounded-xl px-4 text-[12px] font-semibold text-white transition hover:brightness-110 disabled:opacity-40"
               >
-                {campaignSending ? 'Enviando...' : 'Enviar campaña'}
+                <Send size={13} strokeWidth={STROKE} />
+                {campaignSending ? 'Enviando…' : 'Enviar'}
               </button>
               <button
+                type="button"
                 onClick={() => setCampaignModal(null)}
-                className="rounded-[18px] border border-gray-200 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-gray-700"
+                title="Cerrar campaña"
+                className="flex h-10 w-10 items-center justify-center rounded-xl text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
               >
-                Cerrar
+                <X size={16} strokeWidth={STROKE} />
               </button>
             </div>
-          </div>
-
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-            <div className="rounded-[28px] bg-background p-5">
-              <p className="mb-3 text-[10px] font-black uppercase tracking-[0.3em] text-gray-400">
-                Mensaje editable
-              </p>
+          }
+        >
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
+            <div>
+              <label className="text-[12px] font-medium text-gray-600">Mensaje</label>
               <textarea
                 value={campaignMessage}
                 onChange={(e) => setCampaignMessage(e.target.value)}
-                className="min-h-[220px] w-full resize-none rounded-[24px] border-none bg-white p-5 text-sm font-medium text-gray-700 outline-none focus:ring-2 focus:ring-[#5D87FF]/20"
+                className="mt-1 min-h-[180px] w-full resize-none rounded-xl border border-gray-200 bg-white p-3 text-[14px] leading-6 text-gray-800 outline-none transition focus:border-gray-400 focus:ring-2 focus:ring-gray-900/5"
               />
-              {!!campaignVariables.length && (
-                <div className="mt-4">
-                  <div className="mb-3 flex items-center justify-between">
-                    <p className="text-[10px] font-black uppercase tracking-[0.3em] text-gray-400">
-                      Variables premium
-                    </p>
-                    <span className="text-[10px] font-black uppercase tracking-widest text-primary-500">
-                      Click para insertar
-                    </span>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
+
+              {campaignVariables.length > 0 ? (
+                <div className="mt-2">
+                  <p className="text-[11px] text-gray-400">Tocá para insertar en el mensaje</p>
+                  <div className="mt-1.5 flex flex-wrap gap-1.5">
                     {campaignVariables.map((item) => (
                       <button
                         key={item.key}
+                        type="button"
                         onClick={() => insertCampaignVariable(item.key)}
-                        className="rounded-full border border-gray-200 bg-white px-3 py-2 text-[10px] font-black uppercase tracking-widest text-gray-600 transition-all hover:border-primary-100 hover:text-primary-500"
                         title={item.example || item.label}
+                        className="rounded-lg bg-gray-100 px-2.5 py-1 font-mono text-[11px] font-medium text-gray-700 transition hover:bg-gray-200"
                       >
                         {`{{${item.key}}}`}
                       </button>
                     ))}
                   </div>
                 </div>
-              )}
-              <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+              ) : null}
+
+              <div className="mt-3 flex flex-wrap gap-2">
                 <button
-                  onClick={() => copyToClipboard(campaignMessage)}
-                  className="rounded-[20px] bg-primary-500 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white shadow-lg shadow-primary-100"
+                  type="button"
+                  onClick={openCampaignPreview}
+                  className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-gray-100 px-3 text-[12px] font-semibold text-gray-700 transition hover:bg-gray-200"
                 >
+                  <ExternalLink size={13} strokeWidth={STROKE} />
+                  Previsualizar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => copyToClipboard(campaignMessage)}
+                  className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-gray-100 px-3 text-[12px] font-semibold text-gray-700 transition hover:bg-gray-200"
+                >
+                  <Copy size={13} strokeWidth={STROKE} />
                   Copiar mensaje
                 </button>
                 <button
-                  onClick={openCampaignPreview}
-                  className="rounded-[20px] border border-gray-200 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-gray-700"
-                >
-                  Abrir preview
-                </button>
-                <button
+                  type="button"
                   onClick={() =>
                     copyToClipboard(
                       campaignModal.clients
                         .filter((cliente) => campaignModal.selectedIds.includes(cliente.id))
                         .map((cliente) => cliente.telefono)
+                        .filter(Boolean)
                         .join(', ')
                     )
                   }
-                  className="rounded-[20px] border border-gray-200 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-gray-700"
+                  className="h-9 rounded-xl bg-gray-100 px-3 text-[12px] font-semibold text-gray-700 transition hover:bg-gray-200"
                 >
-                  Copiar telefonos
+                  Copiar teléfonos
                 </button>
-              </div>
-              <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <button
+                  type="button"
                   onClick={saveCampaignTemplate}
-                  className="rounded-[20px] border border-gray-200 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-gray-700"
+                  className="h-9 rounded-xl bg-gray-100 px-3 text-[12px] font-semibold text-gray-700 transition hover:bg-gray-200"
                 >
                   Guardar plantilla
                 </button>
                 <button
+                  type="button"
                   onClick={registerCampaignHistory}
-                  className="rounded-[20px] border border-gray-200 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-gray-700"
+                  className="h-9 rounded-xl bg-gray-100 px-3 text-[12px] font-semibold text-gray-700 transition hover:bg-gray-200"
                 >
-                  Registrar campaña
+                  Registrar sin enviar
                 </button>
               </div>
             </div>
 
-            <div className="rounded-[28px] border border-gray-100 bg-white p-5">
-              <div className="mb-4 flex items-center justify-between">
-                <p className="text-[10px] font-black uppercase tracking-[0.3em] text-gray-400">
-                  Destinatarios
-                </p>
+            <div>
+              <div className="flex items-center justify-between">
+                <label className="text-[12px] font-medium text-gray-600">Destinatarios</label>
                 <button
+                  type="button"
                   onClick={() =>
                     setCampaignModal((prev) => ({
                       ...prev,
@@ -326,63 +220,63 @@ export default function ClientesCampaignsSection({
                           : prev.clients.map((cliente) => cliente.id),
                     }))
                   }
-                  className="text-[10px] font-black uppercase tracking-widest text-primary-500"
+                  className="text-[12px] font-semibold text-gray-500 transition hover:text-gray-900"
                 >
-                  {campaignModal.selectedIds?.length === campaignModal.clients.length
-                    ? 'Limpiar'
-                    : 'Seleccionar todo'}
+                  {seleccionados === totalDestinatarios ? 'Deseleccionar todo' : 'Seleccionar todo'}
                 </button>
               </div>
-              <div className="max-h-[320px] space-y-3 overflow-y-auto pr-1">
+
+              <div className="mt-1 max-h-[260px] space-y-1 overflow-y-auto rounded-xl border border-gray-100 p-1.5">
                 {campaignModal.clients.map((cliente) => {
                   const selected = campaignModal.selectedIds.includes(cliente.id);
                   return (
                     <div
                       key={cliente.id}
-                      className={`rounded-[24px] border p-4 transition-all ${selected ? 'border-primary-100 bg-primary-50/60' : 'border-transparent bg-background'}`}
+                      className={`flex items-center gap-2.5 rounded-lg px-2 py-2 transition ${
+                        selected ? 'bg-gray-50' : ''
+                      }`}
                     >
-                      <div className="flex items-center gap-3">
-                        <button
-                          onClick={() =>
-                            setCampaignModal((prev) => ({
-                              ...prev,
-                              selectedIds: prev.selectedIds.includes(cliente.id)
-                                ? prev.selectedIds.filter((id) => id !== cliente.id)
-                                : [...prev.selectedIds, cliente.id],
-                            }))
-                          }
-                          className={`flex h-5 w-5 items-center justify-center rounded-md border ${selected ? 'border-primary-500 bg-primary-500 text-white' : 'border-gray-300 bg-white text-transparent'}`}
-                        >
-                          <svg
-                            viewBox="0 0 24 24"
-                            className="h-3 w-3"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="3"
-                          >
-                            <path d="M20 6 9 17l-5-5" />
-                          </svg>
-                        </button>
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-black text-gray-900">
-                            {cliente.nombre}
-                          </p>
-                          <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
-                            {cliente.telefono}
-                          </p>
-                        </div>
-                        <button
-                          onClick={() =>
-                            window.open(
-                              getWhatsAppLink(cliente.telefono, campaignMessage),
-                              '_blank'
-                            )
-                          }
-                          className="rounded-[16px] border border-gray-200 bg-white px-3 py-2 text-[9px] font-black uppercase tracking-widest text-success-500"
-                        >
-                          Abrir
-                        </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setCampaignModal((prev) => ({
+                            ...prev,
+                            selectedIds: prev.selectedIds.includes(cliente.id)
+                              ? prev.selectedIds.filter((id) => id !== cliente.id)
+                              : [...prev.selectedIds, cliente.id],
+                          }))
+                        }
+                        style={selected ? { background: BRAND, borderColor: BRAND } : undefined}
+                        className={`flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded border ${
+                          selected ? 'text-white' : 'border-gray-300 text-transparent'
+                        }`}
+                      >
+                        <Check size={11} strokeWidth={3} />
+                      </button>
+                      <AvatarDisplay
+                        url={cliente.avatar_url}
+                        fallbackId={cliente.id}
+                        nombre={cliente.nombre}
+                        size="h-8 w-8"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-[13px] text-gray-800">{cliente.nombre}</p>
+                        <p className="text-[11px] tabular-nums text-gray-400">{cliente.telefono}</p>
                       </div>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          window.open(
+                            getWhatsAppLink(cliente.telefono, campaignMessage),
+                            '_blank',
+                            'noopener,noreferrer'
+                          )
+                        }
+                        title="Abrir WhatsApp con este cliente"
+                        className="shrink-0 rounded-lg p-1.5 text-gray-400 transition hover:bg-gray-200 hover:text-gray-700"
+                      >
+                        <ExternalLink size={13} strokeWidth={STROKE} />
+                      </button>
                     </div>
                   );
                 })}
@@ -390,123 +284,13 @@ export default function ClientesCampaignsSection({
             </div>
           </div>
 
-          <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <div className="rounded-[24px] border border-gray-100 bg-white p-5">
-              <p className="text-[10px] font-black uppercase tracking-[0.3em] text-gray-400">
-                Tasa de envio
+          {campaignModal.lastResult?.length ? (
+            <div className="mt-4 border-t border-gray-100 pt-4">
+              <p className="text-[12px] font-medium text-gray-600">
+                Resultado del último envío · {campaignMetrics.enviados_ok || 0} ok,{' '}
+                {campaignMetrics.enviados_error || 0} con error
               </p>
-              <p className="mt-3 text-3xl font-black text-gray-900">
-                {campaignMetrics.tasa_envio || 0}%
-              </p>
-              <p className="mt-2 text-[10px] font-bold uppercase tracking-widest text-gray-400">
-                {campaignMetrics.enviados_ok || 0} exitosos
-              </p>
-            </div>
-            <div className="rounded-[24px] border border-gray-100 bg-white p-5">
-              <p className="text-[10px] font-black uppercase tracking-[0.3em] text-gray-400">
-                Cobertura
-              </p>
-              <p className="mt-3 text-3xl font-black text-gray-900">
-                {campaignMetrics.cobertura || 0}%
-              </p>
-              <p className="mt-2 text-[10px] font-bold uppercase tracking-widest text-gray-400">
-                {campaignMetrics.procesados || 0} procesados
-              </p>
-            </div>
-            <div className="rounded-[24px] border border-gray-100 bg-white p-5">
-              <p className="text-[10px] font-black uppercase tracking-[0.3em] text-gray-400">
-                Conversión
-              </p>
-              <p className="mt-3 text-3xl font-black text-gray-900">
-                {campaignMetrics.tasa_conversion || 0}%
-              </p>
-              <p className="mt-2 text-[10px] font-bold uppercase tracking-widest text-gray-400">
-                {campaignMetrics.clientes_convertidos || 0} clientes volvieron
-              </p>
-            </div>
-            <div className="rounded-[24px] border border-gray-100 bg-white p-5">
-              <p className="text-[10px] font-black uppercase tracking-[0.3em] text-gray-400">
-                Ingreso atribuido
-              </p>
-              <p className="mt-3 text-3xl font-black text-gray-900">
-                {fmtMoney(campaignMetrics.ingreso_generado || 0)}
-              </p>
-              <p className="mt-2 text-[10px] font-bold uppercase tracking-widest text-gray-400">
-                {campaignMetrics.pedidos_generados || 0} pedidos en{' '}
-                {campaignMetrics.ventana_dias || 30} dias
-              </p>
-            </div>
-          </div>
-
-          <div className="mt-6 rounded-[28px] border border-gray-100 bg-background p-5">
-            <div className="mb-4 flex items-center justify-between">
-              <p className="text-[10px] font-black uppercase tracking-[0.3em] text-gray-400">
-                Historial reciente
-              </p>
-              <div className="flex items-center gap-3">
-                <select
-                  value={campaignHistoryFilter}
-                  onChange={(e) => setCampaignHistoryFilter(e.target.value)}
-                  className="h-10 rounded-2xl bg-white px-4 text-[10px] font-black uppercase tracking-widest text-gray-600 outline-none"
-                >
-                  {campaignHistoryFilters.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-                <span className="text-[10px] font-black uppercase tracking-widest text-primary-500">
-                  {filteredCampaignHistory.length} registros
-                </span>
-              </div>
-            </div>
-            <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
-              {filteredCampaignHistory.length > 0 ? (
-                filteredCampaignHistory.slice(0, 6).map((item) => (
-                  <button
-                    key={item.id}
-                    onClick={() => reopenCampaignFromHistory(item)}
-                    className="rounded-[24px] border border-transparent bg-white p-4 text-left transition-all hover:border-primary-100"
-                  >
-                    <p className="text-xs font-black uppercase tracking-widest text-gray-900">
-                      {item.titulo || item.segmento}
-                    </p>
-                    <p className="mt-2 text-[10px] font-bold uppercase tracking-widest text-gray-400">
-                      {formatPedidoDate(item.creado_en)}
-                    </p>
-                    <p className="mt-2 text-[10px] font-black uppercase tracking-widest text-primary-500">
-                      {item.enviados_ok || 0} ok / {item.enviados_error || 0} error
-                    </p>
-                    <p className="mt-2 text-[10px] font-black uppercase tracking-widest text-gray-400">
-                      {item.metricas?.tasa_envio || 0}% exito ·{' '}
-                      {item.metricas?.tasa_conversion || 0}% conversion
-                    </p>
-                    <p className="mt-1 text-[10px] font-black uppercase tracking-widest text-success-600">
-                      {fmtMoney(item.metricas?.ingreso_generado || 0)} atribuidos
-                    </p>
-                    <p className="mt-2 text-xs font-medium text-gray-600 line-clamp-3">
-                      {item.mensaje}
-                    </p>
-                  </button>
-                ))
-              ) : (
-                <p className="rounded-[24px] border border-dashed border-gray-200 bg-white px-4 py-6 text-center text-[10px] font-black uppercase tracking-widest text-gray-400 lg:col-span-3">
-                  No hay campañas para ese filtro
-                </p>
-              )}
-            </div>
-          </div>
-          {!!campaignModal.lastResult?.length && (
-            <div className="mt-6 rounded-[28px] border border-gray-100 bg-white p-5">
-              <div className="mb-4 flex items-center justify-between">
-                <p className="text-[10px] font-black uppercase tracking-[0.3em] text-gray-400">
-                  Resultado del ultimo envio
-                </p>
-                <span className="text-[10px] font-black uppercase tracking-widest text-primary-500">
-                  {campaignModal.lastResult.length} registros
-                </span>
-              </div>
-              <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+              <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
                 {campaignModal.lastResult.slice(0, 8).map((result) => {
                   const cliente = campaignModal.clients.find(
                     (item) => Number(item.id) === Number(result.id)
@@ -514,44 +298,176 @@ export default function ClientesCampaignsSection({
                   return (
                     <div
                       key={`${campaignModal.historyId || campaignModal.segment}-${result.id}`}
-                      className={`rounded-[22px] border p-4 ${result.ok ? 'border-emerald-100 bg-success-50/70' : 'border-rose-100 bg-danger-50/70'}`}
+                      className="flex items-center justify-between gap-2 rounded-lg bg-gray-50 px-3 py-2"
                     >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-black text-gray-900">
-                            {cliente?.nombre || `Cliente #${result.id}`}
-                          </p>
-                          <p className="mt-1 text-[10px] font-black uppercase tracking-widest text-gray-400">
-                            {cliente?.telefono || 'Sin telefono'}
-                          </p>
-                        </div>
-                        <span
-                          className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-widest ${result.ok ? 'bg-white text-success-600' : 'bg-white text-rose-500'}`}
-                        >
-                          {result.ok ? 'OK' : 'Error'}
-                        </span>
+                      <div className="min-w-0">
+                        <p className="truncate text-[13px] text-gray-800">
+                          {cliente?.nombre || `Cliente #${result.id}`}
+                        </p>
+                        <p className="truncate text-[11px] text-gray-400">
+                          {result.url
+                            ? 'Listo para abrir manualmente'
+                            : result.error || `Vía ${result.mode || 'manual'}`}
+                        </p>
                       </div>
-                      <p className="mt-3 text-xs font-medium text-gray-600">
-                        {result.url
-                          ? 'Listo para abrir el contacto manualmente.'
-                          : result.error || `Procesado por ${result.mode || 'manual'}`}
-                      </p>
-                      {result.url && (
-                        <button
-                          onClick={() => window.open(result.url, '_blank')}
-                          className="mt-3 rounded-[16px] border border-gray-200 bg-white px-3 py-2 text-[9px] font-black uppercase tracking-widest text-success-500"
-                        >
-                          Abrir contacto
-                        </button>
-                      )}
+                      <span
+                        className="shrink-0 text-[11px] font-semibold"
+                        style={{ color: result.ok ? '#047857' : BRAND }}
+                      >
+                        {result.ok ? 'OK' : 'Error'}
+                      </span>
                     </div>
                   );
                 })}
               </div>
             </div>
+          ) : null}
+        </Card>
+      ) : null}
+
+      {/* ── Resultados acumulados ── */}
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <Stat
+          label="Campañas enviadas"
+          value={campaignDashboardStats.campanas || 0}
+          helper="Historial registrado"
+        />
+        <Stat
+          label="Tasa de entrega"
+          value={`${campaignDashboardStats.tasa_envio || 0}%`}
+          helper={`${campaignDashboardStats.enviados_ok || 0} mensajes salieron bien`}
+        />
+        <Stat
+          label="Volvieron a comprar"
+          value={`${campaignDashboardStats.tasa_conversion || 0}%`}
+          helper={`${campaignDashboardStats.convertidos || 0} clientes en 30 días`}
+        />
+        <Stat
+          label="Facturado atribuido"
+          value={fmtMoney(campaignDashboardStats.ingreso || 0)}
+          helper="Pedidos dentro de los 30 días"
+        />
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        <Card title="Qué segmento responde mejor">
+          {campaignSegmentStats.length ? (
+            <div className="space-y-1.5">
+              {campaignSegmentStats.slice(0, 5).map((item) => (
+                <div
+                  key={item.segmento}
+                  className="flex items-center justify-between gap-3 rounded-xl bg-gray-50 px-3 py-2.5"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-[13px] font-medium text-gray-900">
+                      {item.segmento}
+                    </p>
+                    <p className="text-[11px] text-gray-400">
+                      {item.campanas} campañas · {item.clientes} clientes
+                    </p>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <p className="text-[14px] font-bold tabular-nums text-gray-900">
+                      {item.tasa_conversion || 0}%
+                    </p>
+                    <p className="text-[11px] tabular-nums text-gray-400">
+                      {fmtMoney(item.ingreso || 0)}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <Empty
+              title="Sin datos todavía"
+              description="Después de un par de campañas vas a ver qué segmento conviene trabajar."
+            />
           )}
-        </div>
-      )}
-    </>
+        </Card>
+
+        <Card
+          title="Historial"
+          action={
+            <select
+              value={campaignHistoryFilter}
+              onChange={(e) => setCampaignHistoryFilter(e.target.value)}
+              className="h-9 shrink-0 rounded-xl border border-gray-200 bg-white px-2 text-[12px] font-medium text-gray-700 outline-none"
+            >
+              {campaignHistoryFilters.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          }
+        >
+          {filteredCampaignHistory.length ? (
+            <div className="space-y-1.5">
+              {filteredCampaignHistory.slice(0, 6).map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => reopenCampaignFromHistory(item)}
+                  className="w-full rounded-xl bg-gray-50 px-3 py-2.5 text-left transition hover:bg-gray-100"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="truncate text-[13px] font-medium text-gray-900">
+                      {item.titulo || item.segmento}
+                    </p>
+                    <span className="shrink-0 text-[11px] text-gray-400">
+                      {formatPedidoDate(item.creado_en)}
+                    </span>
+                  </div>
+                  <p className="mt-0.5 text-[11px] text-gray-400">
+                    {item.enviados_ok || 0} ok · {item.enviados_error || 0} error ·{' '}
+                    {fmtMoney(item.metricas?.ingreso_generado || 0)} atribuidos
+                  </p>
+                  <p className="mt-1 line-clamp-2 text-[12px] leading-4 text-gray-500">
+                    {item.mensaje}
+                  </p>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <Empty
+              title="No hay campañas para ese filtro"
+              description="Probá cambiando el filtro o lanzá una campaña desde los segmentos."
+            />
+          )}
+        </Card>
+      </div>
+
+      {campaignTopCampaign ? (
+        <Card title="Mejor campaña hasta ahora">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="min-w-0">
+              <p className="text-[14px] font-semibold text-gray-900">
+                {campaignTopCampaign.titulo || campaignTopCampaign.segmento}
+              </p>
+              <p className="mt-0.5 text-[12px] text-gray-400">
+                {campaignTopCampaign.segmento} · {formatPedidoDate(campaignTopCampaign.creado_en)}
+              </p>
+              <p className="mt-2 max-w-xl text-[13px] leading-5 text-gray-600">
+                {campaignTopCampaign.mensaje}
+              </p>
+            </div>
+            <div className="flex shrink-0 gap-6">
+              <div>
+                <p className="text-[12px] text-gray-500">Conversión</p>
+                <p className="mt-1 text-[22px] font-bold tabular-nums text-gray-900">
+                  {campaignTopCampaign.metricas?.tasa_conversion || 0}%
+                </p>
+              </div>
+              <div>
+                <p className="text-[12px] text-gray-500">Facturado</p>
+                <p className="mt-1 text-[22px] font-bold tabular-nums text-gray-900">
+                  {fmtMoney(campaignTopCampaign.metricas?.ingreso_generado || 0)}
+                </p>
+              </div>
+            </div>
+          </div>
+        </Card>
+      ) : null}
+    </div>
   );
 }

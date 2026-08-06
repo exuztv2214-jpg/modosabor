@@ -1,6 +1,85 @@
-import { CheckSquare, Eye, Copy, Pencil, Trash2, Star } from 'lucide-react';
-import { fmtMoney, rgba, getPricingOptionTotals } from './utils';
+import { Check, ChefHat, Copy, Eye, ImageOff, Pencil, Star, Trash2 } from 'lucide-react';
+
+import { STROKE } from '../../lib/theme.js';
+import { resolveAssetUrl } from '../../lib/assets.js';
+import { fmtMoney, rgba } from './utils';
 import PriceSummary from './PriceSummary';
+
+const CATEGORIA_FALLBACK = '#6B7280';
+
+function Casilla({ marcada, onClick, titulo = 'Seleccionar' }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={titulo}
+      aria-label={titulo}
+      className={`flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded border transition ${
+        marcada
+          ? 'border-gray-900 bg-gray-900 text-white'
+          : 'border-gray-300 text-transparent hover:border-gray-500'
+      }`}
+    >
+      <Check size={11} strokeWidth={3} />
+    </button>
+  );
+}
+
+/** Miniatura del producto. La foto se resolvía sin `resolveAssetUrl`. */
+function Miniatura({ producto, categoriaInfo, size = 'h-14 w-14' }) {
+  const src = resolveAssetUrl(producto.imagen);
+  const color = categoriaInfo?.color || CATEGORIA_FALLBACK;
+
+  return (
+    <div
+      className={`${size} flex shrink-0 items-center justify-center overflow-hidden rounded-xl`}
+      style={{ background: rgba(color, 0.12) }}
+    >
+      {src ? (
+        <img src={src} alt={producto.nombre} className="h-full w-full object-cover" />
+      ) : categoriaInfo?.icono ? (
+        <span className="text-[22px]">{categoriaInfo.icono}</span>
+      ) : (
+        <ImageOff size={18} strokeWidth={STROKE} style={{ color }} />
+      )}
+    </div>
+  );
+}
+
+function Etiquetas({ producto }) {
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      {Number(producto.activo) !== 1 ? (
+        <span className="rounded-full bg-gray-200 px-2 py-0.5 text-[11px] font-medium text-gray-600">
+          Inactivo
+        </span>
+      ) : null}
+      {Number(producto.destacado) === 1 ? (
+        <span
+          className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium"
+          style={{ background: '#FDF3D3', color: '#6B4108' }}
+        >
+          <Star size={10} strokeWidth={STROKE} />
+          Destacado
+        </span>
+      ) : null}
+      {producto.stockBajo ? (
+        <span
+          className="rounded-full px-2 py-0.5 text-[11px] font-medium"
+          style={{ background: '#FEF2F2', color: '#9E141E' }}
+        >
+          Stock bajo
+        </span>
+      ) : null}
+      {producto.porReceta ? (
+        <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-600">
+          <ChefHat size={10} strokeWidth={STROKE} />
+          Por receta
+        </span>
+      ) : null}
+    </div>
+  );
+}
 
 function ProductCard({
   producto,
@@ -14,160 +93,128 @@ function ProductCard({
   onSelect,
 }) {
   const active = Number(producto.activo) === 1;
-  const stockLow = Number(producto.stock || 0) < 10;
-  const priceOptions = getPricingOptionTotals(
-    categoriaInfo?.nombre,
-    producto.precio,
-    producto.variantGroups
-  );
+  const color = categoriaInfo?.color || CATEGORIA_FALLBACK;
 
   return (
+    /*
+      La banda de arriba toma el color de la categoría, que ya está guardado
+      en la base y hasta ahora sólo se usaba en un chip chiquito abajo de
+      todo. Con la banda, una grilla de sesenta productos se lee por bloques
+      —las pizzas juntas, las milanesas juntas— sin leer una palabra.
+    */
     <article
-      className={`group flex h-full flex-col rounded-[26px] border bg-white p-5 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-xl ${selected ? 'border-[#8DAEFF] ring-2 ring-[#D7E3FF]' : 'border-gray-100 hover:border-[#D7E3FF]'}`}
+      className={`group flex h-full flex-col overflow-hidden rounded-2xl bg-white shadow-[0_1px_2px_rgba(15,23,42,0.06)] transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_8px_24px_rgba(15,23,42,0.10)] ${
+        active ? '' : 'opacity-70'
+      }`}
+      style={selected ? { boxShadow: `0 0 0 2px ${color}` } : undefined}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-3">
-          <button
-            type="button"
-            onClick={() => onSelect(producto.id)}
-            className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border transition ${selected ? 'border-primary-500 bg-primary-500 text-white' : 'border-gray-300 text-transparent hover:border-primary-500'}`}
-            title="Seleccionar"
-          >
-            {selected && <CheckSquare size={12} strokeWidth={3} />}
-          </button>
-          <div
-            className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl border border-white shadow-sm"
-            style={{ backgroundColor: rgba(categoriaInfo?.color, 0.14) }}
-          >
-            {producto.imagen ? (
-              <img
-                src={producto.imagen}
-                alt={producto.nombre}
-                className="h-full w-full object-cover"
-              />
-            ) : (
-              <span className="text-[28px]">{categoriaInfo?.icono || '🍽️'}</span>
-            )}
-          </div>
+      <div className="flex items-center gap-3 px-4 py-3" style={{ background: rgba(color, 0.13) }}>
+        <Casilla marcada={selected} onClick={() => onSelect(producto.id)} />
+        <Miniatura producto={producto} categoriaInfo={categoriaInfo} />
 
-          <div className="min-w-0">
-            <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-gray-400">
-              {producto.codigo}
-            </p>
-            <h3 className="truncate text-lg font-black tracking-tight text-gray-900">
-              {producto.nombre}
-            </h3>
-            <div className="mt-1 flex flex-wrap items-center gap-2">
-              <span
-                className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${active ? 'bg-success-100 text-success-700' : 'bg-gray-200 text-gray-600'}`}
-              >
-                {active ? 'Activo' : 'Inactivo'}
-              </span>
-              {producto.destacado === 1 && (
-                <span className="inline-flex items-center gap-1 rounded-full bg-warning-50 px-2.5 py-1 text-[11px] font-bold text-warning-700">
-                  <Star size={12} />
-                  Destacado
-                </span>
-              )}
-              {stockLow && (
-                <span className="rounded-full bg-danger-50 px-2.5 py-1 text-[11px] font-bold text-danger-700">
-                  Stock bajo
-                </span>
-              )}
-            </div>
-          </div>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[14px] font-semibold text-gray-900">{producto.nombre}</p>
+          <p className="mt-0.5 truncate text-[12px]" style={{ color }}>
+            {categoriaInfo?.icono ? `${categoriaInfo.icono} ` : ''}
+            {categoriaInfo?.nombre || 'Sin categoría'}
+          </p>
         </div>
 
-        <div className="flex gap-1 opacity-100 md:opacity-0 md:transition md:group-hover:opacity-100">
+        <div className="flex shrink-0 gap-0.5 opacity-100 transition md:opacity-0 md:group-hover:opacity-100">
           <button
             type="button"
             onClick={() => onView(producto)}
-            className="flex h-9 w-9 items-center justify-center rounded-xl border border-gray-200 text-gray-500 transition hover:border-[#B7CEFF] hover:bg-primary-50 hover:text-primary-500"
+            title="Ver ficha"
+            className="rounded-lg p-1.5 text-gray-500 transition hover:bg-white hover:text-gray-900"
           >
-            <Eye size={15} />
+            <Eye size={15} strokeWidth={STROKE} />
           </button>
           <button
             type="button"
             onClick={() => onDuplicate(producto)}
-            title="Duplicar producto"
-            className="flex h-9 w-9 items-center justify-center rounded-xl border border-gray-200 text-gray-500 transition hover:border-primary-200 hover:bg-primary-50 hover:text-primary-600"
+            title="Duplicar"
+            className="rounded-lg p-1.5 text-gray-500 transition hover:bg-white hover:text-gray-900"
           >
-            <Copy size={15} />
+            <Copy size={15} strokeWidth={STROKE} />
           </button>
           <button
             type="button"
             onClick={() => onEdit(producto)}
-            className="flex h-9 w-9 items-center justify-center rounded-xl border border-gray-200 text-gray-500 transition hover:border-[#B7CEFF] hover:bg-primary-50 hover:text-primary-500"
+            title="Editar"
+            className="rounded-lg p-1.5 text-gray-500 transition hover:bg-white hover:text-gray-900"
           >
-            <Pencil size={15} />
+            <Pencil size={15} strokeWidth={STROKE} />
           </button>
         </div>
       </div>
 
-      <div className="mt-4 rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3">
-        <p className="line-clamp-2 text-sm leading-6 text-gray-500">
-          {producto.descripcion || 'Sin descripción cargada por ahora.'}
+      <div className="flex flex-1 flex-col p-4">
+        <Etiquetas producto={producto} />
+
+        <p className="mt-2 line-clamp-2 min-h-[32px] text-[12px] leading-4 text-gray-500">
+          {producto.descripcion || 'Sin descripción cargada.'}
         </p>
-      </div>
 
-      <div className="mt-4 grid grid-cols-2 gap-3">
-        <div className="rounded-2xl bg-slate-50 px-3 py-3">
-          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-gray-400">Precio</p>
-          <PriceSummary
-            options={priceOptions}
-            basePrice={producto.precio}
-            singleClassName="mt-1 text-xl font-black tracking-tight text-primary-500"
-            multiClassName="mt-1 space-y-1"
-            itemClassName="text-sm font-black tracking-tight text-primary-500"
-          />
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          <div className="rounded-xl bg-gray-50 px-3 py-2">
+            <p className="text-[11px] text-gray-500">Precio</p>
+            <PriceSummary
+              options={producto.priceOptions}
+              basePrice={producto.precio}
+              singleClassName="mt-0.5 text-[17px] font-bold tabular-nums text-gray-900"
+              multiClassName="mt-0.5 space-y-0.5"
+              itemClassName="text-[13px] font-bold tabular-nums text-gray-900"
+            />
+          </div>
+          <div className="rounded-xl bg-gray-50 px-3 py-2">
+            <p className="text-[11px] text-gray-500">
+              {producto.porReceta ? 'Stock (receta)' : 'Stock'}
+            </p>
+            <p
+              className="mt-0.5 text-[17px] font-bold tabular-nums"
+              style={{ color: producto.stockBajo ? '#DC1F2D' : '#111827' }}
+            >
+              {producto.stock || 0}
+            </p>
+          </div>
         </div>
-        <div className="rounded-2xl bg-slate-50 px-3 py-3">
-          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-gray-400">Stock</p>
-          <p
-            className={`mt-1 text-xl font-black tracking-tight ${stockLow ? 'text-danger-600' : 'text-gray-900'}`}
+
+        <div className="mt-2 flex flex-wrap gap-x-3 text-[11px] text-gray-400">
+          <span>
+            {producto.variantGroups.length}{' '}
+            {producto.variantGroups.length === 1 ? 'variante' : 'variantes'}
+          </span>
+          <span>
+            {producto.extrasList.length} {producto.extrasList.length === 1 ? 'extra' : 'extras'}
+          </span>
+          {Number(producto.costo || 0) > 0 ? (
+            <span>Costo {fmtMoney(producto.costo)}</span>
+          ) : (
+            <span style={{ color: '#B45309' }}>Sin costo cargado</span>
+          )}
+        </div>
+
+        <div className="mt-3 grid grid-cols-[1fr_auto] gap-2 pt-1">
+          <button
+            type="button"
+            onClick={() => onToggle(producto)}
+            className={`h-9 rounded-xl text-[12px] font-semibold transition ${
+              active
+                ? 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+            }`}
           >
-            {producto.stock || 0}
-          </p>
+            {active ? 'Desactivar' : 'Activar'}
+          </button>
+          <button
+            type="button"
+            onClick={() => onDelete(producto)}
+            title="Eliminar producto"
+            className="flex h-9 w-9 items-center justify-center rounded-xl text-gray-400 transition hover:bg-rose-50 hover:text-rose-600"
+          >
+            <Trash2 size={15} strokeWidth={STROKE} />
+          </button>
         </div>
-      </div>
-
-      <div className="mt-4 flex flex-wrap gap-2">
-        <span
-          className="rounded-full px-3 py-1.5 text-xs font-semibold"
-          style={{
-            backgroundColor: rgba(categoriaInfo?.color, 0.12),
-            color: categoriaInfo?.color || '#f97316',
-          }}
-        >
-          {categoriaInfo?.icono || '🍽️'} {categoriaInfo?.nombre || 'Sin categoría'}
-        </span>
-        <span className="rounded-full bg-gray-100 px-3 py-1.5 text-xs font-semibold text-gray-600">
-          {producto.variantGroups.length} grupo{producto.variantGroups.length === 1 ? '' : 's'} de
-          variantes
-        </span>
-        <span className="rounded-full bg-gray-100 px-3 py-1.5 text-xs font-semibold text-gray-600">
-          {producto.extrasList.length} extra{producto.extrasList.length === 1 ? '' : 's'}
-        </span>
-        <span className="rounded-full bg-gray-100 px-3 py-1.5 text-xs font-semibold text-gray-600">
-          {producto.stock_mode === 'recipe' ? 'Stock por receta' : 'Stock directo'}
-        </span>
-      </div>
-
-      <div className="mt-4 grid grid-cols-2 gap-2">
-        <button
-          type="button"
-          onClick={() => onToggle(producto)}
-          className={`h-10 rounded-2xl text-sm font-bold transition ${active ? 'bg-warning-50 text-warning-700 hover:bg-warning-100' : 'bg-success-50 text-success-700 hover:bg-success-100'}`}
-        >
-          {active ? 'Desactivar' : 'Activar'}
-        </button>
-        <button
-          type="button"
-          onClick={() => onDelete(producto)}
-          className="h-10 rounded-2xl border border-rose-200 text-sm font-bold text-danger-600 transition hover:bg-danger-50"
-        >
-          Eliminar
-        </button>
       </div>
     </article>
   );
@@ -185,122 +232,96 @@ function ProductRow({
   onSelect,
 }) {
   const active = Number(producto.activo) === 1;
-  const stockLow = Number(producto.stock || 0) < 10;
-  const priceOptions = getPricingOptionTotals(
-    categoriaInfo?.nombre,
-    producto.precio,
-    producto.variantGroups
-  );
+  const color = categoriaInfo?.color || CATEGORIA_FALLBACK;
 
   return (
     <tr
-      className={`border-b border-slate-100 transition hover:bg-slate-50 ${selected ? 'bg-primary-50' : ''}`}
+      className={`border-b border-gray-100 transition ${selected ? 'bg-gray-50' : 'hover:bg-gray-50'}`}
     >
-      <td className="px-3 py-4 text-center">
-        <button
-          type="button"
-          onClick={() => onSelect(producto.id)}
-          className={`mx-auto flex h-5 w-5 items-center justify-center rounded-md border transition ${selected ? 'border-primary-500 bg-primary-500 text-white' : 'border-gray-300 text-transparent hover:border-primary-500'}`}
-        >
-          {selected && <CheckSquare size={12} strokeWidth={3} />}
-        </button>
+      <td className="px-3 py-3">
+        <Casilla marcada={selected} onClick={() => onSelect(producto.id)} />
       </td>
-      <td className="px-5 py-4">
-        <div className="flex items-center gap-3">
-          <div
-            className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-2xl border border-white text-2xl"
-            style={{ backgroundColor: rgba(categoriaInfo?.color, 0.14) }}
-          >
-            {producto.imagen ? (
-              <img
-                src={producto.imagen}
-                alt={producto.nombre}
-                className="h-full w-full object-cover"
-              />
-            ) : (
-              categoriaInfo?.icono || '🍽️'
-            )}
-          </div>
+      <td className="px-3 py-3">
+        <div className="flex items-center gap-2.5">
+          <Miniatura producto={producto} categoriaInfo={categoriaInfo} size="h-10 w-10" />
           <div className="min-w-0">
-            <p className="truncate font-bold text-gray-900">{producto.nombre}</p>
-            <p className="text-xs text-gray-400">{producto.codigo}</p>
+            <p className="truncate text-[13px] font-medium text-gray-900">{producto.nombre}</p>
+            <p className="font-mono text-[11px] text-gray-400">{producto.codigo}</p>
           </div>
         </div>
       </td>
-      <td className="px-5 py-4">
+      <td className="px-3 py-3">
         <span
-          className="rounded-full px-3 py-1.5 text-xs font-semibold"
-          style={{
-            backgroundColor: rgba(categoriaInfo?.color, 0.12),
-            color: categoriaInfo?.color || '#f97316',
-          }}
+          className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium"
+          style={{ background: rgba(color, 0.13), color }}
         >
-          {categoriaInfo?.icono || '🍽️'} {categoriaInfo?.nombre || 'Sin categoría'}
+          {categoriaInfo?.icono || ''} {categoriaInfo?.nombre || 'Sin categoría'}
         </span>
       </td>
-      <td className="px-5 py-4 text-right font-black text-gray-900">
+      <td className="px-3 py-3 text-right">
         <PriceSummary
-          options={priceOptions}
+          options={producto.priceOptions}
           basePrice={producto.precio}
-          singleClassName=""
-          multiClassName="space-y-1 text-xs font-bold text-primary-500"
-          itemClassName=""
+          singleClassName="text-[13px] font-bold tabular-nums text-gray-900"
+          multiClassName="space-y-0.5"
+          itemClassName="text-[12px] font-bold tabular-nums text-gray-900"
         />
       </td>
-      <td className="px-5 py-4 text-center">
+      <td className="px-3 py-3 text-right">
         <span
-          className={`rounded-full px-3 py-1.5 text-xs font-bold ${stockLow ? 'bg-danger-50 text-danger-700' : 'bg-gray-100 text-gray-600'}`}
+          className="text-[13px] font-medium tabular-nums"
+          style={{ color: producto.stockBajo ? '#DC1F2D' : '#374151' }}
         >
-          {producto.stock || 0} uds
+          {producto.stock || 0}
         </span>
       </td>
-      <td className="px-5 py-4 text-center">
-        <span
-          className={`rounded-full px-3 py-1.5 text-xs font-bold ${active ? 'bg-success-100 text-success-700' : 'bg-gray-200 text-gray-600'}`}
-        >
-          {active ? 'Activo' : 'Inactivo'}
-        </span>
+      <td className="px-3 py-3">
+        <Etiquetas producto={producto} />
       </td>
-      <td className="px-5 py-4 text-center text-sm font-semibold text-gray-600">
-        {producto.variantGroups.length}/{producto.extrasList.length}
-      </td>
-      <td className="px-5 py-4 text-right">
-        <div className="flex items-center justify-end gap-1">
+      <td className="px-3 py-3">
+        <div className="flex items-center justify-end gap-0.5">
           <button
             type="button"
             onClick={() => onView(producto)}
-            className="flex h-9 w-9 items-center justify-center rounded-xl border border-gray-200 text-gray-500 transition hover:border-[#B7CEFF] hover:bg-primary-50 hover:text-primary-500"
+            title="Ver ficha"
+            className="rounded-lg p-1.5 text-gray-400 transition hover:bg-gray-200 hover:text-gray-700"
           >
-            <Eye size={15} />
+            <Eye size={15} strokeWidth={STROKE} />
           </button>
           <button
             type="button"
             onClick={() => onDuplicate(producto)}
-            title="Duplicar producto"
-            className="flex h-9 w-9 items-center justify-center rounded-xl border border-gray-200 text-gray-500 transition hover:border-primary-200 hover:bg-primary-50 hover:text-primary-600"
+            title="Duplicar"
+            className="rounded-lg p-1.5 text-gray-400 transition hover:bg-gray-200 hover:text-gray-700"
           >
-            <Copy size={15} />
+            <Copy size={15} strokeWidth={STROKE} />
           </button>
           <button
             type="button"
             onClick={() => onEdit(producto)}
-            className="flex h-9 w-9 items-center justify-center rounded-xl border border-gray-200 text-gray-500 transition hover:border-[#B7CEFF] hover:bg-primary-50 hover:text-primary-500"
+            title="Editar"
+            className="rounded-lg p-1.5 text-gray-400 transition hover:bg-gray-200 hover:text-gray-700"
           >
-            <Pencil size={15} />
+            <Pencil size={15} strokeWidth={STROKE} />
           </button>
           <button
             type="button"
             onClick={() => onToggle(producto)}
-            className={`flex h-9 items-center justify-center rounded-xl px-3 text-xs font-bold transition ${active ? 'bg-warning-50 text-warning-700 hover:bg-warning-100' : 'bg-success-50 text-success-700 hover:bg-success-100'}`}
+            className={`ml-1 h-8 rounded-lg px-2.5 text-[12px] font-semibold transition ${
+              active
+                ? 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+            }`}
           >
-            {active ? 'Off' : 'On'}
+            {active ? 'Desactivar' : 'Activar'}
           </button>
           <button
             type="button"
             onClick={() => onDelete(producto)}
-            className="flex h-9 w-9 items-center justify-center rounded-xl border border-rose-200 text-danger-600 transition hover:bg-danger-50"
+            title="Eliminar"
+            className="rounded-lg p-1.5 text-gray-400 transition hover:bg-rose-50 hover:text-rose-600"
           >
-            <Trash2 size={15} />
+            <Trash2 size={15} strokeWidth={STROKE} />
           </button>
         </div>
       </td>
@@ -321,97 +342,115 @@ export default function ProductosGrid({
   onSelect,
   isAllSelected,
   onToggleSelectAll,
+  hayFiltros,
+  onLimpiarFiltros,
+  onNuevo,
 }) {
+  if (loading) {
+    return (
+      <div className={`grid gap-3 ${viewMode === 'grid' ? 'sm:grid-cols-2 xl:grid-cols-3' : ''}`}>
+        {Array.from({ length: viewMode === 'grid' ? 6 : 4 }).map((_, index) => (
+          <div key={index} className="h-56 animate-pulse rounded-2xl bg-gray-200/70" />
+        ))}
+      </div>
+    );
+  }
+
+  if (filtered.length === 0) {
+    return (
+      <div className="rounded-2xl border border-dashed border-gray-200 px-6 py-14 text-center">
+        <p className="text-[14px] font-medium text-gray-600">
+          {hayFiltros ? 'Ningún producto coincide' : 'Todavía no hay productos'}
+        </p>
+        <p className="mx-auto mt-1 max-w-sm text-[12px] leading-4 text-gray-400">
+          {hayFiltros
+            ? 'Probá con otra búsqueda o sacá alguno de los filtros.'
+            : 'Cargá el primero para que aparezca en el TPV y en la web.'}
+        </p>
+        <div className="mt-4 flex justify-center">
+          {hayFiltros ? (
+            <button
+              type="button"
+              onClick={onLimpiarFiltros}
+              className="h-10 rounded-xl bg-gray-100 px-4 text-[13px] font-semibold text-gray-700 transition hover:bg-gray-200"
+            >
+              Limpiar filtros
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={onNuevo}
+              style={{ background: '#DC1F2D' }}
+              className="h-10 rounded-xl px-4 text-[13px] font-semibold text-white transition hover:brightness-110"
+            >
+              Cargar el primero
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (viewMode === 'grid') {
+    return (
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        {filtered.map((producto) => (
+          <ProductCard
+            key={producto.id}
+            producto={producto}
+            categoriaInfo={producto.categoriaInfo}
+            onView={onView}
+            onEdit={onEdit}
+            onDuplicate={onDuplicate}
+            onToggle={onToggle}
+            onDelete={onDelete}
+            selected={selectedIds.includes(producto.id)}
+            onSelect={onSelect}
+          />
+        ))}
+      </div>
+    );
+  }
+
   return (
-    <div className="mt-5">
-      {loading ? (
-        <div
-          className={`grid gap-4 ${viewMode === 'grid' ? 'md:grid-cols-2 xl:grid-cols-3' : 'grid-cols-1'}`}
-        >
-          {Array.from({ length: viewMode === 'grid' ? 6 : 3 }).map((_, index) => (
-            <div key={index} className="h-52 animate-pulse rounded-[24px] bg-slate-100" />
-          ))}
-        </div>
-      ) : filtered.length === 0 ? (
-        <div className="rounded-[24px] border border-dashed border-gray-200 bg-slate-50 px-6 py-16 text-center">
-          <h3 className="text-lg font-black tracking-tight text-gray-900">No hay resultados</h3>
-          <p className="mt-2 text-sm text-gray-500">Proba otro filtro o crea un producto nuevo.</p>
-        </div>
-      ) : viewMode === 'grid' ? (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {filtered.map((producto) => (
-            <ProductCard
-              key={producto.id}
-              producto={producto}
-              categoriaInfo={producto.categoriaInfo}
-              onView={onView}
-              onEdit={onEdit}
-              onDuplicate={onDuplicate}
-              onToggle={onToggle}
-              onDelete={onDelete}
-              selected={selectedIds.includes(producto.id)}
-              onSelect={onSelect}
-            />
-          ))}
-        </div>
-      ) : (
-        <div className="overflow-hidden rounded-[24px] border border-gray-100 shadow-sm">
-          <div className="overflow-x-auto">
-            <table className="min-w-full bg-white">
-              <thead className="bg-slate-50">
-                <tr className="text-left">
-                  <th className="px-3 py-4 text-center">
-                    <button
-                      type="button"
-                      onClick={onToggleSelectAll}
-                      className={`mx-auto flex h-5 w-5 items-center justify-center rounded-md border transition ${isAllSelected ? 'border-primary-500 bg-primary-500 text-white' : 'border-gray-300 text-transparent hover:border-primary-500'}`}
-                    >
-                      {isAllSelected && <CheckSquare size={12} strokeWidth={3} />}
-                    </button>
-                  </th>
-                  <th className="px-5 py-4 text-[11px] font-bold uppercase tracking-[0.18em] text-gray-500">
-                    Producto
-                  </th>
-                  <th className="px-5 py-4 text-[11px] font-bold uppercase tracking-[0.18em] text-gray-500">
-                    Categoría
-                  </th>
-                  <th className="px-5 py-4 text-right text-[11px] font-bold uppercase tracking-[0.18em] text-gray-500">
-                    Precio
-                  </th>
-                  <th className="px-5 py-4 text-center text-[11px] font-bold uppercase tracking-[0.18em] text-gray-500">
-                    Stock
-                  </th>
-                  <th className="px-5 py-4 text-center text-[11px] font-bold uppercase tracking-[0.18em] text-gray-500">
-                    Estado
-                  </th>
-                  <th className="px-5 py-4 text-center text-[11px] font-bold uppercase tracking-[0.18em] text-gray-500">
-                    Var/Ext
-                  </th>
-                  <th className="px-5 py-4 text-right text-[11px] font-bold uppercase tracking-[0.18em] text-gray-500">
-                    Acciones
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((producto) => (
-                  <ProductRow
-                    key={producto.id}
-                    producto={producto}
-                    categoriaInfo={producto.categoriaInfo}
-                    onView={onView}
-                    onEdit={onEdit}
-                    onDuplicate={onDuplicate}
-                    onToggle={onToggle}
-                    onDelete={onDelete}
-                    selected={selectedIds.includes(producto.id)}
-                    onSelect={onSelect}
-                  />
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+    <div className="overflow-hidden rounded-2xl bg-white shadow-[0_1px_2px_rgba(15,23,42,0.06)]">
+      <div className="overflow-x-auto">
+        <table className="min-w-full">
+          <thead className="bg-gray-50 text-[11px] text-gray-500">
+            <tr>
+              <th className="px-3 py-2.5">
+                <Casilla
+                  marcada={isAllSelected}
+                  onClick={onToggleSelectAll}
+                  titulo="Seleccionar todo"
+                />
+              </th>
+              <th className="px-3 py-2.5 text-left font-medium">Producto</th>
+              <th className="px-3 py-2.5 text-left font-medium">Categoría</th>
+              <th className="px-3 py-2.5 text-right font-medium">Precio</th>
+              <th className="px-3 py-2.5 text-right font-medium">Stock</th>
+              <th className="px-3 py-2.5 text-left font-medium">Estado</th>
+              <th className="px-3 py-2.5" />
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map((producto) => (
+              <ProductRow
+                key={producto.id}
+                producto={producto}
+                categoriaInfo={producto.categoriaInfo}
+                onView={onView}
+                onEdit={onEdit}
+                onDuplicate={onDuplicate}
+                onToggle={onToggle}
+                onDelete={onDelete}
+                selected={selectedIds.includes(producto.id)}
+                onSelect={onSelect}
+              />
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

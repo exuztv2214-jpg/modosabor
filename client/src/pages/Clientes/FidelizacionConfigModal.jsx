@@ -1,5 +1,7 @@
 import { X } from 'lucide-react';
-import { ToggleSwitch } from '../../components/Configuracion/ConfigComponents.jsx';
+
+import { BRAND, STROKE } from '../../lib/theme.js';
+import { CONTROL, SellosProgreso } from './clientesUi.jsx';
 
 export default function FidelizacionConfigModal({
   open,
@@ -9,118 +11,124 @@ export default function FidelizacionConfigModal({
   saveConfig,
   saving,
   canManageFidelidadConfig,
-  control,
   fmtMoney,
 }) {
   if (!open) return null;
+
+  const sellos = Math.max(1, Number(fidelidadConfig.sellos_para_premio) || 1);
+  const set = (campo, valor) => setFidelidadConfig({ ...fidelidadConfig, [campo]: valor });
+
   return (
     <div
-      className="fixed inset-0 z-[10000] flex items-center justify-center bg-slate-900/35 p-4 backdrop-blur-md"
+      className="fixed inset-0 z-[10000] flex items-center justify-center bg-slate-900/35 p-4 backdrop-blur-sm"
       onClick={onClose}
     >
       <div
-        className="w-full max-w-lg rounded-[40px] bg-white p-8 shadow-2xl animate-in zoom-in-95 duration-200"
+        className="w-full max-w-lg rounded-2xl bg-white shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between mb-8">
-          <h3 className="text-2xl font-black text-gray-900 tracking-tight uppercase">
-            Configuración de Lealtad
-          </h3>
-          <button onClick={onClose} className="rounded-full p-2 hover:bg-gray-100">
-            <X size={24} className="text-gray-400" />
+        <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
+          <div>
+            <h3 className="text-[17px] font-semibold text-gray-900">Programa de fidelidad</h3>
+            <p className="mt-0.5 text-[12px] text-gray-500">Aplica a todos los clientes</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Cerrar"
+            className="rounded-lg p-2 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
+          >
+            <X size={18} strokeWidth={STROKE} />
           </button>
         </div>
 
-        <div className="space-y-6">
-          <div className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl">
-            <div>
-              <p className="text-sm font-black text-gray-900 uppercase">Sistema Activo</p>
-              <p className="text-[10px] font-bold text-gray-400 uppercase">
-                Habilitar sellos y puntos globalmente
-              </p>
-            </div>
-            <ToggleSwitch
-              checked={fidelidadConfig.activo}
-              onChange={(v) => setFidelidadConfig({ ...fidelidadConfig, activo: v })}
-              color="blue"
+        <div className="space-y-4 px-6 py-5">
+          <label className="flex cursor-pointer items-start gap-3 rounded-xl bg-gray-50 p-3">
+            <input
+              type="checkbox"
+              checked={Boolean(fidelidadConfig.activo)}
+              onChange={(e) => set('activo', e.target.checked)}
+              className="mt-0.5 h-4 w-4 shrink-0 rounded border-gray-300"
+              style={{ accentColor: BRAND }}
             />
-          </div>
+            <span>
+              <span className="block text-[13px] font-medium text-gray-900">Programa activo</span>
+              <span className="mt-0.5 block text-[12px] leading-4 text-gray-500">
+                Si lo apagás, deja de sumarse cualquier sello en todo el sistema.
+              </span>
+            </span>
+          </label>
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
-                Monto Mín. Sello ($)
-              </label>
+              <label className="text-[12px] font-medium text-gray-600">Compra mínima</label>
               <input
                 type="number"
+                min="0"
                 value={fidelidadConfig.monto_minimo_sello}
-                onChange={(e) =>
-                  setFidelidadConfig({
-                    ...fidelidadConfig,
-                    monto_minimo_sello: Number(e.target.value),
-                  })
-                }
-                className={control + ' mt-1'}
+                onChange={(e) => set('monto_minimo_sello', Number(e.target.value))}
+                className={CONTROL + ' mt-1 tabular-nums'}
               />
+              <p className="mt-1 text-[11px] text-gray-400">Para que la compra cuente un sello</p>
             </div>
             <div>
-              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
-                Sellos p/ Premio
-              </label>
+              <label className="text-[12px] font-medium text-gray-600">Sellos por premio</label>
               <input
                 type="number"
+                // Sin mínimo se podía guardar 0 y el cálculo del progreso
+                // quedaba dividiendo por cero.
+                min="1"
                 value={fidelidadConfig.sellos_para_premio}
                 onChange={(e) =>
-                  setFidelidadConfig({
-                    ...fidelidadConfig,
-                    sellos_para_premio: Number(e.target.value),
-                  })
+                  set('sellos_para_premio', Math.max(1, Number(e.target.value) || 1))
                 }
-                className={control + ' mt-1'}
+                className={CONTROL + ' mt-1 tabular-nums'}
               />
+              <p className="mt-1 text-[11px] text-gray-400">El premio sale al completarlos</p>
             </div>
           </div>
 
           <div>
-            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
-              Descripción del Premio (Bases)
-            </label>
+            <label className="text-[12px] font-medium text-gray-600">Qué se gana</label>
             <textarea
               value={fidelidadConfig.premio_descripcion}
-              onChange={(e) =>
-                setFidelidadConfig({ ...fidelidadConfig, premio_descripcion: e.target.value })
-              }
-              className={control + ' mt-1 h-24 py-3 resize-none'}
-              placeholder="Ej: 1 Pizza Muzzarella gratis"
+              onChange={(e) => set('premio_descripcion', e.target.value)}
+              className={CONTROL + ' mt-1 h-20 resize-none py-2.5'}
+              placeholder="Ej: una pizza muzzarella grande"
             />
           </div>
 
-          <div className="p-4 bg-primary-50 rounded-2xl border border-primary-100">
-            <p className="text-[10px] font-black text-primary-500 uppercase tracking-widest mb-1">
-              Regla de Negocio
-            </p>
-            <p className="text-xs font-bold text-gray-600 leading-relaxed italic">
-              "Los clientes sumarán 1 sello por cada compra mayor a{' '}
-              {fmtMoney(fidelidadConfig.monto_minimo_sello)}. Al completar{' '}
-              {fidelidadConfig.sellos_para_premio} sellos, ganarán:{' '}
-              {fidelidadConfig.premio_descripcion}."
+          <div className="rounded-xl bg-gray-50 p-3">
+            <p className="text-[12px] text-gray-500">Así lo va a ver el cliente</p>
+            <div className="mt-2">
+              <SellosProgreso actuales={Math.min(3, sellos)} total={sellos} size="sm" />
+            </div>
+            <p className="mt-2 text-[13px] leading-5 text-gray-700">
+              Sumás 1 sello por cada compra de {fmtMoney(fidelidadConfig.monto_minimo_sello)} o más.
+              Con {sellos} sellos te llevás {fidelidadConfig.premio_descripcion || 'tu premio'}.
             </p>
           </div>
         </div>
 
-        <div className="mt-8 flex gap-3">
+        <div className="flex justify-end gap-2 border-t border-gray-100 px-6 py-4">
           <button
+            type="button"
             onClick={onClose}
-            className="flex-1 h-12 rounded-2xl border border-gray-200 text-xs font-black text-gray-500 uppercase"
+            className="h-11 rounded-xl bg-gray-100 px-5 text-[13px] font-semibold text-gray-700 transition hover:bg-gray-200"
           >
             Cancelar
           </button>
           <button
+            type="button"
             onClick={saveConfig}
-            disabled={saving}
-            className="flex-[2] h-12 rounded-2xl bg-primary-500 text-white text-xs font-black uppercase shadow-lg shadow-primary-100"
+            // El botón se veía habilitado aunque no hubiera permisos: recién al
+            // apretarlo saltaba el toast de "no tenés permisos".
+            disabled={saving || !canManageFidelidadConfig}
+            title={canManageFidelidadConfig ? undefined : 'No tenés permisos para editar esto'}
+            style={{ background: BRAND }}
+            className="h-11 rounded-xl px-6 text-[13px] font-semibold text-white transition hover:brightness-110 disabled:opacity-40"
           >
-            {saving ? 'Guardando...' : 'Guardar Cambios'}
+            {saving ? 'Guardando…' : 'Guardar'}
           </button>
         </div>
       </div>

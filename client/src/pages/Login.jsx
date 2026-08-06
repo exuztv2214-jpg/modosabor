@@ -33,8 +33,8 @@ export default function Login() {
     } catch (err) {
       console.error('Login error:', err);
       const msg =
-        err.error ||
-        (err.code === 'ERR_NETWORK' || !err.response
+        err?.error ||
+        (err?.code === 'ERR_NETWORK' || !err?.response
           ? 'Error de conexión con el servidor'
           : 'Credenciales incorrectas');
       toast.error(msg);
@@ -46,7 +46,7 @@ export default function Login() {
   return (
     <div className="min-h-screen bg-[#f4f7fb] flex items-center justify-center p-6 relative overflow-hidden">
       {/* Decoracion de fondo estilo Modernize */}
-      <div className="absolute top-[-10%] right-[-10%] w-[400px] h-[400px] bg-primary-100 rounded-full blur-3xl opacity-50"></div>
+      <div className="absolute top-[-10%] right-[-10%] w-[400px] h-[400px] bg-brand-100 rounded-full blur-3xl opacity-50"></div>
       <div className="absolute bottom-[-10%] left-[-10%] w-[300px] h-[300px] bg-orange-100 rounded-full blur-3xl opacity-50"></div>
 
       <div className="w-full max-w-[450px] z-10">
@@ -61,11 +61,11 @@ export default function Login() {
                 className="h-16 mx-auto mb-4 object-contain"
               />
             ) : (
-              <div className="inline-flex items-center justify-center w-16 h-16 bg-primary-50 rounded-2xl mb-4">
-                <span className="text-primary-600 font-black text-2xl">M</span>
+              <div className="inline-flex items-center justify-center w-16 h-16 bg-brand-50 rounded-2xl mb-4">
+                <span className="text-brand-600 font-semibold text-2xl">M</span>
               </div>
             )}
-            <h1 className="text-2xl font-black text-gray-900 tracking-tight">
+            <h1 className="text-2xl font-semibold text-gray-900 tracking-tight">
               {config?.negocio_nombre || 'Modo Sabor'}
             </h1>
             <p className="text-gray-400 text-sm mt-1 font-medium italic">Panel de administración</p>
@@ -74,19 +74,18 @@ export default function Login() {
           <form onSubmit={handleSubmit} className="space-y-6">
             {/* Input Email */}
             <div className="space-y-2">
-              <label className="text-xs font-bold text-gray-700 uppercase tracking-wider ml-1">
-                Email
-              </label>
+              <label className="text-xs font-bold text-gray-700 ml-1">Email</label>
               <div className="relative">
                 <div className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">
                   <Mail size={18} />
                 </div>
                 <input
                   type="email"
+                  autoComplete="username"
                   value={form.email}
                   onChange={(e) => setForm({ ...form, email: e.target.value })}
                   placeholder="admin@modosabor.com"
-                  className="w-full bg-gray-50 border-none rounded-2xl px-12 py-4 text-sm font-medium focus:ring-2 focus:ring-blue-500/20 focus:bg-white transition-all outline-none"
+                  className="w-full bg-gray-50 border-none rounded-2xl px-12 py-4 text-sm font-medium focus:ring-2 focus:ring-brand-500/20 focus:bg-white transition-all outline-none"
                   required
                 />
               </div>
@@ -95,9 +94,7 @@ export default function Login() {
             {/* Input Password */}
             <div className="space-y-2">
               <div className="flex justify-between items-center ml-1">
-                <label className="text-xs font-bold text-gray-700 uppercase tracking-wider">
-                  Contraseña
-                </label>
+                <label className="text-xs font-bold text-gray-700">Contraseña</label>
               </div>
               <div className="relative">
                 <div className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">
@@ -105,16 +102,17 @@ export default function Login() {
                 </div>
                 <input
                   type={showPw ? 'text' : 'password'}
+                  autoComplete="current-password"
                   value={form.password}
                   onChange={(e) => setForm({ ...form, password: e.target.value })}
                   placeholder="••••••••"
-                  className="w-full bg-gray-50 border-none rounded-2xl px-12 py-4 text-sm font-medium focus:ring-2 focus:ring-blue-500/20 focus:bg-white transition-all outline-none"
+                  className="w-full bg-gray-50 border-none rounded-2xl px-12 py-4 text-sm font-medium focus:ring-2 focus:ring-brand-500/20 focus:bg-white transition-all outline-none"
                   required
                 />
                 <button
                   type="button"
                   onClick={() => setShowPw(!showPw)}
-                  className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-primary-600 transition-colors"
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-brand-600 transition-colors"
                 >
                   {showPw ? <EyeOff size={18} /> : <Eye size={18} />}
                 </button>
@@ -125,7 +123,7 @@ export default function Login() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-primary-500 hover:bg-primary-600 text-white font-bold py-4 rounded-2xl transition-all disabled:opacity-50 text-sm shadow-[0_8px_20px_rgba(93,135,255,0.25)] hover:shadow-[0_8px_25px_rgba(93,135,255,0.35)] active:scale-[0.98]"
+              className="w-full bg-brand-500 hover:bg-brand-600 text-white font-bold py-4 rounded-2xl transition-all disabled:opacity-50 text-sm shadow-[0_8px_20px_rgba(220,31,45,0.25)] hover:shadow-[0_8px_25px_rgba(220,31,45,0.35)] active:scale-[0.98]"
             >
               {loading ? 'Validando...' : 'Iniciar Sesión'}
             </button>
@@ -135,13 +133,11 @@ export default function Login() {
           <div className="mt-10 pt-8 border-t border-gray-50">
             <div className="flex items-center justify-center gap-2 mb-4">
               <div className="h-[1px] w-8 bg-gray-100"></div>
-              <span className="text-[10px] font-bold text-gray-300 uppercase tracking-widest px-2">
-                Acceso
-              </span>
+              <span className="text-[10px] font-bold text-gray-300 px-2">Acceso</span>
               <div className="h-[1px] w-8 bg-gray-100"></div>
             </div>
-            <div className="bg-primary-50/50 rounded-2xl p-4 text-center border border-primary-100/50">
-              <p className="text-[11px] text-primary-600 font-bold leading-relaxed">
+            <div className="bg-brand-50/50 rounded-2xl p-4 text-center border border-brand-100/50">
+              <p className="text-[11px] text-brand-600 font-bold leading-relaxed">
                 Ingresá con un usuario activo del sistema.
               </p>
             </div>
@@ -150,7 +146,7 @@ export default function Login() {
 
         {/* Footer */}
         <div className="mt-8 text-center">
-          <p className="text-[11px] font-bold text-gray-400 uppercase tracking-[0.2em]">
+          <p className="text-[11px] font-bold text-gray-400">
             © 2026 {config?.negocio_nombre || 'Modo Sabor'} · Gestión Inteligente
           </p>
         </div>

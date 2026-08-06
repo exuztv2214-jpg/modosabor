@@ -39,6 +39,7 @@ const Compras = lazy(() => import('./pages/Compras.jsx'));
 const Categorias = lazy(() => import('./pages/Categorias.jsx'));
 const Clientes = lazy(() => import('./pages/Clientes.jsx'));
 const Delivery = lazy(() => import('./pages/Delivery.jsx'));
+const Direcciones = lazy(() => import('./pages/Direcciones.jsx'));
 const KDS = lazy(() => import('./pages/KDS.jsx'));
 const Mesas = lazy(() => import('./pages/Mesas.jsx'));
 const Caja = lazy(() => import('./pages/Caja.jsx'));
@@ -96,6 +97,9 @@ export default function App() {
                     </Route>
                     <Route element={<PrivateRoute permission="pedidos.view" />}>
                       <Route path="/admin/pedidos" element={<Pedidos />} />
+                    </Route>
+                    <Route element={<PrivateRoute permission="pedidos.edit" />}>
+                      <Route path="/admin/direcciones" element={<Direcciones />} />
                     </Route>
                     <Route element={<PrivateRoute permission="caja.view" moduleKey="caja" />}>
                       <Route path="/admin/caja" element={<Caja />} />

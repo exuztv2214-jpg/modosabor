@@ -38,4 +38,4 @@ export const RUBROS = [
 export const MOVIMIENTOS_LIMIT = 300;
 
 export const CONTROL =
-  'h-11 w-full rounded-2xl border border-gray-200 bg-gray-50 px-4 text-sm font-medium text-gray-700 outline-none transition focus:border-primary-200 focus:bg-white focus:ring-4 focus:ring-blue-100';
+  'h-11 w-full rounded-xl border border-gray-200 bg-white px-3 text-[14px] text-gray-800 outline-none transition placeholder:text-gray-400 focus:border-gray-400 focus:ring-2 focus:ring-gray-900/5';

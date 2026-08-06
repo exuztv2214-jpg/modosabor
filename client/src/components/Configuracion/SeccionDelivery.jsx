@@ -1,7 +1,9 @@
-import React from 'react';
-import { Clock, MapPin, Truck } from 'lucide-react';
+import { Clock, MapPin, Plus, Trash2 } from 'lucide-react';
 
+import { BRAND, STROKE } from '../../lib/theme.js';
 import { SectionCard, InputField, ToggleSwitch } from './ConfigComponents.jsx';
+
+const fmt = (valor) => `$${Number(valor || 0).toLocaleString('es-AR')}`;
 
 export default function SeccionDelivery({
   config,
@@ -13,181 +15,248 @@ export default function SeccionDelivery({
   updateZone,
   applyMonterosPreset,
 }) {
+  const validacionActiva = config.delivery_validacion_activa === '1';
+  const zonasActivas = deliveryZones.filter((zona) => zona.activa !== false).length;
+  const sinPalabras = deliveryZones.filter(
+    (zona) => zona.activa !== false && (!Array.isArray(zona.keywords) || zona.keywords.length === 0)
+  ).length;
+
   return (
-    <div className="mx-auto max-w-7xl p-4 md:p-6 space-y-8">
-      <div className="sticky top-[84px] z-10 mb-8 flex items-center justify-between rounded-[28px] border border-gray-200 bg-white/95 px-5 py-4 shadow-sm backdrop-blur-sm">
-        <div className="flex items-center gap-4">
-          <div className="h-12 w-12 rounded-2xl bg-orange-100 flex items-center justify-center">
-            <Truck className="text-orange-600" size={24} />
-          </div>
-          <div>
-            <h2 className="text-xl font-bold text-gray-900">Delivery y tiempos</h2>
-            <p className="text-sm text-gray-500">
-              Configuración de zonas, tiempos y reparto automático.
-            </p>
-          </div>
-        </div>
-      </div>
+    <div className="mx-auto max-w-7xl space-y-4 p-4 md:p-6">
+      {/* El título de la sección lo muestra el módulo arriba de las pestañas. */}
 
       <SectionCard
         icon={Clock}
-        tone="orange"
-        title="Operacion general"
-        subtitle="Ajustes de despacho para web, TPV y panel de delivery"
+        title="Cómo se despacha"
+        subtitle="Qué opciones ve el cliente y cuánto se le promete"
       >
-        <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
-          <InputField label="Costo envio base ($)" type="number" {...f('costo_envio_base')} />
-          <InputField label="Tiempo delivery (min)" type="number" {...f('tiempo_delivery')} />
-          <InputField label="Tiempo retiro (min)" type="number" {...f('tiempo_retiro')} />
-        </div>
-
-        <div className="mt-6 grid grid-cols-1 gap-6 md:grid-cols-2">
+        <div className="space-y-1">
           <ToggleSwitch
             checked={config.delivery_activo !== '0'}
             onChange={(value) => setToggle('delivery_activo', value)}
-            label="Delivery habilitado"
-            description="Mostrar la opción de delivery en la carta web pública."
-            color="orange"
+            label="Aceptar pedidos con envío"
+            description="Si lo apagás, la web deja de ofrecer delivery."
           />
           <ToggleSwitch
             checked={config.retiro_activo !== '0'}
             onChange={(value) => setToggle('retiro_activo', value)}
-            label="Retiro en local habilitado"
-            description="Mostrar la opción de retiro en la carta web pública."
-            color="orange"
-          />
-        </div>
-
-        <div className="mt-6 grid grid-cols-1 gap-6 md:grid-cols-2">
-          <ToggleSwitch
-            checked={config.delivery_validacion_activa === '1'}
-            onChange={(value) => setToggle('delivery_validacion_activa', value)}
-            label="Validar dirección por zona"
-            description="Solo acepta direcciones dentro de zonas activas."
-            color="orange"
+            label="Aceptar retiro en el local"
+            description="Si lo apagás, la web deja de ofrecer retiro por mostrador."
           />
           <ToggleSwitch
             checked={config.delivery_requiere_foto_entrega === '1'}
             onChange={(value) => setToggle('delivery_requiere_foto_entrega', value)}
-            label="Exigir foto al entregar"
-            description="El rider debe adjuntar una foto para cerrar la entrega."
-            color="orange"
+            label="Pedir foto al entregar"
+            description="El rider no puede cerrar la entrega sin adjuntar una foto."
           />
         </div>
 
-        <div className="mt-6 rounded-2xl border border-orange-200 bg-orange-50 px-5 py-4 text-sm text-orange-800">
-          <p className="font-semibold">Asignación de riders</p>
-          <p className="mt-1">
-            En ventas delivery el sistema intenta asignar automáticamente el rider activo más
-            conveniente. Si trabajas con un solo rider por turno, quedará asignado aunque ya esté
-            llevando otros pedidos.
-          </p>
+        <div className="mt-4 grid gap-3 md:grid-cols-3">
+          <InputField
+            label="Costo de envío base"
+            type="number"
+            {...f('costo_envio_base')}
+            hint="Se usa cuando la dirección no cae en ninguna zona."
+          />
+          <InputField
+            label="Demora de envío"
+            type="number"
+            {...f('tiempo_delivery')}
+            hint="En minutos. Es lo que se le promete al cliente."
+          />
+          <InputField
+            label="Demora de retiro"
+            type="number"
+            {...f('tiempo_retiro')}
+            hint="En minutos, desde que confirma hasta que puede pasar."
+          />
         </div>
+
+        <p className="mt-4 rounded-xl bg-gray-50 px-4 py-3 text-[12px] leading-relaxed text-gray-500">
+          Al vender un delivery el sistema asigna solo el rider libre más conveniente. Si trabajás
+          con uno solo por turno, queda asignado aunque ya esté llevando otros pedidos.
+        </p>
       </SectionCard>
 
       <SectionCard
         icon={MapPin}
-        tone="orange"
-        title="Zonas de delivery"
-        subtitle="Define costos y palabras clave por zona"
-      >
-        <div className="flex flex-wrap gap-2 mb-6">
-          <button
-            onClick={applyMonterosPreset}
-            className="rounded-xl border border-orange-200 bg-orange-50 px-4 py-2 text-sm font-semibold text-orange-700 transition-colors hover:bg-orange-100"
-          >
-            Preset Monteros
-          </button>
-          <button
-            onClick={addZone}
-            className="rounded-xl bg-orange-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-orange-700"
-          >
-            Agregar zona
-          </button>
-        </div>
-
-        <div className="space-y-4">
-          {deliveryZones.map((zone, index) => (
-            <div
-              key={zone.id || index}
-              className="rounded-2xl border border-gray-200 p-6 bg-gray-50/30 transition-all hover:border-orange-200"
+        title="Zonas de reparto"
+        subtitle={
+          deliveryZones.length > 0
+            ? `${zonasActivas} de ${deliveryZones.length} activas`
+            : 'Todavía no cargaste ninguna zona'
+        }
+        action={
+          <div className="flex flex-wrap gap-2">
+            {deliveryZones.length === 0 ? (
+              <button
+                type="button"
+                onClick={applyMonterosPreset}
+                className="h-10 rounded-xl bg-gray-100 px-4 text-[13px] font-semibold text-gray-600 transition hover:bg-gray-200"
+              >
+                Usar zonas de Monteros
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={addZone}
+              style={{ background: BRAND }}
+              className="flex h-10 items-center gap-1.5 rounded-xl px-4 text-[13px] font-semibold text-white transition hover:brightness-110"
             >
-              <div className="mb-4 flex items-center justify-between gap-3">
-                <p className="text-sm font-bold text-gray-900">
-                  Zona {index + 1}: {zone.nombre || 'Sin nombre'}
-                </p>
-                <button
-                  onClick={() => removeZone(index)}
-                  className="rounded-xl border border-rose-200 px-3 py-1.5 text-xs font-semibold text-danger-600 transition-colors hover:bg-danger-50"
-                >
-                  Eliminar
-                </button>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <InputField
-                  label="Nombre"
-                  value={zone.nombre || ''}
-                  onChange={(event) => updateZone(index, 'nombre', event.target.value)}
-                  placeholder="Ej: Centro"
-                />
-                <div className="flex items-center pt-6">
-                  <ToggleSwitch
-                    checked={zone.activa !== false}
-                    onChange={(value) => updateZone(index, 'activa', value)}
-                    label="Zona activa"
-                    color="orange"
-                  />
-                </div>
-                <InputField
-                  label="Costo envio ($)"
-                  type="number"
-                  value={zone.costo_envio ?? 0}
-                  onChange={(event) =>
-                    updateZone(index, 'costo_envio', Number(event.target.value || 0))
-                  }
-                />
-                <InputField
-                  label="Tiempo estimado (min)"
-                  type="number"
-                  value={zone.tiempo_estimado_min ?? 0}
-                  onChange={(event) =>
-                    updateZone(index, 'tiempo_estimado_min', Number(event.target.value || 0))
-                  }
-                />
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Palabras clave
-                  </label>
-                  <textarea
-                    value={Array.isArray(zone.keywords) ? zone.keywords.join(', ') : ''}
-                    onChange={(event) =>
-                      updateZone(
-                        index,
-                        'keywords',
-                        event.target.value
-                          .split(',')
-                          .map((item) => item.trim())
-                          .filter(Boolean)
-                      )
-                    }
-                    rows={2}
-                    className="w-full resize-none rounded-xl border border-gray-300 px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-orange-500"
-                    placeholder="centro, plaza, barrio norte..."
-                  />
-                  <p className="mt-2 text-xs text-gray-500">
-                    Se usan para reconocer la zona desde la dirección del cliente.
-                  </p>
-                </div>
-              </div>
-            </div>
-          ))}
-
-          {deliveryZones.length === 0 && (
-            <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 px-4 py-8 text-sm text-gray-500 text-center">
-              No hay zonas configuradas.
-            </div>
-          )}
+              <Plus size={15} strokeWidth={STROKE} />
+              Agregar zona
+            </button>
+          </div>
+        }
+      >
+        {/*
+          Este interruptor vivía suelto entre otros cuatro, arriba de todo.
+          Pero sólo tiene sentido en el contexto de las zonas: activa la
+          restricción de que una dirección tiene que caer en alguna. Puesto
+          acá, al lado de la lista que gobierna, se entiende sin explicación.
+        */}
+        <div className="mb-3">
+          <ToggleSwitch
+            checked={validacionActiva}
+            onChange={(value) => setToggle('delivery_validacion_activa', value)}
+            label="Sólo aceptar direcciones dentro de estas zonas"
+            description={
+              validacionActiva
+                ? 'La web rechaza direcciones que no reconoce.'
+                : 'Se acepta cualquier dirección y se cobra el envío base.'
+            }
+            tone={validacionActiva ? BRAND : undefined}
+          />
         </div>
+
+        {validacionActiva && sinPalabras > 0 ? (
+          <p
+            className="mb-3 rounded-xl px-4 py-3 text-[12px] font-medium leading-relaxed"
+            style={{ background: '#FEF2F2', color: '#7A0F17' }}
+          >
+            {sinPalabras} zona{sinPalabras === 1 ? '' : 's'} activa
+            {sinPalabras === 1 ? '' : 's'} sin palabras clave. Con la validación encendida, el
+            sistema no puede reconocer esas direcciones y va a rechazar los pedidos.
+          </p>
+        ) : null}
+
+        {deliveryZones.length === 0 ? (
+          <div className="rounded-xl border-2 border-dashed border-gray-200 px-4 py-10 text-center">
+            <MapPin size={24} strokeWidth={1.4} className="mx-auto mb-2 text-gray-300" />
+            <p className="text-[13px] font-medium text-gray-500">Sin zonas configuradas</p>
+            <p className="mt-1 text-[12px] text-gray-400">
+              Sin zonas, todos los envíos cobran el costo base.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {deliveryZones.map((zona, index) => {
+              const activa = zona.activa !== false;
+              const palabras = Array.isArray(zona.keywords) ? zona.keywords : [];
+              return (
+                <div
+                  key={zona.id || index}
+                  className={`rounded-xl p-4 transition ${activa ? 'bg-gray-50' : 'bg-gray-50/60'}`}
+                >
+                  <div className="mb-3 flex items-center gap-3">
+                    <span
+                      className={`text-[14px] font-semibold ${activa ? 'text-gray-900' : 'text-gray-400'}`}
+                    >
+                      {zona.nombre || `Zona ${index + 1}`}
+                    </span>
+                    <span className="text-[12px] tabular-nums text-gray-400">
+                      {fmt(zona.costo_envio)} · {zona.tiempo_estimado_min || 0} min
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => updateZone(index, 'activa', !activa)}
+                      className={`ml-auto shrink-0 rounded-lg px-2.5 py-1 text-[11px] font-semibold transition ${activa ? 'bg-gray-900 text-white' : 'bg-gray-200 text-gray-500'}`}
+                    >
+                      {activa ? 'Activa' : 'Pausada'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (window.confirm(`¿Eliminar la zona "${zona.nombre || index + 1}"?`)) {
+                          removeZone(index);
+                        }
+                      }}
+                      aria-label="Eliminar zona"
+                      className="shrink-0 rounded-lg p-1.5 text-gray-300 transition hover:bg-white hover:text-gray-700"
+                    >
+                      <Trash2 size={15} strokeWidth={STROKE} />
+                    </button>
+                  </div>
+
+                  <div className="grid gap-3 md:grid-cols-3">
+                    <InputField
+                      label="Nombre"
+                      value={zona.nombre || ''}
+                      onChange={(event) => updateZone(index, 'nombre', event.target.value)}
+                      placeholder="Centro"
+                    />
+                    <InputField
+                      label="Costo de envío"
+                      type="number"
+                      value={zona.costo_envio ?? 0}
+                      onChange={(event) =>
+                        updateZone(index, 'costo_envio', Number(event.target.value || 0))
+                      }
+                    />
+                    <InputField
+                      label="Demora estimada"
+                      type="number"
+                      value={zona.tiempo_estimado_min ?? 0}
+                      onChange={(event) =>
+                        updateZone(index, 'tiempo_estimado_min', Number(event.target.value || 0))
+                      }
+                    />
+                  </div>
+
+                  <div className="mt-3">
+                    <label className="block">
+                      <span className="mb-1 block text-[13px] font-medium text-gray-700">
+                        Palabras que identifican la zona
+                      </span>
+                      <input
+                        value={palabras.join(', ')}
+                        onChange={(event) =>
+                          updateZone(
+                            index,
+                            'keywords',
+                            event.target.value
+                              .split(',')
+                              .map((item) => item.trim())
+                              .filter(Boolean)
+                          )
+                        }
+                        placeholder="centro, plaza, barrio norte"
+                        className="h-11 w-full rounded-xl border border-gray-200 bg-white px-3.5 text-[14px] text-gray-900 outline-none transition placeholder:text-gray-400 focus:border-gray-400"
+                      />
+                    </label>
+                    {palabras.length > 0 ? (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {palabras.map((palabra) => (
+                          <span
+                            key={palabra}
+                            className="rounded-md bg-white px-2 py-1 text-[11px] font-medium text-gray-600"
+                          >
+                            {palabra}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="mt-1.5 text-[11px] text-gray-400">
+                        Separalas con comas. El sistema las busca dentro de la dirección que escribe
+                        el cliente.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </SectionCard>
     </div>
   );

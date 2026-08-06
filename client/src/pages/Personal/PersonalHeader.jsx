@@ -1,57 +1,80 @@
 import { ExternalLink, Plus, RefreshCw, Users, CheckCircle2, Clock, Wallet } from 'lucide-react';
+
+import { BRAND, STROKE } from '../../lib/theme.js';
 import { StatCard } from './components.jsx';
 import { fmt } from './constants.js';
 
 export function PersonalHeader({ stats, turnoActual, onRefresh, onNuevo }) {
+  const bajas = Math.max(0, stats.total - stats.activos);
+
   return (
     <>
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between bg-white p-6 rounded-xl shadow-[0_4px_24px_rgba(0,0,0,0.04)] border border-gray-100">
+      <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Gestión de Personal</h1>
-          <p className="text-sm font-medium text-gray-500">
-            Administra los roles, pagos y actividad de tu equipo.
+          <h1 className="text-2xl font-semibold tracking-tight text-gray-900">Personal</h1>
+          <p className="mt-0.5 text-[13px] text-gray-500">
+            Turnos, asistencia, sueldos y reconocimientos del equipo
           </p>
         </div>
-        <div className="flex gap-2">
+
+        <div className="flex flex-wrap gap-2">
           <a
             href="/personal/reloj"
             target="_blank"
             rel="noreferrer"
-            className="flex h-11 items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 text-sm font-bold text-gray-600 hover:bg-gray-50 transition-all"
+            className="flex h-11 items-center gap-2 rounded-xl bg-white px-4 text-[13px] font-semibold text-gray-700 shadow-[0_1px_2px_rgba(15,23,42,0.06)] transition hover:bg-gray-50"
           >
-            <ExternalLink size={16} />
+            <ExternalLink size={15} strokeWidth={STROKE} />
             Reloj del equipo
           </a>
           <button
+            type="button"
             onClick={onRefresh}
-            className="h-11 w-11 flex items-center justify-center rounded-xl bg-gray-50 text-gray-500 hover:bg-gray-100 transition-all"
+            title="Actualizar"
+            className="flex h-11 w-11 items-center justify-center rounded-xl bg-white text-gray-500 shadow-[0_1px_2px_rgba(15,23,42,0.06)] transition hover:bg-gray-50 hover:text-gray-700"
           >
-            <RefreshCw size={18} />
+            <RefreshCw size={16} strokeWidth={STROKE} />
           </button>
           <button
+            type="button"
             onClick={onNuevo}
-            className="flex h-11 items-center gap-2 rounded-xl bg-primary-500 text-white px-5 text-sm font-bold shadow-lg shadow-[#5D87FF]/20 hover:bg-primary-600 transition-all"
+            style={{ background: BRAND }}
+            className="flex h-11 items-center gap-2 rounded-xl px-4 text-[13px] font-semibold text-white transition hover:brightness-110"
           >
-            <Plus size={18} strokeWidth={2.5} />
-            Nuevo Miembro
+            <Plus size={16} strokeWidth={STROKE} />
+            Nuevo miembro
           </button>
         </div>
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Total Equipo" value={stats.total} icon={Users} tint="blue" />
         <StatCard
-          label="Miembros Activos"
+          label="Equipo activo"
           value={stats.activos}
-          icon={CheckCircle2}
-          tint="emerald"
+          icon={Users}
+          hint={bajas > 0 ? `${bajas} dado${bajas === 1 ? '' : 's'} de baja` : 'Sin bajas'}
         />
-        <StatCard label="Turno Actual" value={turnoActual || 'Cerrado'} icon={Clock} tint="amber" />
         <StatCard
-          label="Pendiente de Pago"
+          label="Turno actual"
+          value={turnoActual || 'Cerrado'}
+          icon={Clock}
+          hint={turnoActual ? 'Turno abierto ahora' : 'No hay turno abierto'}
+        />
+        <StatCard
+          label="Con saldo pendiente"
+          value={stats.conPendiente}
+          icon={CheckCircle2}
+          // Sólo se pinta si efectivamente le debés a alguien. Antes las cuatro
+          // tarjetas tenían color fijo y ninguna llamaba la atención.
+          alerta={stats.conPendiente > 0}
+          hint={stats.conPendiente > 0 ? `de ${stats.activos} activos` : 'Nadie con plata a cobrar'}
+        />
+        <StatCard
+          label="Total a liquidar"
           value={fmt(stats.pendiente)}
           icon={Wallet}
-          tint="rose"
+          alerta={stats.pendiente > 0}
+          hint="Adelantos, descuentos y consumos sin liquidar"
         />
       </div>
     </>

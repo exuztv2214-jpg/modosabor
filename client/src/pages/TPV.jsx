@@ -19,6 +19,8 @@ import TpvCatalog from '../components/TPV/TpvCatalog.jsx';
 import TpvClientPickerModal from '../components/TPV/TpvClientPickerModal.jsx';
 import TpvHeader from '../components/TPV/TpvHeader.jsx';
 import TpvSidebar from '../components/TPV/TpvSidebar.jsx';
+import TpvPaymentModal from '../components/TPV/TpvPaymentModal.jsx';
+import { TPV_BG } from '../components/TPV/tpvUi.jsx';
 import TpvVariantModal from '../components/TPV/TpvVariantModal.jsx';
 
 const PAGOS = ['efectivo', 'mercadopago', 'transferencia', 'modo', 'uala'];
@@ -32,6 +34,18 @@ function safeParseJson(value, fallback) {
     return fallback;
   }
 }
+
+/**
+ * ⚠️ TEMPORAL — SACAR ANTES DE DEPLOY ⚠️
+ *
+ * Puentea el bloqueo de "caja cerrada" para poder mirar el TPV sin abrir
+ * turno. NO habilita vender de verdad: el backend sigue rechazando el
+ * pedido si la caja está cerrada, así que el botón de cobrar va a tirar
+ * error. Es sólo para ver el diseño.
+ *
+ * Para volver a la normalidad: poner esto en `false`.
+ */
+const BYPASS_CAJA_CERRADA = false;
 
 function readParkedOrders() {
   if (typeof window === 'undefined') return [];
@@ -134,6 +148,11 @@ export default function TPV() {
   const [config, setConfig] = useState({});
   const [categorias, setCategorias] = useState([]);
   const [productos, setProductos] = useState([]);
+  // Se usa para mostrar el skeleton del catálogo en vez de una grilla vacía.
+  const [cargandoCatalogo, setCargandoCatalogo] = useState(true);
+  // El cobro vive en un modal aparte: la columna del pedido queda angosta
+  // y el momento de cobrar se lleva la pantalla entera.
+  const [cobroAbierto, setCobroAbierto] = useState(false);
   const [cajaAbierta, setCajaAbierta] = useState(false);
   const [cajaEstado, setCajaEstado] = useState(null);
   const [catActiva, setCatActiva] = useState(null);
@@ -181,12 +200,13 @@ export default function TPV() {
   const [lastSale, setLastSale] = useState(null);
   const [clienteResumen, setClienteResumen] = useState(null);
   const [clientesDelDia, setClientesDelDia] = useState([]);
+  const [barriosConocidos, setBarriosConocidos] = useState([]);
 
   const refreshCajaState = useCallback(async ({ silent = true } = {}) => {
     try {
       const caja = await api.get('/caja/estado');
       setCajaEstado(caja || null);
-      const abierta = Boolean(caja?.activa);
+      const abierta = BYPASS_CAJA_CERRADA || Boolean(caja?.activa);
       setCajaAbierta(abierta);
       return abierta;
     } catch (error) {
@@ -230,6 +250,7 @@ export default function TPV() {
   }, [items.length]);
 
   useEffect(() => {
+    setCargandoCatalogo(true);
     Promise.all([
       api.get('/categorias'),
       api.get('/productos?activo=1'),
@@ -237,17 +258,20 @@ export default function TPV() {
       api.get('/repartidores').catch(() => []),
       api.get('/caja/estado').catch(() => null),
       api.get('/fidelizacion/config').catch(() => null),
+      api.get('/direcciones/barrios').catch(() => ({ barrios: [] })),
     ])
-      .then(([cats, prods, conf, reps, caja, fidelizacion]) => {
+      .then(([cats, prods, conf, reps, caja, fidelizacion, direcciones]) => {
         setConfig(conf);
         setCategorias(cats.filter((item) => item.activo));
         setProductos(prods);
         setRepartidores(reps.filter((item) => item.activo));
         setCajaEstado(caja || null);
-        setCajaAbierta(Boolean(caja?.activa));
+        setCajaAbierta(BYPASS_CAJA_CERRADA || Boolean(caja?.activa));
         setLoyaltyConfig(fidelizacion || null);
+        setBarriosConocidos(Array.isArray(direcciones?.barrios) ? direcciones.barrios : []);
       })
-      .catch((error) => toast.error(error?.error || 'No se pudo cargar el TPV'));
+      .catch((error) => toast.error(error?.error || 'No se pudo cargar el TPV'))
+      .finally(() => setCargandoCatalogo(false));
   }, []);
 
   const cargarClientesDelDia = useCallback(async () => {
@@ -539,6 +563,35 @@ export default function TPV() {
       }, {}),
     [items]
   );
+  /**
+   * Cuántas líneas distintas del carrito corresponden a cada producto.
+   *
+   * Un mismo producto puede estar varias veces con variantes o extras
+   * diferentes (una pizza entera y otra media, por ejemplo). En ese caso
+   * el stepper de la tarjeta del catálogo sería ambiguo — no sabríamos a
+   * cuál de las dos líneas restarle — así que sólo lo mostramos cuando hay
+   * una sola línea. Con más de una, el operador ajusta desde el carrito.
+   */
+  const cartLinesByProductId = useMemo(
+    () =>
+      items.reduce((acc, item) => {
+        acc[item.producto_id] = Number(acc[item.producto_id] || 0) + 1;
+        return acc;
+      }, {}),
+    [items]
+  );
+
+  /** Cantidad de productos activos por categoría, para el contador del chip. */
+  const conteoPorCategoria = useMemo(
+    () =>
+      productos.reduce((acc, producto) => {
+        if (!producto?.categoria_id) return acc;
+        acc[producto.categoria_id] = Number(acc[producto.categoria_id] || 0) + 1;
+        return acc;
+      }, {}),
+    [productos]
+  );
+
   const splitPaymentEntries = useMemo(
     () =>
       PAGOS.map((method) => ({
@@ -728,12 +781,46 @@ export default function TPV() {
   const preflightBlockingCount = preflightChecklist.filter(
     (item) => item.status === 'block'
   ).length;
+
+  /**
+   * Al sacar el bloque de pre-chequeo de la pantalla, este texto pasa a ser
+   * la única forma de saber por qué el botón de cobrar está deshabilitado.
+   * Se muestra en el tooltip del botón, así que no es opcional: sin esto el
+   * operador se queda mirando un botón gris sin saber qué le falta.
+   */
+  const blockedReason = useMemo(() => {
+    const bloqueos = preflightChecklist.filter((item) => item.status === 'block');
+    if (bloqueos.length > 0) {
+      return bloqueos.map((item) => `${item.label}: ${item.detail}`).join(' · ');
+    }
+    if (tipoEntrega === 'delivery') {
+      if (deliveryQuote.pending) return 'Estamos calculando el costo de envío.';
+      if (!deliveryQuote.available) {
+        return deliveryQuote.message || 'No hay envío disponible para esa dirección.';
+      }
+    }
+    if (!cajaAbierta) return 'La caja está cerrada. Abrí el turno para vender.';
+    return null;
+  }, [preflightChecklist, tipoEntrega, deliveryQuote, cajaAbierta]);
   const confirmDisabled =
     !cajaAbierta ||
     loading ||
     items.length === 0 ||
     (tipoEntrega === 'delivery' && (deliveryQuote.pending || !deliveryQuote.available)) ||
     preflightBlockingCount > 0;
+
+  /**
+   * Resta una unidad desde la tarjeta del catálogo.
+   *
+   * Sólo actúa si el producto tiene exactamente una línea en el carrito;
+   * el catálogo ya se encarga de no mostrar el control en el otro caso,
+   * pero lo validamos igual acá para que no dependa de la UI.
+   */
+  const restarDesdeCatalogo = (producto) => {
+    const lineas = items.filter((item) => Number(item.producto_id) === Number(producto?.id));
+    if (lineas.length !== 1) return;
+    cambiarCantidad(lineas[0].id, -1);
+  };
 
   const limpiar = () => {
     setItems([]);
@@ -1038,6 +1125,10 @@ export default function TPV() {
           id: newId,
           producto_id: producto.id,
           nombre: producto.nombre,
+          // La miniatura viaja con el item para que la lista del pedido
+          // pueda mostrarla sin volver a buscar el producto en el catálogo.
+          imagen: producto.imagen || null,
+          categoria_icono: producto.categoria_icono || null,
           precio_unitario: precioUnitario,
           cantidad: 1,
           variantes,
@@ -1356,9 +1447,21 @@ export default function TPV() {
         pedido,
       });
       if (shouldAutoPrint) await abrirImpresion(pedido.id, popup);
-      toast.success(shouldAutoPrint ? 'Pedido creado e impreso' : 'Pedido creado');
+      // Confirmación con el número y el total: son los dos datos que el
+      // operador necesita si el cliente pregunta o si hay que reimprimir.
+      // La tarjeta verde de "última venta" ya no ocupa lugar en la columna,
+      // así que este toast es el que cierra el ciclo de la venta.
+      toast.success(
+        `Pedido #${pedido.numero} · ${Number(pedido.total || total).toLocaleString('es-AR', {
+          style: 'currency',
+          currency: 'ARS',
+          maximumFractionDigits: 0,
+        })}${shouldAutoPrint ? ' · impreso' : ''}`,
+        { duration: 4000 }
+      );
       cargarClientesDelDia();
       limpiar();
+      setCobroAbierto(false);
     } catch (error) {
       if (popup) popup.close();
       if (
@@ -1558,9 +1661,8 @@ export default function TPV() {
   ]);
 
   return (
-    <div className="flex h-[100dvh] min-h-0 bg-background text-gray-900 font-sans">
+    <div className="flex h-[100dvh] min-h-0 font-sans text-gray-900" style={{ background: TPV_BG }}>
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        {/* ── Header Estilo Modernize ── */}
         <TpvHeader
           cajaAbierta={cajaAbierta}
           isBrowserFullscreen={isBrowserFullscreen}
@@ -1569,55 +1671,30 @@ export default function TPV() {
           onBack={volverAlPanel}
           onGoCaja={() => navigate('/admin/caja')}
           onToggleFullscreen={toggleBrowserFullscreen}
+          turnoLabel={formatTurnoLabel(cajaEstado?.turno_operativo?.shiftName)}
         />
 
-        <div className="border-b border-gray-100 bg-white px-6 py-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded-full bg-slate-100 px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-slate-600">
-              {formatEntregaLabel(tipoEntrega)}
-            </span>
-            <span className="rounded-full bg-slate-100 px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-slate-600">
-              {totalItems} item{totalItems === 1 ? '' : 's'}
-            </span>
-            <span className="rounded-full bg-slate-100 px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-slate-600">
-              {Number(total || 0).toLocaleString('es-AR', {
-                style: 'currency',
-                currency: 'ARS',
-                maximumFractionDigits: 0,
-              })}
-            </span>
-            <span className="rounded-full bg-slate-100 px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-slate-600">
-              {formatTurnoLabel(cajaEstado?.turno_operativo?.shiftName)}
-            </span>
-            <span
-              className={`rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em] ${preflightBlockingCount > 0 ? 'bg-rose-50 text-rose-700' : 'bg-emerald-50 text-emerald-700'}`}
-            >
-              {preflightBlockingCount > 0
-                ? `${preflightBlockingCount} bloqueo${preflightBlockingCount === 1 ? '' : 's'}`
-                : 'Listo para vender'}
-            </span>
-            {tipoEntrega === 'delivery' ? (
-              <span className="rounded-full bg-sky-50 px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-sky-700">
-                Rider {selectedRider?.nombre || repartidoresActivos[0]?.nombre || 'sin fijar'}
-              </span>
-            ) : null}
-            {tipoEntrega !== 'mesa' && horaEntrega ? (
-              <span className="rounded-full bg-violet-50 px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-violet-700">
-                Entrega {horaEntrega}
-              </span>
-            ) : null}
-          </div>
-        </div>
+        {/*
+          Acá vivía una barra de chips que repetía tipo de entrega, items,
+          total, turno, bloqueos, rider y horario. Todo eso ya está en el
+          header o en la columna de venta, así que la barra sólo gastaba
+          alto de pantalla y obligaba a leer el mismo dato dos veces.
+        */}
 
         <div className="relative flex min-h-0 flex-1 overflow-hidden">
           <TpvCatalog
             busqueda={busqueda}
             cajaAbierta={cajaAbierta}
             cartQtyByProductId={cartQtyByProductId}
+            cartLinesByProductId={cartLinesByProductId}
             catActiva={catActiva}
             categorias={categorias}
+            conteoPorCategoria={conteoPorCategoria}
+            totalProductos={productos.length}
+            cargando={cargandoCatalogo}
             onAddItem={agregarItem}
             onAddItemWithOptions={(producto) => agregarItem(producto, { forceOptions: true })}
+            onRestarItem={restarDesdeCatalogo}
             onBusquedaChange={setBusqueda}
             onCatActivaChange={setCatActiva}
             onGoCaja={() => navigate('/admin/caja')}
@@ -1632,20 +1709,24 @@ export default function TPV() {
             cartMobileOpen={cartMobileOpen}
             cajaAbierta={cajaAbierta}
             cliente={cliente}
-            confirmDisabled={confirmDisabled}
-            config={config}
+            confirmDisabled={!cajaAbierta || items.length === 0}
+            blockedReason={
+              !cajaAbierta
+                ? 'La caja está cerrada. Abrí el turno para vender.'
+                : items.length === 0
+                  ? 'Cargá al menos un producto.'
+                  : null
+            }
             deliveryQuote={deliveryQuote}
+            barriosConocidos={barriosConocidos}
             descuento={descuento}
             descuentoAplicado={descuentoAplicado}
             descuentoTipo={descuentoTipo}
-            efectivoRecibido={efectivoRecibido}
             envio={envio}
             horaEntrega={horaEntrega}
             items={items}
             lastAddedId={lastAddedId}
-            loading={loading}
             mesa={mesa}
-            metodoPago={metodoPago}
             notas={notas}
             onAbrirSelectorClientes={abrirSelectorClientes}
             onCambiarCantidad={cambiarCantidad}
@@ -1664,16 +1745,13 @@ export default function TPV() {
               limpiar();
               setCartMobileOpen(false);
             }}
-            onConfirm={() => confirmar(false)}
-            onConfirmPrint={() => confirmar(true)}
+            onAbrirCobro={() => setCobroAbierto(true)}
             onDescuentoChange={setDescuento}
             onDescuentoTipoChange={setDescuentoTipo}
-            onEfectivoRecibidoChange={setEfectivoRecibido}
             onHoraEntregaChange={setHoraEntrega}
             programarHora={programarHora}
             onToggleProgramarHora={toggleProgramarHora}
             onImprimirMesa={imprimirPrecuentaMesa}
-            onMetodoPagoChange={setMetodoPago}
             onNotasChange={setNotas}
             onParkCurrent={saveCurrentAsParked}
             onParkedLabelChange={setParkedLabel}
@@ -1686,28 +1764,19 @@ export default function TPV() {
             onSeleccionarRider={setSelectedRiderId}
             onSetCliente={setCliente}
             onSetMesa={setMesa}
-            onSplitPaymentChange={(method, value) =>
-              setSplitPayments((previous) => ({ ...previous, [method]: value }))
-            }
             onTipoEntregaChange={setTipoEntrega}
             onUbicacionCliente={compartirUbicacionCliente}
             onPegarUbicacionCliente={pegarUbicacionCliente}
             parkedOrders={parkedOrders}
-            pagos={TPV_PAYMENT_OPTIONS}
             printingMesa={printingMesa}
-            preflightChecklist={preflightChecklist}
             repartidoresActivos={repartidoresActivos}
             repartidoresDisponibles={repartidoresDisponibles}
             selectedRiderId={selectedRiderId}
             sharingLocation={sharingLocation}
-            splitPayments={splitPayments}
-            splitRemaining={splitRemaining}
-            splitCashTarget={splitCashTarget}
             subtotal={subtotal}
             tipoEntrega={tipoEntrega}
             total={total}
             totalItems={totalItems}
-            vuelto={vuelto}
             lastSale={lastSale}
             onDeleteParked={deleteParkedOrder}
             clienteResumen={clienteResumen}
@@ -1719,6 +1788,32 @@ export default function TPV() {
           />
         </div>
       </div>
+      <TpvPaymentModal
+        open={cobroAbierto}
+        onClose={() => setCobroAbierto(false)}
+        total={total}
+        subtotal={subtotal}
+        envio={envio}
+        descuentoAplicado={descuentoAplicado}
+        deliveryQuote={deliveryQuote}
+        pagos={TPV_PAYMENT_OPTIONS}
+        metodoPago={metodoPago}
+        onMetodoPagoChange={setMetodoPago}
+        efectivoRecibido={efectivoRecibido}
+        onEfectivoRecibidoChange={setEfectivoRecibido}
+        vuelto={vuelto}
+        splitPayments={splitPayments}
+        splitRemaining={splitRemaining}
+        splitCashTarget={splitCashTarget}
+        onSplitPaymentChange={(method, value) =>
+          setSplitPayments((previous) => ({ ...previous, [method]: value }))
+        }
+        confirmDisabled={confirmDisabled}
+        blockedReason={blockedReason}
+        loading={loading}
+        onConfirm={(imprimir) => confirmar(Boolean(imprimir))}
+      />
+
       {clientePickerOpen ? (
         <TpvClientPickerModal
           clientesCatalogo={clientesCatalogo}

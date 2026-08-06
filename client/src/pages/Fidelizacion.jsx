@@ -32,45 +32,51 @@ import { useAppConfig } from '../context/AppConfigContext.jsx';
 import { buildPublicAppUrl, getPublicAppUrlDiagnostics } from '../lib/publicUrls.js';
 import { resolveAssetUrl } from '../lib/assets.js';
 import { DEFAULT_BRAND_LOGO } from '../lib/webPublicaHelpers.js';
+import { STROKE } from '../lib/theme.js';
+import { NIVEL_ESTILO, STAT_TONOS } from './Clientes/clientesUi.jsx';
 
 const fmtMoney = (value) => `$${Number(value || 0).toLocaleString('es-AR')}`;
 const fmtNumber = (value) => Number(value || 0).toLocaleString('es-AR');
-const LEVEL_COLORS = {
-  Bronce: { bg: 'bg-warning-100', text: 'text-amber-800', dot: 'bg-warning-500' },
-  Plata: { bg: 'bg-slate-100', text: 'text-slate-700', dot: 'bg-slate-400' },
-  Oro: { bg: 'bg-yellow-100', text: 'text-yellow-800', dot: 'bg-yellow-500' },
-  Platino: { bg: 'bg-primary-100', text: 'text-primary-500', dot: 'bg-primary-500' },
-};
-
+/*
+  Los niveles usan la misma paleta que el módulo de Clientes: bronce, plata,
+  oro y platino son metales y el color ya está en el nombre, así que ver un
+  nivel es más rápido que leerlo. Antes cada archivo tenía su propia tabla y
+  no coincidían entre sí —Platino era azul acá y violeta allá—.
+*/
 function getLevelColor(nivel) {
-  if (!nivel) return { bg: 'bg-gray-100', text: 'text-gray-600', dot: 'bg-gray-400' };
-  for (const [key, val] of Object.entries(LEVEL_COLORS)) {
-    if (nivel.toLowerCase().includes(key.toLowerCase())) return val;
-  }
-  return { bg: 'bg-indigo-100', text: 'text-indigo-700', dot: 'bg-indigo-400' };
+  const clave = String(nivel || '').toLowerCase();
+  const encontrado = Object.keys(NIVEL_ESTILO).find((key) => clave.includes(key.toLowerCase()));
+  return NIVEL_ESTILO[encontrado] || NIVEL_ESTILO.Bronce;
 }
 
+const STAT_TINTS = {
+  blue: STAT_TONOS.azul,
+  emerald: STAT_TONOS.verde,
+  amber: STAT_TONOS.ambar,
+  violet: STAT_TONOS.violeta,
+};
+
 function Stat({ label, value, icon: Icon, tint = 'blue' }) {
-  const tints = {
-    blue: 'bg-primary-50 text-primary-500',
-    emerald: 'bg-success-50 text-success-600',
-    amber: 'bg-warning-50 text-warning-600',
-    violet: 'bg-violet-50 text-violet-600',
-  };
+  const tono = STAT_TINTS[tint] || STAT_TONOS.azul;
   return (
-    <div className="rounded-[24px] border border-gray-100 bg-white p-4 shadow-sm hover:-translate-y-0.5 hover:shadow-md transition-all">
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="mb-1 text-[10px] font-black uppercase tracking-[0.18em] text-gray-400">
+    <div
+      className="relative overflow-hidden rounded-2xl p-4 shadow-[0_1px_2px_rgba(15,23,42,0.06)]"
+      style={{ background: tono.bg }}
+    >
+      <span className="absolute inset-y-0 left-0 w-1" style={{ background: tono.barra }} />
+      <div className="flex items-start justify-between gap-3 pl-2">
+        <div className="min-w-0">
+          <p className="text-[12px]" style={{ color: tono.label }}>
             {label}
           </p>
-          <p className="text-xl font-black text-gray-900 tracking-tight">{value}</p>
+          <p
+            className="mt-1 truncate text-[24px] font-bold leading-none tabular-nums tracking-tight"
+            style={{ color: tono.valor }}
+          >
+            {value}
+          </p>
         </div>
-        <div
-          className={`flex h-10 w-10 items-center justify-center rounded-xl shadow-sm ${tints[tint]}`}
-        >
-          <Icon size={18} strokeWidth={2.5} />
-        </div>
+        <Icon size={18} strokeWidth={STROKE} className="mt-0.5 shrink-0 opacity-40" />
       </div>
     </div>
   );
@@ -78,17 +84,15 @@ function Stat({ label, value, icon: Icon, tint = 'blue' }) {
 
 function SectionCard({ title, icon: Icon, children, action }) {
   return (
-    <div className="rounded-[24px] border border-gray-100 bg-white shadow-sm overflow-hidden">
-      <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+    <div className="overflow-hidden rounded-2xl bg-white shadow-[0_1px_2px_rgba(15,23,42,0.06)]">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 px-5 py-3.5">
         <div className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-primary-50 text-primary-500">
-            <Icon size={16} strokeWidth={2.5} />
-          </div>
-          <h2 className="text-sm font-black uppercase tracking-wider text-gray-700">{title}</h2>
+          <Icon size={16} strokeWidth={STROKE} className="text-gray-400" />
+          <h2 className="text-[15px] font-semibold text-gray-900">{title}</h2>
         </div>
         {action}
       </div>
-      <div className="p-6">{children}</div>
+      <div className="p-5">{children}</div>
     </div>
   );
 }
@@ -96,15 +100,15 @@ function SectionCard({ title, icon: Icon, children, action }) {
 function InputField({ label, id, hint, ...props }) {
   return (
     <div>
-      <label htmlFor={id} className="mb-1.5 block text-sm font-semibold text-gray-700">
+      <label htmlFor={id} className="block text-[12px] font-medium text-gray-600">
         {label}
       </label>
       <input
         id={id}
-        className="w-full rounded-2xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm font-medium text-gray-800 outline-none transition focus:border-primary-500 focus:bg-white focus:ring-2 focus:ring-[#5D87FF]/20"
+        className="mt-1 h-11 w-full rounded-xl border border-gray-200 bg-white px-3 text-[14px] text-gray-800 outline-none transition placeholder:text-gray-400 focus:border-gray-400 focus:ring-2 focus:ring-gray-900/5"
         {...props}
       />
-      {hint && <p className="mt-1 text-xs text-gray-400">{hint}</p>}
+      {hint && <p className="mt-1 text-[11px] leading-4 text-gray-400">{hint}</p>}
     </div>
   );
 }
@@ -464,7 +468,7 @@ export default function Fidelizacion() {
       toast.success('Configuración guardada');
       loadAll();
     } catch (err) {
-      toast.error(err?.message || 'Error al guardar configuración');
+      toast.error(err?.error || 'Error al guardar configuración');
     } finally {
       setSavingConfig(false);
     }
@@ -517,7 +521,7 @@ export default function Fidelizacion() {
       setRecalculateDialog(false);
       loadAll();
     } catch (err) {
-      toast.error(err?.message || 'Error al recalcular niveles');
+      toast.error(err?.error || 'Error al recalcular niveles');
     } finally {
       setRecalculating(false);
     }
@@ -539,7 +543,7 @@ export default function Fidelizacion() {
       setAjusteForm({ delta_puntos: '', delta_sellos: '', motivo: '' });
       loadAll();
     } catch (err) {
-      toast.error(err?.message || 'Error al aplicar ajuste');
+      toast.error(err?.error || 'Error al aplicar ajuste');
     } finally {
       setSavingAjuste(false);
     }
@@ -548,7 +552,7 @@ export default function Fidelizacion() {
   if (loading) {
     return (
       <div className="flex h-64 items-center justify-center">
-        <RefreshCw className="animate-spin text-primary-500" size={32} />
+        <RefreshCw className="animate-spin" size={28} style={{ color: '#DC1F2D' }} />
       </div>
     );
   }
@@ -558,7 +562,7 @@ export default function Fidelizacion() {
       {/* Header */}
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-black text-gray-900 tracking-tight">
+          <h1 className="text-2xl font-semibold text-gray-900 tracking-tight">
             Programa de Fidelización
           </h1>
           <p className="text-sm text-gray-500 mt-0.5">
@@ -624,7 +628,7 @@ export default function Fidelizacion() {
                 aria-pressed={form.activo}
               >
                 {form.activo ? (
-                  <ToggleRight size={36} className="text-primary-500" strokeWidth={1.5} />
+                  <ToggleRight size={34} strokeWidth={1.6} style={{ color: '#047857' }} />
                 ) : (
                   <ToggleLeft size={36} className="text-gray-300" strokeWidth={1.5} />
                 )}
@@ -723,7 +727,7 @@ export default function Fidelizacion() {
                 id="premio_producto_id"
                 value={form.premio_producto_id}
                 onChange={(e) => setForm((f) => ({ ...f, premio_producto_id: e.target.value }))}
-                className="w-full rounded-2xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm font-medium text-gray-800 outline-none transition focus:border-primary-500 focus:bg-white focus:ring-2 focus:ring-[#5D87FF]/20"
+                className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-[14px] text-gray-800 outline-none transition placeholder:text-gray-400 focus:border-gray-400 focus:ring-2 focus:ring-gray-900/5"
               >
                 <option value="">Sin producto vinculado</option>
                 {productos.map((producto) => (
@@ -759,7 +763,7 @@ export default function Fidelizacion() {
                   type="button"
                   onClick={() => tarjetaFondoInputRef?.current?.click()}
                   disabled={uploadingTarjetaFondo}
-                  className="inline-flex shrink-0 items-center gap-2 rounded-xl bg-primary-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#4A74EF] disabled:opacity-50"
+                  className="inline-flex shrink-0 items-center gap-2 rounded-xl bg-[#DC1F2D] px-4 py-2 text-sm font-semibold text-white transition hover:brightness-110 disabled:opacity-50"
                 >
                   <ImagePlus size={16} />
                   {uploadingTarjetaFondo
@@ -794,7 +798,7 @@ export default function Fidelizacion() {
                     type="button"
                     onClick={handleTarjetaFondoRemove}
                     disabled={uploadingTarjetaFondo}
-                    className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-rose-200 bg-white px-3 py-2 text-xs font-semibold text-danger-600 transition hover:bg-danger-50 disabled:opacity-40"
+                    className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-rose-200 bg-white px-3 py-2 text-xs font-semibold text-rose-600 transition hover:bg-rose-50 disabled:opacity-40"
                   >
                     <Trash2 size={14} />
                     Quitar
@@ -804,7 +808,7 @@ export default function Fidelizacion() {
             </div>
 
             {config && (
-              <div className="rounded-2xl bg-primary-50 px-4 py-3 text-xs text-primary-500 space-y-1">
+              <div className="space-y-1 rounded-xl bg-gray-50 px-4 py-3 text-[12px] text-gray-600">
                 {config.pesos_por_punto != null && (
                   <p>
                     <span className="font-bold">Pesos por punto:</span>{' '}
@@ -837,7 +841,7 @@ export default function Fidelizacion() {
               <button
                 type="submit"
                 disabled={savingConfig}
-                className="flex items-center gap-2 rounded-2xl bg-primary-500 px-5 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-[#4a6ee0] disabled:opacity-60"
+                className="flex items-center gap-2 rounded-2xl bg-[#DC1F2D] px-5 py-2.5 text-sm font-bold text-white shadow-sm transition hover:brightness-110 disabled:opacity-60"
               >
                 {savingConfig ? (
                   <RefreshCw size={16} className="animate-spin" />
@@ -878,13 +882,22 @@ export default function Fidelizacion() {
                 return (
                   <div
                     key={nivel.id ?? idx}
-                    className="flex items-center gap-3 rounded-2xl border border-gray-100 bg-gray-50 px-4 py-3"
+                    className="flex items-center gap-3 rounded-xl px-4 py-3"
+                    style={{ background: colors.banda }}
                   >
-                    <span className={`flex h-2.5 w-2.5 flex-shrink-0 rounded-full ${colors.dot}`} />
-                    <div className="flex-1 min-w-0">
-                      <p className={`text-sm font-black ${colors.text}`}>{nivel.nombre}</p>
+                    <span
+                      className="h-8 w-1.5 shrink-0 rounded-full"
+                      style={{ background: colors.fuerte }}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[14px] font-semibold" style={{ color: colors.texto }}>
+                        {nivel.nombre}
+                      </p>
                       {(nivel.puntos_minimos != null || nivel.puntos_maximos != null) && (
-                        <p className="text-xs text-gray-400 mt-0.5">
+                        <p
+                          className="mt-0.5 text-[12px] tabular-nums"
+                          style={{ color: colors.apagado }}
+                        >
                           {nivel.puntos_minimos != null ? fmtNumber(nivel.puntos_minimos) : '0'}
                           {nivel.puntos_maximos != null
                             ? ` – ${fmtNumber(nivel.puntos_maximos)}`
@@ -893,17 +906,23 @@ export default function Fidelizacion() {
                         </p>
                       )}
                       {nivel.descripcion && (
-                        <p className="text-xs text-gray-500 mt-0.5 truncate">{nivel.descripcion}</p>
+                        <p
+                          className="mt-0.5 truncate text-[12px]"
+                          style={{ color: colors.apagado }}
+                        >
+                          {nivel.descripcion}
+                        </p>
                       )}
                     </div>
                     {nivel.beneficio && (
                       <span
-                        className={`rounded-full px-2 py-0.5 text-xs font-semibold ${colors.bg} ${colors.text}`}
+                        className="shrink-0 rounded-full bg-white/80 px-2.5 py-1 text-[12px] font-semibold"
+                        style={{ color: colors.fg }}
                       >
                         {nivel.beneficio}
                       </span>
                     )}
-                    <ChevronRight size={14} className="text-gray-300 flex-shrink-0" />
+                    <ChevronRight size={14} strokeWidth={STROKE} style={{ color: colors.fuerte }} />
                   </div>
                 );
               })}
@@ -924,7 +943,7 @@ export default function Fidelizacion() {
             <button
               type="button"
               onClick={() => copyClubLink(getClubBaseUrl(), 'Enlace general copiado')}
-              className="inline-flex items-center gap-2 rounded-2xl border border-gray-200 px-3 py-2 text-[11px] font-black uppercase tracking-widest text-gray-500 hover:border-primary-500/30 hover:bg-primary-50 hover:text-primary-500"
+              className="inline-flex items-center gap-2 rounded-2xl border border-gray-200 px-3 py-2 text-[12px] font-semibold text-gray-500 hover:bg-gray-100 hover:text-gray-900"
             >
               <Copy size={13} />
               Copiar enlace
@@ -932,7 +951,7 @@ export default function Fidelizacion() {
             <button
               type="button"
               onClick={printClubPoster}
-              className="inline-flex items-center gap-2 rounded-2xl border border-gray-200 px-3 py-2 text-[11px] font-black uppercase tracking-widest text-gray-500 hover:border-primary-500/30 hover:bg-primary-50 hover:text-primary-500"
+              className="inline-flex items-center gap-2 rounded-2xl border border-gray-200 px-3 py-2 text-[12px] font-semibold text-gray-500 hover:bg-gray-100 hover:text-gray-900"
             >
               <Download size={13} />
               Imprimir QR
@@ -941,15 +960,15 @@ export default function Fidelizacion() {
         }
       >
         <div className="grid gap-5 xl:grid-cols-[1.1fr_0.9fr]">
-          <div className="overflow-hidden rounded-[32px] border border-primary-100 bg-[linear-gradient(135deg,#fff8f5_0%,#fff2ec_100%)] shadow-sm">
-            <div className="border-b border-primary-100 px-6 py-5">
-              <p className="text-[11px] font-black uppercase tracking-[0.2em] text-primary-500">
+          <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+            <div className="border-b border-gray-100 px-6 py-5" style={{ background: '#FEF2F2' }}>
+              <p className="text-[12px]" style={{ color: '#9E141E' }}>
                 Para mostrador, caja y WhatsApp
               </p>
-              <h3 className="mt-2 text-2xl font-black tracking-tight text-gray-900">
+              <h3 className="mt-1 text-[19px] font-semibold tracking-tight text-gray-900">
                 Alta rápida al club con un solo QR
               </h3>
-              <p className="mt-3 max-w-2xl text-sm font-medium leading-6 text-gray-600">
+              <p className="mt-2 max-w-2xl text-[13px] leading-6 text-gray-600">
                 El cliente escanea, completa su ficha y el sistema intenta vincularlo con su
                 historial por teléfono. Si ya existe, sigue con la misma tarjeta. Si no existe, lo
                 crea sin duplicados.
@@ -957,8 +976,8 @@ export default function Fidelizacion() {
             </div>
 
             <div className="grid gap-5 p-6 lg:grid-cols-[220px_minmax(0,1fr)]">
-              <div className="rounded-[28px] border border-white/80 bg-white p-5 shadow-sm">
-                <div className="flex justify-center rounded-[24px] border border-primary-100 bg-[#fff8f4] p-4">
+              <div className="rounded-2xl border border-gray-100 p-5">
+                <div className="flex justify-center rounded-xl border border-gray-100 p-4">
                   <QRCodeSVG
                     value={getClubBaseUrl()}
                     size={180}
@@ -967,53 +986,43 @@ export default function Fidelizacion() {
                     includeMargin
                   />
                 </div>
-                <div className="mt-4 rounded-full bg-primary-50 px-3 py-2 text-center text-[10px] font-black uppercase tracking-[0.22em] text-primary-500">
+                <p className="mt-3 text-center text-[12px] text-gray-500">
                   Escaneá y completá tu ficha
-                </div>
+                </p>
               </div>
 
               <div className="space-y-4">
-                <div className="rounded-[24px] border border-white/80 bg-white p-5 shadow-sm">
-                  <p className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-400">
-                    Enlace general del club
-                  </p>
+                <div className="rounded-2xl border border-white/80 bg-white p-5 shadow-sm">
+                  <p className="text-[12px] text-gray-500">Enlace general del club</p>
                   <p className="mt-2 break-all text-sm font-bold leading-6 text-gray-800">
                     {getClubBaseUrl()}
                   </p>
                 </div>
 
                 <div className="grid gap-4 sm:grid-cols-3">
-                  <div className="rounded-[24px] border border-white/80 bg-white p-4 shadow-sm">
-                    <p className="text-[10px] font-black uppercase tracking-[0.18em] text-primary-500">
-                      Paso 1
-                    </p>
-                    <p className="mt-2 text-sm font-black leading-6 text-gray-900">
+                  <div className="rounded-2xl border border-white/80 bg-white p-4 shadow-sm">
+                    <p className="text-[12px] text-gray-500">Paso 1</p>
+                    <p className="mt-2 text-sm font-semibold leading-6 text-gray-900">
                       El cliente escanea el QR desde cualquier celular.
                     </p>
                   </div>
-                  <div className="rounded-[24px] border border-white/80 bg-white p-4 shadow-sm">
-                    <p className="text-[10px] font-black uppercase tracking-[0.18em] text-primary-500">
-                      Paso 2
-                    </p>
-                    <p className="mt-2 text-sm font-black leading-6 text-gray-900">
+                  <div className="rounded-2xl border border-white/80 bg-white p-4 shadow-sm">
+                    <p className="text-[12px] text-gray-500">Paso 2</p>
+                    <p className="mt-2 text-sm font-semibold leading-6 text-gray-900">
                       Ingresa su teléfono, nombre y completa datos faltantes.
                     </p>
                   </div>
-                  <div className="rounded-[24px] border border-white/80 bg-white p-4 shadow-sm">
-                    <p className="text-[10px] font-black uppercase tracking-[0.18em] text-primary-500">
-                      Paso 3
-                    </p>
-                    <p className="mt-2 text-sm font-black leading-6 text-gray-900">
+                  <div className="rounded-2xl border border-white/80 bg-white p-4 shadow-sm">
+                    <p className="text-[12px] text-gray-500">Paso 3</p>
+                    <p className="mt-2 text-sm font-semibold leading-6 text-gray-900">
                       Ya queda con tarjeta virtual lista para puntos, sellos y premios.
                     </p>
                   </div>
                 </div>
 
                 {publicAppDiagnostics.warning ? (
-                  <div className="rounded-[24px] border border-amber-100 bg-warning-50 px-4 py-4">
-                    <p className="text-[10px] font-black uppercase tracking-[0.18em] text-warning-600">
-                      Revisar URL pública
-                    </p>
+                  <div className="rounded-2xl border border-amber-100 bg-amber-50 px-4 py-4">
+                    <p className="text-[10px] font-semibold text-amber-600">Revisar URL pública</p>
                     <p className="mt-2 text-xs font-bold leading-5 text-amber-800">
                       {publicAppDiagnostics.warning}
                     </p>
@@ -1024,7 +1033,7 @@ export default function Fidelizacion() {
                   <button
                     type="button"
                     onClick={() => copyClubLink(getClubBaseUrl(), 'Enlace general copiado')}
-                    className="inline-flex items-center gap-2 rounded-2xl bg-primary-500 px-4 py-3 text-xs font-black uppercase tracking-widest text-white shadow-sm hover:brightness-105"
+                    className="inline-flex items-center gap-2 rounded-2xl bg-[#DC1F2D] px-4 py-3 text-[13px] font-semibold text-white shadow-sm hover:brightness-105"
                   >
                     <Copy size={14} />
                     Copiar enlace
@@ -1032,7 +1041,7 @@ export default function Fidelizacion() {
                   <button
                     type="button"
                     onClick={printClubPoster}
-                    className="inline-flex items-center gap-2 rounded-2xl border border-gray-200 bg-white px-4 py-3 text-xs font-black uppercase tracking-widest text-gray-600 hover:bg-gray-50"
+                    className="inline-flex items-center gap-2 rounded-2xl border border-gray-200 bg-white px-4 py-3 text-[13px] font-semibold text-gray-600 hover:bg-gray-50"
                   >
                     <Download size={14} />
                     Imprimir QR
@@ -1041,7 +1050,7 @@ export default function Fidelizacion() {
                     href={getClubBaseUrl()}
                     target="_blank"
                     rel="noreferrer"
-                    className="inline-flex items-center gap-2 rounded-2xl border border-gray-200 bg-white px-4 py-3 text-xs font-black uppercase tracking-widest text-gray-600 hover:bg-gray-50"
+                    className="inline-flex items-center gap-2 rounded-2xl border border-gray-200 bg-white px-4 py-3 text-[13px] font-semibold text-gray-600 hover:bg-gray-50"
                   >
                     <ExternalLink size={14} />
                     Abrir club
@@ -1052,10 +1061,8 @@ export default function Fidelizacion() {
           </div>
 
           <div className="space-y-4">
-            <div className="rounded-[28px] border border-gray-100 bg-white p-5 shadow-sm">
-              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-400">
-                Qué resuelve
-              </p>
+            <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
+              <p className="text-[12px] text-gray-500">Qué resuelve</p>
               <div className="mt-4 space-y-3">
                 <div className="rounded-2xl bg-gray-50 px-4 py-3 text-sm font-bold leading-6 text-gray-700">
                   Evita cargar clientes a mano una y otra vez.
@@ -1069,10 +1076,8 @@ export default function Fidelizacion() {
               </div>
             </div>
 
-            <div className="rounded-[28px] border border-primary-100 bg-primary-50/60 p-5 shadow-sm">
-              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-primary-500">
-                Recomendación
-              </p>
+            <div className="rounded-2xl bg-gray-50 p-5">
+              <p className="text-[12px] text-gray-500">Recomendación</p>
               <p className="mt-2 text-sm font-bold leading-6 text-gray-800">
                 Conviene imprimir este QR en caja o dentro de una tarjeta física de fidelidad para
                 que el cliente complete solo su ficha y vos ya lo recibas ordenado en Clientes.
@@ -1088,28 +1093,20 @@ export default function Fidelizacion() {
           <table className="w-full text-left text-sm">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-6 py-3 text-[10px] font-black uppercase tracking-wider text-gray-400">
-                  #
-                </th>
-                <th className="px-4 py-3 text-[10px] font-black uppercase tracking-wider text-gray-400">
-                  Cliente
-                </th>
-                <th className="px-4 py-3 text-[10px] font-black uppercase tracking-wider text-gray-400">
-                  Teléfono
-                </th>
-                <th className="px-4 py-3 text-[10px] font-black uppercase tracking-wider text-gray-400">
-                  Nivel
-                </th>
-                <th className="px-4 py-3 text-[10px] font-black uppercase tracking-wider text-gray-400 text-right">
+                <th className="px-6 py-2.5 text-[11px] font-medium text-gray-500">#</th>
+                <th className="px-4 py-2.5 text-[11px] font-medium text-gray-500">Cliente</th>
+                <th className="px-4 py-2.5 text-[11px] font-medium text-gray-500">Teléfono</th>
+                <th className="px-4 py-2.5 text-[11px] font-medium text-gray-500">Nivel</th>
+                <th className="px-4 py-2.5 text-[11px] font-medium text-gray-500 text-right">
                   Puntos
                 </th>
-                <th className="px-4 py-3 text-[10px] font-black uppercase tracking-wider text-gray-400 text-right">
+                <th className="px-4 py-2.5 text-[11px] font-medium text-gray-500 text-right">
                   Sellos
                 </th>
-                <th className="px-4 py-3 text-[10px] font-black uppercase tracking-wider text-gray-400 text-right">
+                <th className="px-4 py-2.5 text-[11px] font-medium text-gray-500 text-right">
                   Premios
                 </th>
-                <th className="px-4 py-3 text-[10px] font-black uppercase tracking-wider text-gray-400"></th>
+                <th className="px-4 py-2.5 text-[11px] font-medium text-gray-500"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -1128,7 +1125,8 @@ export default function Fidelizacion() {
                     <tr key={c.id} className="hover:bg-gray-50 transition-colors">
                       <td className="px-6 py-3">
                         <span
-                          className={`text-sm font-black ${idx < 3 ? 'text-primary-500' : 'text-gray-300'}`}
+                          className="text-[14px] font-semibold tabular-nums"
+                          style={{ color: idx < 3 ? '#DC1F2D' : '#D1D5DB' }}
                         >
                           {idx + 1}
                         </span>
@@ -1137,7 +1135,7 @@ export default function Fidelizacion() {
                         <p className="font-semibold text-gray-900 leading-tight">{c.nombre}</p>
                         {c.email && <p className="text-xs text-gray-400 mt-0.5">{c.email}</p>}
                         {c.codigo_tarjeta ? (
-                          <p className="mt-1 text-[11px] font-black uppercase tracking-wider text-primary-500">
+                          <p className="mt-1 font-mono text-[11px] text-gray-400">
                             {c.codigo_tarjeta}
                           </p>
                         ) : null}
@@ -1146,17 +1144,27 @@ export default function Fidelizacion() {
                       <td className="px-4 py-3">
                         {c.nivel ? (
                           <span
-                            className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-bold ${colors.bg} ${colors.text}`}
+                            className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[12px] font-semibold"
+                            style={{
+                              background: colors.bg,
+                              color: colors.fg,
+                              borderColor: colors.borde,
+                            }}
                           >
-                            <span className={`h-1.5 w-1.5 rounded-full ${colors.dot}`} />
+                            <span
+                              className="h-1.5 w-1.5 rounded-full"
+                              style={{ background: colors.fuerte }}
+                            />
                             {c.nivel}
                           </span>
                         ) : (
-                          <span className="text-xs text-gray-300">Sin nivel</span>
+                          <span className="text-[12px] text-gray-300">Sin nivel</span>
                         )}
                       </td>
                       <td className="px-4 py-3 text-right">
-                        <span className="font-black text-gray-900">{fmtNumber(c.puntos || 0)}</span>
+                        <span className="font-semibold text-gray-900">
+                          {fmtNumber(c.puntos || 0)}
+                        </span>
                       </td>
                       <td className="px-4 py-3 text-right">
                         <span className="font-semibold text-gray-700">
@@ -1165,7 +1173,7 @@ export default function Fidelizacion() {
                       </td>
                       <td className="px-4 py-3 text-right">
                         {hasPremio ? (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-success-50 px-2 py-0.5 text-xs font-bold text-success-700">
+                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-bold text-emerald-700">
                             <CheckCircle size={11} />
                             {c.recompensas_pendientes}
                           </span>
@@ -1184,7 +1192,7 @@ export default function Fidelizacion() {
                                   'Enlace individual copiado'
                                 )
                               }
-                              className="rounded-xl bg-gray-100 p-1.5 text-gray-400 hover:bg-success-50 hover:text-success-600 transition-colors"
+                              className="rounded-xl bg-gray-100 p-1.5 text-gray-400 hover:bg-emerald-50 hover:text-emerald-600 transition-colors"
                               title="Copiar enlace individual"
                             >
                               <Copy size={13} />
@@ -1195,7 +1203,7 @@ export default function Fidelizacion() {
                               setAjusteModal({ cliente: c });
                               setAjusteForm({ delta_puntos: '', delta_sellos: '', motivo: '' });
                             }}
-                            className="rounded-xl bg-gray-100 p-1.5 text-gray-400 hover:bg-primary-50 hover:text-primary-500 transition-colors"
+                            className="rounded-xl bg-gray-100 p-1.5 text-gray-400 hover:bg-gray-200 hover:text-gray-700 transition-colors"
                             title="Ajustar puntos/sellos"
                           >
                             <Pencil size={13} />
@@ -1213,11 +1221,11 @@ export default function Fidelizacion() {
 
       {/* Modal ajuste manual */}
       {ajusteModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-          <div className="w-full max-w-md rounded-[28px] bg-white shadow-2xl">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl">
             <div className="flex items-center justify-between border-b border-gray-100 px-6 py-5">
               <div>
-                <h2 className="text-base font-black text-gray-900">Ajuste manual</h2>
+                <h2 className="text-base font-semibold text-gray-900">Ajuste manual</h2>
                 <p className="mt-0.5 text-xs text-gray-500">
                   {ajusteModal.cliente.nombre} — Puntos actuales:{' '}
                   <strong>{fmtNumber(ajusteModal.cliente.puntos || 0)}</strong> · Sellos:{' '}
@@ -1232,12 +1240,12 @@ export default function Fidelizacion() {
               </button>
             </div>
             <form onSubmit={handleAjuste} className="space-y-4 px-6 py-5">
-              <p className="text-xs text-gray-400 rounded-xl bg-warning-50 border border-amber-100 px-3 py-2 text-warning-700 font-medium">
+              <p className="text-xs text-gray-400 rounded-xl bg-amber-50 border border-amber-100 px-3 py-2 text-amber-700 font-medium">
                 Usá valores positivos para sumar y negativos para restar (ej: -5 quita 5 sellos).
               </p>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-gray-500">
+                  <label className="mb-1.5 block text-[12px] font-medium text-gray-600">
                     Δ Puntos
                   </label>
                   <input
@@ -1245,11 +1253,11 @@ export default function Fidelizacion() {
                     value={ajusteForm.delta_puntos}
                     onChange={(e) => setAjusteForm((f) => ({ ...f, delta_puntos: e.target.value }))}
                     placeholder="0"
-                    className="w-full rounded-2xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm font-medium text-gray-800 outline-none focus:border-primary-500 focus:ring-2 focus:ring-[#5D87FF]/20"
+                    className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-[14px] text-gray-800 outline-none transition placeholder:text-gray-400 focus:border-gray-400 focus:ring-2 focus:ring-gray-900/5"
                   />
                 </div>
                 <div>
-                  <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-gray-500">
+                  <label className="mb-1.5 block text-[12px] font-medium text-gray-600">
                     Δ Sellos
                   </label>
                   <input
@@ -1257,12 +1265,12 @@ export default function Fidelizacion() {
                     value={ajusteForm.delta_sellos}
                     onChange={(e) => setAjusteForm((f) => ({ ...f, delta_sellos: e.target.value }))}
                     placeholder="0"
-                    className="w-full rounded-2xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm font-medium text-gray-800 outline-none focus:border-primary-500 focus:ring-2 focus:ring-[#5D87FF]/20"
+                    className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-[14px] text-gray-800 outline-none transition placeholder:text-gray-400 focus:border-gray-400 focus:ring-2 focus:ring-gray-900/5"
                   />
                 </div>
               </div>
               <div>
-                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-gray-500">
+                <label className="mb-1.5 block text-[12px] font-medium text-gray-600">
                   Motivo (para el historial)
                 </label>
                 <input
@@ -1271,21 +1279,21 @@ export default function Fidelizacion() {
                   value={ajusteForm.motivo}
                   onChange={(e) => setAjusteForm((f) => ({ ...f, motivo: e.target.value }))}
                   placeholder="Ej: Compensación por error, Promoción especial..."
-                  className="w-full rounded-2xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm font-medium text-gray-800 outline-none focus:border-primary-500 focus:ring-2 focus:ring-[#5D87FF]/20"
+                  className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-[14px] text-gray-800 outline-none transition placeholder:text-gray-400 focus:border-gray-400 focus:ring-2 focus:ring-gray-900/5"
                 />
               </div>
               <div className="flex gap-3 pt-2">
                 <button
                   type="button"
                   onClick={() => setAjusteModal(null)}
-                  className="flex-1 h-12 rounded-2xl border border-gray-200 text-xs font-black uppercase tracking-widest text-gray-500 hover:bg-gray-50"
+                  className="flex-1 h-12 rounded-2xl border border-gray-200 text-[13px] font-semibold text-gray-500 hover:bg-gray-50"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
                   disabled={savingAjuste || (!ajusteForm.delta_puntos && !ajusteForm.delta_sellos)}
-                  className="flex-[2] h-12 rounded-2xl bg-primary-500 text-xs font-black uppercase tracking-widest text-white shadow-lg shadow-primary-100 hover:bg-blue-600 disabled:opacity-50 transition-all"
+                  className="flex-[2] h-12 rounded-2xl bg-[#DC1F2D] text-[13px] font-semibold text-white hover:brightness-110 disabled:opacity-50 transition-all"
                 >
                   {savingAjuste ? 'Guardando...' : 'Aplicar ajuste'}
                 </button>

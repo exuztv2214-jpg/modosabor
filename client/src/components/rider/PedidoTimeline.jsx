@@ -57,7 +57,7 @@ export default function PedidoTimeline({ estado, className = '' }) {
                   )}
                 </motion.div>
                 <span
-                  className={`text-center text-[9px] font-black uppercase leading-tight tracking-wide ${
+                  className={`text-center text-[11px] font-medium leading-tight ${
                     completada ? 'text-emerald-600' : 'text-gray-400'
                   }`}
                 >

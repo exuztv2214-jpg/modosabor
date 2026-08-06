@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion';
 import { Home, History, User } from 'lucide-react';
 
+import { BRAND } from '../../lib/theme.js';
 import { haptic } from '../../lib/riderHaptics.js';
 
 const TABS = [
@@ -43,30 +44,37 @@ export default function BottomTabBar({ activo, onChange, badgeHistorial = 0 }) {
               className="relative flex flex-1 flex-col items-center gap-1 py-2.5"
             >
               <span className="relative flex h-9 w-16 items-center justify-center">
+                {/* `primary-*` en la config de Tailwind es el azul #5D87FF de
+                    la plantilla original, no la marca. La app del rider tiene
+                    la llama roja de Modo Sabor arriba y la navegación azul
+                    abajo. Va en BRAND como todo el resto del sistema. */}
                 {esActivo && (
                   <motion.span
                     layoutId="tab-pill"
                     transition={{ type: 'spring', damping: 26, stiffness: 380 }}
-                    className="absolute inset-0 rounded-2xl bg-primary-50"
+                    className="absolute inset-0 rounded-2xl"
+                    style={{ background: '#FEF2F2' }}
                   />
                 )}
                 <span className="relative">
                   <Icon
                     size={20}
                     strokeWidth={esActivo ? 2.8 : 2.2}
-                    className={esActivo ? 'text-primary-600' : 'text-gray-400'}
+                    className={esActivo ? '' : 'text-gray-400'}
+                    style={esActivo ? { color: BRAND } : undefined}
                   />
                   {key === 'historial' && badgeHistorial > 0 && (
-                    <span className="absolute -right-2 -top-1.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-success-500 px-1 text-[9px] font-black tabular-nums text-white">
+                    <span className="absolute -right-2 -top-1.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-emerald-600 px-1 text-[9px] font-semibold tabular-nums text-white">
                       {badgeHistorial > 99 ? '99+' : badgeHistorial}
                     </span>
                   )}
                 </span>
               </span>
               <span
-                className={`text-[9px] font-black uppercase tracking-widest transition-colors ${
-                  esActivo ? 'text-primary-600' : 'text-gray-400'
+                className={`text-[11px] font-medium transition-colors ${
+                  esActivo ? '' : 'text-gray-400'
                 }`}
+                style={esActivo ? { color: BRAND } : undefined}
               >
                 {label}
               </span>

@@ -33,7 +33,7 @@ export default function Personal() {
   };
 
   return (
-    <div className="max-w-7xl mx-auto space-y-6 pb-12">
+    <div className="space-y-4 py-6">
       <PersonalHeader
         stats={p.stats}
         turnoActual={p.turnoActual}
@@ -41,33 +41,42 @@ export default function Personal() {
         onNuevo={p.abrirNuevo}
       />
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
         <PersonalList
-          personal={p.personal}
+          personal={p.personalFiltrado}
+          totalSinFiltrar={p.personal.length}
           selectedId={p.selectedId}
           onSelectId={p.setSelectedId}
+          busqueda={p.busqueda}
+          onBusquedaChange={p.setBusqueda}
+          filtroEstado={p.filtroEstado}
+          onFiltroChange={p.setFiltroEstado}
         />
 
-        <div className="lg:col-span-8 space-y-6">
+        <div className="space-y-4 lg:col-span-8">
           {p.detailLoading ? (
-            <div className="flex flex-col items-center justify-center py-24 bg-white rounded-xl border border-gray-100 shadow-[0_4px_24px_rgba(0,0,0,0.04)]">
-              <RefreshCw className="animate-spin text-primary-500 mb-4" size={32} />
-              <p className="text-sm font-bold text-gray-500">Cargando ficha...</p>
+            <div className="flex flex-col items-center justify-center rounded-2xl bg-white py-24 shadow-[0_1px_2px_rgba(15,23,42,0.06)]">
+              <RefreshCw className="mb-3 animate-spin text-gray-300" size={26} strokeWidth={2} />
+              <p className="text-[13px] text-gray-500">Cargando ficha…</p>
             </div>
           ) : p.detail ? (
-            <div className="space-y-6 animate-in fade-in duration-500">
-              <div className="rounded-xl bg-white shadow-[0_4px_24px_rgba(0,0,0,0.04)] border border-gray-100 overflow-hidden">
-                <div className="h-24 bg-primary-500/10 flex items-center px-8">
-                  {p.detail.item.categoria_nombre && (
-                    <span className="px-3 py-1 rounded-full bg-white/80 backdrop-blur-sm text-[10px] font-bold text-primary-500 border border-primary-500/20 flex items-center gap-1.5 shadow-sm">
-                      {p.detail.item.categoria_icono} {p.detail.item.categoria_nombre.toUpperCase()}
+            <div className="space-y-4">
+              <div className="overflow-hidden rounded-2xl bg-white shadow-[0_1px_2px_rgba(15,23,42,0.06)]">
+                {/* La banda usa el color de la categoría cargada en el sistema;
+                    antes era un celeste fijo derivado del tema viejo. */}
+                <div
+                  className="flex h-20 items-center px-6"
+                  style={{ background: p.detail.item.categoria_color || '#F1F5F9' }}
+                >
+                  {p.detail.item.categoria_nombre ? (
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-white/90 px-2.5 py-1 text-[11px] font-medium text-gray-700 shadow-sm">
+                      {p.detail.item.categoria_icono} {p.detail.item.categoria_nombre}
                     </span>
-                  )}
+                  ) : null}
                 </div>
-                <div className="px-8 pb-4">
+                <div className="px-6 pb-2">
                   <ProfileCard
                     detail={p.detail}
-                    selectedPerson={p.selectedPerson}
                     onEditar={p.abrirEditar}
                     onLiquidar={handleOpenSettlement}
                     onEliminar={p.eliminar}
@@ -76,7 +85,7 @@ export default function Personal() {
                 </div>
               </div>
 
-              <div className="animate-in fade-in duration-300">
+              <div>
                 {p.activeTab === 'resumen' && (
                   <ResumenTab
                     detail={p.detail}
@@ -140,10 +149,11 @@ export default function Personal() {
               </div>
             </div>
           ) : (
-            <div className="flex flex-col items-center justify-center py-32 bg-white rounded-xl border border-dashed border-gray-200 shadow-[0_4px_24px_rgba(0,0,0,0.04)]">
-              <Users size={48} strokeWidth={1} className="text-gray-200 mb-4" />
-              <p className="text-sm font-bold text-gray-400 uppercase tracking-widest">
-                Selecciona un miembro para ver su ficha
+            <div className="flex flex-col items-center justify-center rounded-2xl bg-white py-32 shadow-[0_1px_2px_rgba(15,23,42,0.06)]">
+              <Users size={40} strokeWidth={1.4} className="mb-3 text-gray-200" />
+              <p className="text-[14px] font-medium text-gray-600">Elegí a alguien de la lista</p>
+              <p className="mt-1 text-[12px] text-gray-400">
+                Vas a ver su asistencia, sueldo y movimientos.
               </p>
             </div>
           )}
@@ -158,14 +168,7 @@ export default function Personal() {
         onGuardar={p.guardar}
         saving={p.saving}
         categorias={p.categorias}
-        avatarPickerOpen={p.avatarPickerOpen}
         onAvatarPickerOpen={() => p.setAvatarPickerOpen(true)}
-        onSelectAvatar={(url) => {
-          p.setForm((prev) => ({ ...prev, avatar_url: url }));
-          p.setAvatarPickerOpen(false);
-        }}
-        fileInputRef={p.fileInputRef}
-        handleFileUpload={p.handleFileUpload}
       />
 
       <AvatarPickerModal
@@ -217,6 +220,7 @@ export default function Personal() {
         open={p.premiosModal}
         onClose={() => p.setPremiosModal(false)}
         detail={p.detail}
+        config={p.reconocimientosConfig}
       />
 
       <DeleteDialog

@@ -40,10 +40,8 @@ function StatBox({ icon: Icon, label, value, tone = 'text-gray-600' }) {
   return (
     <div className="rounded-2xl bg-gray-50 p-3 text-center">
       <Icon size={16} className={`mx-auto ${tone}`} strokeWidth={2.6} />
-      <p className="mt-1.5 text-lg font-black tabular-nums text-gray-900">{value}</p>
-      <p className="mt-0.5 text-[9px] font-black uppercase tracking-widest text-gray-400">
-        {label}
-      </p>
+      <p className="mt-1.5 text-lg font-bold tabular-nums text-gray-900">{value}</p>
+      <p className="mt-0.5 text-[12px] font-medium text-gray-400">{label}</p>
     </div>
   );
 }
@@ -78,15 +76,13 @@ export default function PerfilRider({ repartidor, stats, onLogout, onCambiarRide
           className="px-5 pb-6 pt-6 text-center text-white"
           style={{ background: 'linear-gradient(135deg,#dc1f2d,#b91c1c)' }}
         >
-          <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-3xl bg-white/20 text-3xl font-black backdrop-blur">
+          <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-3xl bg-white/20 text-3xl font-bold backdrop-blur">
             {inicial}
           </div>
-          <h2 className="mt-3 text-xl font-black leading-tight">
+          <h2 className="mt-3 text-xl font-bold leading-tight">
             {repartidor?.nombre || 'Repartidor'}
           </h2>
-          <p className="mt-0.5 text-[10px] font-black uppercase tracking-[0.24em] text-white/70">
-            Rider · Modo Sabor
-          </p>
+          <p className="mt-0.5 text-[12px] font-medium text-white/70">Rider · Modo Sabor</p>
         </div>
 
         {/* Nivel actual y progreso al siguiente */}
@@ -99,15 +95,10 @@ export default function PerfilRider({ repartidor, stats, onLogout, onCambiarRide
               {nivel.emoji}
             </span>
             <div className="min-w-0 flex-1">
-              <p
-                className="text-sm font-black uppercase tracking-tight"
-                style={{ color: nivel.color }}
-              >
+              <p className="text-[15px] font-semibold" style={{ color: nivel.color }}>
                 Nivel {nivel.label}
               </p>
-              <p className="text-[11px] font-bold text-gray-400">
-                {historico.entregas} entregas en total
-              </p>
+              <p className="text-[12px] text-gray-400">{historico.entregas} entregas en total</p>
             </div>
           </div>
 
@@ -133,16 +124,16 @@ export default function PerfilRider({ repartidor, stats, onLogout, onCambiarRide
       {/* ── Este mes ── */}
       <section className="rounded-[24px] border border-gray-100 bg-white p-5 shadow-sm">
         <div className="mb-3 flex items-center gap-2">
-          <Calendar size={16} className="text-primary-600" />
-          <h3 className="text-xs font-black uppercase tracking-widest text-gray-900">Este mes</h3>
+          <Calendar size={16} className="text-gray-700" />
+          <h3 className="text-[14px] font-semibold text-gray-900">Este mes</h3>
         </div>
         <div className="grid grid-cols-2 gap-3">
-          <StatBox icon={Package} label="Entregas" value={mes.entregas} tone="text-primary-600" />
+          <StatBox icon={Package} label="Entregas" value={mes.entregas} tone="text-gray-700" />
           <StatBox
             icon={DollarSign}
             label="Cobrado"
             value={fmtPesos(mes.facturado)}
-            tone="text-success-600"
+            tone="text-emerald-700"
           />
         </div>
       </section>
@@ -150,15 +141,15 @@ export default function PerfilRider({ repartidor, stats, onLogout, onCambiarRide
       {/* ── Marcas personales ── */}
       <section className="rounded-[24px] border border-gray-100 bg-white p-5 shadow-sm">
         <div className="mb-3 flex items-center gap-2">
-          <Award size={16} className="text-warning-600" />
-          <h3 className="text-xs font-black uppercase tracking-widest text-gray-900">Tus marcas</h3>
+          <Award size={16} className="text-amber-600" />
+          <h3 className="text-[14px] font-semibold text-gray-900">Tus marcas</h3>
         </div>
         <div className="grid grid-cols-3 gap-3">
           <StatBox
             icon={Flame}
             label="Racha"
             value={`${stats?.racha || 0}d`}
-            tone="text-warning-600"
+            tone="text-amber-600"
           />
           <StatBox
             icon={Trophy}
@@ -185,14 +176,14 @@ export default function PerfilRider({ repartidor, stats, onLogout, onCambiarRide
         <button
           type="button"
           onClick={onLogout}
-          className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-gray-200 bg-white text-xs font-black uppercase tracking-widest text-gray-600 active:scale-[0.98]"
+          className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-gray-200 bg-white text-[14px] font-semibold text-gray-600 active:scale-[0.98]"
         >
           <LogOut size={15} /> Cerrar sesión
         </button>
         <button
           type="button"
           onClick={onCambiarRider}
-          className="w-full py-2 text-[10px] font-black uppercase tracking-widest text-gray-400 underline decoration-dotted underline-offset-4 hover:text-rose-500"
+          className="w-full py-2 text-[12px] font-medium text-gray-400 underline decoration-dotted underline-offset-4 hover:text-rose-500"
         >
           Este celular pasa a otro rider
         </button>

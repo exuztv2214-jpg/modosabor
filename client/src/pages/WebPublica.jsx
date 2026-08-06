@@ -905,13 +905,10 @@ export default function WebPublica() {
               </div>
             )}
             <div>
-              <p
-                className="text-[11px] font-black uppercase tracking-[0.24em]"
-                style={{ color: colorPrimario }}
-              >
+              <p className="text-[12px] font-medium" style={{ color: colorPrimario }}>
                 Carta online
               </p>
-              <h1 className="text-lg font-black leading-tight">
+              <h1 className="text-lg font-semibold leading-tight">
                 {config?.negocio_nombre || 'Modo Sabor'}
               </h1>
               <div
@@ -959,32 +956,24 @@ export default function WebPublica() {
         </div>
       </header>
 
+      {/*
+        ── Orden de la página ────────────────────────────────────────────────
+        Antes era: hero de 620px → highlights → promos → confianza → recién
+        ahí la comida. Cuatro pantallas de scroll antes del primer plato.
+
+        Ahora la carta arranca apenas termina la portada. Todo lo que no es
+        comida —promos de relleno, sellos de confianza, cómo pedir— pasó abajo:
+        sirve para el que ya bajó y está decidiendo, no para el que recién
+        llega con hambre.
+      */}
       <HeroSection
         config={config}
-        theme={theme}
         colorPrimario={colorPrimario}
-        heroHighlights={heroHighlights}
-        categoriasVisibles={categoriasVisibles}
         onAction={handleAction}
-      />
-
-      <HighlightsGrid heroHighlights={heroHighlights} colorPrimario={colorPrimario} theme={theme} />
-
-      <PromoSection
-        promosBanner={promosBanner}
-        promoPrincipal={promoPrincipal}
-        promoSecundarias={promoSecundarias}
-        colorPrimario={colorPrimario}
-        theme={theme}
-        onAction={handleAction}
-      />
-
-      <TrustSection
-        trustBadges={trustBadges}
-        orderSteps={orderSteps}
-        totalItems={totalItems}
-        colorPrimario={colorPrimario}
-        theme={theme}
+        abierto={Boolean(config?.abierto_ahora)}
+        demoraTexto={
+          config?.tiempo_delivery ? `Listo en ~${Number(config.tiempo_delivery)} min` : ''
+        }
       />
 
       <MenuNav
@@ -1032,6 +1021,28 @@ export default function WebPublica() {
         faltaParaMinimo={faltaParaMinimo}
         activeQuickFilter={activeQuickFilter}
         quickFilter={quickFilter}
+      />
+
+      {/* Todo esto vivía arriba, entre la portada y la comida. Acá abajo sigue
+          cumpliendo su función —reforzar la decisión de quien ya miró la
+          carta— sin demorar al que entró con hambre. */}
+      <PromoSection
+        promosBanner={promosBanner}
+        promoPrincipal={promoPrincipal}
+        promoSecundarias={promoSecundarias}
+        colorPrimario={colorPrimario}
+        theme={theme}
+        onAction={handleAction}
+      />
+
+      <HighlightsGrid heroHighlights={heroHighlights} colorPrimario={colorPrimario} theme={theme} />
+
+      <TrustSection
+        trustBadges={trustBadges}
+        orderSteps={orderSteps}
+        totalItems={totalItems}
+        colorPrimario={colorPrimario}
+        theme={theme}
       />
 
       <Footer config={config} colorPrimario={colorPrimario} theme={theme} />

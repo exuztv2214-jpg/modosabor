@@ -20,11 +20,24 @@ const PIN_ACTIONS = [
     id: 'ingreso',
     label: 'Marcar ingreso',
     icon: LogIn,
-    tone: 'bg-success-500 hover:bg-emerald-600',
+    tone: 'bg-emerald-500 hover:bg-emerald-600',
   },
-  { id: 'salida', label: 'Marcar salida', icon: LogOut, tone: 'bg-danger-500 hover:bg-rose-600' },
-  { id: 'tarde', label: 'Llegó tarde', icon: Clock3, tone: 'bg-warning-500 hover:bg-amber-600' },
+  { id: 'salida', label: 'Marcar salida', icon: LogOut, tone: 'bg-rose-500 hover:bg-rose-600' },
+  { id: 'tarde', label: 'Llegó tarde', icon: Clock3, tone: 'bg-amber-500 hover:bg-amber-600' },
 ];
+
+/*
+  Las fechas de la base llegan a veces como "2026-08-06 09:15:00" (espacio en
+  lugar de "T"). Safari no parsea ese formato y `new Date()` devuelve Invalid
+  Date, así que la hora de ingreso del empleado se mostraba como "Invalid Date"
+  en el iPhone del encargado. Se normaliza y se valida antes de formatear.
+*/
+function horaFichada(valor) {
+  if (!valor) return '-';
+  const fecha = new Date(String(valor).replace(' ', 'T'));
+  if (!Number.isFinite(fecha.getTime())) return '-';
+  return fecha.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+}
 
 function Avatar({ url, nombre }) {
   if (url) {
@@ -37,7 +50,7 @@ function Avatar({ url, nombre }) {
     );
   }
   return (
-    <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary-50 text-primary-500">
+    <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-50 text-brand-500">
       <UserRound size={24} />
     </div>
   );
@@ -116,17 +129,15 @@ export default function PersonalClock() {
         <div className="mb-6 flex flex-col gap-3 rounded-[28px] border border-gray-100 bg-white p-5 shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <p className="text-[11px] font-black uppercase tracking-[0.3em] text-primary-500">
-                Reloj de personal
-              </p>
-              <h1 className="mt-2 text-3xl font-black tracking-tight text-gray-900">
+              <p className="text-[11px] font-semibold text-brand-500">Reloj de personal</p>
+              <h1 className="mt-2 text-3xl font-semibold tracking-tight text-gray-900">
                 Entrada y salida del equipo
               </h1>
             </div>
             <button
               type="button"
               onClick={() => loadRoster(true)}
-              className="inline-flex items-center gap-2 rounded-2xl border border-gray-200 bg-white px-4 py-3 text-xs font-black uppercase tracking-widest text-gray-600 hover:bg-gray-50"
+              className="inline-flex items-center gap-2 rounded-2xl border border-gray-200 bg-white px-4 py-3 text-xs font-semibold text-gray-600 hover:bg-gray-50"
             >
               <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
               Actualizar
@@ -140,7 +151,7 @@ export default function PersonalClock() {
               Fecha operativa: {roster?.fecha_operativa || '-'}
             </span>
             {token ? (
-              <span className="rounded-full border border-emerald-200 bg-success-50 px-3 py-1.5 text-success-700">
+              <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-emerald-700">
                 Acceso individual por QR
               </span>
             ) : (
@@ -150,7 +161,7 @@ export default function PersonalClock() {
             )}
           </div>
           {!roster?.turno_actual_id ? (
-            <div className="rounded-2xl border border-amber-200 bg-warning-50 px-4 py-3 text-sm font-semibold text-amber-800">
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">
               Ahora mismo no hay un turno operativo corriendo. El reloj igual queda visible para
               revisar el equipo, pero la fichada se habilita cuando entra un turno activo.
             </div>
@@ -160,14 +171,12 @@ export default function PersonalClock() {
         <div className="grid gap-6 lg:grid-cols-[1fr_0.95fr]">
           <section className="rounded-[28px] border border-gray-100 bg-white p-5 shadow-sm">
             <div className="mb-4 flex items-center gap-2">
-              <TimerReset size={18} className="text-primary-500" />
-              <h2 className="text-sm font-black uppercase tracking-[0.22em] text-gray-500">
-                Equipo del turno
-              </h2>
+              <TimerReset size={18} className="text-brand-500" />
+              <h2 className="text-sm font-semibold text-gray-500">Equipo del turno</h2>
             </div>
             {loading ? (
               <div className="flex min-h-[260px] items-center justify-center">
-                <RefreshCw size={30} className="animate-spin text-primary-500" />
+                <RefreshCw size={30} className="animate-spin text-brand-500" />
               </div>
             ) : !(roster?.items || []).length ? (
               <div className="flex min-h-[260px] items-center justify-center rounded-[24px] border border-dashed border-gray-200 bg-gray-50 text-center text-sm font-semibold text-gray-500">
@@ -183,15 +192,15 @@ export default function PersonalClock() {
                       key={item.id}
                       type="button"
                       onClick={() => setSelected(item)}
-                      className={`rounded-[24px] border p-4 text-left transition ${active ? 'border-primary-500 bg-primary-50 shadow-sm' : 'border-gray-100 bg-gray-50/50 hover:bg-gray-50'}`}
+                      className={`rounded-[24px] border p-4 text-left transition ${active ? 'border-brand-500 bg-brand-50 shadow-sm' : 'border-gray-100 bg-gray-50/50 hover:bg-gray-50'}`}
                     >
                       <div className="flex items-center gap-3">
                         <Avatar url={item.avatar_url} nombre={item.nombre} />
                         <div className="min-w-0">
-                          <p className="truncate text-base font-black text-gray-900">
+                          <p className="truncate text-base font-semibold text-gray-900">
                             {item.nombre}
                           </p>
-                          <p className="text-[11px] font-black uppercase tracking-[0.18em] text-gray-400">
+                          <p className="text-[11px] font-semibold text-gray-400">
                             {item.rol_operativo}
                           </p>
                           <p className="mt-1 text-xs font-semibold text-gray-500">
@@ -200,16 +209,12 @@ export default function PersonalClock() {
                         </div>
                       </div>
                       <div className="mt-4 flex items-center justify-between">
-                        <span className="rounded-full bg-white px-3 py-1 text-[11px] font-black uppercase tracking-wider text-gray-700 border border-gray-100">
+                        <span className="rounded-full bg-white px-3 py-1 text-[11px] font-semibold text-gray-700 border border-gray-100">
                           {state}
                         </span>
                         {item?.attendance?.ingreso_en ? (
                           <span className="text-[11px] font-semibold text-gray-500">
-                            Ingreso{' '}
-                            {new Date(item.attendance.ingreso_en).toLocaleTimeString('es-AR', {
-                              hour: '2-digit',
-                              minute: '2-digit',
-                            })}
+                            Ingreso {horaFichada(item.attendance.ingreso_en)}
                           </span>
                         ) : null}
                       </div>
@@ -223,11 +228,11 @@ export default function PersonalClock() {
           <aside className="rounded-[28px] border border-gray-100 bg-white p-5 shadow-sm">
             <div className="mb-4 flex items-center gap-2">
               {token ? (
-                <QrCode size={18} className="text-success-600" />
+                <QrCode size={18} className="text-emerald-600" />
               ) : (
                 <KeyRound size={18} className="text-amber-500" />
               )}
-              <h2 className="text-sm font-black uppercase tracking-[0.22em] text-gray-500">
+              <h2 className="text-sm font-semibold text-gray-500">
                 {token ? 'Fichada individual' : 'Confirmación con PIN'}
               </h2>
             </div>
@@ -242,32 +247,25 @@ export default function PersonalClock() {
                   <div className="flex items-center gap-3">
                     <Avatar url={currentEmployee.avatar_url} nombre={currentEmployee.nombre} />
                     <div>
-                      <p className="text-xl font-black text-gray-900">{currentEmployee.nombre}</p>
-                      <p className="text-xs font-black uppercase tracking-[0.18em] text-gray-400">
+                      <p className="text-xl font-semibold text-gray-900">
+                        {currentEmployee.nombre}
+                      </p>
+                      <p className="text-xs font-semibold text-gray-400">
                         {currentEmployee.rol_operativo}
                       </p>
                     </div>
                   </div>
                   <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
                     <div className="rounded-2xl bg-white p-3 border border-gray-100">
-                      <p className="text-[11px] font-black uppercase tracking-wider text-gray-400">
-                        Estado
-                      </p>
+                      <p className="text-[11px] font-semibold text-gray-400">Estado</p>
                       <p className="mt-1 font-bold text-gray-900">
                         {currentEmployee?.attendance?.estado || 'Sin fichar'}
                       </p>
                     </div>
                     <div className="rounded-2xl bg-white p-3 border border-gray-100">
-                      <p className="text-[11px] font-black uppercase tracking-wider text-gray-400">
-                        Último ingreso
-                      </p>
+                      <p className="text-[11px] font-semibold text-gray-400">Último ingreso</p>
                       <p className="mt-1 font-bold text-gray-900">
-                        {currentEmployee?.attendance?.ingreso_en
-                          ? new Date(currentEmployee.attendance.ingreso_en).toLocaleTimeString(
-                              'es-AR',
-                              { hour: '2-digit', minute: '2-digit' }
-                            )
-                          : '-'}
+                        {horaFichada(currentEmployee?.attendance?.ingreso_en)}
                       </p>
                     </div>
                   </div>
@@ -277,12 +275,12 @@ export default function PersonalClock() {
                   <input
                     value={pin}
                     onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                    className="h-14 w-full rounded-2xl border border-gray-200 bg-white px-4 text-center text-2xl font-black tracking-[0.5em] text-gray-900 outline-none placeholder:tracking-normal placeholder:text-gray-300"
+                    className="h-14 w-full rounded-2xl border border-gray-200 bg-white px-4 text-center text-2xl font-semibold tracking-[0.5em] text-gray-900 outline-none placeholder:tracking-normal placeholder:text-gray-300"
                     placeholder="PIN"
                     inputMode="numeric"
                   />
                 ) : (
-                  <div className="rounded-2xl border border-emerald-200 bg-success-50 px-4 py-3 text-sm font-semibold text-success-700">
+                  <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">
                     Este acceso viene desde un QR individual. No hace falta escribir PIN.
                   </div>
                 )}
@@ -306,16 +304,14 @@ export default function PersonalClock() {
                         className={`inline-flex min-h-[92px] flex-col items-center justify-center gap-2 rounded-[24px] ${action.tone} px-4 text-center text-white shadow-sm transition disabled:opacity-60`}
                       >
                         <Icon size={22} />
-                        <span className="text-xs font-black uppercase tracking-widest">
-                          {action.label}
-                        </span>
+                        <span className="text-xs font-semibold">{action.label}</span>
                       </button>
                     );
                   })}
                 </div>
 
-                <div className="rounded-[24px] border border-gray-100 bg-primary-50/60 p-4">
-                  <div className="mb-2 flex items-center gap-2 text-sm font-black text-gray-800">
+                <div className="rounded-[24px] border border-gray-100 bg-brand-50/60 p-4">
+                  <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-gray-800">
                     <CheckCircle2 size={16} className="text-emerald-500" />
                     Recomendación práctica
                   </div>

@@ -89,11 +89,9 @@ export default function CierreTurnoModal({
                 <Trophy size={30} strokeWidth={2.4} />
               </motion.div>
 
-              <p className="mt-4 text-[10px] font-black uppercase tracking-[0.28em] text-white/80">
-                Turno cerrado
-              </p>
+              <p className="mt-4 text-[12px] font-medium text-white/80">Turno cerrado</p>
               <h2
-                className="mt-1 text-2xl font-black leading-tight"
+                className="mt-1 text-2xl font-bold leading-tight"
                 style={{ fontFamily: '"Poppins","Inter",sans-serif' }}
               >
                 ¡Buen trabajo!
@@ -106,7 +104,7 @@ export default function CierreTurnoModal({
                   initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.35 }}
-                  className="mx-auto mt-3 inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-amber-600"
+                  className="mx-auto mt-3 inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-[12px] font-semibold text-amber-600"
                 >
                   🏆 Récord personal
                   {recordAnterior > 0 ? ` · antes ${recordAnterior}` : ''}
@@ -116,7 +114,7 @@ export default function CierreTurnoModal({
                   initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.35 }}
-                  className="mx-auto mt-3 inline-flex items-center gap-1.5 rounded-full bg-white/25 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-white backdrop-blur"
+                  className="mx-auto mt-3 inline-flex items-center gap-1.5 rounded-full bg-white/25 px-3 py-1.5 text-[12px] font-semibold text-white backdrop-blur"
                 >
                   ✅ Meta del día cumplida
                 </motion.div>
@@ -132,14 +130,14 @@ export default function CierreTurnoModal({
               }`}
             >
               {[
-                { icon: Package, label: 'Entregas', value: entregas, tone: 'text-primary-600' },
+                { icon: Package, label: 'Entregas', value: entregas, tone: 'text-gray-500' },
                 ...(minutos > 0
                   ? [
                       {
                         icon: Clock,
                         label: 'Tiempo',
                         value: fmtDuracion(minutos),
-                        tone: 'text-info-600',
+                        tone: 'text-gray-500',
                       },
                     ]
                   : []),
@@ -157,13 +155,11 @@ export default function CierreTurnoModal({
                   transition={{ delay: 0.2 + i * 0.08 }}
                   className="px-3 py-5 text-center"
                 >
-                  <Icon size={17} className={`mx-auto ${tone}`} strokeWidth={2.6} />
-                  <p className="mt-2 truncate text-lg font-black tabular-nums text-gray-900">
+                  <Icon size={17} className={`mx-auto ${tone}`} strokeWidth={2.2} />
+                  <p className="mt-2 truncate text-[19px] font-bold tabular-nums text-gray-900">
                     {value}
                   </p>
-                  <p className="mt-0.5 text-[9px] font-black uppercase tracking-widest text-gray-400">
-                    {label}
-                  </p>
+                  <p className="mt-0.5 text-[12px] text-gray-400">{label}</p>
                 </motion.div>
               ))}
             </div>
@@ -174,12 +170,12 @@ export default function CierreTurnoModal({
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 transition={{ delay: 0.45 }}
-                className="mx-6 mt-5 rounded-2xl border border-amber-200 bg-warning-50 px-4 py-3.5"
+                className="mx-6 mt-5 rounded-2xl bg-amber-50 px-4 py-3.5"
               >
-                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-warning-700">
+                <p className="text-[12px] font-medium text-amber-800">
                   Efectivo a rendir en el local
                 </p>
-                <p className="mt-1 text-2xl font-black tabular-nums text-warning-800">
+                <p className="mt-1 text-[26px] font-bold leading-none tabular-nums text-amber-900">
                   {fmtPesos(efectivo)}
                 </p>
               </motion.div>
@@ -189,7 +185,7 @@ export default function CierreTurnoModal({
               <button
                 type="button"
                 onClick={onClose}
-                className="h-13 flex h-13 w-full items-center justify-center rounded-2xl bg-gray-900 py-4 text-xs font-black uppercase tracking-[0.2em] text-white transition active:scale-[0.98]"
+                className="h-13 flex h-13 w-full items-center justify-center rounded-2xl bg-gray-900 py-4 text-[15px] font-semibold text-white transition active:scale-[0.98]"
               >
                 Listo
               </button>

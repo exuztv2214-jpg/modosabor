@@ -1,27 +1,27 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import {
-  Plus,
-  Pencil,
-  Trash2,
-  X,
-  Search,
+  ArrowDown,
+  ArrowUp,
+  Clock,
+  ImageOff,
+  ImagePlus,
   LayoutGrid,
   List,
-  RefreshCw,
-  Eye,
-  Power,
-  Layers3,
   Package,
-  CheckCircle2,
-  CircleOff,
-  Palette,
-  ImagePlus,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Search,
+  Trash2,
+  X,
 } from 'lucide-react';
 
 import api from '../lib/api.js';
 import ActionDialog from '../components/ActionDialog.jsx';
-import { PageHeader } from '../design-system';
+import { resolveAssetUrl } from '../lib/assets.js';
+import { APP_BG, BRAND, STROKE } from '../lib/theme.js';
+import { Stat } from './Clientes/clientesUi.jsx';
 
 const ICONOS = [
   '🍕',
@@ -40,20 +40,22 @@ const ICONOS = [
   '🥪',
   '🍟',
 ];
+
 const COLORES = [
-  '#f97316',
-  '#ef4444',
-  '#f59e0b',
-  '#22c55e',
-  '#14b8a6',
-  '#3b82f6',
-  '#8b5cf6',
-  '#ec4899',
+  '#DC1F2D',
+  '#E0A924',
+  '#C98A3E',
+  '#047857',
+  '#0F766E',
+  '#1F5FA0',
+  '#6D28D9',
+  '#BE185D',
 ];
+
 const EMPTY_FORM = {
   nombre: '',
   icono: '🍕',
-  color: '#f97316',
+  color: '#DC1F2D',
   orden: 0,
   activo: 1,
   imagen: '',
@@ -62,10 +64,10 @@ const EMPTY_FORM = {
 };
 
 const CONTROL =
-  'h-11 rounded-2xl border border-gray-200 bg-gray-50 px-4 text-sm font-medium text-gray-700 outline-none transition focus:border-primary-200 focus:bg-white focus:ring-4 focus:ring-blue-100';
+  'h-11 w-full rounded-xl border border-gray-200 bg-white px-3 text-[14px] text-gray-800 outline-none transition placeholder:text-gray-400 focus:border-gray-400 focus:ring-2 focus:ring-gray-900/5';
 
 function rgba(hex, alpha) {
-  const clean = (hex || '#f97316').replace('#', '');
+  const clean = String(hex || '#DC1F2D').replace('#', '');
   const full =
     clean.length === 3
       ? clean
@@ -74,260 +76,8 @@ function rgba(hex, alpha) {
           .join('')
       : clean;
   const value = Number.parseInt(full, 16);
-
-  if (Number.isNaN(value)) return `rgba(249,115,22,${alpha})`;
-
+  if (Number.isNaN(value)) return `rgba(220,31,45,${alpha})`;
   return `rgba(${(value >> 16) & 255},${(value >> 8) & 255},${value & 255},${alpha})`;
-}
-
-function codeFor(id, index) {
-  return `CAT-${String(id ?? index + 1).padStart(3, '0')}`;
-}
-
-function stateText(activo) {
-  return Number(activo) === 1 ? 'Activa' : 'Inactiva';
-}
-
-function sortItems(items, sortBy) {
-  const list = [...items];
-  if (sortBy === 'nombre') return list.sort((a, b) => a.nombre.localeCompare(b.nombre));
-  if (sortBy === 'productos')
-    return list.sort((a, b) => b.productos - a.productos || a.orden - b.orden);
-  if (sortBy === 'estado')
-    return list.sort(
-      (a, b) => Number(b.activo) - Number(a.activo) || a.nombre.localeCompare(b.nombre)
-    );
-  return list.sort((a, b) => a.orden - b.orden || a.nombre.localeCompare(b.nombre));
-}
-
-function StatCard({ label, value, icon: Icon, tone }) {
-  return (
-    <div className="group rounded-2xl border border-gray-100 bg-white p-5 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:border-indigo-100 hover:shadow-xl">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-gray-500">{label}</p>
-          <p className="mt-2 text-2xl font-black tracking-tight text-gray-900">{value}</p>
-        </div>
-        <div
-          className="flex h-12 w-12 items-center justify-center rounded-2xl shadow-sm transition-transform duration-300 group-hover:scale-110"
-          style={{ backgroundColor: rgba(tone, 0.14), color: tone }}
-        >
-          <Icon size={18} />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function CategoryCard({ categoria, onView, onEdit, onToggle, onDelete, turnoLabel }) {
-  const active = Number(categoria.activo) === 1;
-
-  return (
-    <article className="group flex h-full flex-col rounded-[26px] border border-gray-100 bg-white p-5 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:border-indigo-100 hover:shadow-xl">
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-3">
-          <div
-            className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-2xl border border-white text-[30px] shadow-sm"
-            style={{ backgroundColor: rgba(categoria.color, 0.14) }}
-          >
-            {categoria.imagen ? (
-              <img
-                src={categoria.imagen}
-                alt={categoria.nombre}
-                className="h-full w-full object-cover"
-              />
-            ) : (
-              categoria.icono || '🍽️'
-            )}
-          </div>
-
-          <div className="min-w-0">
-            <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-gray-400">
-              {categoria.codigo}
-            </p>
-            <h3 className="truncate text-lg font-black tracking-tight text-gray-900">
-              {categoria.nombre}
-            </h3>
-            <div className="mt-1 flex items-center gap-2 text-xs text-gray-500">
-              <span
-                className={`rounded-full px-2.5 py-1 font-bold ${active ? 'bg-success-100 text-success-700' : 'bg-gray-200 text-gray-600'}`}
-              >
-                {stateText(categoria.activo)}
-              </span>
-              <span>Orden {categoria.orden}</span>
-            </div>
-            <div className="mt-1.5">
-              <span
-                className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-bold ${categoria.turno_id ? 'bg-indigo-50 text-indigo-600' : 'bg-slate-100 text-slate-500'}`}
-              >
-                {turnoLabel ? turnoLabel(categoria.turno_id) : 'Siempre visible'}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        <div className="flex gap-1 opacity-100 md:opacity-0 md:transition md:group-hover:opacity-100">
-          <button
-            type="button"
-            onClick={() => onView(categoria)}
-            className="flex h-9 w-9 items-center justify-center rounded-xl border border-gray-200 text-gray-500 transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
-          >
-            <Eye size={15} />
-          </button>
-          <button
-            type="button"
-            onClick={() => onEdit(categoria)}
-            className="flex h-9 w-9 items-center justify-center rounded-xl border border-gray-200 text-gray-500 transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
-          >
-            <Pencil size={15} />
-          </button>
-        </div>
-      </div>
-
-      <div className="mt-4 grid grid-cols-2 gap-3">
-        <div className="rounded-2xl bg-slate-50 px-3 py-3">
-          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-gray-400">
-            Productos
-          </p>
-          <p className="mt-1 text-xl font-black tracking-tight text-primary-500">
-            {categoria.productos}
-          </p>
-        </div>
-        <div className="rounded-2xl bg-slate-50 px-3 py-3">
-          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-gray-400">Color</p>
-          <div className="mt-2 flex items-center gap-2">
-            <span
-              className="h-4 w-4 rounded-full border border-white"
-              style={{ backgroundColor: categoria.color }}
-            />
-            <span className="text-sm font-semibold text-gray-700">{categoria.color}</span>
-          </div>
-        </div>
-      </div>
-
-      <div className="mt-4 rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-3 text-sm text-gray-500">
-        Vista compacta, clara y reutilizable para el resto del admin.
-      </div>
-
-      {categoria.subcategorias?.length > 0 && (
-        <div className="mt-3 flex flex-wrap gap-2">
-          {categoria.subcategorias.slice(0, 3).map((sub, index) => (
-            <span
-              key={`${sub.nombre}-${index}`}
-              className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-semibold text-gray-600"
-            >
-              {sub.nombre}
-            </span>
-          ))}
-          {categoria.subcategorias.length > 3 && (
-            <span className="rounded-full bg-primary-50 px-2.5 py-1 text-xs font-semibold text-primary-500">
-              +{categoria.subcategorias.length - 3}
-            </span>
-          )}
-        </div>
-      )}
-
-      <div className="mt-4 grid grid-cols-2 gap-2">
-        <button
-          type="button"
-          onClick={() => onToggle(categoria)}
-          className={`h-10 rounded-2xl text-sm font-bold transition ${active ? 'bg-warning-50 text-warning-700 hover:bg-warning-100' : 'bg-success-50 text-success-700 hover:bg-success-100'}`}
-        >
-          {active ? 'Desactivar' : 'Activar'}
-        </button>
-        <button
-          type="button"
-          onClick={() => onDelete(categoria)}
-          className="h-10 rounded-2xl border border-rose-200 text-sm font-bold text-danger-600 transition hover:bg-danger-50"
-        >
-          Eliminar
-        </button>
-      </div>
-    </article>
-  );
-}
-
-function CategoryRow({ categoria, onView, onEdit, onToggle, onDelete }) {
-  const active = Number(categoria.activo) === 1;
-
-  return (
-    <tr className="border-b border-slate-100 transition hover:bg-slate-50">
-      <td className="px-5 py-4">
-        <div className="flex items-center gap-3">
-          <div
-            className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-2xl border border-white text-2xl"
-            style={{ backgroundColor: rgba(categoria.color, 0.14) }}
-          >
-            {categoria.imagen ? (
-              <img
-                src={categoria.imagen}
-                alt={categoria.nombre}
-                className="h-full w-full object-cover"
-              />
-            ) : (
-              categoria.icono
-            )}
-          </div>
-          <div>
-            <p className="font-bold text-gray-900">{categoria.nombre}</p>
-            <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-gray-400">
-              {categoria.codigo}
-            </p>
-          </div>
-        </div>
-      </td>
-      <td className="px-5 py-4 text-sm text-gray-600">{categoria.orden}</td>
-      <td className="px-5 py-4 text-sm font-semibold text-gray-900">{categoria.productos}</td>
-      <td className="px-5 py-4">
-        <span
-          className={`rounded-full px-3 py-1 text-xs font-bold ${active ? 'bg-success-100 text-success-700' : 'bg-gray-200 text-gray-600'}`}
-        >
-          {stateText(categoria.activo)}
-        </span>
-      </td>
-      <td className="px-5 py-4">
-        <div className="flex items-center gap-2">
-          <span
-            className="h-4 w-4 rounded-full border border-white"
-            style={{ backgroundColor: categoria.color }}
-          />
-          <span className="text-sm text-gray-500">{categoria.color}</span>
-        </div>
-      </td>
-      <td className="px-5 py-4">
-        <div className="flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={() => onView(categoria)}
-            className="flex h-9 w-9 items-center justify-center rounded-xl border border-gray-200 text-gray-500 transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
-          >
-            <Eye size={15} />
-          </button>
-          <button
-            type="button"
-            onClick={() => onEdit(categoria)}
-            className="flex h-9 w-9 items-center justify-center rounded-xl border border-gray-200 text-gray-500 transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
-          >
-            <Pencil size={15} />
-          </button>
-          <button
-            type="button"
-            onClick={() => onToggle(categoria)}
-            className={`flex h-9 w-9 items-center justify-center rounded-xl border transition ${active ? 'border-amber-200 bg-warning-50 text-warning-700 hover:bg-warning-100' : 'border-emerald-200 bg-success-50 text-success-700 hover:bg-success-100'}`}
-          >
-            <Power size={15} />
-          </button>
-          <button
-            type="button"
-            onClick={() => onDelete(categoria)}
-            className="flex h-9 w-9 items-center justify-center rounded-xl border border-rose-200 bg-danger-50 text-danger-600 transition hover:bg-danger-100"
-          >
-            <Trash2 size={15} />
-          </button>
-        </div>
-      </td>
-    </tr>
-  );
 }
 
 function parseTurnos(raw) {
@@ -339,18 +89,53 @@ function parseTurnos(raw) {
   }
 }
 
+const texto = (valor) => String(valor ?? '').toLowerCase();
+
+function Miniatura({ categoria, size = 'h-12 w-12', emoji = 'text-[24px]' }) {
+  // La imagen se pasaba cruda en los tres lugares donde se dibuja una
+  // categoría, así que la foto subida nunca aparecía.
+  const src = resolveAssetUrl(categoria.imagen);
+  const color = categoria.color || '#6B7280';
+
+  return (
+    <div
+      className={`${size} flex shrink-0 items-center justify-center overflow-hidden rounded-xl`}
+      style={{ background: rgba(color, 0.14) }}
+    >
+      {src ? (
+        <img src={src} alt={categoria.nombre} className="h-full w-full object-cover" />
+      ) : categoria.icono ? (
+        <span className={emoji}>{categoria.icono}</span>
+      ) : (
+        <ImageOff size={18} strokeWidth={STROKE} style={{ color }} />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Aviso de categoría activa y vacía.
+ *
+ * Una categoría publicada sin productos aparece en la web y en el TPV como
+ * una pestaña que al abrirla no tiene nada. Es el error más común al armar
+ * la carta y no se avisaba en ningún lado.
+ */
+function avisoVacia(categoria) {
+  return Number(categoria.activo) === 1 && categoria.productos === 0;
+}
+
 export default function Categorias() {
   const [categorias, setCategorias] = useState([]);
   const [productos, setProductos] = useState([]);
   const [turnos, setTurnos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [reordenando, setReordenando] = useState(false);
   const [viewMode, setViewMode] = useState('grid');
   const [busqueda, setBusqueda] = useState('');
   const [estadoFiltro, setEstadoFiltro] = useState('todas');
   const [sortBy, setSortBy] = useState('orden');
   const [modal, setModal] = useState(null);
-  const [detalle, setDetalle] = useState(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [imageFile, setImageFile] = useState(null);
   const [imagePreview, setImagePreview] = useState('');
@@ -365,88 +150,136 @@ export default function Categorias() {
         api.get('/productos'),
         api.get('/configuracion'),
       ]);
-      setCategorias(cats);
-      setProductos(prods);
+      setCategorias(cats || []);
+      setProductos(prods || []);
       setTurnos(parseTurnos(config?.turnos_negocio).filter((turno) => turno?.activo !== false));
     } catch (error) {
-      toast.error(error?.error || 'Error al cargar categorias');
+      toast.error(error?.error || 'Error al cargar categorías');
     } finally {
       setLoading(false);
     }
-  };
-
-  const turnoLabel = (turnoId) => {
-    if (!turnoId) return 'Siempre visible';
-    const turno = turnos.find((t) => t.id === turnoId);
-    return turno?.nombre || turnoId;
   };
 
   useEffect(() => {
     cargar();
   }, []);
 
-  const countByCategory = useMemo(() => {
+  const turnoLabel = (turnoId) => {
+    if (!turnoId) return 'Siempre visible';
+    return turnos.find((t) => t.id === turnoId)?.nombre || turnoId;
+  };
+
+  const conteos = useMemo(() => {
+    // Se contaban todos los productos, activos e inactivos. Una categoría con
+    // ocho productos apagados figuraba con ocho, aunque en la carta esté vacía.
     return productos.reduce((acc, producto) => {
       const key = producto.categoria_id ?? producto.categoriaId;
       if (!key) return acc;
-      acc[key] = (acc[key] || 0) + 1;
+      if (!acc[key]) acc[key] = { total: 0, activos: 0 };
+      acc[key].total += 1;
+      if (Number(producto.activo) === 1) acc[key].activos += 1;
       return acc;
     }, {});
   }, [productos]);
 
-  const categoriasUi = useMemo(() => {
-    return categorias.map((categoria, index) => ({
-      ...categoria,
-      codigo: codeFor(categoria.id, index),
-      productos: countByCategory[categoria.id] || 0,
-    }));
-  }, [categorias, countByCategory]);
+  const categoriasUi = useMemo(
+    () =>
+      categorias.map((categoria) => ({
+        ...categoria,
+        productos: conteos[categoria.id]?.activos || 0,
+        productosTotal: conteos[categoria.id]?.total || 0,
+      })),
+    [categorias, conteos]
+  );
 
   const filtered = useMemo(() => {
+    const term = busqueda.trim().toLowerCase();
     const items = categoriasUi.filter((categoria) => {
-      const term = busqueda.trim().toLowerCase();
-      const matchSearch =
-        !term ||
-        categoria.nombre.toLowerCase().includes(term) ||
-        categoria.codigo.toLowerCase().includes(term) ||
-        categoria.color.toLowerCase().includes(term);
+      // Buscaba también dentro del color en hexadecimal: escribir "22"
+      // devolvía categorías por su código de color. Y sin guardas, una
+      // categoría con nombre o color nulo tiraba abajo la pantalla.
+      const matchSearch = !term || texto(categoria.nombre).includes(term);
 
       const active = Number(categoria.activo) === 1;
       const matchState =
         estadoFiltro === 'todas' ||
         (estadoFiltro === 'activas' && active) ||
-        (estadoFiltro === 'inactivas' && !active);
+        (estadoFiltro === 'inactivas' && !active) ||
+        (estadoFiltro === 'vacias' && avisoVacia(categoria));
 
       return matchSearch && matchState;
     });
 
-    return sortItems(items, sortBy);
+    const porNombre = (a, b) => texto(a.nombre).localeCompare(texto(b.nombre), 'es');
+    const list = [...items];
+
+    if (sortBy === 'nombre') return list.sort(porNombre);
+    if (sortBy === 'productos')
+      return list.sort((a, b) => b.productos - a.productos || porNombre(a, b));
+    if (sortBy === 'estado')
+      return list.sort((a, b) => Number(b.activo) - Number(a.activo) || porNombre(a, b));
+    return list.sort((a, b) => Number(a.orden || 0) - Number(b.orden || 0) || porNombre(a, b));
   }, [busqueda, categoriasUi, estadoFiltro, sortBy]);
 
   const stats = useMemo(() => {
-    const activas = categoriasUi.filter((categoria) => Number(categoria.activo) === 1).length;
+    const activas = categoriasUi.filter((c) => Number(c.activo) === 1).length;
+    const vacias = categoriasUi.filter(avisoVacia).length;
     return {
       total: categoriasUi.length,
       activas,
       inactivas: categoriasUi.length - activas,
-      productos: categoriasUi.reduce((acc, categoria) => acc + categoria.productos, 0),
+      vacias,
+      productos: categoriasUi.reduce((acc, c) => acc + c.productos, 0),
     };
   }, [categoriasUi]);
 
+  const hayFiltros = Boolean(busqueda.trim()) || estadoFiltro !== 'todas';
+  // Reordenar sólo tiene sentido viendo la lista completa en su orden real.
+  const puedeReordenar = sortBy === 'orden' && !hayFiltros;
+
+  /**
+   * Subir y bajar en el orden.
+   *
+   * El campo `orden` sólo se podía cambiar escribiendo un número a mano
+   * dentro del formulario, de a una categoría por vez, adivinando qué número
+   * tenían las demás. Para ordenar la carta —que es todo el propósito de
+   * esta pantalla— era el camino más largo posible.
+   */
+  const mover = async (categoria, direccion) => {
+    if (reordenando) return;
+    const indice = filtered.findIndex((item) => item.id === categoria.id);
+    const vecino = filtered[indice + direccion];
+    if (!vecino) return;
+
+    setReordenando(true);
+    try {
+      await Promise.all([
+        api.put(`/categorias/${categoria.id}`, { orden: Number(vecino.orden || 0) }),
+        api.put(`/categorias/${vecino.id}`, { orden: Number(categoria.orden || 0) }),
+      ]);
+      await cargar();
+    } catch (error) {
+      toast.error(error?.error || 'No se pudo reordenar');
+    } finally {
+      setReordenando(false);
+    }
+  };
+
   const abrir = (categoria = null) => {
     if (!categoria) {
-      setForm({ ...EMPTY_FORM, orden: categorias.length + 1 });
+      const maxOrden = categorias.reduce((acc, c) => Math.max(acc, Number(c.orden || 0)), 0);
+      setForm({ ...EMPTY_FORM, orden: maxOrden + 1 });
       setImageFile(null);
-      setImagePreview('');
+      setPreviewFromFile(null);
       setRemoveImage(false);
       setModal('nuevo');
       return;
     }
 
     setForm({
-      nombre: categoria.nombre,
+      nombre: categoria.nombre || '',
       icono: categoria.icono || '🍕',
-      color: categoria.color || '#f97316',
+      color: categoria.color || '#DC1F2D',
       orden: Number(categoria.orden) || 0,
       activo: Number(categoria.activo) === 1 ? 1 : 0,
       imagen: categoria.imagen || '',
@@ -454,7 +287,7 @@ export default function Categorias() {
       turno_id: categoria.turno_id || '',
     });
     setImageFile(null);
-    setImagePreview(categoria.imagen || '');
+    setImagePreview(resolveAssetUrl(categoria.imagen));
     setRemoveImage(false);
     setModal(categoria);
   };
@@ -463,20 +296,61 @@ export default function Categorias() {
     setModal(null);
     setForm(EMPTY_FORM);
     setImageFile(null);
-    setImagePreview('');
+    setPreviewFromFile(null);
     setRemoveImage(false);
+  };
+
+  /**
+   * Cada `URL.createObjectURL` reserva memoria hasta liberarla a mano, y acá
+   * no se liberaba nunca: probar varias fotos dejaba todas colgadas hasta
+   * recargar la página.
+   */
+  const objectUrlRef = useRef('');
+  const setPreviewFromFile = (file) => {
+    if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
+    objectUrlRef.current = file ? URL.createObjectURL(file) : '';
+    setImagePreview(objectUrlRef.current);
+  };
+
+  useEffect(
+    () => () => {
+      if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
+    },
+    []
+  );
+
+  const handleImageChange = (file) => {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      toast.error('Elegí un archivo de imagen');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('La imagen supera los 5 MB');
+      return;
+    }
+    setImageFile(file);
+    setPreviewFromFile(file);
+    setRemoveImage(false);
+  };
+
+  const clearImage = () => {
+    setImageFile(null);
+    setPreviewFromFile(null);
+    setRemoveImage(true);
+    setForm((prev) => ({ ...prev, imagen: '' }));
   };
 
   const guardar = async () => {
     if (!form.nombre.trim()) {
-      toast.error('Nombre requerido');
+      toast.error('El nombre es obligatorio');
       return;
     }
 
     setSaving(true);
     try {
       const payload = new FormData();
-      payload.append('nombre', form.nombre);
+      payload.append('nombre', form.nombre.trim());
       payload.append('icono', form.icono);
       payload.append('color', form.color);
       payload.append('orden', String(form.orden ?? 0));
@@ -491,10 +365,10 @@ export default function Categorias() {
 
       if (modal === 'nuevo') {
         await api.post('/categorias', payload);
-        toast.success('Categoria creada');
+        toast.success('Categoría creada');
       } else {
         await api.put(`/categorias/${modal.id}`, payload);
-        toast.success('Categoria actualizada');
+        toast.success('Categoría actualizada');
       }
       cerrarModal();
       await cargar();
@@ -505,15 +379,11 @@ export default function Categorias() {
     }
   };
 
-  const eliminar = async (categoria) => {
-    setDeleteDialog(categoria);
-  };
-
   const confirmarEliminar = async () => {
     if (!deleteDialog) return;
     try {
       await api.delete(`/categorias/${deleteDialog.id}`);
-      toast.success('Categoria eliminada');
+      toast.success('Categoría eliminada');
       setDeleteDialog(null);
       await cargar();
     } catch (error) {
@@ -524,755 +394,757 @@ export default function Categorias() {
   const toggleActivo = async (categoria) => {
     try {
       await api.put(`/categorias/${categoria.id}`, {
-        nombre: categoria.nombre,
-        icono: categoria.icono,
-        color: categoria.color,
-        orden: categoria.orden,
         activo: Number(categoria.activo) === 1 ? 0 : 1,
       });
-      toast.success(
-        Number(categoria.activo) === 1 ? 'Categoria desactivada' : 'Categoria activada'
-      );
+      toast.success(Number(categoria.activo) === 1 ? 'Categoría oculta' : 'Categoría publicada');
       await cargar();
     } catch (error) {
       toast.error(error?.error || 'Error al cambiar estado');
     }
   };
 
-  const productosDetalle = useMemo(() => {
-    if (!detalle) return [];
-    return productos
-      .filter((producto) => (producto.categoria_id ?? producto.categoriaId) === detalle.id)
-      .slice(0, 5);
-  }, [detalle, productos]);
-
-  const handleImageChange = (file) => {
-    if (!file) return;
-    setImageFile(file);
-    setImagePreview(URL.createObjectURL(file));
-    setRemoveImage(false);
-  };
-
-  const clearImage = () => {
-    setImageFile(null);
-    setImagePreview('');
-    setRemoveImage(true);
-    setForm((prev) => ({ ...prev, imagen: '' }));
-  };
-
-  const updateSubcategoria = (index, value) => {
+  const setSub = (index, value) =>
     setForm((prev) => ({
       ...prev,
-      subcategorias: prev.subcategorias.map((sub, currentIndex) =>
-        currentIndex === index ? { ...sub, nombre: value } : sub
+      subcategorias: prev.subcategorias.map((sub, i) =>
+        i === index ? { ...sub, nombre: value } : sub
       ),
     }));
-  };
 
-  const addSubcategoria = () => {
+  const addSub = () =>
     setForm((prev) => ({
       ...prev,
       subcategorias: [...(prev.subcategorias || []), { nombre: '' }],
     }));
-  };
 
-  const removeSubcategoria = (index) => {
+  const removeSub = (index) =>
     setForm((prev) => ({
       ...prev,
-      subcategorias: prev.subcategorias.filter((_, currentIndex) => currentIndex !== index),
+      subcategorias: prev.subcategorias.filter((_, i) => i !== index),
     }));
+
+  const limpiarFiltros = () => {
+    setBusqueda('');
+    setEstadoFiltro('todas');
   };
 
   return (
-    <div className="mx-auto max-w-7xl animate-fade-in space-y-6 px-4 pb-8 pt-6 sm:px-6 lg:px-8">
-      <section className="rounded-[28px] border border-gray-100 bg-white p-6 shadow-sm">
-        <PageHeader
-          title="Categorías"
-          description="Organizá la carta manteniendo el foco en orden, estado y relación con productos."
-          breadcrumbs={[{ label: 'Catálogo' }, { label: 'Categorías' }]}
-          actions={
-            <>
-              <button
-                type="button"
-                onClick={cargar}
-                className="inline-flex h-11 items-center gap-2 rounded-2xl border border-gray-200 bg-white px-4 text-sm font-semibold text-gray-700 transition hover:bg-gray-50"
-              >
-                <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
-                Recargar
-              </button>
-
-              <div className="inline-flex rounded-2xl border border-gray-200 bg-gray-50 p-1">
-                <button
-                  type="button"
-                  onClick={() => setViewMode('grid')}
-                  className={`inline-flex h-9 items-center gap-2 rounded-[14px] px-4 text-sm font-semibold transition ${viewMode === 'grid' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:bg-white hover:text-gray-700'}`}
-                >
-                  <LayoutGrid size={14} />
-                  Grid
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setViewMode('list')}
-                  className={`inline-flex h-9 items-center gap-2 rounded-[14px] px-4 text-sm font-semibold transition ${viewMode === 'list' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:bg-white hover:text-gray-700'}`}
-                >
-                  <List size={14} />
-                  Lista
-                </button>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => abrir()}
-                className="inline-flex h-11 items-center gap-2 rounded-2xl bg-primary-500 px-5 text-sm font-bold text-white shadow-[0_14px_30px_rgba(93,135,255,0.26)] transition hover:-translate-y-0.5 hover:bg-[#4a74ef]"
-              >
-                <Plus size={15} />
-                Nueva categoria
-              </button>
-            </>
-          }
-        />
-      </section>
-
-      <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Total" value={stats.total} icon={Layers3} tone="#5D87FF" />
-        <StatCard label="Activas" value={stats.activas} icon={CheckCircle2} tone="#13DEB9" />
-        <StatCard label="Inactivas" value={stats.inactivas} icon={CircleOff} tone="#7C8FAC" />
-        <StatCard label="Productos" value={stats.productos} icon={Package} tone="#49BEFF" />
-      </section>
-
-      <section className="rounded-[28px] border border-gray-100 bg-white p-6 shadow-sm">
-        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-          <div className="relative w-full xl:max-w-md">
-            <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input
-              value={busqueda}
-              onChange={(event) => setBusqueda(event.target.value)}
-              placeholder="Buscar categoria..."
-              className={`${CONTROL} w-full pl-11`}
-            />
+    <div className="min-h-screen px-4 py-6 sm:px-6" style={{ background: APP_BG }}>
+      <div className="mx-auto max-w-7xl space-y-4 pb-10">
+        {/* ── Encabezado ── */}
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight text-gray-900">Categorías</h1>
+            <p className="mt-0.5 text-[13px] text-gray-500">
+              {stats.total === 0
+                ? 'Todavía no hay categorías'
+                : `${stats.total} en la carta · ${stats.activas} publicadas`}
+            </p>
           </div>
 
-          <div className="flex flex-col gap-3 sm:flex-row">
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => abrir()}
+              style={{ background: BRAND }}
+              className="flex h-11 items-center gap-2 rounded-xl px-4 text-[13px] font-semibold text-white transition hover:brightness-110"
+            >
+              <Plus size={16} strokeWidth={STROKE} />
+              Nueva categoría
+            </button>
+
+            <div className="flex rounded-xl bg-gray-200/70 p-1">
+              <button
+                type="button"
+                onClick={() => setViewMode('grid')}
+                title="Ver como tarjetas"
+                className={`flex h-9 w-9 items-center justify-center rounded-lg transition ${
+                  viewMode === 'grid' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'
+                }`}
+              >
+                <LayoutGrid size={16} strokeWidth={STROKE} />
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('list')}
+                title="Ver como lista"
+                className={`flex h-9 w-9 items-center justify-center rounded-lg transition ${
+                  viewMode === 'list' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'
+                }`}
+              >
+                <List size={16} strokeWidth={STROKE} />
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={cargar}
+              title="Actualizar"
+              className="flex h-11 w-11 items-center justify-center rounded-xl bg-white text-gray-500 shadow-[0_1px_2px_rgba(15,23,42,0.06)] transition hover:bg-gray-50"
+            >
+              <RefreshCw size={16} strokeWidth={STROKE} className={loading ? 'animate-spin' : ''} />
+            </button>
+          </div>
+        </div>
+
+        {/*
+          Eran cuatro contadores: total, activas, inactivas y productos. Los
+          dos primeros ya están en el subtítulo. "Categorías vacías" es el que
+          realmente pide hacer algo: una categoría publicada sin productos
+          aparece en la carta como una pestaña que no tiene nada adentro.
+        */}
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <Stat
+            label="Publicadas"
+            value={stats.activas}
+            helper="Se ven en el TPV y en la web"
+            tono="verde"
+          />
+          <Stat
+            label="Publicadas sin productos"
+            value={stats.vacias}
+            helper={stats.vacias > 0 ? 'Se ven vacías en la carta' : 'Ninguna vacía'}
+            alerta={stats.vacias > 0}
+          />
+          <Stat label="Ocultas" value={stats.inactivas} helper="No se muestran" tono="ambar" />
+          <Stat
+            label="Productos publicados"
+            value={stats.productos}
+            helper="Repartidos en las categorías"
+            tono="azul"
+          />
+        </div>
+
+        {/* ── Filtros ── */}
+        <div className="rounded-2xl bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.06)]">
+          <div className="grid gap-3 lg:grid-cols-[minmax(0,1.6fr)_repeat(2,minmax(0,1fr))]">
+            <div className="relative">
+              <Search
+                size={16}
+                strokeWidth={STROKE}
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+              />
+              <input
+                value={busqueda}
+                onChange={(event) => setBusqueda(event.target.value)}
+                placeholder="Buscar categoría"
+                className={CONTROL + ' pl-9'}
+              />
+            </div>
+
             <select
               value={estadoFiltro}
               onChange={(event) => setEstadoFiltro(event.target.value)}
-              className={`${CONTROL} min-w-[150px]`}
+              className={CONTROL + ' font-medium'}
             >
               <option value="todas">Todas</option>
-              <option value="activas">Activas</option>
-              <option value="inactivas">Inactivas</option>
+              <option value="activas">Solo publicadas</option>
+              <option value="inactivas">Solo ocultas</option>
+              <option value="vacias">Publicadas sin productos</option>
             </select>
+
             <select
               value={sortBy}
               onChange={(event) => setSortBy(event.target.value)}
-              className={`${CONTROL} min-w-[160px]`}
+              className={CONTROL + ' font-medium'}
             >
-              <option value="orden">Orden</option>
-              <option value="nombre">Nombre</option>
-              <option value="productos">Productos</option>
-              <option value="estado">Estado</option>
+              <option value="orden">Orden de la carta</option>
+              <option value="nombre">Por nombre</option>
+              <option value="productos">Por productos</option>
+              <option value="estado">Por estado</option>
             </select>
           </div>
-        </div>
 
-        <div className="mt-4 flex flex-wrap items-center gap-2 text-sm text-gray-500">
-          <span className="rounded-full bg-slate-100 px-3 py-1.5 font-semibold text-slate-600">
-            {filtered.length} visibles
-          </span>
-          <span className="rounded-full bg-primary-50 px-3 py-1.5 font-semibold text-primary-500">
-            {viewMode === 'grid' ? 'Vista tarjetas' : 'Vista tabla'}
-          </span>
-        </div>
-
-        <div className="mt-5">
-          {loading ? (
-            <div
-              className={`grid gap-4 ${viewMode === 'grid' ? 'md:grid-cols-2 xl:grid-cols-3' : 'grid-cols-1'}`}
-            >
-              {Array.from({ length: viewMode === 'grid' ? 6 : 3 }).map((_, index) => (
-                <div key={index} className="h-48 animate-pulse rounded-[24px] bg-slate-100" />
-              ))}
-            </div>
-          ) : filtered.length === 0 ? (
-            <div className="rounded-[24px] border border-dashed border-gray-200 bg-slate-50 px-6 py-16 text-center">
-              <h3 className="text-lg font-black tracking-tight text-gray-900">No hay resultados</h3>
-              <p className="mt-2 text-sm text-gray-500">
-                Proba otro filtro o crea una categoria nueva.
+          {hayFiltros ? (
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-gray-100 pt-3">
+              <p className="text-[12px] text-gray-500">
+                Mostrando <span className="font-semibold text-gray-900">{filtered.length}</span> de{' '}
+                {stats.total}
               </p>
-            </div>
-          ) : viewMode === 'grid' ? (
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {filtered.map((categoria) => (
-                <CategoryCard
-                  key={categoria.id}
-                  categoria={categoria}
-                  onView={setDetalle}
-                  onEdit={abrir}
-                  onToggle={toggleActivo}
-                  onDelete={eliminar}
-                  turnoLabel={turnoLabel}
-                />
-              ))}
+              <button
+                type="button"
+                onClick={limpiarFiltros}
+                className="inline-flex items-center gap-1 text-[12px] font-semibold text-gray-500 transition hover:text-gray-900"
+              >
+                <X size={13} strokeWidth={STROKE} />
+                Limpiar filtros
+              </button>
             </div>
           ) : (
-            <div className="overflow-hidden rounded-[24px] border border-gray-100 shadow-sm">
-              <div className="overflow-x-auto">
-                <table className="min-w-full bg-white">
-                  <thead className="bg-slate-50">
-                    <tr className="text-left">
-                      <th className="px-5 py-4 text-[11px] font-bold uppercase tracking-[0.18em] text-gray-500">
-                        Categoría
-                      </th>
-                      <th className="px-5 py-4 text-[11px] font-bold uppercase tracking-[0.18em] text-gray-500">
-                        Orden
-                      </th>
-                      <th className="px-5 py-4 text-[11px] font-bold uppercase tracking-[0.18em] text-gray-500">
-                        Productos
-                      </th>
-                      <th className="px-5 py-4 text-[11px] font-bold uppercase tracking-[0.18em] text-gray-500">
-                        Estado
-                      </th>
-                      <th className="px-5 py-4 text-[11px] font-bold uppercase tracking-[0.18em] text-gray-500">
-                        Color
-                      </th>
-                      <th className="px-5 py-4 text-right text-[11px] font-bold uppercase tracking-[0.18em] text-gray-500">
-                        Acciones
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filtered.map((categoria) => (
-                      <CategoryRow
-                        key={categoria.id}
-                        categoria={categoria}
-                        onView={setDetalle}
-                        onEdit={abrir}
-                        onToggle={toggleActivo}
-                        onDelete={eliminar}
-                      />
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+            <p className="mt-3 border-t border-gray-100 pt-3 text-[12px] text-gray-400">
+              El orden de esta lista es el orden en que el cliente ve la carta.
+              {!puedeReordenar ? ' Ordená por “Orden de la carta” para poder moverlas.' : ''}
+            </p>
           )}
         </div>
-      </section>
 
+        {/* ── Listado ── */}
+        {loading ? (
+          <div
+            className={`grid gap-3 ${viewMode === 'grid' ? 'sm:grid-cols-2 xl:grid-cols-3' : ''}`}
+          >
+            {Array.from({ length: 6 }).map((_, index) => (
+              <div key={index} className="h-40 animate-pulse rounded-2xl bg-gray-200/70" />
+            ))}
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-gray-200 px-6 py-14 text-center">
+            <p className="text-[14px] font-medium text-gray-600">
+              {hayFiltros ? 'Ninguna categoría coincide' : 'Todavía no hay categorías'}
+            </p>
+            <p className="mx-auto mt-1 max-w-sm text-[12px] leading-4 text-gray-400">
+              {hayFiltros
+                ? 'Probá con otra búsqueda o sacá los filtros.'
+                : 'Las categorías agrupan los productos en el TPV y en la web.'}
+            </p>
+            <div className="mt-4 flex justify-center">
+              <button
+                type="button"
+                onClick={hayFiltros ? limpiarFiltros : () => abrir()}
+                style={hayFiltros ? undefined : { background: BRAND }}
+                className={`h-10 rounded-xl px-4 text-[13px] font-semibold transition ${
+                  hayFiltros
+                    ? 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    : 'text-white hover:brightness-110'
+                }`}
+              >
+                {hayFiltros ? 'Limpiar filtros' : 'Crear la primera'}
+              </button>
+            </div>
+          </div>
+        ) : viewMode === 'grid' ? (
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {filtered.map((categoria, index) => {
+              const active = Number(categoria.activo) === 1;
+              const color = categoria.color || '#6B7280';
+              const vacia = avisoVacia(categoria);
+
+              return (
+                <article
+                  key={categoria.id}
+                  className={`group overflow-hidden rounded-2xl bg-white shadow-[0_1px_2px_rgba(15,23,42,0.06)] transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_8px_24px_rgba(15,23,42,0.10)] ${
+                    active ? '' : 'opacity-70'
+                  }`}
+                >
+                  <div
+                    className="flex items-center gap-3 px-4 py-3"
+                    style={{ background: rgba(color, 0.13) }}
+                  >
+                    <Miniatura categoria={categoria} />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-[14px] font-semibold text-gray-900">
+                        {categoria.nombre}
+                      </p>
+                      <p className="mt-0.5 flex items-center gap-1 text-[12px]" style={{ color }}>
+                        <Clock size={11} strokeWidth={STROKE} />
+                        {turnoLabel(categoria.turno_id)}
+                      </p>
+                    </div>
+
+                    {puedeReordenar ? (
+                      <div className="flex shrink-0 flex-col">
+                        <button
+                          type="button"
+                          onClick={() => mover(categoria, -1)}
+                          disabled={index === 0 || reordenando}
+                          title="Subir en la carta"
+                          className="rounded p-0.5 text-gray-500 transition hover:bg-white disabled:opacity-25"
+                        >
+                          <ArrowUp size={14} strokeWidth={STROKE} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => mover(categoria, 1)}
+                          disabled={index === filtered.length - 1 || reordenando}
+                          title="Bajar en la carta"
+                          className="rounded p-0.5 text-gray-500 transition hover:bg-white disabled:opacity-25"
+                        >
+                          <ArrowDown size={14} strokeWidth={STROKE} />
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div className="p-4">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span
+                        className="rounded-full px-2 py-0.5 text-[11px] font-medium"
+                        style={
+                          active
+                            ? { background: '#E7F5EF', color: '#0F6E56' }
+                            : { background: '#E5E7EB', color: '#4B5563' }
+                        }
+                      >
+                        {active ? 'Publicada' : 'Oculta'}
+                      </span>
+                      {vacia ? (
+                        <span
+                          className="rounded-full px-2 py-0.5 text-[11px] font-medium"
+                          style={{ background: '#FEF2F2', color: '#9E141E' }}
+                        >
+                          Sin productos
+                        </span>
+                      ) : null}
+                    </div>
+
+                    <div className="mt-3 flex items-center gap-2 rounded-xl bg-gray-50 px-3 py-2">
+                      <Package size={15} strokeWidth={STROKE} className="text-gray-400" />
+                      <p className="text-[13px] text-gray-700">
+                        <span className="font-bold tabular-nums text-gray-900">
+                          {categoria.productos}
+                        </span>{' '}
+                        {categoria.productos === 1 ? 'producto' : 'productos'}
+                        {categoria.productosTotal > categoria.productos ? (
+                          <span className="text-gray-400">
+                            {' '}
+                            · {categoria.productosTotal - categoria.productos} sin publicar
+                          </span>
+                        ) : null}
+                      </p>
+                    </div>
+
+                    {categoria.subcategorias?.length > 0 ? (
+                      <div className="mt-2 flex flex-wrap gap-1">
+                        {categoria.subcategorias.slice(0, 4).map((sub, i) => (
+                          <span
+                            key={`${sub.nombre}-${i}`}
+                            className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] text-gray-600"
+                          >
+                            {sub.nombre}
+                          </span>
+                        ))}
+                        {categoria.subcategorias.length > 4 ? (
+                          <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] text-gray-500">
+                            +{categoria.subcategorias.length - 4}
+                          </span>
+                        ) : null}
+                      </div>
+                    ) : null}
+
+                    <div className="mt-3 grid grid-cols-[1fr_auto_auto] gap-2">
+                      <button
+                        type="button"
+                        onClick={() => toggleActivo(categoria)}
+                        className={`h-9 rounded-xl text-[12px] font-semibold transition ${
+                          active
+                            ? 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                            : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                        }`}
+                      >
+                        {active ? 'Ocultar' : 'Publicar'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => abrir(categoria)}
+                        title="Editar"
+                        className="flex h-9 w-9 items-center justify-center rounded-xl bg-gray-100 text-gray-600 transition hover:bg-gray-200"
+                      >
+                        <Pencil size={14} strokeWidth={STROKE} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDeleteDialog(categoria)}
+                        title="Eliminar"
+                        className="flex h-9 w-9 items-center justify-center rounded-xl text-gray-400 transition hover:bg-rose-50 hover:text-rose-600"
+                      >
+                        <Trash2 size={14} strokeWidth={STROKE} />
+                      </button>
+                    </div>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="overflow-hidden rounded-2xl bg-white shadow-[0_1px_2px_rgba(15,23,42,0.06)]">
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-left">
+                <thead className="bg-gray-50 text-[11px] text-gray-500">
+                  <tr>
+                    {puedeReordenar ? <th className="px-3 py-2.5" /> : null}
+                    <th className="px-3 py-2.5 font-medium">Categoría</th>
+                    <th className="px-3 py-2.5 font-medium">Se ve en</th>
+                    <th className="px-3 py-2.5 text-right font-medium">Productos</th>
+                    <th className="px-3 py-2.5 font-medium">Estado</th>
+                    <th className="px-3 py-2.5" />
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {filtered.map((categoria, index) => {
+                    const active = Number(categoria.activo) === 1;
+                    const vacia = avisoVacia(categoria);
+
+                    return (
+                      <tr key={categoria.id} className="transition hover:bg-gray-50">
+                        {puedeReordenar ? (
+                          <td className="px-3 py-3">
+                            <div className="flex flex-col">
+                              <button
+                                type="button"
+                                onClick={() => mover(categoria, -1)}
+                                disabled={index === 0 || reordenando}
+                                title="Subir"
+                                className="rounded p-0.5 text-gray-400 transition hover:bg-gray-200 hover:text-gray-700 disabled:opacity-25"
+                              >
+                                <ArrowUp size={13} strokeWidth={STROKE} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => mover(categoria, 1)}
+                                disabled={index === filtered.length - 1 || reordenando}
+                                title="Bajar"
+                                className="rounded p-0.5 text-gray-400 transition hover:bg-gray-200 hover:text-gray-700 disabled:opacity-25"
+                              >
+                                <ArrowDown size={13} strokeWidth={STROKE} />
+                              </button>
+                            </div>
+                          </td>
+                        ) : null}
+
+                        <td className="px-3 py-3">
+                          <div className="flex items-center gap-2.5">
+                            <Miniatura categoria={categoria} size="h-10 w-10" emoji="text-[19px]" />
+                            <div className="min-w-0">
+                              <p className="truncate text-[13px] font-medium text-gray-900">
+                                {categoria.nombre}
+                              </p>
+                              {categoria.subcategorias?.length > 0 ? (
+                                <p className="truncate text-[11px] text-gray-400">
+                                  {categoria.subcategorias.length} subcategorías
+                                </p>
+                              ) : null}
+                            </div>
+                          </div>
+                        </td>
+
+                        <td className="px-3 py-3">
+                          <span className="text-[12px] text-gray-600">
+                            {turnoLabel(categoria.turno_id)}
+                          </span>
+                        </td>
+
+                        <td className="px-3 py-3 text-right">
+                          <span
+                            className="text-[13px] font-medium tabular-nums"
+                            style={{ color: vacia ? BRAND : '#374151' }}
+                          >
+                            {categoria.productos}
+                          </span>
+                        </td>
+
+                        <td className="px-3 py-3">
+                          <div className="flex flex-wrap gap-1">
+                            <span
+                              className="rounded-full px-2 py-0.5 text-[11px] font-medium"
+                              style={
+                                active
+                                  ? { background: '#E7F5EF', color: '#0F6E56' }
+                                  : { background: '#E5E7EB', color: '#4B5563' }
+                              }
+                            >
+                              {active ? 'Publicada' : 'Oculta'}
+                            </span>
+                            {vacia ? (
+                              <span
+                                className="rounded-full px-2 py-0.5 text-[11px] font-medium"
+                                style={{ background: '#FEF2F2', color: '#9E141E' }}
+                              >
+                                Vacía
+                              </span>
+                            ) : null}
+                          </div>
+                        </td>
+
+                        <td className="px-3 py-3">
+                          <div className="flex items-center justify-end gap-0.5">
+                            <button
+                              type="button"
+                              onClick={() => abrir(categoria)}
+                              title="Editar"
+                              className="rounded-lg p-1.5 text-gray-400 transition hover:bg-gray-200 hover:text-gray-700"
+                            >
+                              <Pencil size={15} strokeWidth={STROKE} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => toggleActivo(categoria)}
+                              className={`ml-1 h-8 rounded-lg px-2.5 text-[12px] font-semibold transition ${
+                                active
+                                  ? 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                  : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                              }`}
+                            >
+                              {active ? 'Ocultar' : 'Publicar'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setDeleteDialog(categoria)}
+                              title="Eliminar"
+                              className="rounded-lg p-1.5 text-gray-400 transition hover:bg-rose-50 hover:text-rose-600"
+                            >
+                              <Trash2 size={15} strokeWidth={STROKE} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ── Modal ── */}
       {modal && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/35 p-4 backdrop-blur-sm"
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/35 p-4 backdrop-blur-sm"
           onClick={cerrarModal}
         >
           <div
-            className="flex max-h-[calc(100vh-2rem)] w-full max-w-3xl flex-col overflow-hidden rounded-[28px] border border-white/70 bg-white shadow-[0_24px_70px_rgba(15,23,42,0.26)]"
+            className="flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
+            <div className="flex shrink-0 items-center justify-between gap-4 border-b border-gray-100 px-5 py-4">
               <div>
-                <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-gray-400">
-                  {modal === 'nuevo' ? 'Nueva categoría' : 'Editar categoría'}
-                </p>
-                <h2 className="mt-1 text-xl font-black tracking-tight text-gray-950">
-                  {modal === 'nuevo' ? 'Crear categoría' : 'Ajustar categoría'}
+                <h2 className="text-[17px] font-semibold text-gray-900">
+                  {modal === 'nuevo' ? 'Nueva categoría' : `Editar ${form.nombre || 'categoría'}`}
                 </h2>
+                <p className="mt-0.5 text-[12px] text-gray-500">
+                  Agrupa productos en el TPV y en la web pública
+                </p>
               </div>
               <button
                 type="button"
                 onClick={cerrarModal}
-                className="flex h-10 w-10 items-center justify-center rounded-2xl border border-gray-200 text-gray-500 transition hover:bg-gray-50"
+                aria-label="Cerrar"
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
               >
-                <X size={16} />
+                <X size={18} strokeWidth={STROKE} />
               </button>
             </div>
 
-            <div className="min-h-0 flex-1 overflow-y-auto">
-              <div className="grid gap-0 lg:grid-cols-[1fr_0.9fr]">
-                <div className="space-y-4 p-5">
+            <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-5">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="sm:col-span-2">
+                  <label className="block text-[12px] font-medium text-gray-600">Nombre</label>
                   <input
                     value={form.nombre}
                     onChange={(event) => setForm({ ...form, nombre: event.target.value })}
-                    placeholder="Nombre de la categoría"
-                    className={`${CONTROL} w-full`}
+                    placeholder="Ej: Pizzas"
+                    className={CONTROL + ' mt-1'}
                   />
-
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <input
-                      type="number"
-                      value={form.orden}
-                      onChange={(event) => setForm({ ...form, orden: Number(event.target.value) })}
-                      placeholder="Orden"
-                      className={`${CONTROL} w-full`}
-                    />
-                    <select
-                      value={String(form.activo)}
-                      onChange={(event) => setForm({ ...form, activo: Number(event.target.value) })}
-                      className={`${CONTROL} w-full`}
-                    >
-                      <option value="1">Activa</option>
-                      <option value="0">Inactiva</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.18em] text-gray-500">
-                      Visible en la web pública
-                    </p>
-                    <select
-                      value={form.turno_id || ''}
-                      onChange={(event) => setForm({ ...form, turno_id: event.target.value })}
-                      className={`${CONTROL} w-full`}
-                    >
-                      <option value="">Siempre (mañana y noche)</option>
-                      {turnos.map((turno) => (
-                        <option key={turno.id} value={turno.id}>
-                          Solo en {turno.nombre || turno.id}
-                        </option>
-                      ))}
-                    </select>
-                    <p className="mt-2 text-xs text-gray-400">
-                      Si elegís un turno, esta categoría se muestra sola y automáticamente durante
-                      ese horario y se oculta en el resto (según los turnos de Configuración).
-                    </p>
-                  </div>
-
-                  <div>
-                    <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.18em] text-gray-500">
-                      Icono
-                    </p>
-                    <div className="grid grid-cols-5 gap-2 sm:grid-cols-6">
-                      {ICONOS.map((icono) => (
-                        <button
-                          key={icono}
-                          type="button"
-                          onClick={() => setForm({ ...form, icono })}
-                          className={`flex h-12 items-center justify-center rounded-2xl border text-2xl transition ${
-                            form.icono === icono
-                              ? 'border-indigo-200 bg-primary-50'
-                              : 'border-gray-200 bg-gray-50 hover:bg-white'
-                          }`}
-                        >
-                          {icono}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div>
-                    <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.18em] text-gray-500">
-                      Color
-                    </p>
-                    <div className="flex flex-wrap gap-2">
-                      {COLORES.map((color) => (
-                        <button
-                          key={color}
-                          type="button"
-                          onClick={() => setForm({ ...form, color })}
-                          className={`h-10 w-10 rounded-2xl border-2 transition ${form.color === color ? 'scale-110 border-gray-950' : 'border-white'}`}
-                          style={{ backgroundColor: color }}
-                        />
-                      ))}
-                    </div>
-                  </div>
-
-                  <section className="rounded-[24px] border border-gray-200 bg-gray-50/70 p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-gray-500">
-                          Imagen
-                        </p>
-                        <p className="mt-1 text-sm text-gray-500">
-                          Usala para que la categoría tenga una identidad real dentro del panel.
-                        </p>
-                      </div>
-                      {imagePreview && (
-                        <button
-                          type="button"
-                          onClick={clearImage}
-                          className="inline-flex h-9 items-center justify-center rounded-2xl border border-rose-200 px-3 text-xs font-bold text-danger-600 transition hover:bg-danger-50"
-                        >
-                          Quitar
-                        </button>
-                      )}
-                    </div>
-
-                    <div className="mt-4 grid gap-3 sm:grid-cols-[132px_1fr]">
-                      <div className="flex h-32 items-center justify-center overflow-hidden rounded-[22px] border border-white bg-white shadow-sm">
-                        {imagePreview ? (
-                          <img
-                            src={imagePreview}
-                            alt="preview"
-                            className="h-full w-full object-cover"
-                          />
-                        ) : (
-                          <div className="text-center">
-                            <div
-                              className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl"
-                              style={{ backgroundColor: rgba(form.color, 0.14), color: form.color }}
-                            >
-                              <ImagePlus size={20} />
-                            </div>
-                            <p className="mt-2 text-xs font-semibold text-gray-500">Sin imagen</p>
-                          </div>
-                        )}
-                      </div>
-
-                      <label className="flex min-h-[128px] cursor-pointer flex-col items-center justify-center rounded-[22px] border border-dashed border-gray-300 bg-white px-5 text-center transition hover:border-indigo-200 hover:bg-indigo-50/60">
-                        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary-50 text-primary-500">
-                          <ImagePlus size={20} />
-                        </div>
-                        <span className="mt-3 text-sm font-bold text-gray-800">
-                          {imagePreview ? 'Reemplazar imagen' : 'Subir imagen real'}
-                        </span>
-                        <span className="mt-1 max-w-[240px] text-xs leading-5 text-gray-500">
-                          JPG o PNG. Se mostrará en tarjetas, detalle y vistas futuras del admin.
-                        </span>
-                        <input
-                          type="file"
-                          accept="image/*"
-                          className="hidden"
-                          onChange={(event) => handleImageChange(event.target.files?.[0])}
-                        />
-                      </label>
-                    </div>
-                  </section>
-
-                  <section className="rounded-[24px] border border-gray-200 bg-gray-50/70 p-4">
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-gray-500">
-                          Subcategorías
-                        </p>
-                        <p className="mt-1 text-sm text-gray-500">
-                          Una capa extra de orden para cuando armemos mejor la carta y los filtros.
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={addSubcategoria}
-                        className="inline-flex h-10 items-center rounded-2xl bg-primary-500 px-4 text-xs font-bold text-white transition hover:bg-primary-600"
-                      >
-                        <Plus size={14} className="mr-1.5" />
-                        Agregar
-                      </button>
-                    </div>
-
-                    <div className="mt-4 space-y-2.5">
-                      {(form.subcategorias || []).length === 0 ? (
-                        <div className="rounded-[20px] border border-dashed border-gray-200 bg-white px-4 py-5 text-sm text-gray-400">
-                          Todavía no agregaste subcategorías.
-                        </div>
-                      ) : (
-                        form.subcategorias.map((sub, index) => (
-                          <div
-                            key={`sub-${index}`}
-                            className="flex items-center gap-2 rounded-[20px] border border-white bg-white p-2 shadow-sm"
-                          >
-                            <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-gray-100 text-xs font-black text-gray-500">
-                              {index + 1}
-                            </div>
-                            <input
-                              value={sub.nombre}
-                              onChange={(event) => updateSubcategoria(index, event.target.value)}
-                              placeholder={`Subcategoría ${index + 1}`}
-                              className={`${CONTROL} h-10 w-full border-0 bg-gray-50 px-3 focus:bg-white`}
-                            />
-                            <button
-                              type="button"
-                              onClick={() => removeSubcategoria(index)}
-                              className="flex h-10 w-10 items-center justify-center rounded-2xl border border-rose-200 text-danger-600 transition hover:bg-danger-50"
-                            >
-                              <Trash2 size={14} />
-                            </button>
-                          </div>
-                        ))
-                      )}
-                    </div>
-
-                    {(form.subcategorias || []).some((sub) => sub?.nombre?.trim()) && (
-                      <div className="mt-4 flex flex-wrap gap-2">
-                        {form.subcategorias
-                          .filter((sub) => sub?.nombre?.trim())
-                          .map((sub, index) => (
-                            <span
-                              key={`chip-${index}`}
-                              className="rounded-full border border-primary-100 bg-primary-50 px-3 py-1.5 text-xs font-semibold text-primary-500"
-                            >
-                              {sub.nombre}
-                            </span>
-                          ))}
-                      </div>
-                    )}
-                  </section>
                 </div>
 
-                <div className="border-t border-gray-100 bg-gray-50/80 p-5 lg:border-l lg:border-t-0">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-gray-500">
-                        Preview
-                      </p>
-                      <p className="mt-1 text-sm text-gray-500">
-                        Asi se va a ver la categoria en el panel.
-                      </p>
-                    </div>
-                    <div className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1.5 text-xs font-bold text-gray-500 shadow-sm">
-                      <span
-                        className="h-2.5 w-2.5 rounded-full"
-                        style={{ backgroundColor: form.color }}
-                      />
-                      {stateText(form.activo)}
-                    </div>
-                  </div>
+                <div>
+                  <label className="block text-[12px] font-medium text-gray-600">Se ve en</label>
+                  <select
+                    value={form.turno_id || ''}
+                    onChange={(event) => setForm({ ...form, turno_id: event.target.value })}
+                    className={CONTROL + ' mt-1 font-medium'}
+                  >
+                    <option value="">Siempre visible</option>
+                    {turnos.map((turno) => (
+                      <option key={turno.id} value={turno.id}>
+                        Solo en {turno.nombre}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-[11px] leading-4 text-gray-400">
+                    Atada a un turno, sólo aparece en ese horario.
+                  </p>
+                </div>
 
-                  <div className="mt-3 rounded-[24px] border border-white bg-white shadow-sm">
-                    <div
-                      className="h-28 rounded-t-[24px] px-4 py-4"
-                      style={{
-                        background: `linear-gradient(135deg, ${rgba(form.color, 0.28)}, ${rgba(form.color, 0.06)})`,
-                      }}
+                <div>
+                  <label className="block text-[12px] font-medium text-gray-600">
+                    Orden en la carta
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={form.orden}
+                    onChange={(event) => setForm({ ...form, orden: Number(event.target.value) })}
+                    className={CONTROL + ' mt-1 tabular-nums'}
+                  />
+                  <p className="mt-1 text-[11px] leading-4 text-gray-400">
+                    También se cambia con las flechas de la lista.
+                  </p>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[12px] font-medium text-gray-600">Ícono</label>
+                <div className="mt-1.5 flex flex-wrap gap-1.5">
+                  {ICONOS.map((icono) => (
+                    <button
+                      key={icono}
+                      type="button"
+                      onClick={() => setForm({ ...form, icono })}
+                      style={form.icono === icono ? { borderColor: form.color } : undefined}
+                      className={`flex h-10 w-10 items-center justify-center rounded-xl border-2 text-[20px] transition ${
+                        form.icono === icono
+                          ? 'bg-gray-50'
+                          : 'border-transparent opacity-60 hover:opacity-100'
+                      }`}
                     >
-                      <div className="inline-flex rounded-full bg-white/80 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.16em] text-gray-500 backdrop-blur">
-                        {codeFor(modal?.id, categorias.length)}
-                      </div>
-                    </div>
-                    <div className="-mt-8 px-4 pb-4">
-                      <div
-                        className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-[20px] border border-white text-3xl shadow-sm"
-                        style={{ backgroundColor: rgba(form.color, 0.14) }}
-                      >
-                        {imagePreview ? (
-                          <img
-                            src={imagePreview}
-                            alt="preview"
-                            className="h-full w-full object-cover"
-                          />
-                        ) : (
-                          form.icono
-                        )}
-                      </div>
-                      <h3 className="mt-1 text-lg font-black tracking-tight text-gray-950">
-                        {form.nombre || 'Nombre de categoria'}
-                      </h3>
-                      <p className="mt-1 text-sm text-gray-500">
-                        {imagePreview
-                          ? 'Con imagen personalizada cargada.'
-                          : 'Con icono visual como respaldo.'}
-                      </p>
-                      <div className="mt-3 grid grid-cols-2 gap-2">
-                        <div className="rounded-2xl bg-slate-50 px-3 py-3 text-sm">
-                          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-gray-400">
-                            Estado
-                          </p>
-                          <p className="mt-1 font-semibold text-gray-900">
-                            {stateText(form.activo)}
-                          </p>
-                        </div>
-                        <div className="rounded-2xl bg-slate-50 px-3 py-3 text-sm">
-                          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-gray-400">
-                            Orden
-                          </p>
-                          <p className="mt-1 font-semibold text-gray-900">{form.orden || 0}</p>
-                        </div>
-                      </div>
+                      {icono}
+                    </button>
+                  ))}
+                </div>
+              </div>
 
-                      {(form.subcategorias || []).filter((sub) => sub?.nombre?.trim()).length >
-                        0 && (
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          {form.subcategorias
-                            .filter((sub) => sub?.nombre?.trim())
-                            .slice(0, 4)
-                            .map((sub, index) => (
-                              <span
-                                key={`preview-sub-${index}`}
-                                className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-semibold text-gray-600"
-                              >
-                                {sub.nombre}
-                              </span>
-                            ))}
-                        </div>
-                      )}
-                    </div>
+              <div>
+                <label className="block text-[12px] font-medium text-gray-600">Color</label>
+                <p className="mt-0.5 text-[11px] leading-4 text-gray-400">
+                  Es el color con el que se agrupan sus productos en el listado.
+                </p>
+                <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                  {COLORES.map((color) => (
+                    <button
+                      key={color}
+                      type="button"
+                      onClick={() => setForm({ ...form, color })}
+                      title={color}
+                      className={`h-9 w-9 rounded-xl transition ${
+                        form.color === color ? 'ring-2 ring-gray-900 ring-offset-2' : ''
+                      }`}
+                      style={{ background: color }}
+                    />
+                  ))}
+                  <input
+                    type="color"
+                    value={form.color}
+                    onChange={(event) => setForm({ ...form, color: event.target.value })}
+                    title="Otro color"
+                    className="h-9 w-9 cursor-pointer rounded-xl border border-gray-200 bg-white p-1"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[12px] font-medium text-gray-600">Foto</label>
+                <div className="mt-1.5 flex items-start gap-3">
+                  <label className="flex h-24 w-24 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-xl border border-dashed border-gray-300 transition hover:border-gray-400">
+                    {imagePreview ? (
+                      <img src={imagePreview} alt="" className="h-full w-full object-cover" />
+                    ) : (
+                      <ImagePlus size={20} strokeWidth={STROKE} className="text-gray-400" />
+                    )}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(event) => handleImageChange(event.target.files?.[0])}
+                    />
+                  </label>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[12px] leading-4 text-gray-500">
+                      Opcional. Si no cargás una foto se usa el ícono. Se ve en el TPV y en la web.
+                    </p>
+                    {imagePreview ? (
+                      <button
+                        type="button"
+                        onClick={clearImage}
+                        className="mt-2 h-9 rounded-xl bg-gray-100 px-3 text-[12px] font-semibold text-gray-700 transition hover:bg-rose-50 hover:text-rose-700"
+                      >
+                        Quitar foto
+                      </button>
+                    ) : null}
                   </div>
                 </div>
               </div>
+
+              <div>
+                <div className="flex items-center justify-between gap-3">
+                  <label className="block text-[12px] font-medium text-gray-600">
+                    Subcategorías
+                  </label>
+                  <button
+                    type="button"
+                    onClick={addSub}
+                    className="inline-flex h-9 items-center gap-1 rounded-xl bg-gray-100 px-3 text-[12px] font-semibold text-gray-700 transition hover:bg-gray-200"
+                  >
+                    <Plus size={13} strokeWidth={STROKE} />
+                    Agregar
+                  </button>
+                </div>
+
+                {(form.subcategorias || []).length === 0 ? (
+                  <p className="mt-1.5 rounded-xl border border-dashed border-gray-200 px-4 py-5 text-center text-[13px] text-gray-400">
+                    Sin subcategorías. Opcional, sirve para dividir categorías grandes.
+                  </p>
+                ) : (
+                  <div className="mt-1.5 space-y-2">
+                    {form.subcategorias.map((sub, index) => (
+                      <div key={index} className="flex items-center gap-2">
+                        <input
+                          value={sub.nombre}
+                          onChange={(event) => setSub(index, event.target.value)}
+                          placeholder={`Subcategoría ${index + 1}`}
+                          className={CONTROL}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => removeSub(index)}
+                          title="Quitar"
+                          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-gray-400 transition hover:bg-rose-50 hover:text-rose-600"
+                        >
+                          <Trash2 size={15} strokeWidth={STROKE} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <label className="flex cursor-pointer items-start gap-3 rounded-xl bg-gray-50 p-3">
+                <input
+                  type="checkbox"
+                  checked={form.activo === 1}
+                  onChange={(event) => setForm({ ...form, activo: event.target.checked ? 1 : 0 })}
+                  className="mt-0.5 h-4 w-4 shrink-0 rounded border-gray-300"
+                  style={{ accentColor: BRAND }}
+                />
+                <span>
+                  <span className="block text-[13px] font-medium text-gray-900">Publicada</span>
+                  <span className="mt-0.5 block text-[12px] leading-4 text-gray-500">
+                    Si la ocultás, sus productos dejan de verse en el TPV y en la web.
+                  </span>
+                </span>
+              </label>
             </div>
 
-            <div className="flex flex-col gap-2 border-t border-gray-100 bg-white px-5 py-4 sm:flex-row sm:justify-end">
+            <div className="flex shrink-0 justify-end gap-2 border-t border-gray-100 px-5 py-4">
               <button
                 type="button"
                 onClick={cerrarModal}
-                className="h-11 rounded-2xl border border-gray-200 px-5 text-sm font-bold text-gray-600 transition hover:bg-gray-50"
+                className="h-11 rounded-xl bg-gray-100 px-5 text-[13px] font-semibold text-gray-700 transition hover:bg-gray-200"
               >
                 Cancelar
               </button>
               <button
                 type="button"
                 onClick={guardar}
-                disabled={saving}
-                className="h-11 rounded-2xl bg-primary-500 px-5 text-sm font-bold text-white shadow-[0_14px_30px_rgba(93,135,255,0.26)] transition hover:-translate-y-0.5 hover:bg-[#4a74ef] disabled:opacity-60"
+                disabled={saving || !form.nombre.trim()}
+                style={{ background: BRAND }}
+                className="h-11 rounded-xl px-6 text-[13px] font-semibold text-white transition hover:brightness-110 disabled:opacity-40"
               >
-                {saving
-                  ? 'Guardando...'
-                  : modal === 'nuevo'
-                    ? 'Crear categoria'
-                    : 'Guardar cambios'}
+                {saving ? 'Guardando…' : modal === 'nuevo' ? 'Crear categoría' : 'Guardar cambios'}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {detalle && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/35 p-4 backdrop-blur-sm"
-          onClick={() => setDetalle(null)}
-        >
-          <div
-            className="w-full max-w-2xl overflow-hidden rounded-[28px] border border-white/70 bg-white shadow-[0_24px_70px_rgba(15,23,42,0.26)]"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div
-              className="h-28"
-              style={{
-                background: `linear-gradient(135deg, ${rgba(detalle.color, 0.28)}, ${rgba(detalle.color, 0.06)})`,
-              }}
-            />
-            <div className="-mt-8 px-5 pb-5">
-              <div className="flex items-start justify-between gap-3">
-                <div
-                  className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-[20px] border border-white text-3xl shadow-sm"
-                  style={{ backgroundColor: rgba(detalle.color, 0.14) }}
-                >
-                  {detalle.imagen ? (
-                    <img
-                      src={detalle.imagen}
-                      alt={detalle.nombre}
-                      className="h-full w-full object-cover"
-                    />
-                  ) : (
-                    detalle.icono
-                  )}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setDetalle(null)}
-                  className="flex h-10 w-10 items-center justify-center rounded-2xl border border-gray-200 bg-white text-gray-500 transition hover:bg-gray-50"
-                >
-                  <X size={16} />
-                </button>
-              </div>
-
-              <p className="mt-4 text-[11px] font-bold uppercase tracking-[0.18em] text-gray-400">
-                {detalle.codigo}
-              </p>
-              <h3 className="mt-1 text-2xl font-black tracking-tight text-gray-950">
-                {detalle.nombre}
-              </h3>
-
-              <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                <div className="rounded-2xl bg-slate-50 px-3 py-3">
-                  <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-gray-400">
-                    Estado
-                  </p>
-                  <p className="mt-1 font-semibold text-gray-900">{stateText(detalle.activo)}</p>
-                </div>
-                <div className="rounded-2xl bg-slate-50 px-3 py-3">
-                  <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-gray-400">
-                    Productos
-                  </p>
-                  <p className="mt-1 font-semibold text-primary-500">{detalle.productos}</p>
-                </div>
-                <div className="rounded-2xl bg-slate-50 px-3 py-3">
-                  <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-gray-400">
-                    Color
-                  </p>
-                  <div className="mt-1 flex items-center gap-2 font-semibold text-gray-900">
-                    <span
-                      className="h-4 w-4 rounded-full"
-                      style={{ backgroundColor: detalle.color }}
-                    />
-                    {detalle.color}
-                  </div>
-                </div>
-              </div>
-
-              {detalle.subcategorias?.length > 0 && (
-                <div className="mt-4 rounded-[24px] border border-gray-200 bg-gray-50/80 p-4">
-                  <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-gray-500">
-                    Subcategorias
-                  </p>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {detalle.subcategorias.map((sub, index) => (
-                      <span
-                        key={`detalle-sub-${index}`}
-                        className="rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 shadow-sm"
-                      >
-                        {sub.nombre}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              <div className="mt-5 rounded-[24px] border border-gray-200 bg-gray-50/80 p-4">
-                <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-gray-500">
-                  Productos vinculados
-                </p>
-                <div className="mt-3 space-y-2">
-                  {productosDetalle.length > 0 ? (
-                    productosDetalle.map((producto) => (
-                      <div
-                        key={producto.id}
-                        className="flex items-center justify-between rounded-2xl bg-white px-4 py-3 shadow-sm"
-                      >
-                        <div>
-                          <p className="font-semibold text-gray-900">{producto.nombre}</p>
-                          <p className="text-xs text-gray-400 capitalize">
-                            {producto.estado || 'activo'}
-                          </p>
-                        </div>
-                        <p className="font-bold text-gray-900">
-                          ${Number(producto.precio || 0).toLocaleString('es-AR')}
-                        </p>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="rounded-2xl border border-dashed border-gray-200 bg-white px-4 py-8 text-center text-sm text-gray-400">
-                      Esta categoria todavia no tiene productos.
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-end">
-                <button
-                  type="button"
-                  onClick={() => setDetalle(null)}
-                  className="h-11 rounded-2xl border border-gray-200 px-5 text-sm font-bold text-gray-600 transition hover:bg-gray-50"
-                >
-                  Cerrar
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const current = detalle;
-                    setDetalle(null);
-                    abrir(current);
-                  }}
-                  className="h-11 rounded-2xl bg-primary-500 px-5 text-sm font-bold text-white shadow-[0_14px_30px_rgba(93,135,255,0.26)] transition hover:-translate-y-0.5 hover:bg-[#4a74ef]"
-                >
-                  Editar categoria
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
       <ActionDialog
         open={Boolean(deleteDialog)}
         title={deleteDialog ? `Eliminar ${deleteDialog.nombre}` : ''}
-        description="La categoría se eliminará y sus productos quedarán sin categoría asignada."
+        description={
+          deleteDialog?.productosTotal > 0
+            ? `Esta categoría tiene ${deleteDialog.productosTotal} producto${deleteDialog.productosTotal === 1 ? '' : 's'}. Si la borrás, esos productos quedan sin categoría. Conviene ocultarla en vez de borrarla.`
+            : 'Se elimina la categoría del sistema. No se puede deshacer.'
+        }
         confirmLabel="Eliminar categoría"
         cancelLabel="Cancelar"
         tone="danger"

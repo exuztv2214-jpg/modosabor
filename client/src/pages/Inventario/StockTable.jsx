@@ -1,5 +1,24 @@
-import { Search, Download, Pencil, History, Trash2 } from 'lucide-react';
+import { Download, History, Pencil, Search, Trash2 } from 'lucide-react';
+
+import { BRAND, STROKE } from '../../lib/theme.js';
+import { fmtMoney } from '../../lib/formatters.js';
 import { fmtStock } from './utils';
+
+const VERDE = '#047857';
+
+/**
+ * Porcentaje de la barra de stock.
+ *
+ * Se calculaba como `stock / (minimo * 3)`. Con un insumo sin mínimo cargado
+ * eso es `0/0`, o sea `NaN`, y terminaba en `width: NaN%`: la barra no se
+ * dibujaba y no había forma de saber por qué.
+ */
+function nivelStock(insumo) {
+  const actual = Number(insumo.stock_actual || 0);
+  const minimo = Number(insumo.stock_minimo || 0);
+  if (minimo <= 0) return { pct: actual > 0 ? 100 : 0, sinMinimo: true };
+  return { pct: Math.min(100, Math.max(0, (actual / (minimo * 3)) * 100)), sinMinimo: false };
+}
 
 export default function StockTable({
   filteredInsumos,
@@ -12,147 +31,201 @@ export default function StockTable({
   onDeleteInsumo,
 }) {
   return (
-    <div className="rounded-[28px] bg-white p-6 shadow-sm border border-gray-100">
-      <div className="mb-8 rounded-[24px] border border-primary-100 bg-primary-50 p-5">
-        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-          <div>
-            <p className="text-[10px] font-black uppercase tracking-[0.24em] text-primary-500">
-              Bases compartidas
-            </p>
-            <h4 className="mt-2 text-lg font-black text-gray-900">
-              Lo que manda el stock real de cocina
-            </h4>
-            <p className="mt-1 text-sm font-medium text-gray-500">
-              Estas bases pegan sobre varias pizzas, hamburguesas y milanesas al mismo tiempo.
-            </p>
-          </div>
-          <a
-            href="/admin/operacion"
-            className="inline-flex h-11 items-center justify-center rounded-2xl bg-white px-4 text-xs font-black uppercase tracking-widest text-primary-500 shadow-sm transition hover:bg-primary-50"
-          >
-            Abrir stock diario
-          </a>
-        </div>
-        <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          {sharedBases.slice(0, 9).map((item) => (
-            <div
-              key={item.id}
-              className="rounded-[18px] border border-white bg-white p-4 shadow-sm"
-            >
-              <p className="text-xs font-black uppercase text-gray-900">{item.nombre}</p>
-              <p className="mt-1 text-[10px] font-bold uppercase tracking-widest text-gray-400">
-                {item.dependencias} productos dependen de esta base
+    <div className="space-y-4">
+      {sharedBases.length > 0 ? (
+        <div className="rounded-2xl bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.06)]">
+          <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h3 className="text-[15px] font-semibold text-gray-900">Bases compartidas</h3>
+              <p className="mt-0.5 text-[12px] text-gray-500">
+                Si una de estas se queda sin stock, frena varios productos a la vez
               </p>
-              <div className="mt-3 flex items-end justify-between gap-3">
-                <span className="text-lg font-black text-primary-500">
-                  {fmtStock(item.stock_actual, item.unidad)}
-                </span>
-                <span
-                  className={`rounded-full px-2 py-1 text-[10px] font-black uppercase ${item.stock_bajo ? 'bg-danger-100 text-danger-600' : 'bg-success-100 text-success-600'}`}
-                >
-                  {item.stock_bajo ? 'Bajo' : 'OK'}
-                </span>
-              </div>
             </div>
-          ))}
-        </div>
-      </div>
-
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between mb-6">
-        <h3 className="text-xl font-black text-gray-900 uppercase tracking-tight">
-          Catálogo de Insumos
-        </h3>
-        <div className="flex items-center gap-3">
-          <div className="relative w-full md:w-64">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-            <input
-              value={busqueda}
-              onChange={(e) => onSetBusqueda(e.target.value)}
-              placeholder="Buscar insumo..."
-              className="h-11 w-full rounded-2xl bg-gray-50 pl-12 pr-4 text-sm font-bold border-none focus:ring-2 focus:ring-[#5D87FF]/20 transition-all"
-            />
-          </div>
-          <button
-            onClick={onExportarInsumosCSV}
-            title="Exportar CSV"
-            className="flex h-11 items-center gap-2 rounded-2xl border border-gray-200 bg-white px-4 text-sm font-bold text-gray-600 hover:bg-gray-50 hover:text-primary-500 transition-all shadow-sm shrink-0"
-          >
-            <Download size={16} strokeWidth={2.5} />
-            <span className="hidden sm:inline">CSV</span>
-          </button>
-        </div>
-      </div>
-
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        {filteredInsumos.map((insumo) => {
-          const pct = Math.min(
-            100,
-            Math.max(0, (Number(insumo.stock_actual) / (Number(insumo.stock_minimo) * 3)) * 100)
-          );
-          const isLow = insumo.stock_bajo;
-          return (
-            <div
-              key={insumo.id}
-              className="rounded-[20px] border border-gray-100 bg-white p-4 shadow-sm hover:shadow-md transition-all"
+            <a
+              href="/admin/operacion"
+              className="inline-flex h-9 shrink-0 items-center rounded-xl bg-gray-100 px-3 text-[12px] font-semibold text-gray-700 transition hover:bg-gray-200"
             >
-              <div className="flex items-start justify-between gap-3 mb-3">
-                <div>
-                  <h4 className="text-sm font-black text-gray-800 uppercase tracking-tight line-clamp-2">
-                    {insumo.nombre}
-                  </h4>
-                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
-                    {insumo.rubro}
-                  </p>
-                </div>
-                <button
-                  onClick={() => onOpenEditInsumo(insumo)}
-                  className="p-2 text-gray-300 hover:text-primary-500 transition-colors"
-                >
-                  <Pencil size={16} />
-                </button>
-              </div>
+              Abrir control diario
+            </a>
+          </div>
 
-              <div className="space-y-3">
-                <div className="flex justify-between items-end gap-3">
-                  <p className="text-lg font-black text-gray-900">
-                    {fmtStock(insumo.stock_actual, insumo.unidad)}
-                  </p>
-                  <p className="text-[10px] font-bold text-gray-400 uppercase">
-                    Mín: {fmtStock(insumo.stock_minimo, insumo.unidad)}
-                  </p>
+          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+            {sharedBases.slice(0, 9).map((item) => (
+              <button
+                type="button"
+                key={item.id}
+                onClick={() => onSetMovementModal(item)}
+                className="rounded-xl bg-gray-50 p-3 text-left transition hover:bg-gray-100"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <p className="truncate text-[13px] font-medium text-gray-900">{item.nombre}</p>
+                  <span
+                    className="shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium"
+                    style={
+                      item.stock_bajo
+                        ? { background: '#FEF2F2', color: '#9E141E' }
+                        : { background: '#E7F5EF', color: '#0F6E56' }
+                    }
+                  >
+                    {item.stock_bajo ? 'Bajo' : 'OK'}
+                  </span>
                 </div>
-                <div className="h-2 w-full bg-gray-100 rounded-full overflow-hidden">
-                  <div
-                    className={`h-full rounded-full transition-all duration-500 ${isLow ? 'bg-danger-500' : 'bg-success-500'}`}
-                    style={{ width: `${pct}%` }}
-                  />
-                </div>
-              </div>
+                <p
+                  className="mt-1 text-[17px] font-bold tabular-nums"
+                  style={{ color: item.stock_bajo ? BRAND : '#111827' }}
+                >
+                  {fmtStock(item.stock_actual, item.unidad)}
+                </p>
+                <p className="mt-0.5 text-[11px] text-gray-400">
+                  {item.dependencias}{' '}
+                  {item.dependencias === 1 ? 'producto depende' : 'productos dependen'}
+                </p>
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
-              <div className="mt-4 flex gap-2">
-                <button
-                  onClick={() => onOpenEditInsumo(insumo)}
-                  className="flex-1 h-9 rounded-xl bg-primary-50 text-[10px] font-black text-primary-500 uppercase tracking-wider hover:bg-primary-500 hover:text-white transition-all"
-                >
-                  Ver Detalles
-                </button>
-                <button
-                  onClick={() => onSetMovementModal(insumo)}
-                  className="h-9 w-9 rounded-xl bg-gray-50 flex items-center justify-center text-gray-400 hover:text-gray-900 transition-all"
-                >
-                  <History size={16} />
-                </button>
-                <button
-                  onClick={() => onDeleteInsumo(insumo)}
-                  title="Eliminar insumo"
-                  className="flex h-9 w-9 items-center justify-center rounded-xl border border-rose-100 bg-danger-50 text-rose-500 hover:bg-danger-100 transition-all"
-                >
-                  <Trash2 size={16} />
-                </button>
-              </div>
+      <div className="rounded-2xl bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.06)]">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <h3 className="text-[15px] font-semibold text-gray-900">Insumos</h3>
+          <div className="flex items-center gap-2">
+            <div className="relative w-full sm:w-64">
+              <Search
+                size={16}
+                strokeWidth={STROKE}
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+              />
+              <input
+                value={busqueda}
+                onChange={(e) => onSetBusqueda(e.target.value)}
+                placeholder="Buscar por nombre o rubro"
+                className="h-11 w-full rounded-xl border border-gray-200 bg-white pl-9 pr-3 text-[14px] text-gray-800 outline-none transition placeholder:text-gray-400 focus:border-gray-400 focus:ring-2 focus:ring-gray-900/5"
+              />
             </div>
-          );
-        })}
+            <button
+              type="button"
+              onClick={onExportarInsumosCSV}
+              title="Exportar CSV"
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gray-100 text-gray-600 transition hover:bg-gray-200"
+            >
+              <Download size={16} strokeWidth={STROKE} />
+            </button>
+          </div>
+        </div>
+
+        {/* No había estado vacío: buscar algo que no existe dejaba un hueco
+            blanco sin explicación. */}
+        {filteredInsumos.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-gray-200 px-6 py-12 text-center">
+            <p className="text-[14px] font-medium text-gray-600">
+              {busqueda.trim() ? 'Ningún insumo coincide' : 'Todavía no hay insumos'}
+            </p>
+            <p className="mx-auto mt-1 max-w-sm text-[12px] leading-4 text-gray-400">
+              {busqueda.trim()
+                ? 'Probá con otro nombre o rubro.'
+                : 'Los insumos son la materia prima que descuentan las recetas.'}
+            </p>
+            {busqueda.trim() ? (
+              <button
+                type="button"
+                onClick={() => onSetBusqueda('')}
+                className="mt-4 h-10 rounded-xl bg-gray-100 px-4 text-[13px] font-semibold text-gray-700 transition hover:bg-gray-200"
+              >
+                Limpiar búsqueda
+              </button>
+            ) : null}
+          </div>
+        ) : (
+          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+            {filteredInsumos.map((insumo) => {
+              const { pct, sinMinimo } = nivelStock(insumo);
+              const bajo = insumo.stock_bajo;
+              const inactivo = Number(insumo.activo) !== 1;
+
+              return (
+                <div
+                  key={insumo.id}
+                  className={`group rounded-xl border border-gray-100 p-3 transition hover:border-gray-200 ${
+                    inactivo ? 'opacity-60' : ''
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="truncate text-[13px] font-medium text-gray-900">
+                        {insumo.nombre}
+                      </p>
+                      <p className="truncate text-[11px] text-gray-400">
+                        {insumo.rubro}
+                        {inactivo ? ' · sin uso' : ''}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => onOpenEditInsumo(insumo)}
+                      title="Editar insumo"
+                      className="shrink-0 rounded-lg p-1.5 text-gray-400 opacity-0 transition hover:bg-gray-100 hover:text-gray-700 group-hover:opacity-100"
+                    >
+                      <Pencil size={14} strokeWidth={STROKE} />
+                    </button>
+                  </div>
+
+                  <div className="mt-2 flex items-end justify-between gap-2">
+                    <p
+                      className="text-[18px] font-bold tabular-nums leading-none"
+                      style={{ color: bajo ? BRAND : '#111827' }}
+                    >
+                      {fmtStock(insumo.stock_actual, insumo.unidad)}
+                    </p>
+                    <p className="text-[11px] text-gray-400">
+                      {sinMinimo
+                        ? 'sin mínimo'
+                        : `mín ${fmtStock(insumo.stock_minimo, insumo.unidad)}`}
+                    </p>
+                  </div>
+
+                  <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-gray-100">
+                    <div
+                      className="h-full rounded-full transition-all duration-500"
+                      style={{ width: `${pct}%`, background: bajo ? BRAND : VERDE }}
+                    />
+                  </div>
+
+                  {/* El costo sólo se veía abriendo el editor, aunque es el
+                      dato que necesitás para decidir una compra. */}
+                  <p className="mt-2 text-[11px] text-gray-400">
+                    {Number(insumo.costo_unitario || 0) > 0 ? (
+                      <>
+                        {fmtMoney(insumo.costo_unitario)} por {insumo.unidad}
+                      </>
+                    ) : (
+                      <span style={{ color: '#B45309' }}>Sin costo cargado</span>
+                    )}
+                  </p>
+
+                  <div className="mt-2.5 flex gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => onSetMovementModal(insumo)}
+                      className="inline-flex h-9 flex-1 items-center justify-center gap-1.5 rounded-xl bg-gray-100 text-[12px] font-semibold text-gray-700 transition hover:bg-gray-200"
+                    >
+                      <History size={13} strokeWidth={STROKE} />
+                      Ajustar stock
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onDeleteInsumo(insumo)}
+                      title="Eliminar insumo"
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-gray-400 transition hover:bg-rose-50 hover:text-rose-600"
+                    >
+                      <Trash2 size={14} strokeWidth={STROKE} />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );

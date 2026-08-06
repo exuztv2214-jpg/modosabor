@@ -5,6 +5,25 @@ export default {
   theme: {
     extend: {
       colors: {
+        /**
+         * Rojo Modo Sabor. Es el único acento del TPV: botón de cobrar,
+         * precios, total, categoría activa. Todo lo demás es gris.
+         *
+         * La regla es que el color se reserva, no se reparte. Si aparece
+         * en más de cinco lugares por pantalla deja de significar algo.
+         */
+        brand: {
+          50: '#FEF2F2',
+          100: '#FDE3E4',
+          200: '#FBC5C8',
+          300: '#F79197',
+          400: '#F05C65',
+          500: '#DC1F2D',
+          600: '#C11824',
+          700: '#9E141E',
+          800: '#7A0F17',
+          900: '#560A10',
+        },
         // Paleta principal de Modo Sabor (azul)
         primary: {
           50: '#ECF2FF',
@@ -74,7 +93,11 @@ export default {
         },
         // Fondos y superficies
         background: {
-          DEFAULT: '#F4F7FB',
+          // Era #F4F7FB, un gris con tinte azul que venía de la plantilla.
+          // Ahora coincide con APP_BG de lib/theme.js, que es el fondo que
+          // usan los módulos rediseñados. Tenerlos distintos hacía que se
+          // viera un recuadro gris dentro de otro gris.
+          DEFAULT: '#F6F7F9',
           card: '#FFFFFF',
           elevated: '#FFFFFF',
         },

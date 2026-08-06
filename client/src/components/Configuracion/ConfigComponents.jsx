@@ -1,110 +1,136 @@
-import React from 'react';
+import { BRAND, STROKE } from '../../lib/theme.js';
 
-export function ToggleSwitch({ checked, onChange, label, description, color = 'orange' }) {
-  const colors = {
-    indigo: 'bg-indigo-600',
-    emerald: 'bg-emerald-600',
-    orange: 'bg-orange-600',
-    green: 'bg-green-600',
-    blue: 'bg-blue-600',
-    amber: 'bg-amber-600',
-    rose: 'bg-rose-600',
-    violet: 'bg-violet-600',
-  };
+/**
+ * Primitivos compartidos por las nueve secciones de Configuración.
+ *
+ * Este archivo es el punto de apalancamiento del módulo: todas las secciones
+ * lo usan, así que un cambio acá se ve en todas a la vez.
+ *
+ * Las reglas son las mismas que en el TPV y en el control diario: un solo
+ * acento, el peso tipográfico se gana, dos radios y nada más.
+ *
+ * Sobre el color de los interruptores: van en gris oscuro y no en rojo. Una
+ * pantalla de ajustes puede tener veinte encendidos a la vez, y veinte
+ * manchas rojas convierten el acento en ruido. El rojo queda reservado para
+ * guardar y para lo destructivo, que es donde tiene que llamar la atención.
+ */
 
+const TONO_ENCENDIDO = '#111827';
+
+export function ToggleSwitch({ checked, onChange, label, description, tone }) {
   return (
-    <div className="flex items-start justify-between gap-4 rounded-2xl border border-gray-200 bg-white px-4 py-4 h-full">
-      <div className="min-w-0">
-        {label && <p className="text-sm font-semibold text-gray-900">{label}</p>}
-        {description && <p className="mt-1 text-xs leading-5 text-gray-500">{description}</p>}
-      </div>
-      <button
-        type="button"
-        onClick={() => onChange(!checked)}
-        className={`relative inline-flex h-7 w-12 flex-shrink-0 items-center rounded-full transition-colors ${
-          checked ? colors[color] || colors.orange : 'bg-gray-300'
-        }`}
+    <button
+      type="button"
+      role="switch"
+      aria-checked={Boolean(checked)}
+      onClick={() => onChange(!checked)}
+      className="flex h-full w-full items-start justify-between gap-4 rounded-xl bg-white px-4 py-3.5 text-left shadow-[0_1px_2px_rgba(15,23,42,0.06)] transition hover:shadow-[0_3px_10px_rgba(15,23,42,0.08)]"
+    >
+      <span className="min-w-0">
+        {label ? (
+          <span className="block text-[14px] font-medium leading-tight text-gray-900">{label}</span>
+        ) : null}
+        {description ? (
+          <span className="mt-1 block text-[12px] leading-snug text-gray-500">{description}</span>
+        ) : null}
+      </span>
+      <span
+        className={`relative mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${checked ? '' : 'bg-gray-200'}`}
+        style={checked ? { background: tone || TONO_ENCENDIDO } : undefined}
       >
         <span
-          className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${
-            checked ? 'translate-x-6' : 'translate-x-1'
-          }`}
+          className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition-transform ${checked ? 'translate-x-[22px]' : 'translate-x-0.5'}`}
         />
-      </button>
-    </div>
+      </span>
+    </button>
   );
 }
 
-export function SectionCard({ icon: Icon, tone = 'orange', title, subtitle, children }) {
-  const tones = {
-    indigo: 'bg-indigo-100 text-indigo-600',
-    emerald: 'bg-success-100 text-success-600',
-    orange: 'bg-orange-100 text-orange-600',
-    green: 'bg-green-100 text-green-600',
-    blue: 'bg-primary-100 text-primary-600',
-    amber: 'bg-warning-100 text-warning-600',
-    rose: 'bg-danger-100 text-danger-600',
-    violet: 'bg-violet-100 text-violet-600',
-  };
+/**
+ * Bloque de ajustes.
+ *
+ * El ícono va en gris salvo que la sección sea sensible (`tone="danger"`),
+ * donde el rojo de marca avisa que lo que hay adentro se toca con cuidado.
+ */
+export function SectionCard({ icon: Icon, tone, title, subtitle, children, action }) {
+  const peligro = tone === 'danger';
 
   return (
-    <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 md:p-8">
-      <div className="flex items-center gap-3 mb-6">
-        <div className={`w-10 h-10 rounded-xl ${tones[tone]} flex items-center justify-center`}>
-          <Icon size={20} />
+    <section className="rounded-2xl bg-white shadow-[0_1px_2px_rgba(15,23,42,0.06)]">
+      <div className="flex flex-wrap items-start justify-between gap-3 px-5 pb-4 pt-5 sm:px-6">
+        <div className="flex min-w-0 items-start gap-3">
+          {Icon ? (
+            <span
+              className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg"
+              style={
+                peligro
+                  ? { background: '#FEF2F2', color: BRAND }
+                  : { background: '#F3F4F6', color: '#6B7280' }
+              }
+            >
+              <Icon size={17} strokeWidth={STROKE} />
+            </span>
+          ) : null}
+          <div className="min-w-0">
+            <h3 className="text-[16px] font-semibold tracking-tight text-gray-900">{title}</h3>
+            {subtitle ? <p className="mt-0.5 text-[13px] text-gray-500">{subtitle}</p> : null}
+          </div>
         </div>
-        <div>
-          <h3 className="text-lg font-bold text-gray-900">{title}</h3>
-          <p className="text-sm text-gray-500">{subtitle}</p>
-        </div>
+        {action}
       </div>
-      {children}
-    </div>
+      <div className="border-t border-gray-100 px-5 py-5 sm:px-6">{children}</div>
+    </section>
   );
 }
 
-export function InputField({ label, description, ...props }) {
+const campoBase =
+  'w-full rounded-xl border border-gray-200 bg-white text-[14px] text-gray-900 outline-none transition placeholder:text-gray-400 focus:border-gray-400';
+
+export function InputField({ label, description, hint, ...props }) {
   return (
-    <div>
-      <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
-      {description && <p className="mb-2 text-xs text-gray-500">{description}</p>}
-      <input
-        {...props}
-        className="w-full h-12 rounded-xl border border-gray-300 px-4 text-base placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-500 transition-all"
-      />
-    </div>
+    <label className="block">
+      {label ? (
+        <span className="mb-1 block text-[13px] font-medium text-gray-700">{label}</span>
+      ) : null}
+      {description ? (
+        <span className="mb-2 block text-[12px] leading-snug text-gray-500">{description}</span>
+      ) : null}
+      <input {...props} className={`${campoBase} h-11 px-3.5`} />
+      {hint ? <span className="mt-1.5 block text-[11px] text-gray-400">{hint}</span> : null}
+    </label>
   );
 }
 
-export function TextareaField({ label, description, rows = 8, ...props }) {
+export function TextareaField({ label, description, rows = 6, ...props }) {
   return (
-    <div>
-      <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
-      {description && <p className="mb-2 text-xs text-gray-500">{description}</p>}
-      <textarea
-        {...props}
-        rows={rows}
-        className="w-full rounded-2xl border border-gray-300 px-4 py-3 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-500 transition-all"
-      />
-    </div>
+    <label className="block">
+      {label ? (
+        <span className="mb-1 block text-[13px] font-medium text-gray-700">{label}</span>
+      ) : null}
+      {description ? (
+        <span className="mb-2 block text-[12px] leading-snug text-gray-500">{description}</span>
+      ) : null}
+      <textarea {...props} rows={rows} className={`${campoBase} px-3.5 py-2.5 leading-relaxed`} />
+    </label>
   );
 }
 
 export function SelectField({ label, description, options = [], ...props }) {
   return (
-    <div>
-      <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
-      {description && <p className="mb-2 text-xs text-gray-500">{description}</p>}
-      <select
-        {...props}
-        className="w-full h-12 rounded-xl border border-gray-300 px-4 text-base focus:outline-none focus:ring-2 focus:ring-orange-500 bg-white transition-all"
-      >
-        {options.map((opt) => (
-          <option key={opt.value} value={opt.value}>
-            {opt.label}
+    <label className="block">
+      {label ? (
+        <span className="mb-1 block text-[13px] font-medium text-gray-700">{label}</span>
+      ) : null}
+      {description ? (
+        <span className="mb-2 block text-[12px] leading-snug text-gray-500">{description}</span>
+      ) : null}
+      <select {...props} className={`${campoBase} h-11 px-3`}>
+        {options.map((opcion) => (
+          <option key={opcion.value} value={opcion.value}>
+            {opcion.label}
           </option>
         ))}
       </select>
-    </div>
+    </label>
   );
 }

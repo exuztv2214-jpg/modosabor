@@ -5,16 +5,22 @@ import {
   Copy,
   ExternalLink,
   ImagePlus,
+  Pencil,
   Plus,
   RefreshCw,
   Save,
   Send,
   Share2,
+  SkipForward,
   Trash2,
+  Zap,
 } from 'lucide-react';
 
 import api from '../../lib/api.js';
-import { UPLOADS_BASE_URL } from '../../lib/runtime.js';
+import { resolveAssetUrl } from '../../lib/assets.js';
+import { BRAND, STROKE } from '../../lib/theme.js';
+import ActionDialog from '../ActionDialog.jsx';
+import { Card, Empty, CONTROL, SELECT } from '../../pages/Clientes/clientesUi.jsx';
 
 const emptyDestino = {
   nombre: '',
@@ -26,60 +32,80 @@ const emptyDestino = {
 };
 const emptyPublicacion = { titulo: '', mensaje: '', link_url: '', estado: 'borrador' };
 
-function uploadUrl(publicPath = '') {
-  if (!publicPath) return '';
-  return `${UPLOADS_BASE_URL}${publicPath}`;
+const TIPOS_DESTINO = {
+  grupo_facebook: 'Grupo',
+  pagina_facebook: 'Página',
+  perfil_facebook: 'Perfil',
+};
+
+const TONOS = {
+  publicado: { bg: '#E7F5EF', fg: '#0F6E56', label: 'Publicado' },
+  listo: { bg: '#E9F1FA', fg: '#1F5FA0', label: 'Lista' },
+  borrador: { bg: '#F1F5F9', fg: '#475569', label: 'Borrador' },
+  abierto: { bg: '#E9F1FA', fg: '#1F5FA0', label: 'Abierto' },
+  omitido: { bg: '#FDF3D3', fg: '#95661A', label: 'Omitido' },
+  error: { bg: '#FEF2F2', fg: '#9E141E', label: 'Error' },
+  pendiente: { bg: '#F1F5F9', fg: '#64748B', label: 'Pendiente' },
+};
+
+function tono(estado) {
+  return TONOS[String(estado || '').toLowerCase()] || TONOS.pendiente;
 }
 
-function Badge({ tone = 'slate', children }) {
-  const styles = {
-    slate: 'bg-slate-100 text-slate-700',
-    blue: 'bg-primary-100 text-blue-700',
-    green: 'bg-success-100 text-success-700',
-    amber: 'bg-warning-100 text-warning-700',
-    rose: 'bg-danger-100 text-danger-700',
-  };
+function Pill({ estado, children }) {
+  const t = tono(estado);
   return (
     <span
-      className={`inline-flex rounded-full px-2.5 py-1 text-xs font-bold ${styles[tone] || styles.slate}`}
+      className="inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[11px] font-medium"
+      style={{ background: t.bg, color: t.fg }}
     >
-      {children}
+      {children ?? t.label}
     </span>
   );
 }
 
-function copyText(value, ok = 'Copiado') {
-  return navigator.clipboard
-    .writeText(String(value || ''))
-    .then(() => toast.success(ok))
-    .catch(() => toast.error('No se pudo copiar'));
+/**
+ * El interceptor de axios rechaza con un objeto que tiene `.error`, no
+ * `.message`. Este archivo leía `error.message` en trece lugares distintos,
+ * así que ningún mensaje real del servidor llegaba nunca a la pantalla:
+ * siempre se veía el texto genérico de respaldo.
+ */
+function errorMsg(error, fallback) {
+  return error?.error || fallback;
 }
 
-function renderMediaPreview(publicPath, mimeType, alt = 'Adjunto') {
-  const url = uploadUrl(publicPath);
-  if (!url) return null;
-  const mime = String(mimeType || '').toLowerCase();
-  if (mime.startsWith('image/')) {
-    return (
-      <img
-        src={url}
-        alt={alt}
-        className="h-32 w-full rounded-2xl object-cover ring-1 ring-slate-200"
-      />
-    );
+async function copyText(value, ok = 'Copiado') {
+  // `navigator.clipboard` no existe fuera de contextos seguros (http en LAN,
+  // que es justo como se usa el sistema desde el celular del local).
+  if (!navigator?.clipboard?.writeText) {
+    toast.error('El navegador no permite copiar acá');
+    return;
   }
-  if (mime.startsWith('video/')) {
+  try {
+    await navigator.clipboard.writeText(String(value || ''));
+    toast.success(ok);
+  } catch {
+    toast.error('No se pudo copiar');
+  }
+}
+
+/** Los adjuntos viven en `/uploads/...`; `resolveAssetUrl` es el helper del sistema. */
+function MediaPreview({ path, mime, alt = 'Adjunto', className = '' }) {
+  const url = resolveAssetUrl(path);
+  if (!url) return null;
+  const tipo = String(mime || '').toLowerCase();
+
+  if (tipo.startsWith('image/')) {
+    return <img src={url} alt={alt} className={`w-full rounded-xl object-cover ${className}`} />;
+  }
+  if (tipo.startsWith('video/')) {
     return (
-      <video
-        src={url}
-        controls
-        className="h-40 w-full rounded-2xl bg-slate-950 object-cover ring-1 ring-slate-200"
-      >
+      <video src={url} controls className={`w-full rounded-xl bg-gray-900 ${className}`}>
         <track kind="captions" src="" label="Sin subtítulos" />
       </video>
     );
   }
-  if (mime.startsWith('audio/')) {
+  if (tipo.startsWith('audio/')) {
     return (
       <audio src={url} controls className="w-full">
         <track kind="captions" src="" label="Sin subtítulos" />
@@ -91,13 +117,56 @@ function renderMediaPreview(publicPath, mimeType, alt = 'Adjunto') {
       href={url}
       target="_blank"
       rel="noreferrer"
-      className="inline-flex items-center gap-2 rounded-2xl bg-white px-3 py-2 text-xs font-bold text-slate-700 ring-1 ring-slate-200"
+      className="inline-flex items-center gap-1.5 rounded-xl bg-gray-100 px-3 py-2 text-[12px] font-semibold text-gray-700 transition hover:bg-gray-200"
     >
-      <ExternalLink size={14} />
+      <ExternalLink size={13} strokeWidth={STROKE} />
       Abrir adjunto
     </a>
   );
 }
+
+/**
+ * Vista previa del archivo que todavía no se subió.
+ *
+ * Antes se llamaba `URL.createObjectURL(file)` directo en el JSX: se creaba
+ * una URL nueva en cada render y ninguna se liberaba nunca. Con un video de
+ * unos megas y un formulario que re-renderiza en cada tecla, el navegador se
+ * va llenando de blobs.
+ */
+function ArchivoPreview({ file }) {
+  const [url, setUrl] = useState('');
+
+  useEffect(() => {
+    if (!file) return setUrl('');
+    const objectUrl = URL.createObjectURL(file);
+    setUrl(objectUrl);
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [file]);
+
+  if (!file || !url) return null;
+  const tipo = file.type || '';
+
+  return (
+    <div className="rounded-xl bg-white p-3">
+      <p className="mb-2 truncate text-[11px] text-gray-500">{file.name}</p>
+      {tipo.startsWith('image/') ? (
+        <img src={url} alt={file.name} className="h-36 w-full rounded-lg object-cover" />
+      ) : tipo.startsWith('video/') ? (
+        <video src={url} controls className="h-40 w-full rounded-lg bg-gray-900">
+          <track kind="captions" src="" label="Sin subtítulos" />
+        </video>
+      ) : tipo.startsWith('audio/') ? (
+        <audio src={url} controls className="w-full">
+          <track kind="captions" src="" label="Sin subtítulos" />
+        </audio>
+      ) : (
+        <p className="text-[12px] text-gray-600">Archivo listo para subir</p>
+      )}
+    </div>
+  );
+}
+
+const LABEL = 'mb-1.5 block text-[12px] font-medium text-gray-600';
 
 export default function PublicadorFacebookPanel() {
   const [loading, setLoading] = useState(true);
@@ -112,11 +181,16 @@ export default function PublicadorFacebookPanel() {
   const [editPublicacionId, setEditPublicacionId] = useState(null);
   const [selectedPostId, setSelectedPostId] = useState(null);
   const [queue, setQueue] = useState({ publicacion: null, items: [] });
+  // Se usaba `window.confirm`, que es el único del sistema: el resto de los
+  // borrados pasa por `ActionDialog`.
+  const [borrar, setBorrar] = useState(null);
 
   const selectedPost = useMemo(
     () => publicaciones.find((item) => item.id === selectedPostId) || null,
     [publicaciones, selectedPostId]
   );
+
+  const destinosActivos = useMemo(() => destinos.filter((d) => d.activo).length, [destinos]);
 
   const loadAll = async () => {
     setLoading(true);
@@ -138,7 +212,7 @@ export default function PublicadorFacebookPanel() {
         }
       }
     } catch (error) {
-      toast.error(error.message || 'No se pudo cargar el publicador');
+      toast.error(errorMsg(error, 'No se pudo cargar el publicador'));
     } finally {
       setLoading(false);
     }
@@ -146,6 +220,7 @@ export default function PublicadorFacebookPanel() {
 
   useEffect(() => {
     loadAll();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const resetDestino = () => {
@@ -161,6 +236,9 @@ export default function PublicadorFacebookPanel() {
 
   const saveDestino = async (event) => {
     event.preventDefault();
+    if (!destinoForm.nombre.trim() || !destinoForm.url.trim()) {
+      return toast.error('El destino necesita nombre y URL');
+    }
     setSavingDestino(true);
     try {
       if (editDestinoId) {
@@ -172,7 +250,7 @@ export default function PublicadorFacebookPanel() {
       resetDestino();
       await loadAll();
     } catch (error) {
-      toast.error(error.message || 'No se pudo guardar el destino');
+      toast.error(errorMsg(error, 'No se pudo guardar el destino'));
     } finally {
       setSavingDestino(false);
     }
@@ -180,6 +258,9 @@ export default function PublicadorFacebookPanel() {
 
   const savePublicacion = async (event) => {
     event.preventDefault();
+    if (!publicacionForm.mensaje.trim()) {
+      return toast.error('Escribí el texto de la publicación');
+    }
     setSavingPublicacion(true);
     try {
       const form = new FormData();
@@ -198,11 +279,11 @@ export default function PublicadorFacebookPanel() {
           headers: { 'Content-Type': 'multipart/form-data' },
         });
       }
-      toast.success('Publicacion guardada');
+      toast.success('Publicación guardada');
       resetPublicacion();
       await loadAll();
     } catch (error) {
-      toast.error(error.message || 'No se pudo guardar la publicacion');
+      toast.error(errorMsg(error, 'No se pudo guardar la publicación'));
     } finally {
       setSavingPublicacion(false);
     }
@@ -215,23 +296,27 @@ export default function PublicadorFacebookPanel() {
       setQueue(queueData);
     } catch (error) {
       setQueue({ publicacion: null, items: [] });
-      toast.error(error.message || 'Todavia no preparaste la cola');
+      toast.error(errorMsg(error, 'Todavía no preparaste la cola'));
     }
   };
 
   const prepareQueue = async (postId) => {
+    const activeIds = destinos.filter((item) => item.activo).map((item) => item.id);
+    // Preparaba la cola con cero destinos sin decir nada y quedaba vacía.
+    if (activeIds.length === 0) {
+      return toast.error('No hay destinos activos para publicar');
+    }
     try {
-      const activeIds = destinos.filter((item) => item.activo).map((item) => item.id);
       const queueData = await api.post(
         `/marketing/publicador/publicaciones/${postId}/preparar-cola`,
         { destino_ids: activeIds }
       );
       setSelectedPostId(postId);
       setQueue(queueData);
-      toast.success('Cola preparada');
+      toast.success(`Cola preparada con ${activeIds.length} destinos`);
       await loadAll();
     } catch (error) {
-      toast.error(error.message || 'No se pudo preparar la cola');
+      toast.error(errorMsg(error, 'No se pudo preparar la cola'));
     }
   };
 
@@ -242,7 +327,7 @@ export default function PublicadorFacebookPanel() {
       await loadAll();
       toast.success(estado === 'publicado' ? 'Marcado como publicado' : 'Actualizado');
     } catch (error) {
-      toast.error(error.message || 'No se pudo actualizar el envio');
+      toast.error(errorMsg(error, 'No se pudo actualizar el envío'));
     }
   };
 
@@ -251,30 +336,27 @@ export default function PublicadorFacebookPanel() {
       const queueData = await api.post(`/marketing/publicador/envios/${itemId}/autopublicar`);
       setQueue(queueData);
       await loadAll();
-      toast.success('Publicado automaticamente');
+      toast.success('Publicado automáticamente');
     } catch (error) {
-      toast.error(error.message || 'No se pudo autopublicar');
+      toast.error(errorMsg(error, 'No se pudo autopublicar'));
     }
   };
 
   const autoPublishWholeQueue = async () => {
-    if (!queue?.publicacion?.id) {
-      toast.error('Primero carga una cola');
-      return;
-    }
+    if (!queue?.publicacion?.id) return toast.error('Primero cargá una cola');
     try {
       const response = await api.post(
         `/marketing/publicador/publicaciones/${queue.publicacion.id}/autopublicar-cola`
       );
       setQueue(response.queue);
       await loadAll();
-      const oks = (response.results || []).filter((item) => item.ok).length;
-      const fails = (response.results || []).filter((item) => !item.ok).length;
-      if (fails > 0)
-        toast.error(`Cola terminada con ${fails} errores y ${oks} publicaciones hechas`);
+      const resultados = response.results || [];
+      const oks = resultados.filter((item) => item.ok).length;
+      const fails = resultados.filter((item) => !item.ok).length;
+      if (fails > 0) toast.error(`${oks} publicadas, ${fails} con error`);
       else toast.success(`Cola autopublicada (${oks})`);
     } catch (error) {
-      toast.error(error.message || 'No se pudo autopublicar la cola');
+      toast.error(errorMsg(error, 'No se pudo autopublicar la cola'));
     }
   };
 
@@ -284,16 +366,16 @@ export default function PublicadorFacebookPanel() {
       toast.success('Vista previa actualizada');
       await loadAll();
     } catch (error) {
-      toast.error(error.message || 'No se pudo capturar la vista previa');
+      toast.error(errorMsg(error, 'No se pudo capturar la vista previa'));
     }
   };
 
   const loginFacebookChrome = async () => {
     try {
       await api.post('/marketing/publicador/facebook/login');
-      toast.success('Sesion de Facebook en Chrome lista');
+      toast.success('Sesión de Facebook lista en Chrome');
     } catch (error) {
-      toast.error(error.message || 'No se pudo iniciar sesion en Chrome');
+      toast.error(errorMsg(error, 'No se pudo iniciar sesión en Chrome'));
     }
   };
 
@@ -320,31 +402,27 @@ export default function PublicadorFacebookPanel() {
     setPublicacionFile(null);
   };
 
-  const deleteDestino = async (item) => {
-    if (!window.confirm(`Eliminar ${item.nombre}?`)) return;
+  const confirmarBorrado = async () => {
+    if (!borrar) return;
+    const { tipo, item } = borrar;
     try {
-      await api.delete(`/marketing/publicador/destinos/${item.id}`);
-      toast.success('Destino eliminado');
-      if (editDestinoId === item.id) resetDestino();
-      await loadAll();
-    } catch (error) {
-      toast.error(error.message || 'No se pudo eliminar');
-    }
-  };
-
-  const deletePublicacion = async (item) => {
-    if (!window.confirm(`Eliminar ${item.titulo}?`)) return;
-    try {
-      await api.delete(`/marketing/publicador/publicaciones/${item.id}`);
-      toast.success('Publicacion eliminada');
-      if (editPublicacionId === item.id) resetPublicacion();
-      if (selectedPostId === item.id) {
-        setSelectedPostId(null);
-        setQueue({ publicacion: null, items: [] });
+      if (tipo === 'destino') {
+        await api.delete(`/marketing/publicador/destinos/${item.id}`);
+        if (editDestinoId === item.id) resetDestino();
+        toast.success('Destino eliminado');
+      } else {
+        await api.delete(`/marketing/publicador/publicaciones/${item.id}`);
+        if (editPublicacionId === item.id) resetPublicacion();
+        if (selectedPostId === item.id) {
+          setSelectedPostId(null);
+          setQueue({ publicacion: null, items: [] });
+        }
+        toast.success('Publicación eliminada');
       }
+      setBorrar(null);
       await loadAll();
     } catch (error) {
-      toast.error(error.message || 'No se pudo eliminar');
+      toast.error(errorMsg(error, 'No se pudo eliminar'));
     }
   };
 
@@ -356,319 +434,321 @@ export default function PublicadorFacebookPanel() {
   const previewMedia = queue.publicacion?.media_path || selectedPost?.media_path || '';
 
   return (
-    <div className="space-y-6">
-      <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <h2 className="text-xl font-black text-slate-900">Publicador Facebook y Grupos</h2>
-            <p className="mt-1 text-sm text-slate-500">
-              Preparas una sola publicacion, eliges tus grupos o destinos y despues vas publicando
-              uno por uno con texto, foto, video o link ya listos.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
+    <div className="space-y-4">
+      <Card
+        title="Publicador de Facebook"
+        helper="Escribís el mensaje una vez y lo publicás en todos tus grupos sin rearmarlo"
+        action={
+          <div className="flex shrink-0 flex-wrap gap-2">
             <button
               type="button"
               onClick={loginFacebookChrome}
-              className="inline-flex items-center gap-2 rounded-2xl bg-violet-600 px-4 py-3 text-sm font-bold text-white"
+              className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-gray-100 px-3 text-[12px] font-semibold text-gray-700 transition hover:bg-gray-200"
             >
-              <Send size={16} />
-              Iniciar sesion en Chrome
+              <Zap size={13} strokeWidth={STROKE} />
+              Conectar Chrome
             </button>
             <button
               type="button"
               onClick={loadAll}
-              className="inline-flex items-center gap-2 rounded-2xl bg-slate-100 px-4 py-3 text-sm font-bold text-slate-700"
+              title="Actualizar"
+              className="flex h-9 w-9 items-center justify-center rounded-xl bg-gray-100 text-gray-600 transition hover:bg-gray-200"
             >
-              <RefreshCw size={16} />
-              Actualizar
+              <RefreshCw size={14} strokeWidth={STROKE} className={loading ? 'animate-spin' : ''} />
             </button>
           </div>
-        </div>
-      </div>
+        }
+      >
+        <p className="text-[12px] leading-4 text-gray-500">
+          El autopublicado usa la sesión de Facebook abierta en Chrome. Si nunca la iniciaste, tocá{' '}
+          <span className="font-medium text-gray-700">Conectar Chrome</span> primero.
+        </p>
+      </Card>
 
       {loading ? (
-        <div className="rounded-3xl border border-slate-200 bg-white p-10 text-center text-slate-500">
-          Cargando publicador...
-        </div>
+        <Card>
+          <p className="py-8 text-center text-[13px] text-gray-400">Cargando publicador…</p>
+        </Card>
       ) : (
         <>
-          <div className="grid gap-6 xl:grid-cols-2">
-            <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-              <div className="mb-4 flex items-center gap-3">
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-violet-100 text-violet-700">
-                  <ImagePlus size={22} />
-                </div>
-                <div>
-                  <h3 className="text-lg font-black text-slate-900">Nueva publicacion</h3>
-                  <p className="text-sm text-slate-500">
-                    Escribes una vez y despues la reutilizas en todos los grupos.
-                  </p>
-                </div>
-              </div>
-
-              <form onSubmit={savePublicacion} className="space-y-3 rounded-3xl bg-slate-50 p-4">
-                <label className="space-y-1">
-                  <span className="text-sm font-bold text-slate-700">Titulo interno</span>
+          <div className="grid gap-4 xl:grid-cols-2">
+            <Card
+              title={editPublicacionId ? 'Editar publicación' : 'Nueva publicación'}
+              helper="El texto que después se pega en cada grupo"
+            >
+              <form onSubmit={savePublicacion} className="space-y-3">
+                <label className="block">
+                  <span className={LABEL}>Título interno</span>
                   <input
                     value={publicacionForm.titulo}
                     onChange={(e) =>
                       setPublicacionForm((prev) => ({ ...prev, titulo: e.target.value }))
                     }
-                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm"
+                    className={CONTROL}
+                    placeholder="Para reconocerla en la lista"
                   />
                 </label>
-                <label className="space-y-1">
-                  <span className="text-sm font-bold text-slate-700">Texto de la publicacion</span>
+
+                <label className="block">
+                  <span className={LABEL}>Texto de la publicación</span>
                   <textarea
                     value={publicacionForm.mensaje}
                     onChange={(e) =>
                       setPublicacionForm((prev) => ({ ...prev, mensaje: e.target.value }))
                     }
-                    className="min-h-[130px] w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm"
+                    className={`${CONTROL} min-h-[130px] resize-y py-2.5`}
+                    placeholder="Lo que va a leer la gente"
                   />
                 </label>
-                <label className="space-y-1">
-                  <span className="text-sm font-bold text-slate-700">Link opcional</span>
+
+                <label className="block">
+                  <span className={LABEL}>Link (opcional)</span>
                   <input
                     value={publicacionForm.link_url}
                     onChange={(e) =>
                       setPublicacionForm((prev) => ({ ...prev, link_url: e.target.value }))
                     }
-                    placeholder="https://..."
-                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm"
+                    placeholder="https://…"
+                    className={CONTROL}
                   />
                 </label>
+
                 <div className="grid gap-3 md:grid-cols-2">
-                  <label className="space-y-1">
-                    <span className="text-sm font-bold text-slate-700">Estado</span>
+                  <label className="block">
+                    <span className={LABEL}>Estado</span>
                     <select
                       value={publicacionForm.estado}
                       onChange={(e) =>
                         setPublicacionForm((prev) => ({ ...prev, estado: e.target.value }))
                       }
-                      className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm"
+                      className={SELECT}
                     >
                       <option value="borrador">Borrador</option>
-                      <option value="listo">Lista</option>
+                      <option value="listo">Lista para publicar</option>
                     </select>
                   </label>
-                  <label className="space-y-1">
-                    <span className="text-sm font-bold text-slate-700">Adjunto</span>
+                  <label className="block">
+                    <span className={LABEL}>Foto, video o archivo</span>
                     <input
                       type="file"
                       accept="image/*,video/*,audio/*,.pdf"
                       onChange={(e) => setPublicacionFile(e.target.files?.[0] || null)}
-                      className="block w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm"
+                      className="block h-11 w-full rounded-xl border border-gray-200 bg-white px-3 text-[12px] text-gray-600 file:mr-3 file:rounded-lg file:border-0 file:bg-gray-100 file:px-3 file:py-1.5 file:text-[12px] file:font-semibold file:text-gray-700"
                     />
                   </label>
                 </div>
-                {publicacionFile ? (
-                  <div className="rounded-2xl bg-white p-3 ring-1 ring-slate-200">
-                    <p className="mb-2 text-xs text-slate-500">
-                      Vista previa del adjunto nuevo: {publicacionFile.name}
-                    </p>
-                    {publicacionFile.type?.startsWith('image/') ? (
-                      <img
-                        src={URL.createObjectURL(publicacionFile)}
-                        alt={publicacionFile.name}
-                        className="h-36 w-full rounded-2xl object-cover"
-                      />
-                    ) : publicacionFile.type?.startsWith('video/') ? (
-                      <video
-                        src={URL.createObjectURL(publicacionFile)}
-                        controls
-                        className="h-44 w-full rounded-2xl bg-slate-950 object-cover"
-                      >
-                        <track kind="captions" src="" label="Sin subtítulos" />
-                      </video>
-                    ) : publicacionFile.type?.startsWith('audio/') ? (
-                      <audio src={URL.createObjectURL(publicacionFile)} controls className="w-full">
-                        <track kind="captions" src="" label="Sin subtítulos" />
-                      </audio>
-                    ) : (
-                      <p className="text-xs font-bold text-slate-700">Archivo listo para subir</p>
-                    )}
-                  </div>
-                ) : null}
+
+                <ArchivoPreview file={publicacionFile} />
+
                 <div className="flex flex-wrap gap-2">
                   <button
                     type="submit"
                     disabled={savingPublicacion}
-                    className="inline-flex items-center gap-2 rounded-2xl bg-violet-600 px-4 py-3 text-sm font-bold text-white"
+                    style={{ background: BRAND }}
+                    className="inline-flex h-11 items-center gap-1.5 rounded-xl px-4 text-[13px] font-semibold text-white transition hover:brightness-110 disabled:opacity-40"
                   >
-                    {editPublicacionId ? <Save size={16} /> : <Plus size={16} />}
-                    {editPublicacionId ? 'Guardar publicacion' : 'Agregar publicacion'}
+                    {editPublicacionId ? (
+                      <Save size={14} strokeWidth={STROKE} />
+                    ) : (
+                      <Plus size={14} strokeWidth={STROKE} />
+                    )}
+                    {savingPublicacion
+                      ? 'Guardando…'
+                      : editPublicacionId
+                        ? 'Guardar cambios'
+                        : 'Agregar publicación'}
                   </button>
-                  {(editPublicacionId || publicacionForm.titulo || publicacionForm.mensaje) && (
+                  {editPublicacionId || publicacionForm.titulo || publicacionForm.mensaje ? (
                     <button
                       type="button"
                       onClick={resetPublicacion}
-                      className="rounded-2xl bg-white px-4 py-3 text-sm font-bold text-slate-700 ring-1 ring-slate-200"
+                      className="h-11 rounded-xl bg-gray-100 px-4 text-[13px] font-semibold text-gray-700 transition hover:bg-gray-200"
                     >
                       Limpiar
                     </button>
-                  )}
+                  ) : null}
                 </div>
               </form>
-            </section>
+            </Card>
 
-            <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-              <div className="mb-4 flex items-center gap-3">
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary-100 text-blue-700">
-                  <Share2 size={22} />
-                </div>
-                <div>
-                  <h3 className="text-lg font-black text-slate-900">Destinos guardados</h3>
-                  <p className="text-sm text-slate-500">
-                    Aqui guardas tus grupos, pagina o perfil para no escribirlos de nuevo.
-                  </p>
-                </div>
-              </div>
-
-              <form onSubmit={saveDestino} className="space-y-3 rounded-3xl bg-slate-50 p-4">
+            <Card
+              title={editDestinoId ? 'Editar destino' : 'Destinos'}
+              helper="Los grupos, páginas o perfiles donde publicás"
+              action={
+                <span className="shrink-0 rounded-full bg-gray-100 px-2.5 py-1 text-[11px] font-medium text-gray-600">
+                  {destinosActivos} activos
+                </span>
+              }
+            >
+              <form onSubmit={saveDestino} className="space-y-3 rounded-xl bg-gray-50 p-4">
                 <div className="grid gap-3 md:grid-cols-2">
-                  <label className="space-y-1">
-                    <span className="text-sm font-bold text-slate-700">Nombre</span>
+                  <label className="block">
+                    <span className={LABEL}>Nombre</span>
                     <input
                       value={destinoForm.nombre}
                       onChange={(e) =>
                         setDestinoForm((prev) => ({ ...prev, nombre: e.target.value }))
                       }
-                      className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm"
+                      className={CONTROL}
+                      placeholder="Ej: Compra y venta Monteros"
                     />
                   </label>
-                  <label className="space-y-1">
-                    <span className="text-sm font-bold text-slate-700">Tipo</span>
+                  <label className="block">
+                    <span className={LABEL}>Tipo</span>
                     <select
                       value={destinoForm.tipo}
                       onChange={(e) =>
                         setDestinoForm((prev) => ({ ...prev, tipo: e.target.value }))
                       }
-                      className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm"
+                      className={SELECT}
                     >
                       <option value="grupo_facebook">Grupo de Facebook</option>
-                      <option value="pagina_facebook">Pagina de Facebook</option>
+                      <option value="pagina_facebook">Página de Facebook</option>
                       <option value="perfil_facebook">Perfil personal</option>
                     </select>
                   </label>
                 </div>
-                <label className="space-y-1">
-                  <span className="text-sm font-bold text-slate-700">URL del destino</span>
+
+                <label className="block">
+                  <span className={LABEL}>URL</span>
                   <input
                     value={destinoForm.url}
                     onChange={(e) => setDestinoForm((prev) => ({ ...prev, url: e.target.value }))}
-                    placeholder="https://www.facebook.com/groups/..."
-                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm"
+                    placeholder="https://www.facebook.com/groups/…"
+                    className={CONTROL}
                   />
                 </label>
-                <div className="grid gap-3 md:grid-cols-[160px,1fr]">
-                  <label className="space-y-1">
-                    <span className="text-sm font-bold text-slate-700">Orden</span>
+
+                <div className="grid gap-3 md:grid-cols-[120px,1fr]">
+                  <label className="block">
+                    <span className={LABEL}>Orden</span>
                     <input
                       type="number"
                       value={destinoForm.orden}
                       onChange={(e) =>
                         setDestinoForm((prev) => ({ ...prev, orden: Number(e.target.value) || 0 }))
                       }
-                      className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm"
+                      className={CONTROL}
                     />
                   </label>
-                  <label className="space-y-1">
-                    <span className="text-sm font-bold text-slate-700">Notas</span>
+                  <label className="block">
+                    <span className={LABEL}>Notas</span>
                     <input
                       value={destinoForm.notas}
                       onChange={(e) =>
                         setDestinoForm((prev) => ({ ...prev, notas: e.target.value }))
                       }
-                      className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm"
+                      className={CONTROL}
+                      placeholder="Ej: sólo permite un posteo por día"
                     />
                   </label>
                 </div>
-                <label className="inline-flex items-center gap-3 rounded-2xl bg-white px-4 py-3 text-sm font-bold text-slate-700 ring-1 ring-slate-200">
+
+                <label className="inline-flex cursor-pointer items-center gap-2.5 text-[13px] text-gray-700">
                   <input
                     type="checkbox"
                     checked={Boolean(destinoForm.activo)}
                     onChange={(e) =>
                       setDestinoForm((prev) => ({ ...prev, activo: e.target.checked }))
                     }
+                    className="h-4 w-4 rounded"
                   />
-                  Destino activo
+                  Incluir en las colas nuevas
                 </label>
+
                 <div className="flex flex-wrap gap-2">
                   <button
                     type="submit"
                     disabled={savingDestino}
-                    className="inline-flex items-center gap-2 rounded-2xl bg-blue-600 px-4 py-3 text-sm font-bold text-white"
+                    className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-gray-900 px-3.5 text-[12px] font-semibold text-white transition hover:bg-gray-800 disabled:opacity-40"
                   >
-                    {editDestinoId ? <Save size={16} /> : <Plus size={16} />}
-                    {editDestinoId ? 'Guardar destino' : 'Agregar destino'}
+                    {editDestinoId ? (
+                      <Save size={13} strokeWidth={STROKE} />
+                    ) : (
+                      <Plus size={13} strokeWidth={STROKE} />
+                    )}
+                    {editDestinoId ? 'Guardar' : 'Agregar destino'}
                   </button>
-                  {(editDestinoId || destinoForm.nombre || destinoForm.url) && (
+                  {editDestinoId || destinoForm.nombre || destinoForm.url ? (
                     <button
                       type="button"
                       onClick={resetDestino}
-                      className="rounded-2xl bg-white px-4 py-3 text-sm font-bold text-slate-700 ring-1 ring-slate-200"
+                      className="h-10 rounded-xl bg-white px-3.5 text-[12px] font-semibold text-gray-700 transition hover:bg-gray-100"
                     >
-                      Limpiar
+                      Cancelar
                     </button>
-                  )}
+                  ) : null}
                 </div>
               </form>
 
-              <div className="mt-4 space-y-3">
+              <div className="mt-3 space-y-1.5">
                 {destinos.length === 0 ? (
-                  <p className="text-sm text-slate-500">Todavia no cargaste grupos o destinos.</p>
+                  <Empty
+                    title="Sin destinos cargados"
+                    description="Agregá los grupos donde solés publicar para no pegar la URL cada vez."
+                  />
                 ) : (
                   destinos.map((item) => (
-                    <div key={item.id} className="rounded-2xl border border-slate-200 p-4">
-                      {item.preview_path ? (
-                        <div className="mb-3">
+                    <div key={item.id} className="group rounded-xl bg-gray-50 p-3">
+                      <div className="flex items-start gap-3">
+                        {item.preview_path ? (
                           <img
-                            src={uploadUrl(item.preview_path)}
+                            src={resolveAssetUrl(item.preview_path)}
                             alt={item.nombre}
-                            className="h-28 w-full rounded-2xl object-cover ring-1 ring-slate-200"
+                            className="h-12 w-16 shrink-0 rounded-lg object-cover"
                           />
+                        ) : null}
+
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <p className="truncate text-[13px] font-medium text-gray-900">
+                              {item.nombre}
+                            </p>
+                            {!item.activo ? <Pill estado="omitido">Pausado</Pill> : null}
+                          </div>
+                          <p className="mt-0.5 truncate text-[11px] text-gray-500">
+                            {TIPOS_DESTINO[item.tipo] || item.tipo} · orden {item.orden} ·{' '}
+                            {item.url}
+                          </p>
+                          {item.notas ? (
+                            <p className="mt-0.5 truncate text-[11px] text-gray-400">
+                              {item.notas}
+                            </p>
+                          ) : null}
                         </div>
-                      ) : null}
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <div>
-                          <p className="font-black text-slate-900">{item.nombre}</p>
-                          <p className="mt-1 text-xs text-slate-500">{item.url}</p>
-                        </div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Badge tone={item.activo ? 'green' : 'slate'}>
-                            {item.activo ? 'Activo' : 'Pausado'}
-                          </Badge>
-                          <Badge tone="blue">{item.tipo}</Badge>
-                          <Badge tone="slate">Orden {item.orden}</Badge>
+
+                        <div className="flex shrink-0 gap-0.5">
                           <button
                             type="button"
                             onClick={() => capturePreview(item.id)}
-                            className="rounded-2xl bg-white px-3 py-2 text-xs font-bold text-slate-700 ring-1 ring-slate-200"
+                            title="Capturar vista previa"
+                            className="rounded-lg p-1.5 text-gray-400 transition hover:bg-white hover:text-gray-700"
                           >
-                            Capturar vista
+                            <ImagePlus size={14} strokeWidth={STROKE} />
                           </button>
                           <button
                             type="button"
                             onClick={() => window.open(item.url, '_blank', 'noopener,noreferrer')}
-                            className="rounded-2xl bg-slate-100 p-2.5 text-slate-700"
+                            title="Abrir en Facebook"
+                            className="rounded-lg p-1.5 text-gray-400 transition hover:bg-white hover:text-gray-700"
                           >
-                            <ExternalLink size={16} />
+                            <ExternalLink size={14} strokeWidth={STROKE} />
                           </button>
                           <button
                             type="button"
                             onClick={() => editDestino(item)}
-                            className="rounded-2xl bg-slate-100 px-3 py-2 text-xs font-bold text-slate-700"
+                            title="Editar"
+                            className="rounded-lg p-1.5 text-gray-400 transition hover:bg-white hover:text-gray-700"
                           >
-                            Editar
+                            <Pencil size={14} strokeWidth={STROKE} />
                           </button>
                           <button
                             type="button"
-                            onClick={() => deleteDestino(item)}
-                            className="rounded-2xl bg-danger-50 px-3 py-2 text-xs font-bold text-danger-600"
+                            onClick={() => setBorrar({ tipo: 'destino', item })}
+                            title="Eliminar"
+                            className="rounded-lg p-1.5 text-gray-400 transition hover:bg-rose-50 hover:text-rose-600"
                           >
-                            Eliminar
+                            <Trash2 size={14} strokeWidth={STROKE} />
                           </button>
                         </div>
                       </div>
@@ -676,254 +756,267 @@ export default function PublicadorFacebookPanel() {
                   ))
                 )}
               </div>
-            </section>
+            </Card>
           </div>
 
-          <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="mb-4 flex items-center justify-between">
-              <div>
-                <h3 className="text-lg font-black text-slate-900">Publicaciones guardadas</h3>
-                <p className="text-sm text-slate-500">
-                  Desde aqui preparas la cola y publicas sin volver a armar el mensaje.
-                </p>
-              </div>
-              <Badge tone="blue">{publicaciones.length}</Badge>
-            </div>
-
-            <div className="grid gap-4 xl:grid-cols-2">
-              {publicaciones.length === 0 ? (
-                <p className="text-sm text-slate-500">Todavia no cargaste publicaciones.</p>
-              ) : (
-                publicaciones.map((item) => (
-                  <div
-                    key={item.id}
-                    className={`rounded-3xl border p-4 shadow-sm ${selectedPostId === item.id ? 'border-blue-500 bg-primary-50/40' : 'border-slate-200 bg-white'}`}
-                  >
-                    {item.media_path ? (
-                      <div className="mb-3">
-                        {renderMediaPreview(item.media_path, item.media_mime, item.titulo)}
-                      </div>
-                    ) : null}
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="font-black text-slate-900">{item.titulo}</p>
-                        <p className="mt-1 line-clamp-3 text-sm text-slate-600">
-                          {item.mensaje || 'Sin mensaje cargado'}
-                        </p>
-                      </div>
-                      <Badge
-                        tone={
-                          item.estado === 'publicado'
-                            ? 'green'
-                            : item.estado === 'listo'
-                              ? 'blue'
-                              : 'amber'
-                        }
-                      >
-                        {item.estado}
-                      </Badge>
-                    </div>
-                    <div className="mt-3 flex flex-wrap gap-2 text-xs">
-                      <Badge tone="slate">Destinos: {item.destinos_total || 0}</Badge>
-                      <Badge tone="green">Publicados: {item.destinos_publicados || 0}</Badge>
-                      <Badge tone="amber">Pendientes: {item.destinos_pendientes || 0}</Badge>
-                    </div>
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={() => loadQueue(item.id)}
-                        className="rounded-2xl bg-slate-100 px-3 py-2 text-xs font-bold text-slate-700"
-                      >
-                        Ver cola
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => prepareQueue(item.id)}
-                        className="inline-flex items-center gap-2 rounded-2xl bg-blue-600 px-3 py-2 text-xs font-bold text-white"
-                      >
-                        <Send size={14} /> Preparar cola
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          copyText(
-                            [item.mensaje, item.link_url].filter(Boolean).join('\n\n'),
-                            'Texto copiado'
-                          )
-                        }
-                        className="rounded-2xl bg-white px-3 py-2 text-xs font-bold text-slate-700 ring-1 ring-slate-200"
-                      >
-                        <Copy size={14} className="inline-block mr-1" /> Copiar
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => editPublicacion(item)}
-                        className="rounded-2xl bg-slate-100 px-3 py-2 text-xs font-bold text-slate-700"
-                      >
-                        Editar
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => deletePublicacion(item)}
-                        className="rounded-2xl bg-danger-50 px-3 py-2 text-xs font-bold text-danger-600"
-                      >
-                        <Trash2 size={14} className="inline-block mr-1" /> Eliminar
-                      </button>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </section>
-
-          <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="mb-4 flex items-center justify-between">
-              <div>
-                <h3 className="text-lg font-black text-slate-900">Cola asistida de publicacion</h3>
-                <p className="text-sm text-slate-500">
-                  Abres el grupo, pegas el texto y marcas lo publicado. Asi no pierdes tiempo y no
-                  andas grupo por grupo armando todo de cero.
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                {selectedPost ? <Badge tone="blue">{selectedPost.titulo}</Badge> : null}
-                {queue?.publicacion ? (
-                  <button
-                    type="button"
-                    onClick={autoPublishWholeQueue}
-                    className="inline-flex items-center gap-2 rounded-2xl bg-violet-600 px-3 py-2 text-xs font-bold text-white"
-                  >
-                    <Send size={14} />
-                    Auto publicar toda la cola
-                  </button>
-                ) : null}
-              </div>
-            </div>
-
-            {!queue?.publicacion ? (
-              <p className="text-sm text-slate-500">
-                Elige una publicacion y toca "Preparar cola" para empezar.
-              </p>
+          <Card title="Publicaciones guardadas" helper="Elegí una y preparate la cola de destinos">
+            {publicaciones.length === 0 ? (
+              <Empty
+                title="Sin publicaciones"
+                description="Escribí una arriba: después la reutilizás en todos los grupos."
+              />
             ) : (
-              <div className="space-y-4">
-                <div className="rounded-2xl bg-slate-50 p-4">
-                  <p className="text-sm font-black text-slate-800">{queue.publicacion.titulo}</p>
-                  <p className="mt-2 whitespace-pre-wrap text-sm text-slate-700">
+              <div className="grid gap-3 xl:grid-cols-2">
+                {publicaciones.map((item) => {
+                  const elegida = selectedPostId === item.id;
+                  const pendientes = Number(item.destinos_pendientes || 0);
+                  return (
+                    <div
+                      key={item.id}
+                      className="rounded-xl bg-gray-50 p-3.5 transition"
+                      style={elegida ? { boxShadow: `inset 0 0 0 1.5px ${BRAND}` } : undefined}
+                    >
+                      {item.media_path ? (
+                        <MediaPreview
+                          path={item.media_path}
+                          mime={item.media_mime}
+                          alt={item.titulo}
+                          className="mb-2.5 h-32"
+                        />
+                      ) : null}
+
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="truncate text-[13px] font-medium text-gray-900">
+                            {item.titulo || 'Sin título'}
+                          </p>
+                          <p className="mt-0.5 line-clamp-2 text-[12px] leading-4 text-gray-600">
+                            {item.mensaje || 'Sin mensaje cargado'}
+                          </p>
+                        </div>
+                        <Pill estado={item.estado} />
+                      </div>
+
+                      <div className="mt-2.5 flex flex-wrap items-center gap-x-2 text-[11px] text-gray-500">
+                        <span>{item.destinos_total || 0} destinos</span>
+                        <span className="text-gray-300">·</span>
+                        <span className="text-emerald-700">
+                          {item.destinos_publicados || 0} publicados
+                        </span>
+                        {pendientes > 0 ? (
+                          <>
+                            <span className="text-gray-300">·</span>
+                            <span style={{ color: BRAND }}>{pendientes} pendientes</span>
+                          </>
+                        ) : null}
+                      </div>
+
+                      <div className="mt-3 flex flex-wrap gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => prepareQueue(item.id)}
+                          style={{ background: BRAND }}
+                          className="inline-flex h-9 items-center gap-1.5 rounded-xl px-3 text-[12px] font-semibold text-white transition hover:brightness-110"
+                        >
+                          <Send size={13} strokeWidth={STROKE} />
+                          Preparar cola
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => loadQueue(item.id)}
+                          className="h-9 rounded-xl bg-white px-3 text-[12px] font-semibold text-gray-700 transition hover:bg-gray-200"
+                        >
+                          Ver cola
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            copyText(
+                              [item.mensaje, item.link_url].filter(Boolean).join('\n\n'),
+                              'Texto copiado'
+                            )
+                          }
+                          title="Copiar texto"
+                          className="flex h-9 w-9 items-center justify-center rounded-xl bg-white text-gray-500 transition hover:text-gray-800"
+                        >
+                          <Copy size={13} strokeWidth={STROKE} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => editPublicacion(item)}
+                          title="Editar"
+                          className="flex h-9 w-9 items-center justify-center rounded-xl bg-white text-gray-500 transition hover:text-gray-800"
+                        >
+                          <Pencil size={13} strokeWidth={STROKE} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setBorrar({ tipo: 'publicacion', item })}
+                          title="Eliminar"
+                          className="flex h-9 w-9 items-center justify-center rounded-xl bg-white text-gray-500 transition hover:bg-rose-50 hover:text-rose-600"
+                        >
+                          <Trash2 size={13} strokeWidth={STROKE} />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </Card>
+
+          <Card
+            title="Cola de publicación"
+            helper="Abrís el grupo, pegás el texto y marcás lo hecho"
+            action={
+              queue?.publicacion ? (
+                <button
+                  type="button"
+                  onClick={autoPublishWholeQueue}
+                  className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-xl bg-gray-900 px-3 text-[12px] font-semibold text-white transition hover:bg-gray-800"
+                >
+                  <Zap size={13} strokeWidth={STROKE} />
+                  Autopublicar todo
+                </button>
+              ) : null
+            }
+          >
+            {!queue?.publicacion ? (
+              <Empty
+                title="No hay ninguna cola cargada"
+                description='Elegí una publicación de arriba y tocá "Preparar cola".'
+              />
+            ) : (
+              <div className="space-y-3">
+                <div className="rounded-xl bg-gray-50 p-4">
+                  <p className="text-[13px] font-medium text-gray-900">
+                    {queue.publicacion.titulo || 'Sin título'}
+                  </p>
+                  <p className="mt-1.5 whitespace-pre-wrap text-[13px] leading-5 text-gray-700">
                     {[queue.publicacion.mensaje, queue.publicacion.link_url]
                       .filter(Boolean)
                       .join('\n\n')}
                   </p>
                   {previewMedia ? (
-                    <div className="mt-3 space-y-3">
-                      {renderMediaPreview(
-                        previewMedia,
-                        queue.publicacion.media_mime,
-                        queue.publicacion.titulo
-                      )}
-                      <div className="flex flex-wrap items-center gap-3">
-                        <a
-                          href={uploadUrl(previewMedia)}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex items-center gap-2 rounded-2xl bg-white px-3 py-2 text-xs font-bold text-slate-700 ring-1 ring-slate-200"
-                        >
-                          <ExternalLink size={14} />
-                          Abrir adjunto
-                        </a>
-                        <span className="text-xs text-slate-500">
-                          {queue.publicacion.media_nombre || 'Adjunto cargado'}
-                        </span>
-                      </div>
+                    <div className="mt-3">
+                      <MediaPreview
+                        path={previewMedia}
+                        mime={queue.publicacion.media_mime}
+                        alt={queue.publicacion.titulo}
+                        className="max-h-56"
+                      />
                     </div>
                   ) : null}
                 </div>
 
-                <div className="space-y-3">
-                  {queue.items.length === 0 ? (
-                    <p className="text-sm text-slate-500">
-                      Esta publicacion todavia no tiene destinos preparados.
-                    </p>
-                  ) : (
-                    queue.items.map((item) => (
-                      <div key={item.id} className="rounded-2xl border border-slate-200 p-4">
-                        <div className="flex flex-wrap items-start justify-between gap-3">
-                          <div>
-                            <p className="font-black text-slate-900">
-                              {item.orden}. {item.destino_nombre}
-                            </p>
-                            <p className="mt-1 text-xs text-slate-500">{item.destino_url}</p>
+                {queue.items.length === 0 ? (
+                  <Empty
+                    title="La cola quedó vacía"
+                    description="No había destinos activos cuando la preparaste."
+                  />
+                ) : (
+                  <div className="space-y-1.5">
+                    {queue.items.map((item) => {
+                      const hecho = item.estado === 'publicado';
+                      return (
+                        <div
+                          key={item.id}
+                          className={`rounded-xl bg-gray-50 p-3.5 ${hecho ? 'opacity-60' : ''}`}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="truncate text-[13px] font-medium text-gray-900">
+                                {item.orden}. {item.destino_nombre}
+                              </p>
+                              <p className="mt-0.5 truncate text-[11px] text-gray-500">
+                                {item.destino_url}
+                              </p>
+                            </div>
+                            <Pill estado={item.estado} />
                           </div>
-                          <Badge
-                            tone={
-                              item.estado === 'publicado'
-                                ? 'green'
-                                : item.estado === 'abierto'
-                                  ? 'blue'
-                                  : item.estado === 'omitido'
-                                    ? 'amber'
-                                    : item.estado === 'error'
-                                      ? 'rose'
-                                      : 'slate'
-                            }
-                          >
-                            {item.estado}
-                          </Badge>
+
+                          {item.notas ? (
+                            <p className="mt-1.5 text-[11px]" style={{ color: '#9E141E' }}>
+                              {item.notas}
+                            </p>
+                          ) : null}
+
+                          {!hecho ? (
+                            <div className="mt-2.5 flex flex-wrap gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => openDestination(item)}
+                                style={{ background: BRAND }}
+                                className="inline-flex h-9 items-center gap-1.5 rounded-xl px-3 text-[12px] font-semibold text-white transition hover:brightness-110"
+                              >
+                                <ExternalLink size={13} strokeWidth={STROKE} />
+                                Abrir y publicar
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  copyText(item.texto_preparado || '', 'Listo para pegar')
+                                }
+                                className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-white px-3 text-[12px] font-semibold text-gray-700 transition hover:bg-gray-200"
+                              >
+                                <Copy size={13} strokeWidth={STROKE} />
+                                Copiar
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => markQueueItem(item.id, 'publicado')}
+                                className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-white px-3 text-[12px] font-semibold text-emerald-700 transition hover:bg-emerald-50"
+                              >
+                                <CheckCircle2 size={13} strokeWidth={STROKE} />
+                                Ya publiqué
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => autoPublishQueueItem(item.id)}
+                                title="Publicar automáticamente con Chrome"
+                                className="flex h-9 w-9 items-center justify-center rounded-xl bg-white text-gray-500 transition hover:text-gray-900"
+                              >
+                                <Zap size={13} strokeWidth={STROKE} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => markQueueItem(item.id, 'omitido')}
+                                title="Saltear este destino"
+                                className="flex h-9 w-9 items-center justify-center rounded-xl bg-white text-gray-500 transition hover:text-gray-900"
+                              >
+                                <SkipForward size={13} strokeWidth={STROKE} />
+                              </button>
+                            </div>
+                          ) : null}
                         </div>
-                        {item.notas ? (
-                          <p className="mt-2 text-xs font-medium text-danger-700">{item.notas}</p>
-                        ) : null}
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              copyText(item.texto_preparado || '', 'Texto listo para pegar')
-                            }
-                            className="inline-flex items-center gap-2 rounded-2xl bg-slate-100 px-3 py-2 text-xs font-bold text-slate-700"
-                          >
-                            <Copy size={14} />
-                            Copiar texto
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => autoPublishQueueItem(item.id)}
-                            className="inline-flex items-center gap-2 rounded-2xl bg-violet-600 px-3 py-2 text-xs font-bold text-white"
-                          >
-                            <Send size={14} />
-                            Auto publicar
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => openDestination(item)}
-                            className="inline-flex items-center gap-2 rounded-2xl bg-blue-600 px-3 py-2 text-xs font-bold text-white"
-                          >
-                            <ExternalLink size={14} />
-                            Abrir destino
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => markQueueItem(item.id, 'publicado')}
-                            className="inline-flex items-center gap-2 rounded-2xl bg-emerald-600 px-3 py-2 text-xs font-bold text-white"
-                          >
-                            <CheckCircle2 size={14} />
-                            Marcar publicado
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => markQueueItem(item.id, 'omitido')}
-                            className="rounded-2xl bg-warning-100 px-3 py-2 text-xs font-bold text-warning-700"
-                          >
-                            Omitir
-                          </button>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             )}
-          </section>
+          </Card>
         </>
       )}
+
+      <ActionDialog
+        open={Boolean(borrar)}
+        title={
+          borrar?.tipo === 'destino'
+            ? `¿Eliminar ${borrar?.item?.nombre}?`
+            : `¿Eliminar ${borrar?.item?.titulo || 'esta publicación'}?`
+        }
+        description={
+          borrar?.tipo === 'destino'
+            ? 'Se borra de la lista de destinos. Las colas ya preparadas no se modifican.'
+            : 'Se borra la publicación y su cola de destinos.'
+        }
+        confirmLabel="Eliminar"
+        cancelLabel="Cancelar"
+        tone="danger"
+        onConfirm={confirmarBorrado}
+        onClose={() => setBorrar(null)}
+      />
     </div>
   );
 }

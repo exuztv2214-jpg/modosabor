@@ -1,10 +1,11 @@
-import React from 'react';
 import {
   Armchair,
   Bike,
   Boxes,
+  Check,
   ChefHat,
   LayoutGrid,
+  Megaphone,
   Receipt,
   ShoppingCart,
   Store,
@@ -13,10 +14,10 @@ import {
   UserSquare2,
   WalletCards,
   Wand2,
-  Megaphone,
 } from 'lucide-react';
 
-import { SectionCard, ToggleSwitch } from './ConfigComponents.jsx';
+import { BRAND, STROKE } from '../../lib/theme.js';
+import { SectionCard } from './ConfigComponents.jsx';
 
 const MODULE_KEYS = [
   'modulo_tpv_activo',
@@ -35,38 +36,38 @@ const MODULE_KEYS = [
 const OPERATIVOS = [
   {
     key: 'modulo_tpv_activo',
-    label: 'TPV / Punto de venta',
-    description: 'Mantiene habilitada la pantalla de venta y cobro.',
+    label: 'Punto de venta',
+    description: 'La pantalla de venta y cobro del mostrador',
     icon: ShoppingCart,
   },
   {
     key: 'modulo_caja_activo',
     label: 'Caja',
-    description: 'Muestra aperturas, cierres y movimientos de caja.',
+    description: 'Apertura, cierre y movimientos del turno',
     icon: WalletCards,
   },
   {
     key: 'modulo_kds_activo',
-    label: 'Cocina / KDS',
-    description: 'Oculta la pantalla de cocina si trabajas con comandas impresas.',
+    label: 'Pantalla de cocina',
+    description: 'Apagalo si trabajás con comandas impresas',
     icon: ChefHat,
   },
   {
     key: 'modulo_mesas_activo',
-    label: 'Mesas / salon',
-    description: 'Activa la gestion de mesas y reservas del local.',
+    label: 'Mesas y salón',
+    description: 'Gestión de mesas y reservas',
     icon: Armchair,
   },
   {
     key: 'modulo_delivery_activo',
     label: 'Delivery',
-    description: 'Mantiene visible la operacion de riders y despachos.',
+    description: 'Riders, despachos y seguimiento',
     icon: Bike,
   },
   {
     key: 'modulo_inventario_activo',
     label: 'Inventario',
-    description: 'Muestra stock, recetas, compras y movimientos.',
+    description: 'Stock, recetas, compras y movimientos',
     icon: Boxes,
   },
 ];
@@ -75,31 +76,31 @@ const GESTION = [
   {
     key: 'modulo_clientes_activo',
     label: 'Clientes',
-    description: 'Habilita la ficha de clientes y su historial.',
+    description: 'Ficha, historial y fidelización',
     icon: Users,
   },
   {
     key: 'modulo_reportes_activo',
     label: 'Reportes',
-    description: 'Activa metricas, resumenes y analitica.',
+    description: 'Métricas, resúmenes y análisis',
     icon: Receipt,
   },
   {
     key: 'modulo_personal_activo',
     label: 'Personal',
-    description: 'Activa la gestion del equipo operativo.',
+    description: 'Equipo, turnos y liquidaciones',
     icon: UserSquare2,
   },
   {
     key: 'modulo_cupones_activo',
     label: 'Cupones',
-    description: 'Muestra descuentos y promociones reutilizables.',
+    description: 'Descuentos y promociones reutilizables',
     icon: TicketPercent,
   },
   {
     key: 'modulo_marketing_activo',
-    label: 'Marketing Digital',
-    description: 'Activa campañas, promos, contenido y captacion.',
+    label: 'Marketing',
+    description: 'Campañas, promos y contenido',
     icon: Megaphone,
   },
 ];
@@ -107,10 +108,9 @@ const GESTION = [
 const PRESETS = [
   {
     id: 'mostrador',
-    label: 'Solo Mostrador',
-    description: 'Ideal para venta en local con ticket y comandas impresas, sin delivery ni KDS.',
+    label: 'Solo mostrador',
+    description: 'Venta en local con comandas impresas. Sin delivery ni pantalla de cocina.',
     icon: Store,
-    accent: 'amber',
     modules: {
       modulo_tpv_activo: '1',
       modulo_caja_activo: '1',
@@ -128,11 +128,9 @@ const PRESETS = [
   },
   {
     id: 'delivery_tpv',
-    label: 'Delivery + TPV',
-    description:
-      'Pensado para mostrador, pedidos delivery y comandas impresas, sin pantalla de cocina.',
+    label: 'Mostrador + delivery',
+    description: 'Mostrador y reparto con comandas impresas. Sin pantalla de cocina ni salón.',
     icon: Bike,
-    accent: 'sky',
     modules: {
       modulo_tpv_activo: '1',
       modulo_caja_activo: '1',
@@ -150,11 +148,9 @@ const PRESETS = [
   },
   {
     id: 'full',
-    label: 'Operacion Completa',
-    description:
-      'Deja visibles todos los modulos para una operacion integral con salon, KDS y delivery.',
+    label: 'Operación completa',
+    description: 'Todo activo: salón, pantalla de cocina, delivery y gestión.',
     icon: Wand2,
-    accent: 'emerald',
     modules: {
       modulo_tpv_activo: '1',
       modulo_caja_activo: '1',
@@ -172,131 +168,141 @@ const PRESETS = [
   },
 ];
 
-const PRESET_ACCENTS = {
-  amber: {
-    shell: 'border-amber-200 bg-warning-50/70',
-    icon: 'bg-warning-100 text-warning-700',
-    button: 'bg-warning-500 hover:bg-amber-600 text-white',
-  },
-  sky: {
-    shell: 'border-sky-200 bg-sky-50/70',
-    icon: 'bg-sky-100 text-sky-700',
-    button: 'bg-sky-600 hover:bg-sky-700 text-white',
-  },
-  emerald: {
-    shell: 'border-emerald-200 bg-success-50/70',
-    icon: 'bg-success-100 text-success-700',
-    button: 'bg-emerald-600 hover:bg-emerald-700 text-white',
-  },
-};
+const estaActivo = (config, key) => String(config[key] ?? '1') !== '0';
 
-function ModuleGrid({ items, config, setToggle }) {
+/**
+ * Fila de un módulo.
+ *
+ * Antes cada módulo era una tarjeta con ícono, nombre, descripción y adentro
+ * otro interruptor que traía su propia etiqueta y su propia descripción —la
+ * misma frase repetida once veces, una por módulo. Ahora es una fila: ícono,
+ * nombre, para qué sirve, y el interruptor. Once filas entran donde antes
+ * entraban cuatro tarjetas.
+ */
+function ModuloRow({ item, activo, onToggle }) {
+  const Icon = item.icon;
   return (
-    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-      {items.map((item) => {
-        const Icon = item.icon;
-        const enabled = String(config[item.key] ?? '1') !== '0';
-        return (
-          <div key={item.key} className="rounded-2xl border border-gray-200 bg-white p-4">
-            <div className="mb-4 flex items-center gap-3">
-              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-100 text-slate-700">
-                <Icon size={18} />
-              </div>
-              <div>
-                <p className="text-sm font-bold text-gray-900">{item.label}</p>
-                <p className="text-xs text-gray-500">{item.description}</p>
-              </div>
-            </div>
-            <ToggleSwitch
-              checked={enabled}
-              onChange={(value) => setToggle(item.key, value)}
-              label={enabled ? 'Modulo visible' : 'Modulo oculto'}
-              description="Al desactivarlo se esconde del menu y se bloquea su ruta administrativa."
-              color="blue"
-            />
-          </div>
-        );
-      })}
-    </div>
+    <button
+      type="button"
+      role="switch"
+      aria-checked={activo}
+      onClick={() => onToggle(item.key, !activo)}
+      className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left transition hover:bg-gray-50"
+    >
+      <span
+        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors"
+        style={
+          activo
+            ? { background: '#FEF2F2', color: BRAND }
+            : { background: '#F3F4F6', color: '#9CA3AF' }
+        }
+      >
+        <Icon size={17} strokeWidth={STROKE} />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span
+          className={`block text-[14px] font-medium leading-tight ${activo ? 'text-gray-900' : 'text-gray-400'}`}
+        >
+          {item.label}
+        </span>
+        <span className="mt-0.5 block text-[12px] leading-snug text-gray-500">
+          {item.description}
+        </span>
+      </span>
+      <span
+        className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${activo ? '' : 'bg-gray-200'}`}
+        style={activo ? { background: '#111827' } : undefined}
+      >
+        <span
+          className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition-transform ${activo ? 'translate-x-[22px]' : 'translate-x-0.5'}`}
+        />
+      </span>
+    </button>
   );
 }
 
 export default function SeccionModulos({ config, setToggle, setConfig }) {
-  const activos = MODULE_KEYS.filter((key) => String(config[key] ?? '1') !== '0').length;
+  const activos = MODULE_KEYS.filter((key) => estaActivo(config, key)).length;
 
-  const applyPreset = (preset) => {
+  /**
+   * Detecta si la configuración actual coincide exactamente con algún preset.
+   * Sirve para marcar cuál está aplicado en vez de mostrar tres botones
+   * idénticos sin decir en cuál estás parado.
+   */
+  const presetActual = PRESETS.find((preset) =>
+    MODULE_KEYS.every((key) => String(config[key] ?? '1') === String(preset.modules[key] ?? '1'))
+  );
+
+  const aplicarPreset = (preset) => {
+    // Cambia once ajustes de una. Sin confirmación, alguien que toca "Solo
+    // mostrador" por curiosidad se apaga el delivery sin enterarse.
+    const apagados = MODULE_KEYS.filter(
+      (key) => estaActivo(config, key) && preset.modules[key] === '0'
+    );
+    const detalle =
+      apagados.length > 0
+        ? `\n\nSe van a ocultar ${apagados.length} módulo${apagados.length === 1 ? '' : 's'} que hoy están activos.`
+        : '';
+    if (!window.confirm(`¿Aplicar el modo "${preset.label}"?${detalle}`)) return;
     setConfig((prev) => ({ ...prev, ...preset.modules }));
   };
 
   return (
-    <div className="mx-auto max-w-7xl p-4 md:p-6 space-y-8">
-      <div className="sticky top-[84px] z-10 mb-8 flex items-center justify-between rounded-[28px] border border-gray-200 bg-white/95 px-5 py-4 shadow-sm backdrop-blur-sm">
-        <div className="flex items-center gap-4">
-          <div className="h-12 w-12 rounded-2xl bg-sky-100 flex items-center justify-center">
-            <LayoutGrid className="text-sky-600" size={24} />
-          </div>
-          <div>
-            <h2 className="text-xl font-bold text-gray-900">Modulos del sistema</h2>
-            <p className="text-sm text-gray-500">
-              Activa solo las pantallas que necesitas para esta etapa del negocio.
-            </p>
-          </div>
-        </div>
-
-        <div className="rounded-2xl bg-slate-100 px-4 py-2 text-right">
-          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">
-            Activos
-          </p>
-          <p className="text-lg font-black text-slate-900">
-            {activos}/{MODULE_KEYS.length}
-          </p>
-        </div>
-      </div>
+    <div className="mx-auto max-w-7xl space-y-4 p-4 md:p-6">
+      {/* El título de la sección lo muestra el módulo arriba de las pestañas. */}
 
       <SectionCard
         icon={Wand2}
-        tone="blue"
-        title="Modos rapidos de operacion"
-        subtitle="Aplica una base recomendada y luego ajusta solo lo fino si hace falta"
+        title="Modo de operación"
+        subtitle="Una base recomendada según cómo trabaja el local. Después ajustás lo fino."
+        action={
+          <span className="inline-flex h-10 items-center gap-2 rounded-xl bg-gray-100 px-4 text-[13px] font-medium text-gray-600">
+            Activos
+            <strong className="font-semibold tabular-nums text-gray-900">
+              {activos}/{MODULE_KEYS.length}
+            </strong>
+          </span>
+        }
       >
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <div className="grid gap-3 lg:grid-cols-3">
           {PRESETS.map((preset) => {
             const Icon = preset.icon;
-            const accent = PRESET_ACCENTS[preset.accent] || PRESET_ACCENTS.sky;
+            const aplicado = presetActual?.id === preset.id;
             return (
-              <div key={preset.id} className={`rounded-3xl border p-5 ${accent.shell}`}>
-                <div className="mb-4 flex items-start justify-between gap-3">
-                  <div
-                    className={`flex h-12 w-12 items-center justify-center rounded-2xl ${accent.icon}`}
+              <div
+                key={preset.id}
+                className="flex flex-col rounded-xl bg-gray-50 p-4"
+                style={aplicado ? { boxShadow: `inset 0 0 0 2px ${BRAND}` } : undefined}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <span
+                    className="flex h-10 w-10 items-center justify-center rounded-lg bg-white"
+                    style={{ color: aplicado ? BRAND : '#6B7280' }}
                   >
-                    <Icon size={22} />
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => applyPreset(preset)}
-                    className={`rounded-2xl px-4 py-2 text-xs font-black uppercase tracking-widest transition-all ${accent.button}`}
-                  >
-                    Aplicar
-                  </button>
+                    <Icon size={19} strokeWidth={STROKE} />
+                  </span>
+                  {aplicado ? (
+                    <span
+                      className="flex items-center gap-1 text-[11px] font-semibold"
+                      style={{ color: BRAND }}
+                    >
+                      <Check size={13} strokeWidth={2.6} />
+                      Aplicado
+                    </span>
+                  ) : null}
                 </div>
-                <h4 className="text-base font-black text-gray-900">{preset.label}</h4>
-                <p className="mt-2 text-sm leading-6 text-gray-600">{preset.description}</p>
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {Object.entries(preset.modules)
-                    .filter(([key]) => key.startsWith('modulo_'))
-                    .map(([key, value]) => (
-                      <span
-                        key={key}
-                        className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-widest ${
-                          value === '1'
-                            ? 'bg-white text-gray-700'
-                            : 'bg-gray-900/5 text-gray-400 line-through'
-                        }`}
-                      >
-                        {key.replace('modulo_', '').replace('_activo', '').replaceAll('_', ' ')}
-                      </span>
-                    ))}
-                </div>
+                <h4 className="mt-3 text-[14px] font-semibold text-gray-900">{preset.label}</h4>
+                <p className="mt-1 flex-1 text-[12px] leading-relaxed text-gray-500">
+                  {preset.description}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => aplicarPreset(preset)}
+                  disabled={aplicado}
+                  className="mt-4 h-10 rounded-xl bg-gray-900 text-[12px] font-semibold text-white transition hover:bg-gray-800 disabled:bg-gray-200 disabled:text-gray-400"
+                >
+                  {aplicado ? 'En uso' : 'Aplicar'}
+                </button>
               </div>
             );
           })}
@@ -305,20 +311,41 @@ export default function SeccionModulos({ config, setToggle, setConfig }) {
 
       <SectionCard
         icon={LayoutGrid}
-        tone="blue"
-        title="Operacion diaria"
-        subtitle="Pantallas que afectan el trabajo del local"
+        title="Operación diaria"
+        subtitle="Pantallas que usa el equipo durante el turno"
       >
-        <ModuleGrid items={OPERATIVOS} config={config} setToggle={setToggle} />
+        <div className="space-y-0.5">
+          {OPERATIVOS.map((item) => (
+            <ModuloRow
+              key={item.key}
+              item={item}
+              activo={estaActivo(config, item.key)}
+              onToggle={setToggle}
+            />
+          ))}
+        </div>
       </SectionCard>
 
       <SectionCard
         icon={Users}
-        tone="blue"
-        title="Gestion y soporte"
-        subtitle="Herramientas administrativas complementarias"
+        title="Gestión"
+        subtitle="Herramientas administrativas, fuera del trabajo del mostrador"
       >
-        <ModuleGrid items={GESTION} config={config} setToggle={setToggle} />
+        <div className="space-y-0.5">
+          {GESTION.map((item) => (
+            <ModuloRow
+              key={item.key}
+              item={item}
+              activo={estaActivo(config, item.key)}
+              onToggle={setToggle}
+            />
+          ))}
+        </div>
+
+        <p className="mt-4 rounded-xl bg-gray-50 px-4 py-3 text-[12px] leading-relaxed text-gray-500">
+          Ocultar un módulo no borra nada: los datos se conservan y vuelven a aparecer apenas lo
+          reactivás. Sólo desaparece del menú y se bloquea su pantalla.
+        </p>
       </SectionCard>
     </div>
   );

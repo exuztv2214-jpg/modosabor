@@ -20,6 +20,7 @@ import { format, isValid, parseISO } from 'date-fns';
 
 import { useAuth } from '../context/AuthContext.jsx';
 import api from '../lib/api.js';
+import { Z } from '../lib/theme.js';
 import user1 from '../image/profile/user-1.jpg';
 import user2 from '../image/profile/user-2.jpg';
 import user3 from '../image/profile/user-3.jpg';
@@ -54,9 +55,15 @@ const TABS = [
   { id: 'actividad', label: 'Actividad', icon: History },
 ];
 
+// Las fechas que vienen de la base a veces llegan como "2026-08-06 14:30:00"
+// (espacio en vez de "T"), formato que `parseISO` no reconoce como válido y
+// devuelve Invalid Date. Antes esto no se validaba en el registro de
+// actividad: `format(parseISO(...))` con una fecha inválida tira RangeError
+// y rompe el render de toda la pestaña. Se centraliza acá con normalización
+// y guarda de validez.
 function formatDateSafely(dateStr, formatStr) {
   if (!dateStr) return '-';
-  const date = parseISO(dateStr);
+  const date = parseISO(String(dateStr).replace(' ', 'T'));
   return isValid(date) ? format(date, formatStr) : '-';
 }
 
@@ -86,8 +93,9 @@ export default function Cuenta() {
       try {
         const response = await api.get('/auth/me/activity');
         setAuditLogs(Array.isArray(response) ? response : []);
-      } catch {
+      } catch (error) {
         setAuditLogs([]);
+        toast.error(error?.error || 'No se pudo cargar el registro de actividad');
       }
     };
     if (activeTab === 'actividad') fetchLogs();
@@ -100,8 +108,8 @@ export default function Cuenta() {
       await refreshUser();
       toast.success('Avatar actualizado');
       setShowAvatarPicker(false);
-    } catch {
-      toast.error('Error al actualizar avatar');
+    } catch (error) {
+      toast.error(error?.error || 'Error al actualizar avatar');
     } finally {
       setSaving(false);
     }
@@ -118,8 +126,8 @@ export default function Cuenta() {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
       await updateAvatar(res.url);
-    } catch {
-      toast.error('Error al subir imagen');
+    } catch (error) {
+      toast.error(error?.error || 'Error al subir imagen');
     } finally {
       setSaving(false);
     }
@@ -176,38 +184,36 @@ export default function Cuenta() {
   return (
     <div className="max-w-7xl mx-auto space-y-6 pb-12">
       <div className="rounded-[24px] bg-white overflow-hidden shadow-sm border border-gray-100">
-        <div className="h-40 w-full bg-gradient-to-r from-primary-500 via-[#49BEFF] to-success-500" />
+        <div className="h-40 w-full bg-gradient-to-r from-[#DC1F2D] to-[#B91C2A]" />
 
         <div className="px-8 pb-6">
           <div className="flex flex-col md:flex-row items-center justify-between -mt-12 gap-6">
             <div className="flex items-center gap-8 order-2 md:order-1">
               <div className="text-center">
                 <Users className="mx-auto mb-1 text-gray-400" size={20} />
-                <p className="text-lg font-black text-gray-900 leading-none">{permisos.length}</p>
-                <p className="text-xs font-bold text-gray-400 uppercase tracking-tighter mt-1">
-                  Permisos
+                <p className="text-lg font-semibold text-gray-900 leading-none">
+                  {permisos.length}
                 </p>
+                <p className="text-xs font-bold text-gray-400 mt-1">Permisos</p>
               </div>
               <div className="text-center">
                 <History className="mx-auto mb-1 text-gray-400" size={20} />
-                <p className="text-lg font-black text-gray-900 leading-none">{auditLogs.length}</p>
-                <p className="text-xs font-bold text-gray-400 uppercase tracking-tighter mt-1">
-                  Actividad
+                <p className="text-lg font-semibold text-gray-900 leading-none">
+                  {auditLogs.length}
                 </p>
+                <p className="text-xs font-bold text-gray-400 mt-1">Actividad</p>
               </div>
               <div className="text-center">
                 <Calendar className="mx-auto mb-1 text-gray-400" size={20} />
-                <p className="text-lg font-black text-gray-900 leading-none">
+                <p className="text-lg font-semibold text-gray-900 leading-none">
                   {formatDateSafely(user?.creado_en, 'MM/yy')}
                 </p>
-                <p className="text-xs font-bold text-gray-400 uppercase tracking-tighter mt-1">
-                  Alta
-                </p>
+                <p className="text-xs font-bold text-gray-400 mt-1">Alta</p>
               </div>
             </div>
 
             <div className="relative order-1 md:order-2 flex flex-col items-center">
-              <div className="h-28 w-28 rounded-full border-[6px] border-white shadow-xl bg-primary-500 overflow-hidden flex items-center justify-center font-black text-4xl text-white group">
+              <div className="h-28 w-28 rounded-full border-[6px] border-white shadow-xl bg-[#DC1F2D] overflow-hidden flex items-center justify-center font-semibold text-4xl text-white group">
                 {user?.avatar ? (
                   <img
                     src={user.avatar}
@@ -226,19 +232,17 @@ export default function Cuenta() {
                 </button>
               </div>
               <div className="mt-3 text-center">
-                <h2 className="text-2xl font-black text-gray-900 leading-tight uppercase">
+                <h2 className="text-2xl font-semibold text-gray-900 leading-tight">
                   {user?.nombre}
                 </h2>
-                <p className="text-sm font-bold text-gray-400 uppercase tracking-widest">
-                  {user?.rol || 'Administrador'}
-                </p>
+                <p className="text-sm font-bold text-gray-400">{user?.rol || 'Administrador'}</p>
               </div>
             </div>
 
             <div className="flex gap-2 order-3">
               <button
                 onClick={() => setShowAvatarPicker(true)}
-                className="h-10 px-6 rounded-2xl bg-primary-500 text-white text-xs font-black uppercase tracking-widest shadow-lg shadow-primary-100 hover:bg-primary-600 transition-all active:scale-95"
+                className="h-10 px-6 rounded-2xl bg-[#DC1F2D] text-white text-xs font-semibold shadow-sm hover:bg-[#B91C2A] transition-all active:scale-95"
               >
                 Cambiar avatar
               </button>
@@ -250,9 +254,9 @@ export default function Cuenta() {
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-2 px-6 py-3 text-xs font-black uppercase tracking-wider rounded-xl transition-all ${
+                className={`flex items-center gap-2 px-6 py-3 text-xs font-semibold rounded-xl transition-all ${
                   activeTab === tab.id
-                    ? 'bg-primary-50 text-primary-500'
+                    ? 'bg-[#FEF2F2] text-[#DC1F2D]'
                     : 'text-gray-500 hover:bg-gray-50'
                 }`}
               >
@@ -267,9 +271,7 @@ export default function Cuenta() {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         <div className="lg:col-span-4 space-y-6">
           <div className="rounded-[24px] bg-white p-8 shadow-sm border border-gray-100">
-            <h3 className="text-lg font-black text-gray-900 mb-6 uppercase tracking-tight">
-              Resumen
-            </h3>
+            <h3 className="text-lg font-semibold text-gray-900 mb-6">Resumen</h3>
             <p className="text-sm text-gray-500 leading-relaxed font-medium">
               Desde aquí puedes actualizar tus datos, cambiar la contraseña y revisar tu actividad
               reciente dentro del sistema.
@@ -279,9 +281,7 @@ export default function Cuenta() {
                 <div className="h-9 w-9 rounded-xl bg-gray-50 flex items-center justify-center text-gray-400">
                   <Briefcase size={18} />
                 </div>
-                <span className="text-sm uppercase tracking-tight">
-                  {user?.rol || 'Administrador'}
-                </span>
+                <span className="text-sm">{user?.rol || 'Administrador'}</span>
               </div>
               <div className="flex items-center gap-4 text-gray-600 font-bold">
                 <div className="h-9 w-9 rounded-xl bg-gray-50 flex items-center justify-center text-gray-400">
@@ -293,7 +293,7 @@ export default function Cuenta() {
                 <div className="h-9 w-9 rounded-xl bg-gray-50 flex items-center justify-center text-gray-400">
                   <Calendar size={18} />
                 </div>
-                <span className="text-sm uppercase tracking-tight">
+                <span className="text-sm">
                   Desde {formatDateSafely(user?.creado_en, 'MMMM yyyy')}
                 </span>
               </div>
@@ -301,28 +301,20 @@ export default function Cuenta() {
           </div>
 
           <div className="rounded-[24px] bg-white p-8 shadow-sm border border-gray-100">
-            <h3 className="text-lg font-black text-gray-900 mb-6 uppercase tracking-tight">
-              Cuenta actual
-            </h3>
+            <h3 className="text-lg font-semibold text-gray-900 mb-6">Cuenta actual</h3>
             <div className="space-y-4">
-              <div className="rounded-2xl border border-gray-100 bg-primary-50 p-4">
-                <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">
-                  Nombre
-                </p>
+              <div className="rounded-2xl border border-gray-100 bg-[#FEF2F2] p-4">
+                <p className="text-[10px] font-semibold text-gray-400">Nombre</p>
                 <p className="mt-1 text-sm font-bold text-gray-900">{user?.nombre || '-'}</p>
               </div>
-              <div className="rounded-2xl border border-gray-100 bg-primary-50 p-4">
-                <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">
-                  Email
-                </p>
+              <div className="rounded-2xl border border-gray-100 bg-[#FEF2F2] p-4">
+                <p className="text-[10px] font-semibold text-gray-400">Email</p>
                 <p className="mt-1 text-sm font-bold text-gray-900 break-all">
                   {user?.email || '-'}
                 </p>
               </div>
-              <div className="rounded-2xl border border-gray-100 bg-primary-50 p-4">
-                <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">
-                  Permisos
-                </p>
+              <div className="rounded-2xl border border-gray-100 bg-[#FEF2F2] p-4">
+                <p className="text-[10px] font-semibold text-gray-400">Permisos</p>
                 <p className="mt-1 text-sm font-bold text-gray-900">{permisos.length}</p>
               </div>
             </div>
@@ -334,47 +326,39 @@ export default function Cuenta() {
             <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-500">
               <div className="rounded-[24px] bg-white p-8 shadow-sm border border-gray-100">
                 <div className="flex items-center gap-3 mb-8">
-                  <div className="h-10 w-10 rounded-xl bg-primary-50 flex items-center justify-center text-primary-500">
+                  <div className="h-10 w-10 rounded-xl bg-[#FEF2F2] flex items-center justify-center text-[#DC1F2D]">
                     <Settings size={20} />
                   </div>
-                  <h3 className="text-xl font-black text-gray-900 uppercase tracking-tight">
-                    Datos de mi cuenta
-                  </h3>
+                  <h3 className="text-xl font-semibold text-gray-900">Datos de mi cuenta</h3>
                 </div>
 
                 <form onSubmit={guardarPerfil} className="grid gap-6 md:grid-cols-2">
                   <div className="space-y-2">
-                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
-                      Nombre
-                    </label>
+                    <label className="text-[10px] font-semibold text-gray-400 ml-1">Nombre</label>
                     <input
                       value={profileForm.nombre}
                       onChange={(e) =>
                         setProfileForm((prev) => ({ ...prev, nombre: e.target.value }))
                       }
-                      className="h-12 w-full rounded-2xl bg-gray-50 border-none px-4 text-sm font-bold focus:ring-2 focus:ring-blue-100 outline-none"
+                      className="h-12 w-full rounded-2xl bg-gray-50 border-none px-4 text-sm font-bold focus:ring-2 focus:ring-red-100 outline-none"
                       placeholder="Tu nombre"
                     />
                   </div>
                   <div className="space-y-2">
-                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
-                      Email
-                    </label>
+                    <label className="text-[10px] font-semibold text-gray-400 ml-1">Email</label>
                     <input
                       type="email"
                       value={profileForm.email}
                       onChange={(e) =>
                         setProfileForm((prev) => ({ ...prev, email: e.target.value }))
                       }
-                      className="h-12 w-full rounded-2xl bg-gray-50 border-none px-4 text-sm font-bold focus:ring-2 focus:ring-blue-100 outline-none"
+                      className="h-12 w-full rounded-2xl bg-gray-50 border-none px-4 text-sm font-bold focus:ring-2 focus:ring-red-100 outline-none"
                       placeholder="tuemail@modosabor.com"
                     />
                   </div>
-                  <div className="md:col-span-2 flex flex-wrap items-center justify-between gap-4 rounded-2xl bg-primary-50 px-4 py-4 border border-blue-50">
+                  <div className="md:col-span-2 flex flex-wrap items-center justify-between gap-4 rounded-2xl bg-[#FEF2F2] px-4 py-4 border border-red-50">
                     <div>
-                      <p className="text-xs font-black uppercase tracking-widest text-gray-500">
-                        Rol actual
-                      </p>
+                      <p className="text-xs font-semibold text-gray-500">Rol actual</p>
                       <p className="mt-1 text-sm font-bold text-gray-900">
                         {user?.rol || 'Administrador'}
                       </p>
@@ -382,7 +366,7 @@ export default function Cuenta() {
                     <button
                       type="submit"
                       disabled={saving}
-                      className="h-12 px-8 rounded-2xl bg-primary-500 text-white text-sm font-black uppercase tracking-widest shadow-lg shadow-primary-100 active:scale-95 transition-all disabled:opacity-50"
+                      className="h-12 px-8 rounded-2xl bg-[#DC1F2D] text-white text-sm font-semibold shadow-sm active:scale-95 transition-all disabled:opacity-50"
                     >
                       {saving ? 'Guardando...' : 'Guardar perfil'}
                     </button>
@@ -392,18 +376,16 @@ export default function Cuenta() {
 
               <div className="rounded-[24px] bg-white p-8 shadow-sm border border-gray-100">
                 <div className="flex items-center gap-3 mb-8">
-                  <div className="h-10 w-10 rounded-xl bg-primary-50 flex items-center justify-center text-primary-500">
+                  <div className="h-10 w-10 rounded-xl bg-[#FEF2F2] flex items-center justify-center text-[#DC1F2D]">
                     <FileText size={20} />
                   </div>
-                  <h3 className="text-xl font-black text-gray-900 uppercase tracking-tight">
-                    Mis permisos
-                  </h3>
+                  <h3 className="text-xl font-semibold text-gray-900">Mis permisos</h3>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {permisos.map((p) => (
                     <span
                       key={p}
-                      className="px-4 py-2 rounded-xl bg-gray-50 border border-gray-100 text-primary-500 font-black text-[10px] uppercase tracking-widest"
+                      className="px-4 py-2 rounded-xl bg-gray-50 border border-gray-100 text-[#DC1F2D] font-semibold text-[10px]"
                     >
                       {p.replace('.', ' / ')}
                     </span>
@@ -413,33 +395,25 @@ export default function Cuenta() {
 
               <div className="rounded-[24px] bg-white p-8 shadow-sm border border-gray-100">
                 <div className="flex items-center gap-3 mb-8">
-                  <div className="h-10 w-10 rounded-xl bg-primary-50 flex items-center justify-center text-primary-500">
+                  <div className="h-10 w-10 rounded-xl bg-[#FEF2F2] flex items-center justify-center text-[#DC1F2D]">
                     <LayoutGrid size={20} />
                   </div>
-                  <h3 className="text-xl font-black text-gray-900 uppercase tracking-tight">
-                    Resumen de la cuenta
-                  </h3>
+                  <h3 className="text-xl font-semibold text-gray-900">Resumen de la cuenta</h3>
                 </div>
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-                  <div className="rounded-2xl border border-gray-100 bg-primary-50 p-5">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">
-                      Rol
-                    </p>
-                    <p className="mt-2 text-lg font-black text-gray-900 uppercase">
+                  <div className="rounded-2xl border border-gray-100 bg-[#FEF2F2] p-5">
+                    <p className="text-[10px] font-semibold text-gray-400">Rol</p>
+                    <p className="mt-2 text-lg font-semibold text-gray-900">
                       {user?.rol || 'Admin'}
                     </p>
                   </div>
-                  <div className="rounded-2xl border border-gray-100 bg-primary-50 p-5">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">
-                      Permisos
-                    </p>
-                    <p className="mt-2 text-lg font-black text-gray-900">{permisos.length}</p>
+                  <div className="rounded-2xl border border-gray-100 bg-[#FEF2F2] p-5">
+                    <p className="text-[10px] font-semibold text-gray-400">Permisos</p>
+                    <p className="mt-2 text-lg font-semibold text-gray-900">{permisos.length}</p>
                   </div>
-                  <div className="rounded-2xl border border-gray-100 bg-primary-50 p-5">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">
-                      Alta
-                    </p>
-                    <p className="mt-2 text-lg font-black text-gray-900">
+                  <div className="rounded-2xl border border-gray-100 bg-[#FEF2F2] p-5">
+                    <p className="text-[10px] font-semibold text-gray-400">Alta</p>
+                    <p className="mt-2 text-lg font-semibold text-gray-900">
                       {formatDateSafely(user?.creado_en, 'MMM yyyy')}
                     </p>
                   </div>
@@ -450,50 +424,48 @@ export default function Cuenta() {
 
           {activeTab === 'seguridad' && (
             <div className="rounded-[24px] bg-white p-8 shadow-sm border border-gray-100 animate-in slide-in-from-bottom-4 duration-500">
-              <h3 className="text-xl font-black text-gray-900 mb-8 uppercase tracking-tight">
-                Seguridad de la cuenta
-              </h3>
+              <h3 className="text-xl font-semibold text-gray-900 mb-8">Seguridad de la cuenta</h3>
               <form onSubmit={guardarPassword} className="space-y-6 max-w-md">
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
+                  <label className="text-[10px] font-semibold text-gray-400 ml-1">
                     Contraseña actual
                   </label>
                   <input
                     type="password"
                     value={passwordActual}
                     onChange={(e) => setPasswordActual(e.target.value)}
-                    className="h-12 w-full rounded-2xl bg-gray-50 border-none px-4 text-sm font-bold focus:ring-2 focus:ring-blue-100 outline-none"
+                    className="h-12 w-full rounded-2xl bg-gray-50 border-none px-4 text-sm font-bold focus:ring-2 focus:ring-red-100 outline-none"
                     placeholder="••••••••"
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
+                  <label className="text-[10px] font-semibold text-gray-400 ml-1">
                     Nueva contraseña
                   </label>
                   <input
                     type="password"
                     value={passwordNuevo}
                     onChange={(e) => setPasswordNuevo(e.target.value)}
-                    className="h-12 w-full rounded-2xl bg-gray-50 border-none px-4 text-sm font-bold focus:ring-2 focus:ring-blue-100 outline-none"
+                    className="h-12 w-full rounded-2xl bg-gray-50 border-none px-4 text-sm font-bold focus:ring-2 focus:ring-red-100 outline-none"
                     placeholder="Minimo 6 caracteres"
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
+                  <label className="text-[10px] font-semibold text-gray-400 ml-1">
                     Confirmar nueva
                   </label>
                   <input
                     type="password"
                     value={passwordConfirmacion}
                     onChange={(e) => setPasswordConfirmacion(e.target.value)}
-                    className="h-12 w-full rounded-2xl bg-gray-50 border-none px-4 text-sm font-bold focus:ring-2 focus:ring-blue-100 outline-none"
+                    className="h-12 w-full rounded-2xl bg-gray-50 border-none px-4 text-sm font-bold focus:ring-2 focus:ring-red-100 outline-none"
                     placeholder="••••••••"
                   />
                 </div>
                 <button
                   type="submit"
                   disabled={saving}
-                  className="h-14 w-full rounded-2xl bg-primary-500 text-white text-sm font-black uppercase tracking-widest shadow-lg shadow-primary-100 active:scale-95 transition-all disabled:opacity-50"
+                  className="h-14 w-full rounded-2xl bg-[#DC1F2D] text-white text-sm font-semibold shadow-sm active:scale-95 transition-all disabled:opacity-50"
                 >
                   {saving ? '...' : 'Actualizar credenciales'}
                 </button>
@@ -503,9 +475,7 @@ export default function Cuenta() {
 
           {activeTab === 'actividad' && (
             <div className="rounded-[24px] bg-white p-8 shadow-sm border border-gray-100 animate-in slide-in-from-bottom-4 duration-500">
-              <h3 className="text-xl font-black text-gray-900 mb-8 uppercase tracking-tight">
-                Registro de actividad
-              </h3>
+              <h3 className="text-xl font-semibold text-gray-900 mb-8">Registro de actividad</h3>
               <div className="space-y-4">
                 {auditLogs.length > 0 ? (
                   auditLogs.slice(0, 10).map((log) => (
@@ -514,25 +484,23 @@ export default function Cuenta() {
                       className="flex items-center justify-between p-4 rounded-2xl bg-gray-50 border border-gray-100"
                     >
                       <div className="flex items-center gap-4">
-                        <div className="h-10 w-10 rounded-xl bg-white flex items-center justify-center text-primary-500 shadow-sm">
+                        <div className="h-10 w-10 rounded-xl bg-white flex items-center justify-center text-[#DC1F2D] shadow-sm">
                           <Clock size={18} />
                         </div>
                         <div>
-                          <p className="text-sm font-black text-gray-800 uppercase tracking-tight">
-                            {log.accion}
-                          </p>
-                          <p className="text-[10px] font-bold text-gray-400 uppercase">
-                            {log.modulo} · {format(parseISO(log.creado_en), 'HH:mm')} hs
+                          <p className="text-sm font-semibold text-gray-800">{log.accion}</p>
+                          <p className="text-[10px] font-bold text-gray-400">
+                            {log.modulo} · {formatDateSafely(log.creado_en, 'HH:mm')} hs
                           </p>
                         </div>
                       </div>
-                      <span className="text-[10px] font-black text-gray-300 uppercase">
-                        {format(parseISO(log.creado_en), 'dd MMM')}
+                      <span className="text-[10px] font-semibold text-gray-300">
+                        {formatDateSafely(log.creado_en, 'dd MMM')}
                       </span>
                     </div>
                   ))
                 ) : (
-                  <div className="py-12 text-center text-gray-400 font-bold uppercase tracking-widest opacity-40">
+                  <div className="py-12 text-center text-gray-400 font-bold opacity-40">
                     Sin actividad reciente
                   </div>
                 )}
@@ -543,17 +511,18 @@ export default function Cuenta() {
       </div>
 
       {showAvatarPicker && (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/35 p-4 backdrop-blur-md">
+        <div
+          className="fixed inset-0 flex items-center justify-center bg-slate-900/35 p-4 backdrop-blur-md"
+          style={{ zIndex: Z.modal }}
+        >
           <div className="w-full max-w-2xl rounded-[40px] bg-white p-10 shadow-2xl animate-in zoom-in-95 duration-300 flex flex-col max-h-[90vh]">
             <div className="flex items-center justify-between mb-8 shrink-0">
               <div>
                 <div className="flex items-center gap-2 mb-1">
-                  <div className="h-6 w-1 bg-primary-500 rounded-full"></div>
-                  <p className="text-xs font-black text-primary-500 uppercase tracking-[0.2em]">
-                    Identidad visual
-                  </p>
+                  <div className="h-6 w-1 bg-[#DC1F2D] rounded-full"></div>
+                  <p className="text-xs font-semibold text-[#DC1F2D]">Identidad visual</p>
                 </div>
-                <h3 className="text-2xl font-black text-gray-900 tracking-tight uppercase">
+                <h3 className="text-2xl font-semibold text-gray-900 tracking-tight">
                   Elige tu avatar
                 </h3>
               </div>
@@ -568,12 +537,12 @@ export default function Cuenta() {
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-6 overflow-y-auto no-scrollbar pr-2 pb-4">
               <button
                 onClick={() => fileInputRef.current?.click()}
-                className="group aspect-square rounded-[32px] border-4 border-dashed border-gray-200 flex flex-col items-center justify-center gap-2 hover:border-primary-500 hover:bg-primary-50 transition-all"
+                className="group aspect-square rounded-[32px] border-4 border-dashed border-gray-200 flex flex-col items-center justify-center gap-2 hover:border-[#DC1F2D] hover:bg-[#FEF2F2] transition-all"
               >
-                <div className="h-12 w-12 rounded-2xl bg-gray-100 flex items-center justify-center text-gray-400 group-hover:bg-primary-500 group-hover:text-white transition-all">
+                <div className="h-12 w-12 rounded-2xl bg-gray-100 flex items-center justify-center text-gray-400 group-hover:bg-[#DC1F2D] group-hover:text-white transition-all">
                   <Camera size={24} />
                 </div>
-                <span className="text-[10px] font-black uppercase text-gray-400 group-hover:text-primary-500">
+                <span className="text-[10px] font-semibold text-gray-400 group-hover:text-[#DC1F2D]">
                   Subir foto
                 </span>
                 <input
@@ -589,12 +558,12 @@ export default function Cuenta() {
                 <button
                   key={idx}
                   onClick={() => updateAvatar(av)}
-                  className={`relative aspect-square rounded-[32px] overflow-hidden border-4 transition-all hover:scale-105 ${user?.avatar === av ? 'border-primary-500 shadow-lg shadow-primary-100' : 'border-transparent opacity-70 hover:opacity-100'}`}
+                  className={`relative aspect-square rounded-[32px] overflow-hidden border-4 transition-all hover:scale-105 ${user?.avatar === av ? 'border-[#DC1F2D] shadow-sm' : 'border-transparent opacity-70 hover:opacity-100'}`}
                 >
                   <img src={av} className="w-full h-full object-cover" alt={`avatar-${idx}`} />
                   {user?.avatar === av && (
-                    <div className="absolute inset-0 bg-primary-500/20 flex items-center justify-center">
-                      <div className="bg-white rounded-full p-1 text-primary-500 shadow-md">
+                    <div className="absolute inset-0 bg-[#DC1F2D]/20 flex items-center justify-center">
+                      <div className="bg-white rounded-full p-1 text-[#DC1F2D] shadow-md">
                         <Check size={16} strokeWidth={4} />
                       </div>
                     </div>
@@ -606,7 +575,7 @@ export default function Cuenta() {
             <div className="mt-8 flex justify-end shrink-0 pt-4 border-t border-gray-50">
               <button
                 onClick={() => setShowAvatarPicker(false)}
-                className="h-14 px-10 rounded-2xl border border-gray-200 text-sm font-black text-gray-500 uppercase tracking-widest hover:bg-gray-50 active:scale-95 transition-all"
+                className="h-14 px-10 rounded-2xl border border-gray-200 text-sm font-semibold text-gray-500 hover:bg-gray-50 active:scale-95 transition-all"
               >
                 Cerrar
               </button>

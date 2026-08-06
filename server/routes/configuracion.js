@@ -35,6 +35,7 @@ const {
 } = require('../utils/backupManager');
 const { importBaseDataPackage } = require('../utils/dataPackage');
 
+const { fechaLocal } = require('../utils/fechaLocal');
 const storage = multer.diskStorage({
   destination: uploadsDir,
   filename: (_req, file, cb) =>
@@ -300,11 +301,11 @@ router.get('/audit', auth, requirePermission('config.manage'), (req, res) => {
   const conditions = [];
   const params = [];
   if (desde) {
-    conditions.push('date(creado_en) >= ?');
+    conditions.push(`${fechaLocal('creado_en')} >= ?`);
     params.push(desde);
   }
   if (hasta) {
-    conditions.push('date(creado_en) <= ?');
+    conditions.push(`${fechaLocal('creado_en')} <= ?`);
     params.push(hasta);
   }
   const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
@@ -436,8 +437,18 @@ router.post('/delivery/cotizar', (req, res) => {
   });
 });
 
+/**
+ * Documento de prueba y vista previa de impresión.
+ *
+ * `?tipo=ticket|comanda|delivery` elige cuál generar. Es el mismo HTML que
+ * sale por la impresora: el panel lo muestra dentro de un iframe, así que la
+ * vista previa no puede quedar desincronizada del resultado real.
+ */
 router.get('/impresion/test', auth, requirePermission('config.manage'), (req, res) => {
-  const document = buildPrintTestDocument(db);
+  const tipo = ['comanda', 'delivery', 'ticket'].includes(req.query.tipo)
+    ? req.query.tipo
+    : 'ticket';
+  const document = buildPrintTestDocument(db, tipo);
   res.json(document);
 });
 

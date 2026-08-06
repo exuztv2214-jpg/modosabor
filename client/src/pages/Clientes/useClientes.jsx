@@ -3,39 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { format, parseISO } from 'date-fns';
 import toast from 'react-hot-toast';
-import {
-  AlertTriangle,
-  Cake,
-  Download,
-  Eye,
-  Gift,
-  LayoutGrid,
-  List,
-  MapPin,
-  Pencil,
-  Phone,
-  Plus,
-  RefreshCw,
-  Search,
-  ShieldAlert,
-  Star,
-  Trash2,
-  UserRound,
-  X,
-  TrendingUp,
-  MessageCircle,
-  Mail,
-  History,
-  CreditCard,
-  CheckCircle2,
-  Ticket,
-  Camera,
-  User,
-  Settings,
-  QrCode,
-  Copy,
-  ExternalLink,
-} from 'lucide-react';
+import { AlertTriangle, Gift, MessageCircle, Phone, Star, UserRound } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 
 import api from '../../lib/api.js';
@@ -44,45 +12,19 @@ import { resolveAssetUrl } from '../../lib/assets.js';
 import { buildPublicAppUrl, getPublicAppUrlDiagnostics } from '../../lib/publicUrls.js';
 import { DEFAULT_BRAND_LOGO } from '../../lib/webPublicaHelpers.js';
 import { fmtMoney } from '../../lib/formatters.js';
+import {
+  LOCAL_AVATARS,
+  avatarTokenAleatorio,
+  avatarTokenPorDefecto,
+  normalizarSegmento,
+  segmentoTono,
+} from './clientesUi.jsx';
 
-// Importación de Avatars Locales
-import user1 from '../../image/profile/user-1.jpg';
-import user2 from '../../image/profile/user-2.jpg';
-import user3 from '../../image/profile/user-3.jpg';
-import user4 from '../../image/profile/user-4.jpg';
-import user5 from '../../image/profile/user-5.jpg';
-import user6 from '../../image/profile/user-6.jpg';
-import user7 from '../../image/profile/user-7.jpg';
-import user8 from '../../image/profile/user-8.jpg';
-import user9 from '../../image/profile/user-9.jpg';
-import user10 from '../../image/profile/user-10.jpg';
-import user11 from '../../image/profile/user-11.jpg';
-import user12 from '../../image/profile/user-12.jpg';
+// Las doce fotos ahora viven en `clientesUi.jsx`, que es donde también está
+// el fallback determinístico por id.
 
-const LOCAL_AVATARS = [
-  user1,
-  user2,
-  user3,
-  user4,
-  user5,
-  user6,
-  user7,
-  user8,
-  user9,
-  user10,
-  user11,
-  user12,
-];
-
-const CONTROL =
-  'h-12 w-full rounded-2xl border-none bg-gray-50 px-4 text-sm font-bold text-gray-700 outline-none transition focus:ring-2 focus:ring-[#5D87FF]/20';
-
-const LEVEL_COLORS = {
-  Bronce: '#b45309',
-  Plata: '#94a3b8',
-  Oro: '#FFAE1F',
-  Platino: '#5D87FF',
-};
+// `CONTROL` y `LEVEL_COLORS` vivían acá y además estaban duplicados en
+// `ClientesHeader` con valores distintos. Ahora salen de `clientesUi.jsx`.
 
 const DEFAULT_CAMPAIGN_DASHBOARD = {
   campanas: 0,
@@ -103,25 +45,25 @@ const CAMPAIGN_HISTORY_FILTERS = [
 
 const SEGMENT_CAMPAIGN_COPY = {
   'premio-listo': {
-    filter: 'Premio listo',
+    filter: 'premio-listo',
     title: 'Premio listo',
     message: (negocio) =>
       `Hola, tienes un premio listo para canjear en ${negocio}. Cuando quieras, te ayudamos a aprovecharlo.`,
   },
   vip: {
-    filter: 'VIP',
+    filter: 'vip',
     title: 'VIP',
     message: (negocio) =>
       `Hola, queremos agradecerte por ser cliente VIP de ${negocio}. Tenemos un beneficio especial preparado para ti.`,
   },
   riesgo: {
-    filter: 'En riesgo',
+    filter: 'riesgo',
     title: 'En riesgo',
     message: (negocio) =>
       `Hola, te extrañamos en ${negocio}. Queremos invitarte a volver con una propuesta especial.`,
   },
   nuevo: {
-    filter: 'Nuevo',
+    filter: 'nuevo',
     title: 'Nuevos',
     message: (negocio) =>
       `Hola, gracias por sumarte a ${negocio}. Queremos darte la bienvenida con un beneficio especial.`,
@@ -204,12 +146,15 @@ const EMPTY_FORM = {
   fidelizacion_activa: true,
 };
 
+// El filtro de estado ahora guarda la clave del segmento, no su etiqueta:
+// antes convivían 'En riesgo' (filtro) y 'riesgo' / 'en-riesgo' (estado) y
+// había que traducir entre los tres en cada comparación.
 const SEGMENTO_TO_FILTRO = {
-  vip: 'VIP',
-  riesgo: 'En riesgo',
-  perdidos: 'Perdido',
-  inactivos: 'Por reactivar',
-  recurrentes: 'Recurrente',
+  vip: 'vip',
+  riesgo: 'riesgo',
+  perdidos: 'perdido',
+  inactivos: 'por-reactivar',
+  recurrentes: 'recurrente',
   cumpleMes: 'Todos',
 };
 
@@ -270,42 +215,21 @@ export function useClientes() {
     return Math.max(0, Math.floor((Date.now() - date.getTime()) / 86400000));
   };
 
+  /**
+   * Segmento del cliente, siempre normalizado.
+   *
+   * El backend manda `estado_segmento` y acá había un fallback que usaba otro
+   * vocabulario: devolvía `en-riesgo` mientras el server decía `riesgo`. Cada
+   * filtro y cada tarjeta tenían que acordarse de chequear las dos formas, y
+   * más de una se olvidaba. Ahora sale una sola clave canónica.
+   */
   const getClienteEstado = (cliente) => {
-    if (cliente?.estado_segmento) return cliente.estado_segmento;
-    const dias = getDaysSince(cliente.ultima_compra);
+    if (cliente?.estado_segmento) return normalizarSegmento(cliente.estado_segmento);
+    const dias = getDaysSince(cliente?.ultima_compra);
     if (dias == null) return 'nuevo';
-    if (dias >= 30) return 'en-riesgo';
+    if (dias >= 30) return 'riesgo';
     if (dias >= 15) return 'por-reactivar';
     return 'activo';
-  };
-
-  const getEstadoBadge = (cliente) => {
-    const estado = getClienteEstado(cliente);
-    if (estado === 'premio-listo') {
-      return { label: 'Premio listo', className: 'bg-success-50 text-success-600' };
-    }
-    if (estado === 'vip') {
-      return { label: 'VIP', className: 'bg-warning-50 text-amber-500' };
-    }
-    if (estado === 'recurrente') {
-      return { label: 'Recurrente', className: 'bg-primary-50 text-primary-500' };
-    }
-    if (estado === 'perdido') {
-      return { label: 'Perdido', className: 'bg-gray-100 text-gray-500' };
-    }
-    if (estado === 'riesgo') {
-      return { label: 'En riesgo', className: 'bg-danger-50 text-rose-500' };
-    }
-    if (estado === 'perdido' || estado === 'riesgo' || estado === 'en-riesgo') {
-      return { label: 'En riesgo', className: 'bg-danger-50 text-rose-500' };
-    }
-    if (estado === 'por-reactivar') {
-      return { label: 'Por reactivar', className: 'bg-warning-50 text-amber-500' };
-    }
-    if (estado === 'nuevo') {
-      return { label: 'Nuevo', className: 'bg-sky-50 text-sky-500' };
-    }
-    return { label: 'Activo', className: 'bg-success-50 text-success-600' };
   };
 
   const getPrimaryPhoneLink = (telefono) => `tel:${String(telefono || '').replace(/\D/g, '')}`;
@@ -833,7 +757,11 @@ export function useClientes() {
   };
 
   const exportarCsv = () => {
-    if (!clientes.length) return toast.error('No hay clientes para exportar');
+    if (!filtered.length) return toast.error('No hay clientes para exportar');
+    // Todo entre comillas y con las comillas internas duplicadas: antes solo
+    // se escapaban tres columnas, así que una dirección con coma corría el
+    // resto de la fila.
+    const cell = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`;
     const rows = [
       [
         'ID',
@@ -848,22 +776,26 @@ export function useClientes() {
         'Estado',
         'Sellos actuales',
         'Premios pendientes',
-      ].join(','),
+      ]
+        .map(cell)
+        .join(','),
       ...filtered.map((c) =>
         [
           c.id,
-          `"${String(c.nombre || '').replace(/"/g, '""')}"`,
-          `"${String(c.telefono || '').replace(/"/g, '""')}"`,
-          `"${String(c.direccion || '').replace(/"/g, '""')}"`,
+          c.nombre,
+          c.telefono,
+          c.direccion,
           c.nivel || 'Bronce',
           c.puntos || 0,
           c.total_pedidos || 0,
           c.total_gastado || 0,
           c.ultima_compra || '',
-          getClienteEstado(c),
+          segmentoTono(getClienteEstado(c)).label,
           c.sellos_actuales || 0,
           c.recompensas_pendientes || 0,
-        ].join(',')
+        ]
+          .map(cell)
+          .join(',')
       ),
     ].join('\n');
 
@@ -928,28 +860,25 @@ export function useClientes() {
   }, []);
 
   const filtered = useMemo(() => {
-    const term = search.toLowerCase();
+    const term = search.trim().toLowerCase();
+    // Sin guardas: `c.nombre.toLowerCase()` y `c.telefono.includes()` reventaban
+    // la pantalla entera con un solo cliente sin teléfono o sin nombre —cosa
+    // que pasa con los que carga el agente de WhatsApp o una importación—.
+    const texto = (valor) => String(valor ?? '').toLowerCase();
+
     return clientes.filter((c) => {
       const estado = getClienteEstado(c);
       const hasReward = Number(c.recompensas_pendientes || 0) > 0;
       const fidelidadActiva = Boolean(c.fidelizacion_activa);
 
       const matchesTerm =
-        c.nombre.toLowerCase().includes(term) ||
-        c.telefono.includes(term) ||
-        (c.codigo_tarjeta && c.codigo_tarjeta.toLowerCase().includes(term));
+        !term ||
+        texto(c.nombre).includes(term) ||
+        texto(c.telefono).includes(term) ||
+        texto(c.codigo_tarjeta).includes(term);
 
       const matchesNivel = filtroNivel === 'Todos' || c.nivel === filtroNivel;
-      const matchesEstado =
-        filtroEstado === 'Todos' ||
-        (filtroEstado === 'VIP' && estado === 'vip') ||
-        (filtroEstado === 'Premio listo' && estado === 'premio-listo') ||
-        (filtroEstado === 'Recurrente' && estado === 'recurrente') ||
-        (filtroEstado === 'Activo' && estado === 'activo') ||
-        (filtroEstado === 'Por reactivar' && estado === 'por-reactivar') ||
-        (filtroEstado === 'En riesgo' && ['en-riesgo', 'riesgo'].includes(estado)) ||
-        (filtroEstado === 'Perdido' && estado === 'perdido') ||
-        (filtroEstado === 'Nuevo' && estado === 'nuevo');
+      const matchesEstado = filtroEstado === 'Todos' || estado === filtroEstado;
       const matchesBeneficio =
         filtroBeneficio === 'Todos' ||
         (filtroBeneficio === 'Con premio' && hasReward) ||
@@ -961,14 +890,20 @@ export function useClientes() {
     });
   }, [clientes, search, filtroNivel, filtroEstado, filtroBeneficio]);
 
-  const stats = useMemo(
-    () => ({
+  const stats = useMemo(() => {
+    const conPremio = clientes.filter((c) => Number(c.recompensas_pendientes || 0) > 0).length;
+    const sinTelefono = clientes.filter((c) => !String(c.telefono || '').trim()).length;
+    return {
       total: clientes.length,
       vip: clientes.filter((c) => getClienteEstado(c) === 'vip').length,
-      ltv: clientes.reduce((acc, c) => acc + Number(c.total_gastado || 0), 0),
-    }),
-    [clientes]
-  );
+      // Esto se llamaba "ltv", que es otra cosa: LTV es el valor esperado por
+      // cliente a futuro. Esto es la facturación histórica acumulada de los
+      // clientes registrados, sin contar las ventas anónimas de mostrador.
+      facturado: clientes.reduce((acc, c) => acc + Number(c.total_gastado || 0), 0),
+      conPremio,
+      sinTelefono,
+    };
+  }, [clientes]);
 
   const segmentHighlights = useMemo(
     () => [
@@ -976,26 +911,23 @@ export function useClientes() {
         key: 'premio-listo',
         label: 'Premio listo',
         count: clientes.filter((c) => getClienteEstado(c) === 'premio-listo').length,
-        filter: 'Premio listo',
-        tone: 'bg-success-50 text-success-600 border-emerald-100',
+        filter: 'premio-listo',
         icon: Gift,
-        cta: 'Canjear y avisar',
+        cta: 'Avisar premio',
       },
       {
         key: 'vip',
         label: 'VIP',
         count: clientes.filter((c) => getClienteEstado(c) === 'vip').length,
-        filter: 'VIP',
-        tone: 'bg-warning-50 text-amber-500 border-amber-100',
+        filter: 'vip',
         icon: Star,
         cta: 'Beneficio premium',
       },
       {
         key: 'riesgo',
         label: 'En riesgo',
-        count: clientes.filter((c) => ['riesgo', 'en-riesgo'].includes(getClienteEstado(c))).length,
-        filter: 'En riesgo',
-        tone: 'bg-danger-50 text-rose-500 border-rose-100',
+        count: clientes.filter((c) => getClienteEstado(c) === 'riesgo').length,
+        filter: 'riesgo',
         icon: AlertTriangle,
         cta: 'Recuperar',
       },
@@ -1003,8 +935,7 @@ export function useClientes() {
         key: 'nuevo',
         label: 'Nuevos',
         count: clientes.filter((c) => getClienteEstado(c) === 'nuevo').length,
-        filter: 'Nuevo',
-        tone: 'bg-sky-50 text-sky-500 border-sky-100',
+        filter: 'nuevo',
         icon: UserRound,
         cta: 'Dar bienvenida',
       },
@@ -1256,7 +1187,10 @@ export function useClientes() {
       direccion: c.direccion || '',
       fecha_nacimiento: c.fecha_nacimiento || '',
       notas: c.notas || '',
-      avatar_url: c.avatar_url || '',
+      // Si el cliente es viejo y nunca tuvo foto, se precarga la que ya viene
+      // mostrando la lista, así al guardar queda persistida en vez de volver
+      // a la inicial gris.
+      avatar_url: c.avatar_url || avatarTokenPorDefecto(c.id),
       fidelizacion_activa: c.fidelizacion_activa,
     });
     setModal('editar');
@@ -1348,14 +1282,28 @@ export function useClientes() {
       });
       setForm((prev) => ({ ...prev, avatar_url: res.url }));
       toast.success('Imagen cargada');
-    } catch (err) {
+    } catch {
       toast.error('Error al subir imagen');
     }
   };
 
+  // `navigator.clipboard` no existe fuera de HTTPS (ni en localhost por IP),
+  // así que en la tablet del mostrador esto tiraba un TypeError en vez de
+  // avisar. Ahora falla con un mensaje.
   const copyToClipboard = (text) => {
-    navigator.clipboard.writeText(text);
-    toast.success('Copiado al portapapeles');
+    const value = String(text || '');
+    if (!value) {
+      toast.error('No hay nada para copiar');
+      return;
+    }
+    if (!navigator.clipboard?.writeText) {
+      toast.error('El navegador no permite copiar automáticamente');
+      return;
+    }
+    navigator.clipboard
+      .writeText(value)
+      .then(() => toast.success('Copiado al portapapeles'))
+      .catch(() => toast.error('No se pudo copiar'));
   };
 
   const detalleTimeline = detalle?.timeline?.length
@@ -1366,8 +1314,6 @@ export function useClientes() {
   const detalleDirecciones = detalle?.direcciones || [];
   const detalleDireccionPrincipal =
     detalleDirecciones.find((direccion) => direccion.principal) || detalleDirecciones[0] || null;
-  const detalleEstado = detalle ? getEstadoBadge(detalle) : null;
-  const detalleCardCode = detalle ? getClienteCardCode(detalle) : '';
   const detalleClubUrl = detalle ? getClienteClubUrl(detalle) : '';
   const campaignMetrics =
     campaignModal?.metrics ||
@@ -1392,8 +1338,12 @@ export function useClientes() {
     }
     setConfigModal(true);
   };
+  // Al dar de alta se asigna una foto sola. Antes el alta arrancaba con
+  // `avatar_url: ''` y casi nadie entraba a elegir una, así que la lista
+  // terminaba siendo un muro de iniciales grises. Igual se puede cambiar
+  // desde el mismo formulario.
   const onNuevo = () => {
-    setForm(EMPTY_FORM);
+    setForm({ ...EMPTY_FORM, avatar_url: avatarTokenAleatorio() });
     setModal('nuevo');
   };
   const onRefresh = () => cargar();
@@ -1460,15 +1410,12 @@ export function useClientes() {
     sellosParaPremio,
     EMPTY_FORM,
     LOCAL_AVATARS,
-    CONTROL,
-    LEVEL_COLORS,
     DEFAULT_CAMPAIGN_DASHBOARD,
     CAMPAIGN_HISTORY_FILTERS,
     SEGMENT_CAMPAIGN_COPY,
     formatPedidoDate,
     getDaysSince,
     getClienteEstado,
-    getEstadoBadge,
     getPrimaryPhoneLink,
     getWhatsAppLink,
     buildActivityTimeline,
@@ -1506,6 +1453,12 @@ export function useClientes() {
     summarizeCampaignMetrics,
     aggregateCampaignDashboard,
     fmtMoney,
+    // `index.jsx` pasaba `hook.toast` y `hook.buildPublicAppUrl` a los hijos,
+    // pero ninguno de los dos estaba en este return: llegaban `undefined`.
+    // El de toast reventaba al tocar "contactar" en un cliente sin teléfono,
+    // que es justo el caso en el que se quería mostrar el aviso.
+    toast,
+    buildPublicAppUrl,
     onConfig,
     onNuevo,
     onRefresh,
@@ -1522,8 +1475,6 @@ export function useClientes() {
     detalleTimeline,
     detalleDirecciones,
     detalleDireccionPrincipal,
-    detalleEstado,
-    detalleCardCode,
     detalleClubUrl,
   };
 }

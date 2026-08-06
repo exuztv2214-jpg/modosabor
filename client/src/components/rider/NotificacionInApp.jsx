@@ -57,10 +57,8 @@ export default function NotificacionInApp({ pedido, onVer, onCerrar }) {
               </div>
 
               <div className="min-w-0 flex-1">
-                <p className="text-[10px] font-black uppercase tracking-[0.22em] text-white/75">
-                  Nuevo pedido asignado
-                </p>
-                <p className="mt-0.5 truncate text-sm font-black text-white">
+                <p className="text-[12px] font-medium text-white/75">Nuevo pedido asignado</p>
+                <p className="mt-0.5 truncate text-sm font-bold text-white">
                   #{pedido.numero} · {pedido.cliente_nombre || 'Sin nombre'}
                 </p>
                 <p className="mt-1 flex items-start gap-1 text-[11px] font-semibold leading-snug text-white/85">
@@ -82,7 +80,7 @@ export default function NotificacionInApp({ pedido, onVer, onCerrar }) {
             </div>
 
             <div className="flex items-center gap-2 border-t border-white/15 px-4 py-2.5">
-              <span className="flex-1 text-lg font-black tabular-nums text-white">
+              <span className="flex-1 text-lg font-bold tabular-nums text-white">
                 {fmtPesos(pedido.total)}
               </span>
               <button
@@ -91,7 +89,7 @@ export default function NotificacionInApp({ pedido, onVer, onCerrar }) {
                   haptic('tap');
                   onVer?.(pedido);
                 }}
-                className="h-9 rounded-xl bg-white px-5 text-[11px] font-black uppercase tracking-widest text-[#dc1f2d] shadow-md active:scale-95"
+                className="h-9 rounded-xl bg-white px-5 text-[13px] font-semibold text-[#dc1f2d] shadow-md active:scale-95"
               >
                 Ver
               </button>
@@ -99,7 +97,7 @@ export default function NotificacionInApp({ pedido, onVer, onCerrar }) {
           </div>
 
           {/* Pista visual del gesto de descarte */}
-          <p className="mt-1.5 text-center text-[9px] font-black uppercase tracking-widest text-gray-400">
+          <p className="mt-1.5 text-center text-[12px] font-medium text-gray-400">
             Deslizá hacia arriba para descartar
           </p>
         </motion.div>

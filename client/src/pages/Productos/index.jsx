@@ -8,8 +8,19 @@ import DeleteDialog from './DeleteDialog';
 export default function Productos() {
   const hook = useProductos();
 
+  const hayFiltros =
+    Boolean(hook.busqueda.trim()) ||
+    hook.filtroCategoria !== 'todas' ||
+    hook.filtroEstado !== 'todos';
+
+  const limpiarFiltros = () => {
+    hook.setBusqueda('');
+    hook.setFiltroCategoria('todas');
+    hook.setFiltroEstado('todos');
+  };
+
   return (
-    <div className="mx-auto max-w-7xl animate-fade-in space-y-6 px-4 pb-8 pt-6 sm:px-6 lg:px-8">
+    <div className="mx-auto max-w-7xl space-y-4 pb-8 pt-2">
       <ProductosHeader
         stats={hook.stats}
         busqueda={hook.busqueda}
@@ -27,11 +38,11 @@ export default function Productos() {
         onRecargar={hook.cargar}
         onNuevo={hook.abrirNuevo}
         filteredCount={hook.filtered.length}
-        isAllSelected={hook.isAllSelected}
-        onToggleSelectAll={hook.toggleSelectAll}
         selectedCount={hook.selectedIds.length}
         onBulkActivo={hook.bulkSetActivo}
         onClearSelected={() => hook.setSelectedIds([])}
+        hayFiltros={hayFiltros}
+        onLimpiarFiltros={limpiarFiltros}
       />
 
       <ProductosGrid
@@ -47,6 +58,9 @@ export default function Productos() {
         onSelect={hook.toggleSelect}
         isAllSelected={hook.isAllSelected}
         onToggleSelectAll={hook.toggleSelectAll}
+        hayFiltros={hayFiltros}
+        onLimpiarFiltros={limpiarFiltros}
+        onNuevo={hook.abrirNuevo}
       />
 
       <ProductoFormModal
@@ -63,7 +77,6 @@ export default function Productos() {
         recipeManagedStock={hook.recipeManagedStock}
         saving={hook.saving}
         categoryDialog={hook.categoryDialog}
-        productosLength={hook.productos.length}
         fileInputRef={hook.fileInputRef}
         onClose={hook.cerrarModal}
         onGuardar={hook.guardar}

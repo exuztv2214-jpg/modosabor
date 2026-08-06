@@ -1,42 +1,55 @@
-export default function DireccionesPanel({ direcciones }) {
+import { MapPin } from 'lucide-react';
+
+import { BRAND, STROKE } from '../../lib/theme.js';
+import { Card, Empty } from './clientesUi.jsx';
+
+export default function DireccionesPanel({ direcciones = [] }) {
+  const lista = Array.isArray(direcciones) ? direcciones : [];
+
   return (
-    <div className="rounded-[32px] border border-white bg-white p-6 shadow-sm">
-      <div className="mb-4 flex items-center justify-between">
-        <h4 className="text-[10px] font-black uppercase tracking-[0.3em] text-gray-400">
-          Direcciones
-        </h4>
-        <span className="text-[9px] font-black uppercase tracking-widest text-primary-500">
-          {direcciones.length || 0} cargadas
-        </span>
-      </div>
-      <div className="space-y-3">
-        {direcciones.length > 0 ? (
-          direcciones.map((direccion) => (
-            <div key={direccion.id} className="rounded-[22px] bg-background p-4">
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-xs font-black uppercase tracking-widest text-gray-800">
-                  {direccion.etiqueta || 'Dirección'}
-                </p>
-                {direccion.principal ? (
-                  <span className="rounded-full bg-primary-50 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-primary-500">
-                    Principal
-                  </span>
-                ) : null}
+    <Card
+      title="Direcciones"
+      helper={
+        lista.length
+          ? `${lista.length} ${lista.length === 1 ? 'dirección guardada' : 'direcciones guardadas'}`
+          : undefined
+      }
+    >
+      {lista.length ? (
+        <div className="space-y-1.5">
+          {lista.map((direccion) => (
+            <div key={direccion.id} className="rounded-xl bg-gray-50 px-3 py-2.5">
+              <div className="flex items-start gap-2">
+                <MapPin size={13} strokeWidth={STROKE} className="mt-0.5 shrink-0 text-gray-400" />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <p className="truncate text-[13px] font-medium text-gray-900">
+                      {direccion.direccion}
+                    </p>
+                    {direccion.principal ? (
+                      <span
+                        className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold text-white"
+                        style={{ background: BRAND }}
+                      >
+                        Principal
+                      </span>
+                    ) : null}
+                  </div>
+                  <p className="mt-0.5 text-[11px] text-gray-400">
+                    {direccion.etiqueta || 'Sin etiqueta'}
+                    {direccion.referencia ? ` · ${direccion.referencia}` : ''}
+                  </p>
+                </div>
               </div>
-              <p className="mt-2 text-sm font-bold text-gray-700">{direccion.direccion}</p>
-              {direccion.referencia ? (
-                <p className="mt-1 text-[10px] font-bold uppercase tracking-widest text-gray-400">
-                  {direccion.referencia}
-                </p>
-              ) : null}
             </div>
-          ))
-        ) : (
-          <p className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 py-4 text-center text-xs font-bold uppercase text-gray-400">
-            Sin direcciones registradas
-          </p>
-        )}
-      </div>
-    </div>
+          ))}
+        </div>
+      ) : (
+        <Empty
+          title="Sin direcciones guardadas"
+          description="Se cargan solas cuando el cliente pide delivery."
+        />
+      )}
+    </Card>
   );
 }

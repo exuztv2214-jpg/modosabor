@@ -1,5 +1,17 @@
 import { X } from 'lucide-react';
+
+import { BRAND, STROKE } from '../../lib/theme.js';
 import { CONTROL, RUBROS, UNITS } from './constants';
+
+function Campo({ label, hint, children, className = '' }) {
+  return (
+    <div className={className}>
+      <label className="block text-[12px] font-medium text-gray-600">{label}</label>
+      <div className="mt-1">{children}</div>
+      {hint ? <p className="mt-1 text-[11px] leading-4 text-gray-400">{hint}</p> : null}
+    </div>
+  );
+}
 
 export default function InsumoFormModal({
   insumoModal,
@@ -11,40 +23,56 @@ export default function InsumoFormModal({
 }) {
   if (!insumoModal) return null;
 
+  const set = (campo) => (e) => onSetInsumoForm((p) => ({ ...p, [campo]: e.target.value }));
+  const esNuevo = insumoModal === 'new';
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-xl rounded-[40px] bg-white p-8 shadow-2xl animate-in zoom-in-95 duration-200">
-        <div className="mb-8 flex items-center justify-between">
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/35 p-4 backdrop-blur-sm"
+      onClick={onCloseInsumoModal}
+    >
+      <div
+        className="flex max-h-[92vh] w-full max-w-xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex shrink-0 items-center justify-between gap-4 border-b border-gray-100 px-5 py-4">
           <div>
-            <div className="flex items-center gap-2 mb-1">
-              <div className="h-6 w-1 bg-primary-500 rounded-full"></div>
-              <p className="text-xs font-black text-primary-500 uppercase tracking-[0.2em]">
-                {insumoModal === 'new' ? 'Crear' : 'Ajustar'}
-              </p>
-            </div>
-            <h3 className="text-2xl font-black text-gray-900 tracking-tight uppercase">
-              Datos del Insumo
+            <h3 className="text-[17px] font-semibold text-gray-900">
+              {esNuevo ? 'Nuevo insumo' : `Editar ${insumoForm.nombre || 'insumo'}`}
             </h3>
+            <p className="mt-0.5 text-[12px] text-gray-500">
+              Los insumos son la materia prima que descuentan las recetas
+            </p>
           </div>
-          <button onClick={onCloseInsumoModal} className="rounded-full p-2 hover:bg-gray-100">
-            <X size={24} className="text-gray-400" />
+          <button
+            type="button"
+            onClick={onCloseInsumoModal}
+            aria-label="Cerrar"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
+          >
+            <X size={18} strokeWidth={STROKE} />
           </button>
         </div>
 
-        <div className="space-y-4">
-          <input
-            value={insumoForm.nombre}
-            onChange={(e) => onSetInsumoForm((p) => ({ ...p, nombre: e.target.value }))}
-            placeholder="Nombre (ej: Prepizza Grande)"
-            className={CONTROL}
-          />
-          <div className="grid grid-cols-2 gap-4">
-            <div>
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-5">
+          {/* Nombre, rubro y unidad eran sólo `placeholder`: apenas cargabas
+              los datos no se sabía qué era cada campo. */}
+          <Campo label="Nombre">
+            <input
+              value={insumoForm.nombre}
+              onChange={set('nombre')}
+              placeholder="Ej: Prepizza grande"
+              className={CONTROL}
+            />
+          </Campo>
+
+          <div className="grid grid-cols-2 gap-3">
+            <Campo label="Rubro" hint="Podés escribir uno nuevo">
               <input
                 list="rubros-list"
                 value={insumoForm.rubro}
-                onChange={(e) => onSetInsumoForm((p) => ({ ...p, rubro: e.target.value }))}
-                placeholder="Rubro (libre o elegir)"
+                onChange={set('rubro')}
+                placeholder="General"
                 className={CONTROL}
               />
               <datalist id="rubros-list">
@@ -52,69 +80,89 @@ export default function InsumoFormModal({
                   <option key={r} value={r} />
                 ))}
               </datalist>
-            </div>
-            <select
-              value={insumoForm.unidad}
-              onChange={(e) => onSetInsumoForm((p) => ({ ...p, unidad: e.target.value }))}
-              className={CONTROL}
-            >
-              {UNITS.map((u) => (
-                <option key={u} value={u}>
-                  {u}
-                </option>
-              ))}
-            </select>
+            </Campo>
+
+            <Campo label="Unidad" hint="Cómo se cuenta este insumo">
+              <select value={insumoForm.unidad} onChange={set('unidad')} className={CONTROL}>
+                {UNITS.map((u) => (
+                  <option key={u} value={u}>
+                    {u}
+                  </option>
+                ))}
+              </select>
+            </Campo>
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
-                Stock Actual
-              </label>
+
+          <div className="grid grid-cols-2 gap-3">
+            <Campo label="Stock actual">
               <input
                 type="number"
+                min="0"
                 value={insumoForm.stock_actual}
-                onChange={(e) => onSetInsumoForm((p) => ({ ...p, stock_actual: e.target.value }))}
-                className={CONTROL + ' mt-1'}
+                onChange={set('stock_actual')}
+                className={`${CONTROL} tabular-nums`}
               />
-            </div>
-            <div>
-              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
-                Stock Mínimo
-              </label>
+            </Campo>
+
+            <Campo label="Stock mínimo" hint="Debajo de esto avisa que falta">
               <input
                 type="number"
+                min="0"
                 value={insumoForm.stock_minimo}
-                onChange={(e) => onSetInsumoForm((p) => ({ ...p, stock_minimo: e.target.value }))}
-                className={CONTROL + ' mt-1'}
+                onChange={set('stock_minimo')}
+                className={`${CONTROL} tabular-nums`}
               />
-            </div>
+            </Campo>
           </div>
-          <div>
-            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
-              Costo Unitario ($)
-            </label>
+
+          <Campo label="Costo unitario" hint="Lo que te cuesta una unidad">
             <input
               type="number"
+              min="0"
               value={insumoForm.costo_unitario}
-              onChange={(e) => onSetInsumoForm((p) => ({ ...p, costo_unitario: e.target.value }))}
-              className={CONTROL + ' mt-1'}
+              onChange={set('costo_unitario')}
+              className={`${CONTROL} tabular-nums`}
             />
-          </div>
+          </Campo>
+
+          {/*
+            `activo` viaja en el formulario desde siempre pero no había ningún
+            control para cambiarlo: sólo se podía dar de baja un insumo desde
+            la base de datos.
+          */}
+          <label className="flex cursor-pointer items-start gap-3 rounded-xl bg-gray-50 p-3">
+            <input
+              type="checkbox"
+              checked={Number(insumoForm.activo) === 1}
+              onChange={(e) => onSetInsumoForm((p) => ({ ...p, activo: e.target.checked ? 1 : 0 }))}
+              className="mt-0.5 h-4 w-4 shrink-0 rounded border-gray-300"
+              style={{ accentColor: BRAND }}
+            />
+            <span>
+              <span className="block text-[13px] font-medium text-gray-900">Insumo en uso</span>
+              <span className="mt-0.5 block text-[12px] leading-4 text-gray-500">
+                Si lo desactivás deja de aparecer al cargar compras y recetas.
+              </span>
+            </span>
+          </label>
         </div>
 
-        <div className="mt-8 flex gap-3">
+        <div className="flex shrink-0 justify-end gap-2 border-t border-gray-100 px-5 py-4">
           <button
+            type="button"
             onClick={onCloseInsumoModal}
-            className="flex-1 h-14 rounded-2xl border border-gray-200 text-sm font-black text-gray-500 uppercase tracking-widest hover:bg-gray-50 transition-all"
+            className="h-11 rounded-xl bg-gray-100 px-5 text-[13px] font-semibold text-gray-700 transition hover:bg-gray-200"
           >
-            CANCELAR
+            Cancelar
           </button>
           <button
+            type="button"
             onClick={onSaveInsumo}
-            disabled={saving}
-            className="flex-[2] h-14 rounded-2xl bg-primary-500 text-sm font-black uppercase tracking-widest text-white shadow-lg shadow-primary-100 transition-all hover:bg-primary-600 active:scale-95 disabled:opacity-50"
+            disabled={saving || !String(insumoForm.nombre || '').trim()}
+            style={{ background: BRAND }}
+            className="h-11 rounded-xl px-6 text-[13px] font-semibold text-white transition hover:brightness-110 disabled:opacity-40"
           >
-            {saving ? 'GUARDANDO...' : 'GUARDAR CAMBIOS'}
+            {saving ? 'Guardando…' : esNuevo ? 'Crear insumo' : 'Guardar cambios'}
           </button>
         </div>
       </div>

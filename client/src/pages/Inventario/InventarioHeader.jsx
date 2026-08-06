@@ -1,63 +1,80 @@
-import { ShoppingCart, Plus, Boxes, AlertTriangle, TrendingUp, MinusCircle } from 'lucide-react';
-import Stat from './Stat';
+import { Plus, ShoppingCart } from 'lucide-react';
+
+import { BRAND, STROKE } from '../../lib/theme.js';
+import { Stat } from '../Clientes/clientesUi.jsx';
 
 export default function InventarioHeader({ stats, faltantes, onOpenCompraModal, onOpenNewInsumo }) {
   return (
     <>
-      <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+      <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <div className="flex items-center gap-3 mb-2">
-            <div className="h-8 w-1 bg-primary-500 rounded-full"></div>
-            <p className="text-sm font-black text-primary-500 uppercase tracking-[0.3em]">
-              Gestión de Suministros
-            </p>
-          </div>
-          <h1 className="text-3xl font-black text-gray-900 tracking-tight">Inventario y Recetas</h1>
-          <p className="mt-1 text-gray-500 font-medium">
-            Controla el stock compartido de pizzas, hamburguesas y milanesas.
+          <h1 className="text-2xl font-semibold tracking-tight text-gray-900">Inventario</h1>
+          <p className="mt-0.5 text-[13px] text-gray-500">
+            {stats.total === 0
+              ? 'Todavía no hay insumos cargados'
+              : `${stats.total} insumos · ${stats.receta} productos con receta`}
           </p>
         </div>
 
-        <div className="flex flex-wrap gap-3">
+        {/*
+          Los dos botones eran iguales: mismo color, mismo peso, mismo tamaño.
+          Registrar una compra es lo que se hace todos los días; crear un
+          insumo se hace una vez cada tanto.
+        */}
+        <div className="flex flex-wrap gap-2">
           <button
+            type="button"
             onClick={onOpenCompraModal}
-            className="flex h-12 items-center gap-2 rounded-2xl bg-primary-500 px-6 text-sm font-black text-white shadow-lg shadow-primary-100 transition-all hover:bg-primary-600 active:scale-95"
+            style={{ background: BRAND }}
+            className="flex h-11 items-center gap-2 rounded-xl px-4 text-[13px] font-semibold text-white transition hover:brightness-110"
           >
-            <ShoppingCart size={18} strokeWidth={3} />
-            REGISTRAR COMPRA
+            <ShoppingCart size={16} strokeWidth={STROKE} />
+            Registrar compra
           </button>
           <button
+            type="button"
             onClick={onOpenNewInsumo}
-            className="flex h-12 items-center gap-2 rounded-2xl bg-primary-500 text-white px-6 text-sm font-black shadow-lg shadow-primary-100 transition-all hover:bg-primary-600 active:scale-95"
+            className="flex h-11 items-center gap-2 rounded-xl bg-white px-4 text-[13px] font-semibold text-gray-700 shadow-[0_1px_2px_rgba(15,23,42,0.06)] transition hover:bg-gray-50"
           >
-            <Plus size={18} strokeWidth={3} />
-            NUEVO INSUMO
+            <Plus size={16} strokeWidth={STROKE} />
+            Nuevo insumo
           </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <Stat label="Total Insumos" value={stats.total} icon={Boxes} tint="blue" />
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Stat
-          label="Stock Crítico"
+          label="Por debajo del mínimo"
           value={stats.bajos}
-          icon={AlertTriangle}
-          tint="rose"
-          helper={`${faltantes.length} para reponer`}
+          helper={
+            faltantes.length > 0 ? `${faltantes.length} para reponer hoy` : 'Todo el stock en orden'
+          }
+          alerta={stats.bajos > 0}
         />
+        {/*
+          "Venta frenada" es el número más caro de la pantalla: son productos
+          que el TPV no deja vender porque falta un insumo de su receta. Estaba
+          último y en ámbar, con el mismo peso que un conteo neutro.
+        */}
         <Stat
-          label="Con Receta"
-          value={stats.receta}
-          icon={TrendingUp}
-          tint="emerald"
-          helper="Descuento compartido"
-        />
-        <Stat
-          label="Venta Frenada"
+          label="Productos sin poder vender"
           value={stats.frenados}
-          icon={MinusCircle}
-          tint="amber"
-          helper="Sin ingredientes"
+          helper={
+            stats.frenados > 0 ? 'El TPV los bloquea por falta de insumos' : 'Todo disponible'
+          }
+          alerta={stats.frenados > 0}
+        />
+        <Stat
+          label="Insumos cargados"
+          value={stats.total}
+          helper="Materia prima del inventario"
+          tono="azul"
+        />
+        <Stat
+          label="Productos con receta"
+          value={stats.receta}
+          helper="Descuentan stock al venderse"
+          tono="verde"
         />
       </div>
     </>

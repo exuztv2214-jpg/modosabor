@@ -17,23 +17,17 @@ import {
 import {
   AlertTriangle,
   ArrowDownRight,
+  ArrowRight,
   ArrowUpRight,
   Bike,
   CheckCircle2,
   ChefHat,
-  ChevronRight,
-  CreditCard,
   DollarSign,
-  Flame,
   Package,
   Plus,
   RefreshCw,
-  ShieldAlert,
   ShoppingBag,
-  Sparkles,
-  Star,
   TrendingUp,
-  Truck,
   UtensilsCrossed,
   Wallet,
 } from 'lucide-react';
@@ -44,127 +38,232 @@ import { useAppConfig } from '../context/AppConfigContext.jsx';
 import { paymentMethodLabel, paymentStatusLabel } from '../lib/paymentStatus.js';
 import { LoadingScreen, EmptyState } from '../design-system';
 import { fmtMoney } from '../lib/formatters.js';
+import { resolveAssetUrl } from '../lib/assets.js';
 import { socketManager } from '../lib/socket.js';
+import { APP_BG, BRAND, STROKE, estadoTono } from '../lib/theme.js';
 
+import { parseFechaServidor } from '../lib/fechas.js';
 const fmtNumber = (value) => Number(value || 0).toLocaleString('es-AR');
 
+/**
+ * Colores del gráfico de cobros.
+ *
+ * Faltaban `modo`, `uala` y `mixto` —los tres se usan y los tres caían en
+ * el gris por defecto, así que en la torta eran una sola porción gris
+ * imposible de distinguir. El acento de marca queda para efectivo, que es
+ * la mayor parte de la caja de un local así.
+ */
 const PAYMENT_COLORS = {
-  efectivo: '#13DEB9',
-  mercadopago: '#49BEFF',
-  transferencia: '#5D87FF',
-  default: '#94a3b8',
+  efectivo: BRAND,
+  mercadopago: '#00A3E0',
+  transferencia: '#6366F1',
+  modo: '#8B5CF6',
+  uala: '#F97316',
+  mixto: '#0EA5E9',
+  default: '#94A3B8',
 };
 
-function QuickAction({ icon: Icon, label, onClick, color = 'blue' }) {
-  const colors = {
-    blue: 'bg-primary-50 text-primary-500 hover:bg-primary-500 hover:text-white',
-    orange: 'bg-orange-50 text-orange-600 hover:bg-orange-600 hover:text-white',
-    emerald: 'bg-success-50 text-success-600 hover:bg-emerald-600 hover:text-white',
-    violet: 'bg-violet-50 text-violet-600 hover:bg-violet-600 hover:text-white',
-  };
+/**
+ * Fecha a prueba de datos sucios.
+ *
+ * `format(parseISO(x))` sin guardas tira una excepción con un valor nulo o
+ * mal formado, y al ser render de React se lleva puesto el tablero entero:
+ * un pedido con la fecha rota dejaba la pantalla en blanco.
+ */
+function safeFormat(value, pattern, fallback = '—') {
+  if (!value) return fallback;
+  try {
+    const parsed = parseFechaServidor(value);
+    if (Number.isNaN(parsed.getTime())) return fallback;
+    return format(parsed, pattern, { locale: es });
+  } catch {
+    return fallback;
+  }
+}
 
+function Card({ title, helper, action, children, className = '' }) {
+  return (
+    <div className={`rounded-2xl bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.06)] ${className}`}>
+      {(title || action) && (
+        <div className="mb-4 flex items-start justify-between gap-4">
+          <div>
+            {title ? <h3 className="text-[15px] font-semibold text-gray-900">{title}</h3> : null}
+            {helper ? <p className="mt-0.5 text-[12px] text-gray-500">{helper}</p> : null}
+          </div>
+          {action}
+        </div>
+      )}
+      {children}
+    </div>
+  );
+}
+
+function LinkAction({ label, onClick }) {
   return (
     <button
+      type="button"
       onClick={onClick}
-      className={`flex flex-col items-center justify-center gap-3 rounded-[24px] p-5 transition-all duration-300 hover:-translate-y-1 hover:shadow-lg active:scale-95 ${colors[color]}`}
+      className="inline-flex shrink-0 items-center gap-1 text-[13px] font-semibold text-gray-500 transition hover:text-gray-900"
     >
-      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/60 shadow-sm backdrop-blur-sm">
-        <Icon size={24} />
-      </div>
-      <span className="text-xs font-black uppercase tracking-wider">{label}</span>
+      {label}
+      <ArrowRight size={14} strokeWidth={STROKE} />
     </button>
   );
 }
 
-function ModernMetric({
-  icon: Icon,
+/**
+ * Tonos de las métricas del día.
+ *
+ * El tablero era blanco sobre gris y no ordenaba nada: cinco números del
+ * mismo peso y el mismo color. El color acá agrupa por tipo de dato —plata
+ * en verde, volumen en azul, margen en violeta— así que a los tres días
+ * reconocés la tarjeta por el color antes de leer la etiqueta.
+ */
+const METRIC_TONOS = {
+  verde: { bg: '#E7F5EF', label: '#0F6E56', valor: '#08453A', barra: '#10B981' },
+  azul: { bg: '#E9F1FA', label: '#1F5FA0', valor: '#0B3A66', barra: '#3B82F6' },
+  ambar: { bg: '#FDF3D3', label: '#95661A', valor: '#6B4108', barra: '#E0A924' },
+  violeta: { bg: '#F1EEFE', label: '#5E43A8', valor: '#42237F', barra: '#8B7BE0' },
+};
+
+function Metric({
   label,
   value,
   trend,
   trendUp,
   hasComparison = true,
   helper,
-  tint = 'blue',
+  alerta = false,
+  tono = null,
 }) {
-  const tints = {
-    blue: 'bg-primary-50 text-primary-500',
-    rose: 'bg-danger-50 text-danger-500',
-    emerald: 'bg-success-50 text-success-500',
-    amber: 'bg-warning-50 text-warning-500',
-  };
-
+  const t = alerta ? null : METRIC_TONOS[tono] || null;
   return (
-    <div className="group rounded-[32px] border border-gray-100 bg-white p-6 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_20px_50px_rgba(0,0,0,0.05)]">
-      <div className="flex items-start justify-between">
-        <div>
-          <p className="mb-2 text-[11px] font-black uppercase tracking-[0.2em] text-gray-400">
-            {label}
-          </p>
-          <h3 className="text-2xl font-black text-gray-900">{value}</h3>
-          {trend !== undefined && !hasComparison && (
-            <div className="mt-2 flex items-center gap-1.5 text-xs font-bold text-gray-400">
-              Sin datos de ayer
-            </div>
-          )}
-          {trend !== undefined && hasComparison && (
-            <div
-              className={`mt-2 flex items-center gap-1.5 text-xs font-bold ${trendUp ? 'text-emerald-500' : 'text-rose-500'}`}
-            >
-              <div
-                className={`flex h-5 w-5 items-center justify-center rounded-full ${trendUp ? 'bg-success-50' : 'bg-danger-50'}`}
-              >
-                {trendUp ? <ArrowUpRight size={12} /> : <ArrowDownRight size={12} />}
-              </div>
-              {trend}
-              <span className="ml-1 font-medium text-gray-400">vs ayer</span>
-            </div>
-          )}
-          {helper && (
-            <p className="mt-2 text-[10px] font-bold uppercase tracking-wider text-gray-400">
-              {helper}
-            </p>
-          )}
-        </div>
-        <div
-          className={`flex h-14 w-14 items-center justify-center rounded-[20px] shadow-sm transition-transform duration-300 group-hover:rotate-6 ${tints[tint]}`}
+    <div
+      className="relative overflow-hidden rounded-2xl p-4 shadow-[0_1px_2px_rgba(15,23,42,0.06)]"
+      style={{ background: t ? t.bg : '#fff' }}
+    >
+      <span
+        className="absolute inset-y-0 left-0 w-1"
+        style={{ background: alerta ? BRAND : t ? t.barra : '#E5E7EB' }}
+      />
+      <div className="pl-2">
+        <p className="text-[12px]" style={{ color: t ? t.label : '#6B7280' }}>
+          {label}
+        </p>
+        <p
+          className="mt-1 truncate text-[26px] font-bold leading-none tabular-nums tracking-tight"
+          style={{ color: alerta ? BRAND : t ? t.valor : '#111827' }}
         >
-          <Icon size={28} strokeWidth={2.5} />
-        </div>
+          {value}
+        </p>
+        {trend !== undefined && (
+          <p className="mt-1.5 text-[11px]">
+            {hasComparison ? (
+              <span
+                className={`inline-flex items-center gap-1 ${trendUp ? 'text-emerald-600' : 'text-rose-600'}`}
+              >
+                {trendUp ? (
+                  <ArrowUpRight size={12} strokeWidth={STROKE} />
+                ) : (
+                  <ArrowDownRight size={12} strokeWidth={STROKE} />
+                )}
+                {trend}
+                <span style={{ color: t ? t.label : '#9CA3AF' }}>vs ayer</span>
+              </span>
+            ) : (
+              <span style={{ color: t ? t.label : '#9CA3AF' }}>Sin datos de ayer</span>
+            )}
+          </p>
+        )}
+        {helper && (
+          <p className="mt-1.5 text-[11px] leading-4" style={{ color: t ? t.label : '#9CA3AF' }}>
+            {helper}
+          </p>
+        )}
       </div>
     </div>
+  );
+}
+
+/**
+ * Barra de producto/cliente en los rankings.
+ *
+ * Las cuatro listas del tablero repetían el mismo markup con pequeñas
+ * diferencias de color. Ahora comparten componente, así que la fila se ve
+ * igual en todas y el ancho de la barra siempre se calcula contra el
+ * primero de su propia lista.
+ */
+function RankRow({ position, image, title, subtitle, ratio, value, footnote, onClick }) {
+  const Wrapper = onClick ? 'button' : 'div';
+  return (
+    <Wrapper
+      type={onClick ? 'button' : undefined}
+      onClick={onClick}
+      className={`flex w-full items-center gap-3 rounded-xl p-2 text-left transition ${
+        onClick ? 'hover:bg-gray-50' : ''
+      }`}
+    >
+      <div className="relative shrink-0">
+        <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-xl bg-gray-100">
+          {image ? (
+            <img src={image} alt={title} className="h-full w-full object-cover" />
+          ) : (
+            <span className="text-[13px] font-semibold text-gray-400">
+              {String(title || '?')[0]?.toUpperCase()}
+            </span>
+          )}
+        </div>
+        <span className="absolute -left-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full border-2 border-white bg-gray-800 text-[10px] font-semibold text-white">
+          {position}
+        </span>
+      </div>
+
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-[13px] font-medium text-gray-900">{title}</p>
+        {subtitle ? <p className="truncate text-[11px] text-gray-400">{subtitle}</p> : null}
+        {ratio !== undefined ? (
+          <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-gray-100">
+            <div
+              className="h-full rounded-full"
+              style={{ width: `${Math.max(2, Math.min(100, ratio * 100))}%`, background: BRAND }}
+            />
+          </div>
+        ) : null}
+      </div>
+
+      <div className="shrink-0 text-right">
+        <p className="text-[13px] font-bold tabular-nums text-gray-900">{value}</p>
+        {footnote ? <p className="text-[11px] text-gray-400">{footnote}</p> : null}
+      </div>
+    </Wrapper>
   );
 }
 
 function StockAlert({ item, onClick }) {
   const hasMinimum = Number(item.stock_minimo || 0) > 0;
   const coverage = Number(item.cobertura_pct || 0);
-  const coverageTone = !hasMinimum
-    ? 'bg-slate-100 text-slate-600'
-    : coverage <= 50
-      ? 'bg-danger-100 text-danger-700'
-      : coverage <= 100
-        ? 'bg-warning-100 text-warning-700'
-        : 'bg-success-100 text-success-700';
 
   return (
     <button
+      type="button"
       onClick={onClick}
-      className="group flex w-full items-center justify-between rounded-[22px] border border-white/70 bg-white px-4 py-3 text-left text-slate-900 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md"
+      className="flex w-full items-center justify-between gap-3 rounded-xl bg-gray-50 px-3 py-2.5 text-left transition hover:bg-gray-100"
     >
-      <div>
-        <p className="text-xs font-black uppercase tracking-wide text-slate-900">{item.nombre}</p>
-        <p className="mt-1 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+      <div className="min-w-0">
+        <p className="truncate text-[13px] font-medium text-gray-900">{item.nombre}</p>
+        <p className="mt-0.5 text-[11px] text-gray-500">
           {fmtNumber(item.stock_actual)} {item.unidad}
           {hasMinimum
-            ? ` - Min ${fmtNumber(item.stock_minimo)} ${item.unidad}`
-            : ' - Sin minimo configurado'}
+            ? ` · mínimo ${fmtNumber(item.stock_minimo)} ${item.unidad}`
+            : ' · sin mínimo configurado'}
         </p>
       </div>
-      <div
-        className={`rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-wider ${coverageTone}`}
+      <span
+        className="shrink-0 text-[12px] font-semibold tabular-nums"
+        style={{ color: !hasMinimum ? '#6B7280' : coverage <= 50 ? BRAND : '#B45309' }}
       >
-        {hasMinimum ? `${coverage}%` : 'REVISAR'}
-      </div>
+        {hasMinimum ? `${coverage}%` : 'Revisar'}
+      </span>
     </button>
   );
 }
@@ -234,7 +333,7 @@ export default function DashboardModern() {
       setError('');
     } catch (loadError) {
       console.error(loadError);
-      setError('No se pudo actualizar el tablero ahora. Reintenta en unos segundos.');
+      setError('No se pudo actualizar el tablero ahora. Reintentá en unos segundos.');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -298,12 +397,25 @@ export default function DashboardModern() {
     };
   }, [data]);
 
-  const margenHintText = useMemo(() => {
-    if (data?.margenPctHoy == null) return null;
+  // El margen se comparaba contra `ventasAyer`, que no es el mismo dato: un
+  // día con ventas pero sin costos cargados mostraba "0% vs ayer" como si
+  // fuera real. Ahora el backend manda `margenBrutoAyer` y se usa ese.
+  const margenTrendInfo = useMemo(() => {
+    const ayer = Number(data?.margenBrutoAyer || 0);
+    if (ayer <= 0) return { hasComparison: false, trend: 0, trendUp: true };
+    return {
+      hasComparison: true,
+      trend: Math.abs(data?.tendenciaMargen || 0),
+      trendUp: (data?.tendenciaMargen || 0) >= 0,
+    };
+  }, [data]);
+
+  const margenHelper = useMemo(() => {
+    if (data?.margenPctHoy == null) return undefined;
     if (Number(data.margenPctHoy) >= 99) {
-      return 'Margen casi 100%: revisá que los costos de tus productos estén cargados en Inventario.';
+      return 'Margen casi 100%: revisá que los costos estén cargados en Inventario.';
     }
-    return null;
+    return `${data.margenPctHoy}% de lo vendido`;
   }, [data]);
 
   const personalHeadline = useMemo(() => {
@@ -331,35 +443,16 @@ export default function DashboardModern() {
   }, [personalPulse]);
 
   const quickActions = [
-    {
-      key: 'tpv',
-      icon: Plus,
-      label: 'Nueva venta',
-      onClick: () => navigate('/admin/tpv'),
-      color: 'blue',
-    },
-    {
-      key: 'kds',
-      icon: ChefHat,
-      label: 'Cocina',
-      onClick: () => navigate('/admin/kds'),
-      color: 'orange',
-    },
-    {
-      key: 'caja',
-      icon: Wallet,
-      label: 'Caja',
-      onClick: () => navigate('/admin/caja'),
-      color: 'emerald',
-    },
-    {
-      key: 'inventario',
-      icon: Package,
-      label: 'Stock',
-      onClick: () => navigate('/admin/inventario'),
-      color: 'violet',
-    },
+    { key: 'tpv', icon: Plus, label: 'Nueva venta', to: '/admin/tpv' },
+    { key: 'kds', icon: ChefHat, label: 'Cocina', to: '/admin/kds' },
+    { key: 'caja', icon: Wallet, label: 'Caja', to: '/admin/caja' },
+    { key: 'inventario', icon: Package, label: 'Stock', to: '/admin/inventario' },
   ].filter((action) => isModuleEnabled(action.key));
+
+  const cajaCerrada = !data?.cajaEstado?.abierta && isModuleEnabled('caja');
+  const stockCritico = isModuleEnabled('inventario') ? data?.stockCritico || [] : [];
+  const puntosSalud = operationHealth?.puntos || [];
+  const puntosConProblema = puntosSalud.filter((point) => !point.ok);
 
   if (loading && !data) {
     return <LoadingScreen message="Cargando tu dashboard..." />;
@@ -367,20 +460,30 @@ export default function DashboardModern() {
 
   if (!data) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-background px-4">
-        <div className="w-full max-w-xl rounded-[32px] border border-rose-100 bg-white p-8 text-center shadow-sm">
-          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-[24px] bg-danger-100 text-danger-600">
-            <AlertTriangle size={28} />
+      <div
+        className="flex min-h-screen items-center justify-center px-4"
+        style={{ background: APP_BG }}
+      >
+        <div className="w-full max-w-md rounded-2xl bg-white p-6 text-center shadow-[0_1px_2px_rgba(15,23,42,0.06)]">
+          <div
+            className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl"
+            style={{ background: '#FEF2F2', color: BRAND }}
+          >
+            <AlertTriangle size={22} strokeWidth={STROKE} />
           </div>
-          <h2 className="text-2xl font-black text-slate-900">No se pudo cargar el dashboard</h2>
-          <p className="mt-2 text-sm font-medium text-slate-500">
-            {error || 'La información no respondió a tiempo. Intenta de nuevo.'}
+          <h2 className="text-[17px] font-semibold text-gray-900">
+            No se pudo cargar el dashboard
+          </h2>
+          <p className="mt-1 text-[13px] text-gray-500">
+            {error || 'La información no respondió a tiempo. Intentá de nuevo.'}
           </p>
           <button
+            type="button"
             onClick={() => loadDashboard()}
-            className="mt-6 inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-primary-500 px-6 text-sm font-black uppercase tracking-widest text-white shadow-lg shadow-primary-100 transition hover:bg-primary-600"
+            style={{ background: BRAND }}
+            className="mt-5 inline-flex h-11 items-center gap-2 rounded-xl px-5 text-[13px] font-semibold text-white transition hover:brightness-110"
           >
-            <RefreshCw size={16} />
+            <RefreshCw size={15} strokeWidth={STROKE} />
             Reintentar
           </button>
         </div>
@@ -389,767 +492,610 @@ export default function DashboardModern() {
   }
 
   return (
-    <div className="min-h-screen bg-background px-4 py-8 sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-7xl space-y-8 pb-12">
-        <div className="relative overflow-hidden rounded-[36px] border border-white/60 bg-gradient-to-br from-white via-[#F7F9FF] to-[#EEF4FF] px-6 py-7 shadow-sm sm:px-8">
-          <div className="absolute -right-12 -top-12 h-40 w-40 rounded-full bg-primary-500/10 blur-3xl" />
-          <div className="absolute -bottom-12 left-16 h-32 w-32 rounded-full bg-success-500/10 blur-3xl" />
-          <div className="relative z-10 flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <div className="mb-3 flex flex-wrap items-center gap-3">
-                <span className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-[10px] font-black uppercase tracking-[0.25em] text-primary-500 shadow-sm">
-                  <Sparkles size={12} />
-                  Resumen operativo
-                </span>
-                <span className="inline-flex items-center gap-2 rounded-full border border-primary-100 bg-primary-50 px-3 py-1 text-[10px] font-black uppercase tracking-[0.2em] text-primary-500 shadow-sm">
-                  <RefreshCw size={11} className={refreshing ? 'animate-spin' : ''} />
-                  Sync {lastUpdate || '--:--'}
-                </span>
-              </div>
-              <h1 className="text-3xl font-black tracking-tight text-gray-900">
-                Hola, {user?.nombre?.split(' ')?.[0] || 'Admin'}
-              </h1>
-              <p className="mt-2 max-w-2xl text-sm font-medium text-gray-500">
-                Así va tu negocio hoy, {format(new Date(), "eeee d 'de' MMMM", { locale: es })}.
-                Tienes una vista rápida de ventas, operación y clientes clave sin salir del panel.
-              </p>
-              {isModuleEnabled('reportes') && (
-                <button
-                  onClick={() => navigate('/admin/reportes')}
-                  className="mt-4 inline-flex items-center gap-2 text-xs font-black uppercase tracking-widest text-primary-500 hover:text-primary-600"
-                >
-                  Ver reporte completo
-                  <ArrowUpRight size={14} />
-                </button>
-              )}
-            </div>
-
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:flex lg:gap-4">
-              {quickActions.map((action) => (
-                <QuickAction
-                  key={action.key}
-                  icon={action.icon}
-                  label={action.label}
-                  onClick={action.onClick}
-                  color={action.color}
-                />
-              ))}
-            </div>
+    <div className="min-h-screen px-4 py-6 sm:px-6" style={{ background: APP_BG }}>
+      <div className="mx-auto max-w-7xl space-y-4 pb-10">
+        {/* ── Encabezado ── */}
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight text-gray-900">
+              Hola, {user?.nombre?.split(' ')?.[0] || 'Admin'}
+            </h1>
+            <p className="mt-0.5 text-[13px] text-gray-500">
+              {format(new Date(), "eeee d 'de' MMMM", { locale: es })}
+              {lastUpdate ? ` · actualizado ${lastUpdate}` : ''}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {quickActions.map((action) => (
+              <button
+                type="button"
+                key={action.key}
+                onClick={() => navigate(action.to)}
+                className="inline-flex h-11 items-center gap-2 rounded-xl bg-white px-4 text-[13px] font-semibold text-gray-700 shadow-[0_1px_2px_rgba(15,23,42,0.06)] transition hover:bg-gray-50"
+              >
+                <action.icon size={16} strokeWidth={STROKE} className="text-gray-400" />
+                {action.label}
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={() => loadDashboard()}
+              title="Actualizar"
+              className="flex h-11 w-11 items-center justify-center rounded-xl bg-white text-gray-500 shadow-[0_1px_2px_rgba(15,23,42,0.06)] transition hover:bg-gray-50"
+            >
+              {/* El ícono giraba siempre que hubiera un `lastUpdate`, o sea
+                  siempre. Ahora gira sólo mientras realmente carga. */}
+              <RefreshCw
+                size={16}
+                strokeWidth={STROKE}
+                className={refreshing ? 'animate-spin' : ''}
+              />
+            </button>
           </div>
         </div>
 
         {error ? (
-          <div className="flex flex-col gap-3 rounded-[24px] border border-amber-200 bg-warning-50 px-5 py-4 text-amber-900 shadow-sm md:flex-row md:items-center md:justify-between">
-            <div className="flex items-start gap-3">
-              <div className="mt-0.5 rounded-xl bg-white/80 p-2 text-warning-600">
-                <AlertTriangle size={18} />
-              </div>
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.06)]">
+            <div className="flex items-start gap-2.5">
+              <AlertTriangle size={17} strokeWidth={STROKE} className="mt-0.5 text-amber-500" />
               <div>
-                <p className="text-xs font-black uppercase tracking-[0.22em] text-warning-700">
-                  Actualización parcial
-                </p>
-                <p className="mt-1 text-sm font-semibold">{error}</p>
+                <p className="text-[13px] font-semibold text-gray-900">Actualización parcial</p>
+                <p className="mt-0.5 text-[12px] text-gray-500">{error}</p>
               </div>
             </div>
             <button
+              type="button"
               onClick={() => loadDashboard()}
-              className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-white px-4 text-[11px] font-black uppercase tracking-widest text-warning-700 shadow-sm transition hover:bg-warning-100"
+              className="h-10 rounded-xl bg-gray-100 px-4 text-[13px] font-semibold text-gray-700 transition hover:bg-gray-200"
             >
-              <RefreshCw size={14} />
-              Reintentar ahora
+              Reintentar
             </button>
           </div>
         ) : null}
 
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          {!data.cajaEstado?.abierta && isModuleEnabled('caja') && (
-            <div className="animate-in slide-in-from-left flex items-center justify-between rounded-[24px] bg-danger-500 p-5 text-white shadow-lg shadow-danger-100 duration-500">
-              <div className="flex items-center gap-4">
-                <div className="rounded-xl bg-white/20 p-3">
-                  <AlertTriangle size={24} className="animate-pulse" />
-                </div>
-                <div>
-                  <p className="text-xs font-black uppercase tracking-wider opacity-80">
-                    Atención inmediata
+        {/*
+          Antes eran dos bloques enteros pintados de rojo y naranja fuerte,
+          uno al lado del otro. Cuando los dos aparecían juntos competían y
+          ninguno ganaba. Ahora es una sola franja con el acento en el borde:
+          se lee primero por posición, no por saturación.
+        */}
+        {cajaCerrada || stockCritico.length > 0 ? (
+          <div className="grid gap-3 lg:grid-cols-2">
+            {cajaCerrada ? (
+              <div className="relative flex items-center justify-between gap-4 overflow-hidden rounded-2xl bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.06)]">
+                <span className="absolute inset-y-0 left-0 w-1" style={{ background: BRAND }} />
+                <div className="pl-2">
+                  <p className="text-[14px] font-semibold text-gray-900">La caja está cerrada</p>
+                  <p className="mt-0.5 text-[12px] text-gray-500">
+                    El TPV no puede cobrar hasta que la abras
                   </p>
-                  <p className="text-lg font-bold">La caja está cerrada</p>
-                </div>
-              </div>
-              <button
-                onClick={() => navigate('/admin/caja')}
-                className="rounded-xl bg-white px-5 py-2.5 text-sm font-black text-danger-500 shadow-sm transition-transform hover:scale-105 active:scale-95"
-              >
-                ABRIR CAJA
-              </button>
-            </div>
-          )}
-
-          {data.stockCritico?.length > 0 && isModuleEnabled('inventario') && (
-            <div className="animate-in slide-in-from-right rounded-[24px] bg-warning-500 p-5 text-white shadow-lg shadow-warning-100 duration-500">
-              <div className="mb-4 flex items-center justify-between gap-4">
-                <div className="flex items-center gap-4">
-                  <div className="rounded-xl bg-white/20 p-3">
-                    <ShieldAlert size={24} />
-                  </div>
-                  <div>
-                    <p className="text-xs font-black uppercase tracking-wider opacity-80">
-                      Stock crítico
-                    </p>
-                    <p className="text-lg font-bold">
-                      Tienes {data.stockCritico.length} insumos para revisar
-                    </p>
-                  </div>
                 </div>
                 <button
-                  onClick={() => navigate('/admin/inventario')}
-                  className="rounded-xl bg-white px-5 py-2.5 text-sm font-black text-warning-500 shadow-sm transition-transform hover:scale-105 active:scale-95"
+                  type="button"
+                  onClick={() => navigate('/admin/caja')}
+                  style={{ background: BRAND }}
+                  className="h-10 shrink-0 rounded-xl px-4 text-[13px] font-semibold text-white transition hover:brightness-110"
                 >
-                  REVISAR
+                  Abrir caja
                 </button>
               </div>
-              <div className="grid gap-3">
-                {data.stockCritico.slice(0, 2).map((item) => (
-                  <StockAlert
-                    key={item.id}
-                    item={item}
-                    onClick={() => navigate('/admin/inventario')}
-                  />
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
+            ) : null}
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5 lg:gap-6">
-          <ModernMetric
-            icon={DollarSign}
+            {stockCritico.length > 0 ? (
+              <div className="relative overflow-hidden rounded-2xl bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.06)]">
+                <span className="absolute inset-y-0 left-0 w-1 bg-amber-400" />
+                <div className="pl-2">
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <p className="text-[14px] font-semibold text-gray-900">
+                        {stockCritico.length} {stockCritico.length === 1 ? 'insumo' : 'insumos'} en
+                        stock crítico
+                      </p>
+                      <p className="mt-0.5 text-[12px] text-gray-500">
+                        Revisalos antes del próximo servicio
+                      </p>
+                    </div>
+                    <LinkAction label="Ver stock" onClick={() => navigate('/admin/inventario')} />
+                  </div>
+                  <div className="mt-3 space-y-2">
+                    {stockCritico.slice(0, 2).map((item) => (
+                      <StockAlert
+                        key={item.id}
+                        item={item}
+                        onClick={() => navigate('/admin/inventario')}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        {/* ── Métricas ── */}
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          <Metric
             label="Ventas del día"
             value={fmtMoney(data.ventasHoy?.total || 0)}
             trend={`${ventasTrendInfo.trend}%`}
             trendUp={ventasTrendInfo.trendUp}
             hasComparison={ventasTrendInfo.hasComparison}
-            tint="blue"
+            tono="verde"
           />
-          <ModernMetric
-            icon={ShoppingBag}
+          <Metric
             label="Pedidos de hoy"
             value={fmtNumber(data.ventasHoy?.pedidos || 0)}
             trend={`${pedidosTrendInfo.trend}%`}
             trendUp={pedidosTrendInfo.trendUp}
             hasComparison={pedidosTrendInfo.hasComparison}
-            tint="emerald"
+            tono="azul"
           />
-          <ModernMetric
-            icon={TrendingUp}
+          <Metric
             label="Ticket promedio"
             value={fmtMoney(ticketPromedio)}
             helper="Promedio por orden"
-            tint="amber"
+            tono="ambar"
           />
-          <ModernMetric
-            icon={Wallet}
-            label="Margen hoy"
+          <Metric
+            label="Margen de hoy"
             value={fmtMoney(data.margenBrutoHoy || 0)}
-            trend={
-              data.margenBrutoHoy != null ? `${Math.abs(data.tendenciaMargen || 0)}%` : undefined
-            }
-            trendUp={(data.tendenciaMargen || 0) >= 0}
-            hasComparison={Number(data.ventasAyer || 0) > 0}
-            helper={
-              margenHintText ||
-              (data.margenPctHoy != null ? `${data.margenPctHoy}% del total vendido` : undefined)
-            }
-            tint="blue"
+            trend={`${margenTrendInfo.trend}%`}
+            trendUp={margenTrendInfo.trendUp}
+            hasComparison={margenTrendInfo.hasComparison}
+            helper={margenHelper}
+            tono="violeta"
           />
-          <ModernMetric
-            icon={Truck}
-            label="Delivery activo"
+          <Metric
+            label="Delivery en la calle"
             value={fmtNumber(data.pedidosEnDelivery || 0)}
-            helper={`${data.pedidosActivos || 0} pedidos totales`}
-            tint="rose"
+            helper={`${data.pedidosActivos || 0} pedidos activos en total`}
+            tono="azul"
           />
         </div>
 
-        {operationHealthError ? (
-          <div className="flex items-center gap-3 rounded-[22px] border border-warning-100 bg-warning-50 p-4 text-warning-700">
-            <AlertTriangle size={18} className="shrink-0" />
-            <p className="text-xs font-bold">
-              No se pudo cargar la salud del sistema. Reintentá en unos segundos o revisá el centro
-              operativo.
-            </p>
-          </div>
-        ) : null}
-
-        {operationHealth?.puntos?.length ? (
-          <div className="rounded-[32px] border border-gray-100 bg-white p-8 shadow-sm">
-            <div className="mb-6 flex items-center justify-between">
-              <div>
-                <h3 className="text-xl font-black uppercase tracking-tight text-gray-900">
-                  Salud del sistema
-                </h3>
-                <p className="text-sm font-medium text-gray-400">
-                  Chequeo rápido de operación, stock, riders, backups e impresión.
-                </p>
-              </div>
-              <button
-                onClick={() => navigate('/admin/operacion')}
-                className="rounded-2xl bg-primary-50 px-4 py-2 text-[11px] font-black uppercase tracking-widest text-primary-500"
-              >
-                Ver centro operativo
-              </button>
-            </div>
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-              {operationHealth.puntos.map((point) => (
-                <div
-                  key={point.id}
-                  className="rounded-[22px] border border-gray-100 bg-primary-50 p-4"
-                >
-                  <div className="flex items-start gap-3">
-                    <div
-                      className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${point.ok ? 'bg-success-100 text-success-700' : 'bg-warning-100 text-warning-700'}`}
-                    >
-                      {point.ok ? <CheckCircle2 size={18} /> : <AlertTriangle size={18} />}
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-sm font-black uppercase tracking-tight text-gray-900">
-                        {point.title}
-                      </p>
-                      <p className="mt-1 text-xs font-semibold text-gray-500">{point.detail}</p>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : null}
-
-        {personalPulseError && personalEnabled ? (
-          <div className="flex items-center gap-3 rounded-[22px] border border-warning-100 bg-warning-50 p-4 text-warning-700">
-            <AlertTriangle size={18} className="shrink-0" />
-            <p className="text-xs font-bold">
-              No se pudo cargar el pulso del equipo. Reintentá en unos segundos o revisá el módulo
-              de personal.
-            </p>
-          </div>
-        ) : null}
-
-        {personalHeadline ? (
-          <div className="rounded-[32px] border border-gray-100 bg-white p-8 shadow-sm">
-            <div className="mb-6 flex items-center justify-between">
-              <div>
-                <h3 className="text-xl font-black uppercase tracking-tight text-gray-900">
-                  Pulso del equipo
-                </h3>
-                <p className="text-sm font-medium text-gray-400">
-                  Asistencia y puntualidad para decidir rápido en el turno.
-                </p>
-              </div>
-              <button
-                onClick={() => navigate('/admin/personal')}
-                className="rounded-2xl bg-primary-50 px-4 py-2 text-[11px] font-black uppercase tracking-widest text-primary-500"
-              >
-                Ver personal
-              </button>
-            </div>
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-              <div className="rounded-[22px] border border-gray-100 bg-primary-50 p-4">
-                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-primary-500">
-                  Equipo activo
-                </p>
-                <p className="mt-2 text-3xl font-black text-gray-900">{personalHeadline.activos}</p>
-                <p className="mt-1 text-xs font-semibold text-gray-400">Legajos activos hoy</p>
-              </div>
-              <div className="rounded-[22px] border border-amber-100 bg-warning-50 p-4">
-                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-warning-700">
-                  Tardanzas a mirar
-                </p>
-                <p className="mt-2 text-3xl font-black text-warning-700">
-                  {personalHeadline.lateCount}
-                </p>
-                <p className="mt-1 text-xs font-semibold text-warning-700/80">
-                  Con 2 o más tardanzas en 7 días
-                </p>
-              </div>
-              <div className="rounded-[22px] border border-rose-100 bg-danger-50 p-4">
-                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-danger-700">
-                  Ausencias recientes
-                </p>
-                <p className="mt-2 text-3xl font-black text-danger-700">
-                  {personalHeadline.absentCount}
-                </p>
-                <p className="mt-1 text-xs font-semibold text-danger-700/80">
-                  Con al menos una ausencia
-                </p>
-              </div>
-              <div className="rounded-[22px] border border-emerald-100 bg-success-50 p-4">
-                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-success-700">
-                  Mejor de la semana
-                </p>
-                <p className="mt-2 truncate text-base font-black text-gray-900">
-                  {personalHeadline.topEmployee?.personal_nombre || 'Sin datos'}
-                </p>
-                <p className="mt-1 text-xs font-semibold text-success-700/80">
-                  {personalHeadline.topEmployee
-                    ? `${personalHeadline.topEmployee.asistenciaPct}% asistencia`
-                    : 'Faltan fichadas'}
-                </p>
-              </div>
-            </div>
-          </div>
-        ) : null}
-
-        <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-          <div className="rounded-[32px] border border-gray-100 bg-white p-8 shadow-sm xl:col-span-2">
-            <div className="mb-8 flex items-center justify-between">
-              <div>
-                <h3 className="text-xl font-black uppercase tracking-tight text-gray-900">
-                  Ventas recientes
-                </h3>
-                <p className="text-sm font-medium text-gray-400">Historial de los últimos 7 días</p>
-              </div>
-              <div className="flex gap-2">
-                <div className="flex items-center gap-2 rounded-xl bg-primary-50 px-3 py-1.5">
-                  <div className="h-2 w-2 rounded-full bg-primary-500" />
-                  <span className="text-[10px] font-black uppercase text-primary-500">
-                    Ingresos
-                  </span>
-                </div>
-              </div>
-            </div>
-            <div className="h-80 w-full">
+        {/* ── Gráfico + últimas órdenes ── */}
+        <div className="grid gap-4 xl:grid-cols-3">
+          <Card
+            title="Ventas de los últimos 7 días"
+            action={
+              isModuleEnabled('reportes') ? (
+                <LinkAction label="Reportes" onClick={() => navigate('/admin/reportes')} />
+              ) : null
+            }
+            className="xl:col-span-2"
+          >
+            <div className="h-72 w-full">
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={data.ventas7dias}>
+                <AreaChart data={data.ventas7dias || []}>
                   <defs>
                     <linearGradient id="colorVentasModern" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#5D87FF" stopOpacity={0.15} />
-                      <stop offset="95%" stopColor="#5D87FF" stopOpacity={0} />
+                      <stop offset="5%" stopColor={BRAND} stopOpacity={0.18} />
+                      <stop offset="95%" stopColor={BRAND} stopOpacity={0} />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" vertical={false} />
                   <XAxis
                     dataKey="fecha"
                     axisLine={false}
                     tickLine={false}
-                    tick={{ fill: '#94a3b8', fontSize: 11, fontWeight: 600 }}
-                    tickFormatter={(val) =>
-                      format(parseISO(val), 'EEE', { locale: es }).toUpperCase()
-                    }
+                    tick={{ fill: '#94A3B8', fontSize: 11 }}
+                    tickFormatter={(val) => safeFormat(val, 'EEE', '')}
                     dy={10}
                   />
                   <YAxis hide />
                   <Tooltip
                     contentStyle={{
-                      borderRadius: '16px',
-                      border: 'none',
-                      boxShadow: '0 10px 25px rgba(0,0,0,0.1)',
-                      fontWeight: 'bold',
+                      borderRadius: '12px',
+                      border: '1px solid #E5E7EB',
+                      boxShadow: '0 4px 14px rgba(15,23,42,0.08)',
+                      fontSize: '13px',
                     }}
+                    labelFormatter={(val) => safeFormat(val, "eeee d 'de' MMMM", '')}
                     formatter={(val) => [fmtMoney(val), 'Ventas']}
                   />
                   <Area
                     type="monotone"
                     dataKey="total"
-                    stroke="#5D87FF"
-                    strokeWidth={4}
+                    stroke={BRAND}
+                    strokeWidth={2.5}
                     fillOpacity={1}
                     fill="url(#colorVentasModern)"
-                    animationDuration={1500}
                   />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
-          </div>
+          </Card>
 
-          <div className="flex flex-col rounded-[32px] border border-gray-100 bg-white p-8 shadow-sm">
-            <div className="mb-6 flex items-center justify-between">
-              <h3 className="text-lg font-black uppercase tracking-tight text-gray-900">
-                Últimas órdenes
-              </h3>
-              <button
-                onClick={() => navigate('/admin/pedidos')}
-                className="flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-primary-500 hover:underline"
-              >
-                VER TODO <ChevronRight size={14} />
-              </button>
-            </div>
-            <div className="no-scrollbar flex-1 space-y-5 overflow-y-auto pr-1">
+          <Card
+            title="Últimas órdenes"
+            action={<LinkAction label="Ver todas" onClick={() => navigate('/admin/pedidos')} />}
+          >
+            <div className="space-y-1">
               {data.ultimosPedidos?.length > 0 ? (
-                data.ultimosPedidos.map((order) => (
-                  <div
-                    key={order.id}
-                    className="group flex cursor-pointer items-center gap-4"
-                    onClick={() => navigate('/admin/pedidos')}
-                  >
-                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gray-50 transition-colors group-hover:bg-primary-50">
-                      {order.tipo_entrega === 'delivery' ? (
-                        <Bike size={18} className="text-gray-400 group-hover:text-primary-500" />
-                      ) : order.tipo_entrega === 'mesa' ? (
-                        <UtensilsCrossed
-                          size={18}
-                          className="text-gray-400 group-hover:text-primary-500"
-                        />
-                      ) : (
-                        <ShoppingBag
-                          size={18}
-                          className="text-gray-400 group-hover:text-primary-500"
-                        />
-                      )}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-black uppercase tracking-tight text-gray-800">
-                        #{order.numero} · {order.cliente_nombre || 'Cliente'}
-                      </p>
-                      <p className="text-[10px] font-bold uppercase text-gray-400">
-                        {format(parseISO(order.creado_en), 'HH:mm')} hs ·{' '}
-                        {paymentMethodLabel(order.metodo_pago)} ·{' '}
-                        {paymentStatusLabel(order.pago_estado)}
-                      </p>
-                      {order.hora_entrega ? (
-                        <p className="mt-1 text-[10px] font-black uppercase tracking-[0.18em] text-violet-600">
-                          Entrega {order.hora_entrega}
+                data.ultimosPedidos.map((order) => {
+                  const tono = estadoTono(order.estado);
+                  return (
+                    <button
+                      type="button"
+                      key={order.id}
+                      onClick={() => navigate('/admin/pedidos')}
+                      className="flex w-full items-center gap-3 rounded-xl p-2 text-left transition hover:bg-gray-50"
+                    >
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gray-100 text-gray-500">
+                        {order.tipo_entrega === 'delivery' ? (
+                          <Bike size={16} strokeWidth={STROKE} />
+                        ) : order.tipo_entrega === 'mesa' ? (
+                          <UtensilsCrossed size={16} strokeWidth={STROKE} />
+                        ) : (
+                          <ShoppingBag size={16} strokeWidth={STROKE} />
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-[13px] font-medium text-gray-900">
+                          #{order.numero} · {order.cliente_nombre || 'Cliente'}
                         </p>
-                      ) : null}
-                    </div>
-                    <div className="text-right">
-                      <p className="text-sm font-black text-gray-900">{fmtMoney(order.total)}</p>
-                      <div className="flex justify-end">
+                        <p className="truncate text-[11px] text-gray-400">
+                          {safeFormat(order.creado_en, 'HH:mm', '--:--')} hs ·{' '}
+                          {paymentMethodLabel(order.metodo_pago)} ·{' '}
+                          {paymentStatusLabel(order.pago_estado)}
+                        </p>
+                      </div>
+                      <div className="shrink-0 text-right">
+                        <p className="text-[13px] font-bold tabular-nums text-gray-900">
+                          {fmtMoney(order.total)}
+                        </p>
                         <span
-                          className={`rounded-md px-1.5 py-0.5 text-[8px] font-black uppercase ${order.estado === 'entregado' ? 'bg-success-50 text-success-600' : order.estado === 'cancelado' ? 'bg-danger-50 text-danger-600' : 'bg-primary-50 text-primary-500'}`}
+                          className="mt-0.5 inline-block rounded-full px-1.5 py-0.5 text-[10px] font-medium"
+                          style={{ background: tono.bg, color: tono.fg }}
                         >
-                          {String(order.estado).replace(/_/g, ' ')}
+                          {tono.label}
                         </span>
                       </div>
-                    </div>
-                  </div>
-                ))
+                    </button>
+                  );
+                })
               ) : (
                 <EmptyState
                   icon={ShoppingBag}
                   title="Sin pedidos aún"
-                  description="Cuando ingresen pedidos, vas a verlos acá con el detalle de cada uno."
-                  className="h-full"
+                  description="Cuando ingresen pedidos, vas a verlos acá."
                 />
               )}
             </div>
-          </div>
+          </Card>
         </div>
 
-        <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-          <div className="flex flex-col rounded-[32px] border border-gray-100 bg-white p-8 shadow-sm">
-            <h3 className="mb-1 text-lg font-black uppercase tracking-tight text-gray-900">
-              Cobros de hoy
-            </h3>
-            <p className="mb-8 text-xs font-bold uppercase tracking-widest text-gray-400">
-              Solo pagos confirmados por canal
-            </p>
-
-            <div className="relative h-64 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={data.porMetodoPago || []}
-                    innerRadius={60}
-                    outerRadius={85}
-                    paddingAngle={5}
-                    dataKey="total"
-                    nameKey="metodo_pago"
-                    stroke="none"
-                    cornerRadius={8}
-                  >
-                    {(data.porMetodoPago || []).map((entry, index) => (
-                      <Cell
-                        key={`cell-${index}`}
-                        fill={PAYMENT_COLORS[entry.metodo_pago] || PAYMENT_COLORS.default}
+        {/* ── Cobros + productos del día ── */}
+        <div className="grid gap-4 xl:grid-cols-3">
+          <Card title="Cobros de hoy" helper="Solo pagos confirmados, por canal">
+            {(data.porMetodoPago || []).length === 0 ? (
+              <EmptyState
+                icon={DollarSign}
+                title="Todavía no hay cobros"
+                description="Apenas se confirme el primer pago vas a ver el desglose por canal."
+              />
+            ) : (
+              <>
+                <div className="h-52 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={data.porMetodoPago}
+                        innerRadius={55}
+                        outerRadius={78}
+                        paddingAngle={3}
+                        dataKey="total"
+                        nameKey="metodo_pago"
+                        stroke="none"
+                        cornerRadius={6}
+                      >
+                        {data.porMetodoPago.map((entry) => (
+                          <Cell
+                            key={entry.metodo_pago}
+                            fill={PAYMENT_COLORS[entry.metodo_pago] || PAYMENT_COLORS.default}
+                          />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        contentStyle={{
+                          borderRadius: '12px',
+                          border: '1px solid #E5E7EB',
+                          boxShadow: '0 4px 14px rgba(15,23,42,0.08)',
+                          fontSize: '13px',
+                        }}
+                        formatter={(val, name) => [fmtMoney(val), paymentMethodLabel(name)]}
                       />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    contentStyle={{
-                      borderRadius: '12px',
-                      border: 'none',
-                      boxShadow: '0 5px 15px rgba(0,0,0,0.1)',
-                    }}
-                    formatter={(val) => [fmtMoney(val), 'Total']}
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+
+                <div className="mt-4 space-y-2">
+                  {data.porMetodoPago.map((item) => (
+                    <div key={item.metodo_pago} className="flex items-center justify-between gap-3">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <span
+                          className="h-2.5 w-2.5 shrink-0 rounded-full"
+                          style={{
+                            background: PAYMENT_COLORS[item.metodo_pago] || PAYMENT_COLORS.default,
+                          }}
+                        />
+                        <span className="truncate text-[13px] text-gray-700">
+                          {paymentMethodLabel(item.metodo_pago)}
+                        </span>
+                      </div>
+                      <div className="shrink-0 text-right">
+                        <p className="text-[13px] font-bold tabular-nums text-gray-900">
+                          {fmtMoney(item.total)}
+                        </p>
+                        <p className="text-[11px] text-gray-400">
+                          {item.cantidad} {item.cantidad === 1 ? 'pedido' : 'pedidos'}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </Card>
+
+          <Card
+            title="Lo más pedido hoy"
+            helper="Ordenado por unidades vendidas"
+            className="xl:col-span-2"
+          >
+            {(data.productosEstrella || []).length === 0 ? (
+              <EmptyState
+                icon={TrendingUp}
+                title="Todavía no se vendió nada hoy"
+                description="El ranking del día se arma con los pedidos de la jornada."
+              />
+            ) : (
+              <div className="grid gap-1 md:grid-cols-2">
+                {data.productosEstrella.map((prod, idx) => (
+                  <RankRow
+                    key={`${prod.id || prod.nombre}-${idx}`}
+                    position={idx + 1}
+                    image={resolveAssetUrl(prod.imagen)}
+                    title={prod.nombre}
+                    subtitle={prod.categoria}
+                    ratio={prod.cantidad / (data.productosEstrella[0]?.cantidad || 1)}
+                    value={`${fmtNumber(prod.cantidad)}u`}
+                    footnote={fmtMoney(prod.total)}
                   />
-                </PieChart>
-              </ResponsiveContainer>
-              <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-                <CreditCard size={20} className="mb-1 text-gray-300" />
-                <p className="text-xs font-black uppercase tracking-widest text-gray-400">
-                  Canales
-                </p>
+                ))}
               </div>
-            </div>
-
-            <div className="mt-6 space-y-3">
-              {(data.porMetodoPago || []).map((item) => (
-                <div key={item.metodo_pago} className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div
-                      className="h-2.5 w-2.5 rounded-full"
-                      style={{
-                        backgroundColor: PAYMENT_COLORS[item.metodo_pago] || PAYMENT_COLORS.default,
-                      }}
-                    />
-                    <span className="text-[11px] font-black uppercase tracking-tight text-gray-500">
-                      {paymentMethodLabel(item.metodo_pago)}
-                    </span>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-xs font-black text-gray-900">{fmtMoney(item.total)}</p>
-                    <p className="text-[9px] font-bold uppercase leading-none text-gray-400">
-                      {item.cantidad} pedidos
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="rounded-[32px] border border-gray-100 bg-white p-8 shadow-sm xl:col-span-2">
-            <div className="mb-8 flex items-center justify-between">
-              <div>
-                <h3 className="text-xl font-black uppercase tracking-tight text-gray-900">
-                  Productos estrella
-                </h3>
-                <p className="text-sm font-medium text-gray-400">Los mas pedidos del dia</p>
-              </div>
-              <Flame className="text-orange-500" size={24} />
-            </div>
-            <div className="grid grid-cols-1 gap-x-8 gap-y-6 md:grid-cols-2">
-              {data.productosEstrella?.map((prod, idx) => (
-                <div
-                  key={idx}
-                  className="group flex items-center gap-4 rounded-2xl p-2 transition-all hover:bg-gray-50"
-                >
-                  <div className="relative shrink-0">
-                    <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-[20px] border border-gray-100 bg-[#F2F6FA] shadow-sm">
-                      {prod.imagen ? (
-                        <img
-                          src={prod.imagen}
-                          alt={prod.nombre}
-                          className="h-full w-full object-cover transition-transform group-hover:scale-110"
-                        />
-                      ) : (
-                        <span className="text-base font-black text-orange-400">MS</span>
-                      )}
-                    </div>
-                    <div className="absolute -left-2 -top-2 flex h-7 w-7 items-center justify-center rounded-full border-2 border-white bg-primary-500 text-[10px] font-black text-white shadow-md">
-                      {idx + 1}
-                    </div>
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-black uppercase tracking-tight text-gray-800 transition-colors group-hover:text-primary-500">
-                      {prod.nombre}
-                    </p>
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
-                      {prod.categoria}
-                    </p>
-                    <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-gray-100">
-                      <div
-                        className="h-full rounded-full bg-orange-400 transition-all duration-1000"
-                        style={{
-                          width: `${(prod.cantidad / (data.productosEstrella[0]?.cantidad || 1)) * 100}%`,
-                        }}
-                      />
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-sm font-black text-gray-900">{prod.cantidad}u</p>
-                    <p className="text-[10px] font-bold uppercase tracking-tighter text-primary-500">
-                      {fmtMoney(prod.total)}
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
+            )}
+          </Card>
         </div>
 
-        <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-          <div className="rounded-[32px] border border-gray-100 bg-white p-8 shadow-sm">
-            <div className="mb-8 flex items-center justify-between">
-              <div>
-                <h3 className="text-xl font-black uppercase tracking-tight text-gray-900">
-                  Más vendidos general
-                </h3>
-                <p className="text-sm font-medium text-gray-400">Lo que más se vende en general</p>
+        {/* ── Rankings históricos ── */}
+        <div className="grid gap-4 xl:grid-cols-2">
+          <Card
+            title="Más vendidos de siempre"
+            action={<LinkAction label="Productos" onClick={() => navigate('/admin/productos')} />}
+          >
+            {(data.productosMasVendidosGeneral || []).length === 0 ? (
+              <EmptyState
+                icon={TrendingUp}
+                title="Sin historial todavía"
+                description="Con las primeras ventas se arma el ranking general."
+              />
+            ) : (
+              <div className="space-y-1">
+                {data.productosMasVendidosGeneral.map((prod, idx) => (
+                  <RankRow
+                    key={`${prod.id || prod.nombre}-${idx}`}
+                    position={idx + 1}
+                    image={resolveAssetUrl(prod.imagen)}
+                    title={prod.nombre}
+                    subtitle={prod.categoria}
+                    ratio={prod.cantidad / (data.productosMasVendidosGeneral[0]?.cantidad || 1)}
+                    value={`${fmtNumber(prod.cantidad)}u`}
+                    footnote={fmtMoney(prod.total)}
+                    onClick={() => navigate('/admin/productos')}
+                  />
+                ))}
               </div>
-              <TrendingUp className="text-primary-500" size={24} />
-            </div>
-            <div className="grid grid-cols-1 gap-x-8 gap-y-6 md:grid-cols-2">
-              {(data.productosMasVendidosGeneral || []).map((prod, idx) => (
-                <button
-                  key={`${prod.id || prod.nombre}-${idx}`}
-                  onClick={() => navigate('/admin/productos')}
-                  className="group flex w-full items-center gap-4 rounded-2xl p-2 text-left transition-all hover:bg-gray-50"
-                >
-                  <div className="relative shrink-0">
-                    <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-[20px] border border-gray-100 bg-[#F2F6FA] shadow-sm">
-                      {prod.imagen ? (
-                        <img
-                          src={prod.imagen}
-                          alt={prod.nombre}
-                          className="h-full w-full object-cover transition-transform group-hover:scale-110"
-                        />
-                      ) : (
-                        <span className="text-base font-black text-primary-500">MS</span>
-                      )}
-                    </div>
-                    <div className="absolute -left-2 -top-2 flex h-7 w-7 items-center justify-center rounded-full border-2 border-white bg-primary-500 text-[10px] font-black text-white shadow-md">
-                      {idx + 1}
-                    </div>
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-black uppercase tracking-tight text-gray-800 transition-colors group-hover:text-primary-500">
-                      {prod.nombre}
-                    </p>
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
-                      {prod.categoria}
-                    </p>
-                    <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-gray-100">
-                      <div
-                        className="h-full rounded-full bg-primary-500 transition-all duration-1000"
-                        style={{
-                          width: `${(prod.cantidad / (data.productosMasVendidosGeneral?.[0]?.cantidad || 1)) * 100}%`,
-                        }}
-                      />
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-sm font-black text-gray-900">{prod.cantidad}u</p>
-                    <p className="text-[10px] font-bold uppercase tracking-tighter text-primary-500">
-                      {fmtMoney(prod.total)}
-                    </p>
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
+            )}
+          </Card>
 
-          <div className="rounded-[32px] border border-gray-100 bg-white p-8 shadow-sm">
-            <div className="mb-8 flex items-center justify-between">
-              <div>
-                <h3 className="text-xl font-black uppercase tracking-tight text-gray-900">
-                  Clientes que más compran
-                </h3>
-                <p className="text-sm font-medium text-gray-400">Tus mejores clientes en general</p>
+          <Card
+            title="Clientes que más compran"
+            action={<LinkAction label="Clientes" onClick={() => navigate('/admin/clientes')} />}
+          >
+            {(data.clientesMasCompran || []).length === 0 ? (
+              <EmptyState
+                icon={ShoppingBag}
+                title="Sin clientes registrados"
+                description="Cargá clientes desde el TPV o la web para verlos acá."
+              />
+            ) : (
+              <div className="space-y-1">
+                {data.clientesMasCompran.map((cli, idx) => (
+                  <RankRow
+                    key={`${cli.id || cli.telefono || cli.nombre}-${idx}`}
+                    position={idx + 1}
+                    title={cli.nombre}
+                    subtitle={`${fmtNumber(cli.total_pedidos || 0)} pedidos${cli.nivel ? ` · ${cli.nivel}` : ''}`}
+                    value={fmtMoney(cli.total_gastado)}
+                    footnote={safeFormat(cli.ultima_compra, 'dd/MM', 'Sin fecha')}
+                    onClick={() => navigate('/admin/clientes')}
+                  />
+                ))}
               </div>
-              <Star className="text-warning-500" size={24} />
-            </div>
-            <div className="space-y-4">
-              {(data.clientesMasCompran || []).map((cli, idx) => (
-                <button
+            )}
+          </Card>
+        </div>
+
+        {/*
+          El panel VIP era un bloque azul a pantalla completa con blur y
+          tarjetas de vidrio. Ocupaba más que las ventas del día siendo un
+          dato de consulta. Ahora es una tarjeta más, con la misma jerarquía
+          que el resto.
+        */}
+        {(data.clientesVIP || []).length > 0 ? (
+          <Card
+            title="Clientes VIP"
+            helper="Score combinado de gasto, frecuencia, nivel y actividad reciente"
+            action={<LinkAction label="Fidelización" onClick={() => navigate('/admin/clientes')} />}
+          >
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+              {data.clientesVIP.map((cli, idx) => (
+                <div
                   key={`${cli.id || cli.telefono || cli.nombre}-${idx}`}
-                  onClick={() => navigate('/admin/clientes')}
-                  className="flex w-full items-center gap-4 rounded-[24px] border border-gray-100 bg-primary-50 px-4 py-4 text-left transition-all hover:-translate-y-0.5 hover:shadow-sm"
+                  className="rounded-xl border border-gray-100 p-3"
                 >
-                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[18px] bg-white text-sm font-black text-primary-500 shadow-sm">
-                    {idx + 1}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-black uppercase tracking-tight text-gray-900">
-                      {cli.nombre}
-                    </p>
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
-                      {fmtNumber(cli.total_pedidos || 0)} pedidos
-                      {cli.nivel ? ` - ${cli.nivel}` : ''}
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-sm font-black text-gray-900">
-                      {fmtMoney(cli.total_gastado)}
-                    </p>
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-primary-500">
-                      {cli.ultima_compra
-                        ? format(parseISO(String(cli.ultima_compra).replace(' ', 'T')), 'dd/MM')
-                        : 'Sin fecha'}
-                    </p>
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        <div className="relative overflow-hidden rounded-[40px] bg-primary-500 p-10 text-white shadow-2xl shadow-primary-200">
-          <div className="absolute right-0 top-0 -mr-32 -mt-32 h-96 w-96 rounded-full bg-white/10 blur-[80px]" />
-          <div className="absolute bottom-0 left-0 -mb-20 -ml-20 h-64 w-64 rounded-full bg-info-500/20 blur-[60px]" />
-
-          <div className="relative z-10">
-            <div className="mb-8 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-              <div>
-                <div className="mb-2 inline-flex items-center gap-2 rounded-full bg-white/15 px-3 py-1 text-[10px] font-black uppercase tracking-[0.2em] text-white/80">
-                  <Star size={12} />
-                  Ranking premium
-                </div>
-                <h3 className="text-2xl font-black uppercase tracking-tight">Comunidad VIP</h3>
-                <p className="mt-1 text-xs font-bold uppercase tracking-[0.2em] text-blue-100">
-                  Clientes de alto valor, frecuencia y nivel
-                </p>
-              </div>
-              <div className="rounded-[24px] border border-white/10 bg-white/10 px-4 py-3 backdrop-blur-md">
-                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-white/70">
-                  Lectura del panel
-                </p>
-                <p className="mt-1 text-sm font-bold text-white">
-                  El score combina gasto, pedidos, nivel y actividad reciente.
-                </p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-5">
-              {data.clientesVIP?.map((cli, idx) => (
-                <div
-                  key={idx}
-                  className="group/item flex flex-col rounded-[32px] border border-white/10 bg-white/10 p-5 text-center backdrop-blur-md transition-all hover:-translate-y-2 hover:bg-white hover:text-primary-500"
-                >
-                  <div className="mb-4 flex h-16 w-16 items-center justify-center self-center rounded-[24px] bg-white/20 text-2xl font-black shadow-lg transition-colors group-hover/item:bg-primary-500 group-hover/item:text-white">
-                    {cli.nombre?.[0]}
-                  </div>
-                  <p className="truncate text-sm font-black uppercase tracking-tight">
-                    {cli.nombre}
-                  </p>
-                  <div className="mt-2 inline-flex self-center rounded-full bg-white/15 px-3 py-1 text-[10px] font-black uppercase tracking-wider text-white group-hover/item:bg-primary-50 group-hover/item:text-primary-500">
-                    Score {fmtNumber(cli.score || 0)}
-                  </div>
-                  <p className="mt-3 text-[10px] font-bold uppercase tracking-widest opacity-75 group-hover/item:text-gray-400">
-                    {cli.nivel || 'Bronce'} - {cli.total_pedidos} pedidos
-                  </p>
-                  <div className="mt-4 space-y-2 border-t border-white/10 pt-4 text-left group-hover/item:border-primary-500/10">
-                    <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-wider">
-                      <span className="opacity-70 group-hover/item:text-gray-400">Gastado</span>
-                      <span>{fmtMoney(cli.total_gastado)}</span>
+                  <div className="flex items-center gap-2.5">
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gray-100 text-[14px] font-semibold text-gray-600">
+                      {cli.nombre?.[0]?.toUpperCase() || '?'}
+                    </span>
+                    <div className="min-w-0">
+                      <p className="truncate text-[13px] font-medium text-gray-900">{cli.nombre}</p>
+                      <p className="text-[11px] text-gray-400">{cli.nivel || 'Bronce'}</p>
                     </div>
-                    <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-wider">
-                      <span className="opacity-70 group-hover/item:text-gray-400">Actividad</span>
-                      <span>
+                  </div>
+                  <dl className="mt-3 space-y-1.5 border-t border-gray-100 pt-2.5 text-[12px]">
+                    <div className="flex justify-between">
+                      <dt className="text-gray-400">Gastado</dt>
+                      <dd className="font-bold tabular-nums text-gray-900">
+                        {fmtMoney(cli.total_gastado)}
+                      </dd>
+                    </div>
+                    <div className="flex justify-between">
+                      <dt className="text-gray-400">Pedidos</dt>
+                      <dd className="tabular-nums text-gray-700">{fmtNumber(cli.total_pedidos)}</dd>
+                    </div>
+                    <div className="flex justify-between">
+                      <dt className="text-gray-400">Última compra</dt>
+                      <dd className="tabular-nums text-gray-700">
                         {Number(cli.diasSinComprar || 0) <= 1
                           ? 'Hoy'
-                          : `${fmtNumber(cli.diasSinComprar || 0)} d`}
-                      </span>
+                          : `hace ${fmtNumber(cli.diasSinComprar || 0)} d`}
+                      </dd>
                     </div>
-                  </div>
+                  </dl>
                 </div>
               ))}
             </div>
-          </div>
-        </div>
+          </Card>
+        ) : null}
 
-        <div className="flex items-center justify-between rounded-2xl border border-white/50 bg-white/50 px-2 py-4 text-[10px] font-black uppercase tracking-[0.3em] text-gray-400 shadow-sm backdrop-blur-sm">
-          <div className="flex items-center gap-2">
-            <div className="h-2.5 w-2.5 rounded-full bg-success-500 shadow-[0_0_10px_rgba(19,222,185,0.5)] animate-pulse" />
-            Motor Modo Sabor en linea
+        {/* ── Salud del sistema ── */}
+        {operationHealthError ? (
+          <div className="flex items-center gap-2.5 rounded-2xl bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.06)]">
+            <AlertTriangle size={17} strokeWidth={STROKE} className="shrink-0 text-amber-500" />
+            <p className="text-[13px] text-gray-600">
+              No se pudo cargar la salud del sistema. Reintentá o revisá el centro operativo.
+            </p>
           </div>
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-1.5">
-              <RefreshCw size={12} className={lastUpdate ? 'animate-spin-slow' : ''} />
-              Última sincronización: {lastUpdate}
+        ) : null}
+
+        {puntosSalud.length ? (
+          <Card
+            title="Salud del sistema"
+            helper={
+              puntosConProblema.length === 0
+                ? 'Operación, stock, riders, backups e impresión: todo en orden'
+                : `${puntosConProblema.length} ${puntosConProblema.length === 1 ? 'punto necesita' : 'puntos necesitan'} atención`
+            }
+            action={
+              <LinkAction label="Centro operativo" onClick={() => navigate('/admin/operacion')} />
+            }
+          >
+            {/*
+              Los puntos OK ocupaban lo mismo que los que fallan, así que
+              había que leer los seis para encontrar el que importa. Ahora
+              los que fallan van primero y con el ícono en ámbar.
+            */}
+            <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+              {[...puntosSalud]
+                .sort((a, b) => Number(a.ok) - Number(b.ok))
+                .map((point) => (
+                  <div
+                    key={point.id}
+                    className="flex items-start gap-2.5 rounded-xl border border-gray-100 p-3"
+                  >
+                    {point.ok ? (
+                      <CheckCircle2
+                        size={16}
+                        strokeWidth={STROKE}
+                        className="mt-0.5 shrink-0 text-emerald-500"
+                      />
+                    ) : (
+                      <AlertTriangle
+                        size={16}
+                        strokeWidth={STROKE}
+                        className="mt-0.5 shrink-0 text-amber-500"
+                      />
+                    )}
+                    <div className="min-w-0">
+                      <p className="text-[13px] font-medium text-gray-900">{point.title}</p>
+                      <p className="mt-0.5 text-[12px] leading-4 text-gray-500">{point.detail}</p>
+                    </div>
+                  </div>
+                ))}
             </div>
-            <div className="hidden h-4 w-[1px] bg-gray-300 sm:block" />
-            <p className="hidden sm:block">Actualización en tiempo real</p>
+          </Card>
+        ) : null}
+
+        {/* ── Pulso del equipo ── */}
+        {personalPulseError && personalEnabled ? (
+          <div className="flex items-center gap-2.5 rounded-2xl bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.06)]">
+            <AlertTriangle size={17} strokeWidth={STROKE} className="shrink-0 text-amber-500" />
+            <p className="text-[13px] text-gray-600">
+              No se pudo cargar el pulso del equipo. Reintentá o revisá el módulo de personal.
+            </p>
           </div>
-        </div>
+        ) : null}
+
+        {personalHeadline ? (
+          <Card
+            title="Pulso del equipo"
+            helper="Asistencia y puntualidad de los últimos 7 días"
+            action={<LinkAction label="Personal" onClick={() => navigate('/admin/personal')} />}
+          >
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="rounded-xl bg-gray-50 p-3">
+                <p className="text-[12px] text-gray-500">Equipo activo</p>
+                <p className="mt-1 text-[24px] font-bold tabular-nums leading-none text-gray-900">
+                  {personalHeadline.activos}
+                </p>
+                <p className="mt-1.5 text-[11px] text-gray-400">Legajos activos hoy</p>
+              </div>
+              <div className="rounded-xl bg-gray-50 p-3">
+                <p className="text-[12px] text-gray-500">Tardanzas a mirar</p>
+                <p
+                  className="mt-1 text-[24px] font-bold tabular-nums leading-none"
+                  style={{ color: personalHeadline.lateCount > 0 ? '#B45309' : '#111827' }}
+                >
+                  {personalHeadline.lateCount}
+                </p>
+                <p className="mt-1.5 text-[11px] text-gray-400">Con 2 o más en 7 días</p>
+              </div>
+              <div className="rounded-xl bg-gray-50 p-3">
+                <p className="text-[12px] text-gray-500">Ausencias recientes</p>
+                <p
+                  className="mt-1 text-[24px] font-bold tabular-nums leading-none"
+                  style={{ color: personalHeadline.absentCount > 0 ? BRAND : '#111827' }}
+                >
+                  {personalHeadline.absentCount}
+                </p>
+                <p className="mt-1.5 text-[11px] text-gray-400">Con al menos una falta</p>
+              </div>
+              <div className="rounded-xl bg-gray-50 p-3">
+                <p className="text-[12px] text-gray-500">Mejor de la semana</p>
+                <p className="mt-1 truncate text-[15px] font-semibold leading-tight text-gray-900">
+                  {personalHeadline.topEmployee?.personal_nombre || 'Sin datos'}
+                </p>
+                <p className="mt-1.5 text-[11px] text-gray-400">
+                  {personalHeadline.topEmployee
+                    ? `${personalHeadline.topEmployee.asistenciaPct}% de asistencia`
+                    : 'Faltan fichadas'}
+                </p>
+              </div>
+            </div>
+          </Card>
+        ) : null}
       </div>
     </div>
   );

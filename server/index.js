@@ -233,6 +233,7 @@ app.use('/api/categorias', require('./routes/categorias'));
 app.use('/api/productos', require('./routes/productos'));
 app.use('/api/inventario', require('./routes/inventario'));
 app.use('/api/pedidos', require('./routes/pedidos'));
+app.use('/api/direcciones', require('./routes/direcciones'));
 app.use('/api/clientes', require('./routes/clientes'));
 app.use('/api/configuracion', require('./routes/configuracion'));
 app.use('/api/reportes', require('./routes/reportes'));

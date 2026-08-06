@@ -1,8 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import api from '../../lib/api.js';
-import { EMPTY_INSUMO, EMPTY_ROW, MOVIMIENTOS_LIMIT } from './constants.js';
+import { EMPTY_INSUMO, MOVIMIENTOS_LIMIT } from './constants.js';
 import { normalizeText } from './utils.js';
+
+/**
+ * Celda de CSV.
+ *
+ * Se entrecomillaban sólo el nombre y el motivo, y sin escapar las comillas
+ * internas. Un insumo llamado `Queso "cremoso"` o un rubro con coma partía
+ * la fila y corría todas las columnas del archivo.
+ */
+const csvCell = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`;
 
 export default function useInventario() {
   const [insumos, setInsumos] = useState([]);
@@ -19,11 +28,6 @@ export default function useInventario() {
   const [movementModal, setMovementModal] = useState(null);
   const [movementForm, setMovementForm] = useState({ tipo: 'entrada', cantidad: '', motivo: '' });
   const [compraModal, setCompraModal] = useState(false);
-  const [compraForm, setCompraForm] = useState({
-    proveedor: '',
-    metodo_pago: 'efectivo',
-    items: [],
-  });
   const [deleteDialog, setDeleteDialog] = useState(null);
   const [movFechaDesde, setMovFechaDesde] = useState('');
   const [movFechaHasta, setMovFechaHasta] = useState('');
@@ -45,7 +49,7 @@ export default function useInventario() {
       setMovimientos(movimientosData);
       if (!selectedProductId && productosData[0]) setSelectedProductId(String(productosData[0].id));
     } catch (error) {
-      toast.error('Error al cargar inventario');
+      toast.error(error?.error || 'Error al cargar inventario');
     } finally {
       setLoading(false);
     }
@@ -108,6 +112,14 @@ export default function useInventario() {
     return result;
   }, [movimientos, movFechaDesde, movFechaHasta]);
 
+  /**
+   * El filtro de fechas trabaja sobre los últimos `MOVIMIENTOS_LIMIT`
+   * movimientos que trae el servidor, no sobre todo el historial. Si pedís un
+   * rango viejo devuelve vacío aunque en la base haya datos, y no había forma
+   * de darse cuenta. Al menos ahora la pantalla lo puede decir.
+   */
+  const historialTruncado = movimientos.length >= MOVIMIENTOS_LIMIT;
+
   const faltantes = useMemo(
     () =>
       insumos
@@ -155,15 +167,27 @@ export default function useInventario() {
   };
 
   const saveInsumo = async () => {
+    // No validaba nada: mandabas el formulario vacío y volvía un
+    // "No se pudo guardar" genérico sin decirte qué faltaba.
+    if (!String(insumoForm.nombre || '').trim()) {
+      toast.error('El nombre del insumo es obligatorio');
+      return;
+    }
+    if (Number(insumoForm.stock_minimo || 0) < 0 || Number(insumoForm.stock_actual || 0) < 0) {
+      toast.error('El stock no puede ser negativo');
+      return;
+    }
+
     setSaving(true);
     try {
-      if (insumoModal === 'new') await api.post('/inventario/insumos', insumoForm);
-      else await api.put(`/inventario/insumos/${insumoModal.id}`, insumoForm);
+      const payload = { ...insumoForm, nombre: String(insumoForm.nombre).trim() };
+      if (insumoModal === 'new') await api.post('/inventario/insumos', payload);
+      else await api.put(`/inventario/insumos/${insumoModal.id}`, payload);
       toast.success('Insumo guardado');
       closeInsumoModal();
       await cargar();
     } catch (error) {
-      toast.error('No se pudo guardar');
+      toast.error(error?.error || 'No se pudo guardar el insumo');
     } finally {
       setSaving(false);
     }
@@ -190,52 +214,13 @@ export default function useInventario() {
     }
   };
 
-  // Handlers para Compras
-  const openCompraModal = () => {
-    setCompraForm({
-      proveedor: '',
-      metodo_pago: 'efectivo',
-      items: [{ insumo_id: '', cantidad: '', costo_unitario: '' }],
-    });
-    setCompraModal(true);
-  };
-
-  const addCompraItem = () => {
-    setCompraForm((p) => ({
-      ...p,
-      items: [...p.items, { insumo_id: '', cantidad: '', costo_unitario: '' }],
-    }));
-  };
-
-  const updateCompraItem = (idx, key, val) => {
-    const next = [...compraForm.items];
-    next[idx][key] = val;
-    if (key === 'insumo_id') {
-      const insumo = insumos.find((i) => String(i.id) === String(val));
-      if (insumo) next[idx].costo_unitario = insumo.costo_unitario || '';
-    }
-    setCompraForm((p) => ({ ...p, items: next }));
-  };
-
-  const registrarCompra = async () => {
-    if (!compraForm.items.some((i) => i.insumo_id && i.cantidad))
-      return toast.error('Completa los datos de la compra');
-    setSaving(true);
-    try {
-      const total = compraForm.items.reduce(
-        (acc, i) => acc + Number(i.cantidad || 0) * Number(i.costo_unitario || 0),
-        0
-      );
-      await api.post('/compras', { ...compraForm, total });
-      toast.success('Compra registrada y stock actualizado');
-      setCompraModal(false);
-      await cargar();
-    } catch (error) {
-      toast.error('Error al registrar compra');
-    } finally {
-      setSaving(false);
-    }
-  };
+  /*
+    El alta de compra vive ahora en `components/Compras/NuevaCompraModal.jsx`,
+    compartida con el módulo Compras. Este hook manejaba su propio formulario
+    —con una mutación de estado y sin total— que era una segunda copia peor de
+    lo mismo. Acá sólo queda abrir y cerrar.
+  */
+  const openCompraModal = () => setCompraModal(true);
 
   // Handlers para Recetas
   const saveRecipe = async () => {
@@ -331,12 +316,18 @@ export default function useInventario() {
     }
   };
 
-  const copyShoppingList = async () => {
+  // `navigator.clipboard` no existe fuera de HTTPS, y sin `.catch` un rechazo
+  // quedaba como promesa sin manejar: no copiaba y no avisaba nada.
+  const copyShoppingList = () => {
     const msg = faltantes.map((i) => `- ${i.nombre}: falta ${i.faltante} ${i.unidad}`).join('\n');
     if (!msg) return toast.error('No hay faltantes');
-    navigator.clipboard
-      .writeText(`Lista de Compras:\n${msg}`)
-      .then(() => toast.success('Copiado al portapapeles'));
+    if (!navigator.clipboard?.writeText) {
+      return toast.error('El navegador no permite copiar automáticamente');
+    }
+    return navigator.clipboard
+      .writeText(`Lista de compras:\n${msg}`)
+      .then(() => toast.success('Copiado al portapapeles'))
+      .catch(() => toast.error('No se pudo copiar'));
   };
 
   const exportarInsumosCSV = () => {
@@ -354,7 +345,7 @@ export default function useInventario() {
     ];
     const rows = filteredInsumos.map((i) => [
       i.id,
-      `"${i.nombre}"`,
+      i.nombre,
       i.rubro,
       i.unidad,
       i.stock_actual,
@@ -363,7 +354,7 @@ export default function useInventario() {
       i.stock_bajo ? 'Sí' : 'No',
       i.activo ? 'Sí' : 'No',
     ]);
-    const csv = [headers, ...rows].map((r) => r.join(',')).join('\n');
+    const csv = [headers, ...rows].map((r) => r.map(csvCell).join(',')).join('\n');
     const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -379,12 +370,12 @@ export default function useInventario() {
     const headers = ['Fecha', 'Insumo/Producto', 'Tipo', 'Cantidad', 'Motivo'];
     const rows = movFiltrados.map((m) => [
       new Date(m.creado_en).toLocaleString('es-AR'),
-      `"${m.insumo_nombre || m.producto_nombre || ''}"`,
+      m.insumo_nombre || m.producto_nombre || '',
       m.tipo || (Number(m.cantidad) > 0 ? 'entrada' : 'salida'),
       m.cantidad,
-      `"${m.motivo || ''}"`,
+      m.motivo || '',
     ]);
-    const csv = [headers, ...rows].map((r) => r.join(',')).join('\n');
+    const csv = [headers, ...rows].map((r) => r.map(csvCell).join(',')).join('\n');
     const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -400,6 +391,14 @@ export default function useInventario() {
       toast.error('No hay faltantes para imprimir');
       return;
     }
+    // Los nombres se metían crudos en el HTML: un insumo con `&` o `<` en el
+    // nombre rompía la tabla impresa.
+    const esc = (value) =>
+      String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+
     const html = `
       <html>
         <head>
@@ -429,10 +428,10 @@ export default function useInventario() {
                 .map(
                   (item) => `
                 <tr>
-                  <td>${item.nombre}</td>
-                  <td>${item.faltante} ${item.unidad}</td>
-                  <td>${item.stock_actual} ${item.unidad}</td>
-                  <td>${item.stock_minimo} ${item.unidad}</td>
+                  <td>${esc(item.nombre)}</td>
+                  <td>${esc(item.faltante)} ${esc(item.unidad)}</td>
+                  <td>${esc(item.stock_actual)} ${esc(item.unidad)}</td>
+                  <td>${esc(item.stock_minimo)} ${esc(item.unidad)}</td>
                 </tr>
               `
                 )
@@ -442,11 +441,20 @@ export default function useInventario() {
         </body>
       </html>
     `;
-    const win = window.open('', '_blank', 'noopener,noreferrer');
+    /*
+      Acá estaba el problema: `window.open` con `noopener` devuelve `null`
+      por especificación —justamente para que la ventana nueva no tenga
+      referencia a la que la abrió—. Como después se escribía en
+      `win.document`, la condición `if (!win)` se cumplía SIEMPRE y el botón
+      de imprimir faltantes sólo mostraba "el navegador bloqueó la impresión".
+      Nunca funcionó.
+    */
+    const win = window.open('', '_blank');
     if (!win) {
-      toast.error('El navegador bloqueo la impresion');
+      toast.error('El navegador bloqueó la ventana. Permitila para imprimir.');
       return;
     }
+    win.document.open();
     win.document.write(html);
     win.document.close();
     win.focus();
@@ -490,7 +498,6 @@ export default function useInventario() {
     movementModal,
     movementForm,
     compraModal,
-    compraForm,
     deleteDialog,
     movFechaDesde,
     movFechaHasta,
@@ -502,6 +509,7 @@ export default function useInventario() {
     stats,
     filteredInsumos,
     movFiltrados,
+    historialTruncado,
     faltantes,
     sharedBases,
 
@@ -513,7 +521,6 @@ export default function useInventario() {
     setProductConfig,
     setRecipeRows,
     setInsumoForm,
-    setCompraForm,
     setCompraModal,
     setMovementForm,
     setMovementModal,
@@ -528,9 +535,6 @@ export default function useInventario() {
     closeDeleteDialog,
     confirmDeleteInsumo,
     openCompraModal,
-    addCompraItem,
-    updateCompraItem,
-    registrarCompra,
     saveRecipe,
     saveProductConfig,
     syncPizzasWithPrepizza,

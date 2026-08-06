@@ -77,7 +77,7 @@ export default function ToggleTurno({ online, onToggle, disabled = false }) {
 
       <div className="text-center">
         <p
-          className={`text-sm font-black uppercase tracking-[0.2em] transition-colors ${
+          className={`text-[15px] font-semibold transition-colors ${
             online ? 'text-emerald-600' : 'text-gray-400'
           }`}
         >

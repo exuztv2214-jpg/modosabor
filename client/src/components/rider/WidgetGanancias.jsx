@@ -1,6 +1,8 @@
 import { motion } from 'framer-motion';
 import { TrendingUp, TrendingDown, Flame } from 'lucide-react';
 
+import { BRAND } from '../../lib/theme.js';
+
 import AnimatedNumber from '../AnimatedNumber.jsx';
 
 const fmtPesos = (n) => `$${Number(n || 0).toLocaleString('es-AR')}`;
@@ -40,17 +42,15 @@ export default function WidgetGanancias({ stats, loading = false }) {
     <motion.div
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
-      className="rounded-[24px] border border-gray-100 bg-white p-5 shadow-sm"
+      className="rounded-2xl bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.06)]"
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400">
-            Cobrado hoy
-          </p>
-          <p className="mt-1.5 text-3xl font-black tabular-nums text-gray-900">
+          <p className="text-[12px] text-gray-500">Cobrado hoy</p>
+          <p className="mt-1 text-[30px] font-bold leading-none tabular-nums text-gray-900">
             $<AnimatedNumber value={hoy.facturado} />
           </p>
-          <p className="mt-1 text-xs font-bold text-gray-400">
+          <p className="mt-1.5 text-[12px] text-gray-400">
             {hoy.entregas} {hoy.entregas === 1 ? 'entrega' : 'entregas'}
           </p>
         </div>
@@ -58,8 +58,8 @@ export default function WidgetGanancias({ stats, loading = false }) {
         <div className="flex shrink-0 flex-col items-end gap-2">
           {(subio || bajo) && (
             <span
-              className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-black tabular-nums ${
-                subio ? 'bg-success-50 text-success-700' : 'bg-danger-50 text-danger-600'
+              className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold tabular-nums ${
+                subio ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'
               }`}
             >
               {subio ? (
@@ -72,7 +72,7 @@ export default function WidgetGanancias({ stats, loading = false }) {
             </span>
           )}
           {racha >= 2 && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-warning-50 px-2.5 py-1 text-[10px] font-black tabular-nums text-warning-700">
+            <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-semibold tabular-nums text-amber-700">
               <Flame size={11} strokeWidth={3} />
               {racha} días seguidos
             </span>
@@ -92,11 +92,14 @@ export default function WidgetGanancias({ stats, loading = false }) {
                   key={dia.fecha}
                   className="flex flex-1 flex-col items-center justify-end gap-1"
                 >
+                  {/* Sólo el día de hoy va en color: es el único dato
+                      accionable del gráfico. El resto es contexto. */}
                   <motion.div
                     initial={{ height: 0 }}
                     animate={{ height: `${Math.max(6, alturaPct)}%` }}
                     transition={{ delay: i * 0.05, type: 'spring', damping: 20 }}
-                    className={`w-full rounded-t-md ${esHoy ? 'bg-primary-500' : 'bg-primary-100'}`}
+                    className="w-full rounded-t-md"
+                    style={{ background: esHoy ? BRAND : '#E5E7EB' }}
                     title={`${dia.fecha}: ${fmtPesos(dia.facturado)} · ${dia.entregas} entregas`}
                   />
                 </div>
@@ -110,9 +113,10 @@ export default function WidgetGanancias({ stats, loading = false }) {
               return (
                 <span
                   key={dia.fecha}
-                  className={`flex-1 text-center text-[9px] font-black ${
-                    esHoy ? 'text-primary-600' : 'text-gray-300'
+                  className={`flex-1 text-center text-[10px] font-medium ${
+                    esHoy ? '' : 'text-gray-300'
                   }`}
+                  style={esHoy ? { color: BRAND } : undefined}
                 >
                   {DIAS_CORTOS[d.getDay()]}
                 </span>

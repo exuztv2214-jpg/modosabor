@@ -13,7 +13,7 @@ export const EMPTY_FORM = {
 };
 
 export const CONTROL =
-  'h-11 rounded-2xl border border-gray-200 bg-gray-50 px-4 text-sm font-medium text-gray-700 outline-none transition focus:border-primary-500 focus:bg-white focus:ring-4 focus:ring-[#5D87FF]/10';
+  'h-11 rounded-xl border border-gray-200 bg-white px-3 text-[14px] text-gray-800 outline-none transition placeholder:text-gray-400 focus:border-gray-400 focus:ring-2 focus:ring-gray-900/5';
 
 export function fmtMoney(value) {
   return `$${Number(value || 0).toLocaleString('es-AR')}`;

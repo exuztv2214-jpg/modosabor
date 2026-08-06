@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 import { ChevronDown, ChevronUp, ShieldCheck, Plus, Pencil, Save, UserCog, X } from 'lucide-react';
 
 import api from '../lib/api.js';
+import { Z } from '../lib/theme.js';
 
 const EMPTY_FORM = {
   nombre: '',
@@ -137,14 +138,11 @@ function RolePermissionsMatrix() {
           <table className="min-w-full text-sm">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-5 py-3 text-left text-[11px] font-bold uppercase tracking-[0.18em] text-gray-500 min-w-[200px]">
+                <th className="px-5 py-3 text-left text-[11px] font-bold text-gray-500 min-w-[200px]">
                   Permiso
                 </th>
                 {roles.map((r) => (
-                  <th
-                    key={r}
-                    className="px-4 py-3 text-center text-[11px] font-bold uppercase tracking-[0.18em] text-gray-500"
-                  >
+                  <th key={r} className="px-4 py-3 text-center text-[11px] font-bold text-gray-500">
                     {roleLabels[r]}
                   </th>
                 ))}
@@ -152,12 +150,13 @@ function RolePermissionsMatrix() {
             </thead>
             <tbody>
               {PERMISSION_GROUPS.map((group) => (
-                <>
-                  <tr key={`group-${group.grupo}`} className="bg-gray-50/60">
-                    <td
-                      colSpan={5}
-                      className="px-5 py-2 text-[10px] font-black uppercase tracking-widest text-gray-400"
-                    >
+                // Antes era un fragmento `<>` sin key dentro de un .map(): React no
+                // podía identificar cada grupo de forma estable al reconciliar, lo
+                // que generaba el warning "each child in a list should have a
+                // unique key" y arriesgaba mezclar filas entre re-renders.
+                <Fragment key={group.grupo}>
+                  <tr className="bg-gray-50/60">
+                    <td colSpan={5} className="px-5 py-2 text-[10px] font-semibold text-gray-400">
                       {group.grupo}
                     </td>
                   </tr>
@@ -172,7 +171,7 @@ function RolePermissionsMatrix() {
                         return (
                           <td key={r} className="px-4 py-3 text-center">
                             <span
-                              className={`inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-black mx-auto ${has ? 'bg-success-100 text-success-600' : 'bg-gray-100 text-gray-300'}`}
+                              className={`inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold mx-auto ${has ? 'bg-emerald-100 text-emerald-600' : 'bg-gray-100 text-gray-300'}`}
                             >
                               {has ? '✓' : '—'}
                             </span>
@@ -181,7 +180,7 @@ function RolePermissionsMatrix() {
                       })}
                     </tr>
                   ))}
-                </>
+                </Fragment>
               ))}
             </tbody>
           </table>
@@ -192,7 +191,7 @@ function RolePermissionsMatrix() {
 }
 
 const CONTROL =
-  'h-11 w-full rounded-xl border border-gray-200 bg-white px-4 text-sm font-medium text-gray-700 outline-none transition-all focus:border-primary-500 focus:ring-4 focus:ring-[#5D87FF]/10 hover:border-gray-300';
+  'h-11 w-full rounded-xl border border-gray-200 bg-white px-4 text-sm font-medium text-gray-700 outline-none transition-all focus:border-[#DC1F2D] focus:ring-4 focus:ring-[#DC1F2D]/10 hover:border-gray-300';
 
 export default function Usuarios() {
   const [usuarios, setUsuarios] = useState([]);
@@ -206,8 +205,8 @@ export default function Usuarios() {
     try {
       const rows = await api.get('/auth/usuarios');
       setUsuarios(rows);
-    } catch {
-      toast.error('No se pudieron cargar los usuarios');
+    } catch (error) {
+      toast.error(error?.error || 'No se pudieron cargar los usuarios');
     } finally {
       setLoading(false);
     }
@@ -285,7 +284,7 @@ export default function Usuarios() {
         </div>
         <button
           onClick={abrirNuevo}
-          className="flex h-11 items-center gap-2 rounded-xl bg-primary-500 text-white px-5 text-sm font-bold shadow-lg shadow-[#5D87FF]/20 hover:bg-primary-600 transition-all"
+          className="flex h-11 items-center gap-2 rounded-xl bg-[#DC1F2D] text-white px-5 text-sm font-bold shadow-lg shadow-[#DC1F2D]/20 hover:bg-[#B91C2A] transition-all"
         >
           <Plus size={18} strokeWidth={2.5} />
           Nuevo Usuario
@@ -313,10 +312,10 @@ export default function Usuarios() {
               {usuarios.map((usuario) => (
                 <div
                   key={usuario.id}
-                  className="flex items-center justify-between p-4 rounded-xl border border-gray-100 bg-white hover:border-primary-500/30 hover:shadow-md transition-all group"
+                  className="flex items-center justify-between p-4 rounded-xl border border-gray-100 bg-white hover:border-[#DC1F2D]/30 hover:shadow-md transition-all group"
                 >
                   <div className="flex items-center gap-4">
-                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary-50 text-primary-500">
+                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-[#FEF2F2] text-[#DC1F2D]">
                       <UserCog size={22} />
                     </div>
                     <div className="min-w-0">
@@ -328,7 +327,7 @@ export default function Usuarios() {
                   </div>
                   <div className="flex items-center gap-3">
                     <div className="flex flex-col items-end gap-1">
-                      <span className="px-2.5 py-0.5 rounded-lg bg-gray-100 text-[10px] font-bold text-gray-600 uppercase tracking-wider">
+                      <span className="px-2.5 py-0.5 rounded-lg bg-gray-100 text-[10px] font-bold text-gray-600">
                         {usuario.rol}
                       </span>
                       <span
@@ -339,7 +338,7 @@ export default function Usuarios() {
                     </div>
                     <button
                       onClick={() => abrirEditar(usuario)}
-                      className="h-9 w-9 flex items-center justify-center rounded-lg bg-gray-50 text-gray-400 hover:bg-primary-50 hover:text-primary-500 transition-all"
+                      className="h-9 w-9 flex items-center justify-center rounded-lg bg-gray-50 text-gray-400 hover:bg-[#FEF2F2] hover:text-[#DC1F2D] transition-all"
                     >
                       <Pencil size={16} />
                     </button>
@@ -362,7 +361,8 @@ export default function Usuarios() {
       {/* Modal Form */}
       {modal && (
         <div
-          className="fixed inset-0 z-[1000] flex items-center justify-center bg-[#2A3547]/40 p-4 backdrop-blur-sm"
+          className="fixed inset-0 flex items-center justify-center bg-[#2A3547]/40 p-4 backdrop-blur-sm"
+          style={{ zIndex: Z.modal }}
           onClick={() => setModal(null)}
         >
           <div
@@ -371,7 +371,7 @@ export default function Usuarios() {
           >
             <div className="flex items-center justify-between border-b border-gray-100 p-6">
               <div className="flex items-center gap-2">
-                <div className="h-8 w-8 rounded-lg bg-primary-50 flex items-center justify-center text-primary-500">
+                <div className="h-8 w-8 rounded-lg bg-[#FEF2F2] flex items-center justify-center text-[#DC1F2D]">
                   <ShieldCheck size={20} />
                 </div>
                 <h2 className="text-xl font-bold text-gray-900">
@@ -453,7 +453,7 @@ export default function Usuarios() {
                       type="checkbox"
                       checked={form.activo}
                       onChange={(e) => setForm((prev) => ({ ...prev, activo: e.target.checked }))}
-                      className="h-5 w-5 rounded border-gray-300 text-primary-500 focus:ring-[#5D87FF] accent-[#5D87FF]"
+                      className="h-5 w-5 rounded border-gray-300 text-[#DC1F2D] focus:ring-[#DC1F2D] accent-[#DC1F2D]"
                     />
                   </label>
                 </div>
@@ -470,7 +470,7 @@ export default function Usuarios() {
               <button
                 onClick={guardar}
                 disabled={saving}
-                className="flex h-11 items-center gap-2 rounded-xl bg-primary-500 px-8 text-sm font-bold text-white shadow-lg shadow-[#5D87FF]/20 hover:bg-primary-600 transition-all disabled:opacity-50"
+                className="flex h-11 items-center gap-2 rounded-xl bg-[#DC1F2D] px-8 text-sm font-bold text-white shadow-lg shadow-[#DC1F2D]/20 hover:bg-[#B91C2A] transition-all disabled:opacity-50"
               >
                 <Save size={18} />
                 {saving ? 'Guardando...' : modal === 'nuevo' ? 'Crear Usuario' : 'Guardar Cambios'}

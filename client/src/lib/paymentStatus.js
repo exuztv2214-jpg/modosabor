@@ -44,9 +44,14 @@ export function paymentMethodLabel(value) {
     mercadopago: 'Mercado Pago',
     transferencia: 'Transferencia',
     modo: 'Modo',
-    uala: 'Uala',
-    debito: 'Debito',
-    credito: 'Credito',
+    uala: 'Ualá',
+    // El TPV permite cobrar en mixto pero no estaba en la tabla, asi que en
+    // el tablero y los reportes aparecia como "mixto" en minuscula suelta.
+    mixto: 'Pago mixto',
+    // debito/credito ya no se ofrecen al cobrar, pero quedan pedidos viejos
+    // guardados con esos valores y hay que saber mostrarlos.
+    debito: 'Débito',
+    credito: 'Crédito',
   };
   return labels[normalized] || normalized;
 }

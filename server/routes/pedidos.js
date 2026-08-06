@@ -6,6 +6,7 @@ const { requirePermission, hasPermission } = require('../utils/permissions');
 const { getConfigMap, createPreference, getPayment } = require('../utils/mercadoPago');
 const { logAudit, actorFromRequest } = require('../utils/audit');
 const { registrarEvento, calcularDuraciones } = require('../services/pedidoTrazabilidad');
+const { geocodificarPedido } = require('../services/geocoding');
 const { autoAssignPedido } = require('../utils/deliveryAssignment');
 const { recalculateClienteStats } = require('../utils/loyalty');
 const {
@@ -18,6 +19,7 @@ const logger = require('../utils/logger');
 const { validateBody } = require('../middleware/validate');
 const { createPedidoSchema, updatePedidoSchema } = require('../schemas');
 const { centsToPesos } = require('../utils/moneyConversion');
+const { fechaLocal } = require('../utils/fechaLocal');
 const {
   emitPedidoActualizado,
   emitDeliveryAssignment,
@@ -93,6 +95,15 @@ function buildTrackingPayload(pedido) {
     cliente_latitud: hydrated.cliente_latitud,
     cliente_longitud: hydrated.cliente_longitud,
     cliente_ubicacion_exacta: Boolean(hydrated.cliente_ubicacion_exacta),
+    cliente_geocodificado: Boolean(hydrated.cliente_geocodificado),
+    cliente_geocoding_precision: hydrated.cliente_geocoding_precision,
+    direccion_barrio_id: hydrated.direccion_barrio_id,
+    direccion_barrio_nombre: hydrated.direccion_barrio_nombre,
+    direccion_manzana_id: hydrated.direccion_manzana_id,
+    direccion_manzana: hydrated.direccion_manzana,
+    direccion_casa: hydrated.direccion_casa,
+    direccion_origen: hydrated.direccion_origen,
+    direccion_confianza: hydrated.direccion_confianza,
     entrega_pin: hydrated.entrega_pin,
     entrega_foto: hydrated.entrega_foto,
     entrega_foto_en: hydrated.entrega_foto_en,
@@ -200,7 +211,7 @@ router.post('/webhook/mercadopago', async (req, res) => {
 });
 
 router.get('/', auth, requirePermission('pedidos.view'), (req, res) => {
-  const { estado, fecha_desde, fecha_hasta, page = 1, limit = 200 } = req.query;
+  const { estado, tipo_entrega, fecha_desde, fecha_hasta, page = 1, limit = 200 } = req.query;
   const pageNum = Math.max(1, Number(page) || 1);
   const limitNum = Math.min(200, Math.max(1, Number(limit) || 200));
   const offset = (pageNum - 1) * limitNum;
@@ -211,12 +222,19 @@ router.get('/', auth, requirePermission('pedidos.view'), (req, res) => {
     q += ' AND estado = ?';
     params.push(estado);
   }
+  // El panel de delivery traia los ultimos 100 pedidos de cualquier tipo y
+  // despues descartaba en el navegador los de mostrador y mesa. En un dia
+  // cargado de salon se quedaba sin pedidos de delivery que mostrar.
+  if (tipo_entrega) {
+    q += ' AND tipo_entrega = ?';
+    params.push(tipo_entrega);
+  }
   if (fecha_desde) {
-    q += ' AND DATE(creado_en) >= ?';
+    q += ` AND ${fechaLocal('creado_en')} >= ?`;
     params.push(fecha_desde);
   }
   if (fecha_hasta) {
-    q += ' AND DATE(creado_en) <= ?';
+    q += ` AND ${fechaLocal('creado_en')} <= ?`;
     params.push(fecha_hasta);
   }
   q += ' ORDER BY creado_en DESC LIMIT ? OFFSET ?';
@@ -516,6 +534,98 @@ router.get('/:id/pago/mercadopago', async (req, res) => {
   } catch (error) {
     return res.status(500).json({ error: error.message || 'No se pudo verificar el pago' });
   }
+});
+
+/**
+ * Corregir a mano la ubicacion de un pedido.
+ *
+ * El geocoding automatico acierta la mayoria de las veces, pero en
+ * pueblos chicos la numeracion no siempre esta mapeada en OSM. Cuando
+ * el rider avisa que el pin estaba mal, el operador puede pegar un link
+ * de Google Maps (o coordenadas sueltas) y queda corregido.
+ *
+ * Al corregir a mano marcamos `cliente_ubicacion_exacta = 1`: es un
+ * punto verificado por una persona, no una estimacion.
+ */
+router.put('/:id/ubicacion', auth, requirePermission('pedidos.edit'), (req, res) => {
+  const pedido = db.prepare('SELECT id, numero FROM pedidos WHERE id = ?').get(req.params.id);
+  if (!pedido) return res.status(404).json({ error: 'Pedido no encontrado' });
+
+  const lat = Number(req.body?.latitud);
+  const lng = Number(req.body?.longitud);
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    return res.status(400).json({ error: 'Coordenadas invalidas' });
+  }
+  if (Math.abs(lat) > 90 || Math.abs(lng) > 180) {
+    return res.status(400).json({ error: 'Coordenadas fuera de rango' });
+  }
+  // El (0,0) es un punto real en Africa: casi seguro es un error de carga.
+  if (Math.abs(lat) < 0.0001 && Math.abs(lng) < 0.0001) {
+    return res.status(400).json({ error: 'Coordenadas (0,0) no validas' });
+  }
+
+  db.prepare(
+    `UPDATE pedidos
+     SET cliente_latitud = ?, cliente_longitud = ?,
+         cliente_ubicacion_exacta = 1,
+         cliente_geocodificado = 0,
+         cliente_geocoding_precision = 'manual',
+         actualizado_en = CURRENT_TIMESTAMP
+     WHERE id = ?`
+  ).run(lat, lng, pedido.id);
+
+  const actor = actorFromRequest(req);
+  logAudit(db, {
+    modulo: 'pedidos',
+    accion: 'corregir_ubicacion',
+    entidad: 'pedido',
+    entidad_id: pedido.id,
+    actor_id: actor.actor_id,
+    actor_nombre: actor.actor_nombre,
+    detalle: { numero: pedido.numero, latitud: lat, longitud: lng },
+  });
+
+  const actualizado = db.prepare('SELECT * FROM pedidos WHERE id = ?').get(pedido.id);
+  const hydrated = hydratePedido(actualizado);
+  const io = req.app.get('io');
+  if (io) emitPedidoActualizado(io, hydrated);
+
+  return res.json(hydrated);
+});
+
+/**
+ * Forzar el geocoding de un pedido puntual (por si se cargo la direccion
+ * despues de crear el pedido, o se corrigio un error de tipeo).
+ */
+router.post('/:id/geocodificar', auth, requirePermission('pedidos.edit'), async (req, res) => {
+  const pedido = db
+    .prepare('SELECT id, cliente_direccion FROM pedidos WHERE id = ?')
+    .get(req.params.id);
+  if (!pedido) return res.status(404).json({ error: 'Pedido no encontrado' });
+  if (!pedido.cliente_direccion) {
+    return res.status(400).json({ error: 'El pedido no tiene direccion cargada' });
+  }
+
+  // Limpiamos las coordenadas actuales para que geocodificarPedido no
+  // las respete y vuelva a resolver.
+  db.prepare(`UPDATE pedidos SET cliente_latitud = NULL, cliente_longitud = NULL WHERE id = ?`).run(
+    pedido.id
+  );
+
+  const geo = await geocodificarPedido(pedido.id);
+  if (!geo) {
+    return res.status(422).json({
+      error: 'No se pudo ubicar esa direccion. Corregila a mano o revisá cómo está escrita.',
+    });
+  }
+
+  const actualizado = db.prepare('SELECT * FROM pedidos WHERE id = ?').get(pedido.id);
+  const hydrated = hydratePedido(actualizado);
+  const io = req.app.get('io');
+  if (io) emitPedidoActualizado(io, hydrated);
+
+  return res.json({ ...hydrated, _geocoding: geo });
 });
 
 /**
@@ -882,6 +992,22 @@ router.post(
       const io = req.app.get('io');
       const hydrated = hydratePedido(pedido);
       if (io) emitNuevoPedido(io, hydrated);
+
+      // Geocodificar la direccion en segundo plano: la mayoria de los
+      // pedidos del TPV entran con la direccion escrita a mano y sin
+      // punto GPS, y sin coordenadas el rider se queda sin mapa.
+      if (normalized.tipo_entrega === 'delivery') {
+        setImmediate(() => {
+          geocodificarPedido(pedido.id)
+            .then((geo) => {
+              if (!geo || !io) return;
+              const actualizado = db.prepare('SELECT * FROM pedidos WHERE id = ?').get(pedido.id);
+              if (actualizado) emitPedidoActualizado(io, hydratePedido(actualizado));
+            })
+            .catch(() => {});
+        });
+      }
+
       res.json(hydrated);
     } catch (error) {
       logger.error('[pedidos] Error al crear pedido interno', {
@@ -931,6 +1057,25 @@ router.post('/', publicOrderRateLimit, validateBody(createPedidoSchema), async (
     } else {
       logger.error('[pedidos] ERROR: io no disponible para emitir nuevo pedido');
     }
+
+    // Geocodificar la direccion en segundo plano para que el rider tenga
+    // mapa aunque el cliente no haya compartido su ubicacion.
+    // Fire-and-forget a proposito: la respuesta al cliente no espera por
+    // esto, y si Nominatim esta caido el pedido se crea igual.
+    if (normalized.tipo_entrega === 'delivery') {
+      setImmediate(() => {
+        geocodificarPedido(pedido.id)
+          .then((geo) => {
+            if (!geo || !io) return;
+            // Re-emitir para que la app rider reciba las coordenadas
+            // sin tener que refrescar a mano.
+            const actualizado = db.prepare('SELECT * FROM pedidos WHERE id = ?').get(pedido.id);
+            if (actualizado) emitPedidoActualizado(io, hydratePedido(actualizado));
+          })
+          .catch(() => {});
+      });
+    }
+
     res.json(hydrated);
   } catch (error) {
     logger.error('[pedidos] Error al crear pedido publico', {

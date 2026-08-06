@@ -1,7 +1,13 @@
 import { motion } from 'framer-motion';
 import { MapPin, Navigation, Clock, ChevronRight } from 'lucide-react';
 
-import { fmtDistancia, etaMinutos, distanciaMetros, nivelUrgencia } from '../../lib/riderUx.js';
+import {
+  fmtDistancia,
+  etaMinutos,
+  distanciaMetros,
+  nivelUrgencia,
+  tieneUbicacionUsable,
+} from '../../lib/riderUx.js';
 import { haptic } from '../../lib/riderHaptics.js';
 
 /**
@@ -12,13 +18,18 @@ import { haptic } from '../../lib/riderHaptics.js';
  * "¿a dónde voy AHORA?" de un vistazo, y el resto queda abajo en
  * formato compacto.
  *
- * Muestra distancia y ETA solo si tenemos la posición del rider; si el
- * GPS todavía no arrancó, se omiten en vez de mostrar datos inventados.
+ * Distancia y ETA se muestran SOLO si el pedido tiene un punto GPS real
+ * y el rider ya está ubicado. Si el cliente no compartió ubicación (muy
+ * común: "barrio Mutual"), se avisa explícitamente en vez de mostrar
+ * números inventados — el (0,0) daba cosas como "7602 km · 16291 min".
  */
 export default function HeroPedido({ pedido, riderLat, riderLng, onAbrir, onNavegar }) {
   if (!pedido) return null;
 
-  const dist = distanciaMetros(riderLat, riderLng, pedido.cliente_latitud, pedido.cliente_longitud);
+  const tienePunto = tieneUbicacionUsable(pedido);
+  const dist = tienePunto
+    ? distanciaMetros(riderLat, riderLng, pedido.cliente_latitud, pedido.cliente_longitud)
+    : null;
   const eta = dist !== null ? etaMinutos(dist) : null;
   const urgencia = nivelUrgencia(pedido.creado_en);
   const inicial = String(pedido.cliente_nombre || '?')
@@ -51,11 +62,11 @@ export default function HeroPedido({ pedido, riderLat, riderLng, onAbrir, onNave
         className="w-full px-5 pt-5 pb-4 text-left"
       >
         <div className="flex items-center justify-between gap-2">
-          <span className="text-[10px] font-black uppercase tracking-[0.24em] text-white/75">
+          <span className="text-[12px] font-medium text-white/75">
             {enCamino ? 'Estás yendo a' : 'Tu próxima entrega'}
           </span>
           {urgencia.minutos !== null && urgencia.nivel !== 'ok' && (
-            <span className="flex items-center gap-1 rounded-full bg-white/20 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-white backdrop-blur">
+            <span className="flex items-center gap-1 rounded-full bg-white/20 px-2.5 py-1 text-[12px] font-medium text-white backdrop-blur">
               <Clock size={10} strokeWidth={3} />
               {urgencia.minutos} min
             </span>
@@ -63,11 +74,11 @@ export default function HeroPedido({ pedido, riderLat, riderLng, onAbrir, onNave
         </div>
 
         <div className="mt-3 flex items-start gap-3">
-          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-white/20 text-2xl font-black text-white backdrop-blur">
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-white/20 text-2xl font-bold text-white backdrop-blur">
             {inicial}
           </div>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-lg font-black leading-tight text-white">
+            <p className="truncate text-lg font-bold leading-tight text-white">
               {pedido.cliente_nombre || 'Sin nombre'}
             </p>
             <p className="mt-1 flex items-start gap-1 text-sm font-semibold leading-snug text-white/85">
@@ -78,40 +89,49 @@ export default function HeroPedido({ pedido, riderLat, riderLng, onAbrir, onNave
           <ChevronRight size={20} className="mt-1 shrink-0 text-white/60" />
         </div>
 
-        {/* Distancia y ETA: solo si el GPS ya nos ubicó */}
-        {dist !== null && (
+        {/* Distancia y ETA: solo con punto GPS real Y rider ubicado.
+            Si el cliente no compartió ubicación, lo decimos en vez de
+            mostrar un número inventado. */}
+        {dist !== null ? (
           <div className="mt-4 flex items-center gap-4">
             <div>
-              <p className="text-2xl font-black leading-none text-white tabular-nums">
+              <p className="text-2xl font-bold leading-none text-white tabular-nums">
                 {fmtDistancia(dist)}
               </p>
-              <p className="mt-0.5 text-[9px] font-black uppercase tracking-widest text-white/60">
-                Distancia
-              </p>
+              <p className="mt-0.5 text-[12px] font-medium text-white/60">Distancia</p>
             </div>
             <div className="h-8 w-px bg-white/20" />
             <div>
-              <p className="text-2xl font-black leading-none text-white tabular-nums">{eta} min</p>
-              <p className="mt-0.5 text-[9px] font-black uppercase tracking-widest text-white/60">
-                Estimado
-              </p>
+              <p className="text-2xl font-bold leading-none text-white tabular-nums">{eta} min</p>
+              <p className="mt-0.5 text-[12px] font-medium text-white/60">Estimado</p>
             </div>
+          </div>
+        ) : (
+          <div className="mt-4 rounded-2xl bg-white/15 px-3 py-2.5 backdrop-blur">
+            <p className="text-[11px] font-bold leading-snug text-white/90">
+              {tienePunto
+                ? 'Buscando tu ubicación para calcular la distancia…'
+                : 'El cliente no compartió ubicación exacta. Guiate por la dirección.'}
+            </p>
           </div>
         )}
       </button>
 
-      {/* Acción principal */}
+      {/* Acción principal: abre el modo ruta con el mapa a pantalla
+          completa. Si el pedido no tiene punto GPS el mapa no puede
+          trazar nada, así que en ese caso llevamos al detalle. */}
       <div className="border-t border-white/15 px-4 py-3">
         <button
           type="button"
           onClick={() => {
             haptic('tap');
-            onNavegar?.(pedido);
+            if (tienePunto) onNavegar?.(pedido);
+            else onAbrir?.(pedido);
           }}
-          className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-white text-sm font-black uppercase tracking-widest text-gray-900 shadow-md transition active:scale-[0.98]"
+          className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-white text-[15px] font-semibold text-gray-900 shadow-md transition active:scale-[0.98]"
         >
           <Navigation size={17} strokeWidth={2.8} />
-          Ver ruta
+          {tienePunto ? 'Ver ruta en el mapa' : 'Ver pedido'}
         </button>
       </div>
     </motion.div>

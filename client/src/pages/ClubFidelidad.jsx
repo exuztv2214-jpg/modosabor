@@ -255,7 +255,7 @@ export default function ClubFidelidad() {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gray-50">
         <div className="text-center">
-          <div className="mx-auto h-12 w-12 animate-spin rounded-full border-4 border-primary-500 border-t-transparent" />
+          <div className="mx-auto h-12 w-12 animate-spin rounded-full border-4 border-brand-500 border-t-transparent" />
           <p className="mt-4 text-sm font-bold text-gray-500">Cargando tu tarjeta...</p>
         </div>
       </div>
@@ -276,10 +276,8 @@ export default function ClubFidelidad() {
               />
             </div>
             <div>
-              <p className="text-lg font-black leading-tight">{branding.negocio_nombre}</p>
-              <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-gray-500">
-                Club de Fidelidad
-              </p>
+              <p className="text-lg font-semibold leading-tight">{branding.negocio_nombre}</p>
+              <p className="text-[10px] font-bold text-gray-500">Club de Fidelidad</p>
             </div>
           </div>
           <Link
@@ -317,11 +315,11 @@ export default function ClubFidelidad() {
               />
               Programa de fidelidad
             </span>
-            <span className="inline-flex items-center rounded-full bg-emerald-100 px-3 py-1.5 text-[11px] font-black uppercase tracking-widest text-emerald-700 shadow-sm">
+            <span className="inline-flex items-center rounded-full bg-emerald-100 px-3 py-1.5 text-[11px] font-semibold text-emerald-700 shadow-sm">
               100% gratis
             </span>
           </div>
-          <h1 className="mt-4 text-4xl font-black leading-tight sm:text-5xl">
+          <h1 className="mt-4 text-4xl font-semibold leading-tight sm:text-5xl">
             Tu tarjeta de fidelidad,
             <br />
             <span style={{ color: colorPrimario }}>sin vueltas.</span>
@@ -350,10 +348,8 @@ export default function ClubFidelidad() {
                 <Gift size={32} className="text-white" strokeWidth={2.5} />
               </div>
               <div className="flex-1 text-white">
-                <p className="text-[11px] font-black uppercase tracking-[0.22em] text-white/80">
-                  ¿Qué ganás?
-                </p>
-                <p className="mt-1 text-2xl font-black leading-tight sm:text-3xl">
+                <p className="text-[11px] font-semibold text-white/80">¿Qué ganás?</p>
+                <p className="mt-1 text-2xl font-semibold leading-tight sm:text-3xl">
                   {payload?.config?.premio_descripcion || '1 Pizza Muzzarella gratis'}
                 </p>
                 <p className="mt-1 text-sm font-bold text-white/90">
@@ -447,14 +443,14 @@ export default function ClubFidelidad() {
                 <Share2 size={22} />
               </div>
               <div className="flex-1">
-                <h3 className="text-base font-black text-gray-900">Compartí con amigos</h3>
+                <h3 className="text-base font-semibold text-gray-900">Compartí con amigos</h3>
                 <p className="mt-1 text-sm font-medium text-gray-500">
                   Mandale este link a alguien que quieras invitar al club.
                 </p>
                 <button
                   type="button"
                   onClick={shareCard}
-                  className="mt-3 inline-flex h-10 items-center gap-2 rounded-xl px-4 text-[11px] font-black uppercase tracking-widest text-white shadow-sm transition hover:opacity-90"
+                  className="mt-3 inline-flex h-10 items-center gap-2 rounded-xl px-4 text-[11px] font-semibold text-white shadow-sm transition hover:opacity-90"
                   style={{ backgroundColor: colorPrimario }}
                 >
                   <Share2 size={14} />
@@ -470,7 +466,7 @@ export default function ClubFidelidad() {
                 <MessageCircle size={22} />
               </div>
               <div className="flex-1">
-                <h3 className="text-base font-black text-gray-900">¿Necesitás ayuda?</h3>
+                <h3 className="text-base font-semibold text-gray-900">¿Necesitás ayuda?</h3>
                 <p className="mt-1 text-sm font-medium text-gray-600">
                   Si tenés dudas con tus sellos o querés canjear un premio, escribinos.
                 </p>
@@ -481,7 +477,7 @@ export default function ClubFidelidad() {
                   )}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="mt-3 inline-flex h-10 items-center gap-2 rounded-xl bg-emerald-500 px-4 text-[11px] font-black uppercase tracking-widest text-white shadow-sm transition hover:bg-emerald-600"
+                  className="mt-3 inline-flex h-10 items-center gap-2 rounded-xl bg-emerald-500 px-4 text-[11px] font-semibold text-white shadow-sm transition hover:bg-emerald-600"
                 >
                   <MessageCircle size={14} />
                   Escribir por WhatsApp
@@ -502,7 +498,7 @@ export default function ClubFidelidad() {
             >
               <HelpCircle size={26} style={{ color: colorPrimario }} />
             </div>
-            <h3 className="text-2xl font-black text-gray-900">Preguntas frecuentes</h3>
+            <h3 className="text-2xl font-semibold text-gray-900">Preguntas frecuentes</h3>
             <p className="mt-2 text-sm font-medium text-gray-500">
               Lo que la gente más nos pregunta del club.
             </p>
@@ -519,7 +515,7 @@ export default function ClubFidelidad() {
           </p>
           <Link
             to="/club/terminos"
-            className="mt-3 inline-block text-[11px] font-black uppercase tracking-widest hover:underline"
+            className="mt-3 inline-block text-[11px] font-semibold hover:underline"
             style={{ color: colorPrimario }}
           >
             Leer bases y condiciones completas →
@@ -575,7 +571,7 @@ function FAQ({ colorPrimario, sellos }) {
               onClick={() => setOpenIndex(isOpen ? -1 : index)}
               className="flex w-full items-center justify-between gap-3 px-5 py-4 text-left"
             >
-              <span className="text-sm font-black text-gray-900">{item.q}</span>
+              <span className="text-sm font-semibold text-gray-900">{item.q}</span>
               <ChevronDown
                 size={18}
                 className={`shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`}

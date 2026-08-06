@@ -1,14 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { AnimatePresence } from 'framer-motion';
-import { PageTransition, Tooltip, DarkModeToggle } from '../design-system';
+import { PageTransition } from '../design-system';
 import {
   Menu,
-  X,
   Bell,
   LogOut,
   User,
-  Search,
   Settings,
   AlertTriangle,
   Package,
@@ -227,10 +225,10 @@ export default function Layout() {
 
   const notificationCount = notificationItems.length;
   const toneClasses = {
-    blue: 'bg-primary-50 text-primary-500',
-    rose: 'bg-danger-50 text-danger-500',
-    amber: 'bg-warning-50 text-warning-500',
-    emerald: 'bg-success-50 text-success-500',
+    blue: { bg: '#E9F1FA', fg: '#1F5FA0' },
+    rose: { bg: '#FEF2F2', fg: '#9E141E' },
+    amber: { bg: '#FDF3D3', fg: '#95661A' },
+    emerald: { bg: '#E7F5EF', fg: '#0F6E56' },
   };
 
   const handleTestAlarm = async () => {
@@ -271,6 +269,7 @@ export default function Layout() {
       '/admin/kds': 'Cocina / KDS',
       '/admin/mesas': 'Mesas / Salón',
       '/admin/delivery': 'Delivery',
+      '/admin/direcciones': 'Barrios y direcciones',
       '/admin/productos': 'Productos',
       '/admin/inventario': 'Inventario',
       '/admin/compras': 'Compras',
@@ -341,136 +340,126 @@ export default function Layout() {
         {/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
             TOPBAR / HEADER (Modernize Style)
             â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+        {/* Cambiaba de 80px a 65px al hacer scroll y el contenido saltaba. */}
         <header
-          className={`
-            sticky top-0 z-50 px-4 lg:px-8 flex items-center justify-between
-            transition-all duration-300
-            ${isScrolled ? 'bg-white/80 backdrop-blur-md shadow-sm h-[65px]' : 'bg-transparent h-[80px]'}
-          `}
+          className={`sticky top-0 z-50 flex h-[60px] items-center justify-between px-4 transition-colors duration-200 sm:px-6 ${
+            isScrolled ? 'border-b border-gray-200 bg-white/90 backdrop-blur-md' : 'bg-transparent'
+          }`}
         >
-          {/* Left Side: Toggle + Search */}
-          <div className="flex items-center gap-4">
+          {/*
+            Acá vivían dos controles que no correspondían: una lupa que no
+            tenía `onClick` —un botón de búsqueda que no buscaba nada— y el
+            interruptor de modo oscuro, que quedó dando vueltas aunque el
+            sistema es claro. Los dos afuera.
+          */}
+          <div className="flex items-center gap-3">
             <button
+              type="button"
               onClick={() => setMobileMenuOpen(true)}
-              className="lg:hidden p-2 rounded-full hover:bg-primary-50 text-gray-600 transition-colors"
+              aria-label="Abrir menú"
+              className="rounded-lg p-2 text-gray-600 transition hover:bg-gray-100 lg:hidden"
             >
-              <Menu size={22} />
+              <Menu size={20} />
             </button>
 
-            <Tooltip text="Buscar">
-              <button className="hidden lg:flex p-2 rounded-full hover:bg-primary-50 text-gray-600 transition-colors">
-                <Search size={20} />
-              </button>
-            </Tooltip>
-
-            <DarkModeToggle className="hidden lg:flex" />
-
-            <div className="hidden md:block">
-              <h2 className="text-sm font-black uppercase tracking-widest text-primary-500/80">
-                {getPageTitle()}
-              </h2>
-            </div>
+            <h2 className="hidden text-[15px] font-semibold text-gray-900 md:block">
+              {getPageTitle()}
+            </h2>
           </div>
 
           {/* Right Side: Icons + User */}
-          <div className="flex items-center gap-2 lg:gap-4">
+          <div className="flex items-center gap-2">
             {installReady && !isStandalone && (
               <button
+                type="button"
                 onClick={handleInstallPwa}
-                className="hidden md:inline-flex items-center gap-2 rounded-2xl border border-primary-200 bg-white px-4 py-2 text-[11px] font-black uppercase tracking-widest text-primary-500 shadow-sm transition-all hover:-translate-y-0.5 hover:bg-primary-50"
+                className="hidden items-center gap-1.5 rounded-xl bg-white px-3 py-2 text-[13px] font-semibold text-gray-600 shadow-[0_1px_2px_rgba(15,23,42,0.06)] transition hover:bg-gray-50 md:inline-flex"
               >
-                <Download size={14} />
-                Instalar sistema
+                <Download size={15} />
+                Instalar
               </button>
             )}
-            {/* Apps/Notifications icons - Modernize Style */}
+
             <div className="relative notification-menu-container">
+              {/*
+                Tenía dos indicadores encima del mismo campanita: un puntito
+                rojo y, pisándolo, la burbuja azul con el número. Queda uno.
+              */}
               <button
+                type="button"
                 onClick={() => setNotificationsOpen((prev) => !prev)}
-                className="p-2 rounded-full hover:bg-primary-50 text-gray-600 transition-colors relative"
+                aria-label="Notificaciones"
+                className="relative rounded-lg p-2 text-gray-600 transition hover:bg-gray-100"
               >
-                <Bell size={22} />
+                <Bell size={20} />
                 {notificationCount > 0 && (
-                  <>
-                    <span className="absolute top-2 right-2 w-2 h-2 bg-danger-500 rounded-full border-2 border-white"></span>
-                    <span className="absolute -right-1 -top-1 min-w-[18px] h-[18px] px-1 rounded-full bg-primary-500 text-white text-[10px] font-black flex items-center justify-center shadow-sm">
-                      {notificationCount}
-                    </span>
-                  </>
+                  <span
+                    className="absolute -right-0.5 -top-0.5 flex h-[17px] min-w-[17px] items-center justify-center rounded-full px-1 text-[10px] font-semibold tabular-nums text-white ring-2 ring-white"
+                    style={{ background: '#DC1F2D' }}
+                  >
+                    {notificationCount > 9 ? '9+' : notificationCount}
+                  </span>
                 )}
               </button>
 
               {notificationsOpen && (
-                <div className="absolute right-0 top-full mt-3 w-[360px] max-w-[calc(100vw-2rem)] bg-white rounded-[24px] shadow-[0_20px_50px_rgba(0,0,0,0.15)] border border-gray-100/50 py-3 z-[100] animate-in fade-in slide-in-from-top-2 duration-200">
-                  <div className="px-5 pb-3 border-b border-gray-100">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-black text-gray-900 tracking-tight">
-                          Notificaciones del sistema
-                        </p>
-                        <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-gray-400">
-                          {notificationCount > 0
-                            ? `${notificationCount} para revisar`
-                            : 'Todo en orden'}
-                        </p>
-                      </div>
-                      <button
-                        onClick={() => navigate('/admin/dashboard')}
-                        className="text-[10px] font-black uppercase tracking-widest text-primary-500 hover:underline"
-                      >
-                        Ver panel
-                      </button>
-                    </div>
-                    <div className="mt-3 flex items-center justify-between gap-3">
-                      <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-gray-400">
-                        Audio y alertas
+                <div className="absolute right-0 top-full z-[100] mt-2 w-[340px] max-w-[calc(100vw-2rem)] rounded-2xl border border-gray-100 bg-white shadow-[0_12px_40px_rgba(15,23,42,0.12)]">
+                  <div className="flex items-center justify-between gap-3 border-b border-gray-100 px-4 py-3">
+                    <div>
+                      <p className="text-[14px] font-semibold text-gray-900">Notificaciones</p>
+                      <p className="text-[12px] text-gray-500">
+                        {notificationCount > 0
+                          ? `${notificationCount} para revisar`
+                          : 'Todo en orden'}
                       </p>
-                      <button
-                        onClick={handleTestAlarm}
-                        className="rounded-xl bg-primary-50 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-primary-500 transition-all hover:bg-primary-500 hover:text-white"
-                      >
-                        Probar alarma
-                      </button>
                     </div>
+                    <button
+                      type="button"
+                      onClick={handleTestAlarm}
+                      className="shrink-0 rounded-lg bg-gray-100 px-2.5 py-1.5 text-[12px] font-semibold text-gray-600 transition hover:bg-gray-200"
+                    >
+                      Probar alarma
+                    </button>
                   </div>
 
-                  <div className="max-h-[420px] overflow-y-auto px-3 py-3 space-y-2">
+                  <div className="max-h-[380px] space-y-1 overflow-y-auto p-2">
                     {notificationItems.length > 0 ? (
                       notificationItems.map((item) => {
                         const Icon = item.icon;
+                        const tono = toneClasses[item.tone] || toneClasses.blue;
                         return (
                           <button
+                            type="button"
                             key={item.id}
                             onClick={() => {
                               setNotificationsOpen(false);
                               item.action?.();
                             }}
-                            className="w-full flex items-start gap-3 rounded-[20px] border border-gray-100 bg-primary-50 px-4 py-4 text-left transition-all hover:-translate-y-0.5 hover:shadow-sm"
+                            className="flex w-full items-start gap-2.5 rounded-xl p-2.5 text-left transition hover:bg-gray-50"
                           >
-                            <div
-                              className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-[16px] ${toneClasses[item.tone] || toneClasses.blue}`}
+                            <span
+                              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
+                              style={{ background: tono.bg, color: tono.fg }}
                             >
-                              <Icon size={20} />
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <p className="text-xs font-black uppercase tracking-wide text-gray-900">
+                              <Icon size={16} />
+                            </span>
+                            <span className="min-w-0 flex-1">
+                              <span className="block text-[13px] font-medium text-gray-900">
                                 {item.title}
-                              </p>
-                              <p className="mt-1 text-xs font-medium text-gray-500">
+                              </span>
+                              <span className="mt-0.5 block text-[12px] leading-4 text-gray-500">
                                 {item.description}
-                              </p>
-                            </div>
+                              </span>
+                            </span>
                           </button>
                         );
                       })
                     ) : (
-                      <div className="rounded-[20px] border border-dashed border-gray-200 bg-primary-50 px-4 py-8 text-center">
-                        <Bell size={24} className="mx-auto mb-3 text-gray-300" />
-                        <p className="text-xs font-black uppercase tracking-widest text-gray-500">
-                          Sin alertas nuevas
-                        </p>
-                        <p className="mt-1 text-xs text-gray-400">
-                          La operacion se ve estable por ahora.
+                      <div className="px-4 py-8 text-center">
+                        <Bell size={22} className="mx-auto mb-2 text-gray-300" />
+                        <p className="text-[13px] font-medium text-gray-600">Sin alertas nuevas</p>
+                        <p className="mt-0.5 text-[12px] text-gray-400">
+                          La operación se ve estable.
                         </p>
                       </div>
                     )}
@@ -479,71 +468,62 @@ export default function Layout() {
               )}
             </div>
 
-            {/* User Dropdown */}
-            <div className="relative user-menu-container ml-2">
+            {/*
+              La identidad del usuario aparecía dos veces: en el pie del
+              sidebar (donde no hacía nada) y acá con una ficha grande. Ahora
+              el sidebar es el lugar principal —tiene el nombre, el rol, el
+              acceso a la cuenta y el botón de salir— y esto queda como
+              atajo corto.
+            */}
+            <div className="user-menu-container relative">
               <button
+                type="button"
                 onClick={() => setUserMenuOpen(!userMenuOpen)}
-                className="flex items-center gap-2 transition-all duration-200"
+                aria-label="Menú de usuario"
+                className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-lg text-[13px] font-semibold text-white transition hover:brightness-110"
+                style={{ background: '#DC1F2D' }}
               >
-                <div className="w-9 h-9 rounded-full bg-primary-50 flex items-center justify-center overflow-hidden border border-primary-100 shadow-sm transition-transform hover:scale-105">
-                  {user?.avatar ? (
-                    <img src={user.avatar} alt="avatar" className="w-full h-full object-cover" />
-                  ) : (
-                    <span className="text-primary-500 font-black text-xs uppercase">
-                      {user?.nombre?.[0] || 'U'}
-                    </span>
-                  )}
-                </div>
+                {user?.avatar ? (
+                  <img src={user.avatar} alt="" className="h-full w-full object-cover" />
+                ) : (
+                  user?.nombre?.[0]?.toUpperCase() || 'U'
+                )}
               </button>
 
-              {/* User Menu Dropdown */}
               {userMenuOpen && (
-                <div className="absolute right-0 top-full mt-3 w-[260px] bg-white rounded-[24px] shadow-[0_20px_50px_rgba(0,0,0,0.15)] border border-gray-100/50 py-3 z-[100] animate-in fade-in slide-in-from-top-2 duration-200">
-                  <div className="px-6 py-4 mb-2">
-                    <p className="text-sm font-black text-gray-900 tracking-tight">
-                      Perfil de Usuario
+                <div className="absolute right-0 top-full z-[100] mt-2 w-[240px] rounded-2xl border border-gray-100 bg-white p-2 shadow-[0_12px_40px_rgba(15,23,42,0.12)]">
+                  <div className="px-2 pb-2 pt-1">
+                    <p className="truncate text-[14px] font-semibold text-gray-900">
+                      {user?.nombre || 'Administrador'}
                     </p>
-                    <div className="mt-4 flex items-center gap-4">
-                      <div className="w-16 h-16 rounded-full bg-gradient-to-br from-primary-500 to-info-500 flex items-center justify-center text-white text-xl font-black">
-                        {user?.nombre?.[0]}
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-sm font-black text-gray-800 truncate">{user?.nombre}</p>
-                        <p className="text-xs font-bold text-gray-400 uppercase tracking-tighter truncate">
-                          {user?.rol || 'Administrador'}
-                        </p>
-                        <p className="text-[10px] text-gray-400 truncate mt-0.5">{user?.email}</p>
-                      </div>
-                    </div>
+                    <p className="truncate text-[12px] text-gray-500">
+                      {user?.email || user?.rol || 'Admin'}
+                    </p>
                   </div>
 
-                  <div className="px-2 space-y-1 border-t border-gray-50 pt-3">
+                  <div className="border-t border-gray-100 pt-1.5">
                     <button
+                      type="button"
                       onClick={() => navigate('/admin/cuenta')}
-                      className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold text-gray-600 hover:bg-primary-50 hover:text-primary-500 transition-all group"
+                      className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-[13px] font-medium text-gray-700 transition hover:bg-gray-100"
                     >
-                      <div className="w-9 h-9 rounded-xl bg-gray-50 flex items-center justify-center group-hover:bg-white shadow-sm transition-colors text-gray-400 group-hover:text-primary-500">
-                        <User size={18} />
-                      </div>
-                      Mi Perfil
+                      <User size={16} className="text-gray-400" />
+                      Mi cuenta
                     </button>
-
                     <button
+                      type="button"
                       onClick={() => navigate('/admin/configuracion')}
-                      className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold text-gray-600 hover:bg-primary-50 hover:text-primary-500 transition-all group"
+                      className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-[13px] font-medium text-gray-700 transition hover:bg-gray-100"
                     >
-                      <div className="w-9 h-9 rounded-xl bg-gray-50 flex items-center justify-center group-hover:bg-white shadow-sm transition-colors text-gray-400 group-hover:text-primary-500">
-                        <Settings size={18} />
-                      </div>
-                      Ajustes
+                      <Settings size={16} className="text-gray-400" />
+                      Configuración
                     </button>
-                  </div>
-
-                  <div className="px-4 mt-4 pt-2">
                     <button
+                      type="button"
                       onClick={handleLogout}
-                      className="w-full py-3.5 rounded-2xl bg-white border border-primary-500 text-primary-500 text-sm font-black uppercase tracking-wider hover:bg-primary-500 hover:text-white transition-all shadow-sm"
+                      className="mt-0.5 flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-[13px] font-medium text-gray-700 transition hover:bg-rose-50 hover:text-rose-700"
                     >
+                      <LogOut size={16} className="text-gray-400" />
                       Cerrar sesión
                     </button>
                   </div>

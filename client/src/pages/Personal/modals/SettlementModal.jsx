@@ -1,5 +1,8 @@
-import { X, Banknote } from 'lucide-react';
-import { CONTROL, PAYMENT_OPTIONS, fmt } from '../constants.js';
+import { X, Zap, AlertTriangle } from 'lucide-react';
+
+import { BRAND, STROKE, Z } from '../../../lib/theme.js';
+import { CONTROL, LABEL, SELECT, PAYMENT_OPTIONS, FREQUENCY_OPTIONS, fmt } from '../constants.js';
+import { ToggleSwitch } from './ToggleSwitch.jsx';
 
 export function SettlementModal({
   open,
@@ -15,51 +18,92 @@ export function SettlementModal({
 }) {
   if (!open) return null;
 
+  const set = (campo) => (e) =>
+    onSettlementFormChange({ ...settlementForm, [campo]: e.target.value });
+
+  const enRojo = liquidacionPreview.neto < 0;
+  const laboral = detail?.resumen_laboral;
+  const frecuencia =
+    FREQUENCY_OPTIONS.find((f) => f.value === selectedPerson?.frecuencia_pago)?.label ||
+    selectedPerson?.frecuencia_pago ||
+    'período';
+
   return (
     <div
-      className="fixed inset-0 z-[1000] flex items-center justify-center bg-[#2A3547]/40 p-4 backdrop-blur-sm"
+      className="fixed inset-0 flex items-center justify-center bg-gray-900/40 p-4 backdrop-blur-sm"
+      style={{ zIndex: Z.modal }}
       onClick={onClose}
     >
       <div
-        className="w-full max-w-xl rounded-2xl bg-white p-8 shadow-2xl animate-in zoom-in-95"
+        className="flex max-h-[90vh] w-full max-w-xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="mb-6 flex justify-between items-start">
+        <div className="flex items-start justify-between border-b border-gray-100 px-5 py-4">
           <div>
-            <h3 className="text-xl font-bold text-gray-900">Liquidar Haberes</h3>
-            <p className="text-sm font-semibold text-success-500 mt-1">{selectedPerson?.nombre}</p>
+            <h3 className="text-[16px] font-semibold text-gray-900">Liquidar sueldo</h3>
+            <p className="mt-0.5 text-[12px] text-gray-500">{selectedPerson?.nombre}</p>
           </div>
           <button
+            type="button"
             onClick={onClose}
-            className="rounded-full p-2 hover:bg-gray-100 text-gray-400 transition-all"
+            className="rounded-lg p-1.5 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
           >
-            <X size={20} />
+            <X size={18} strokeWidth={STROKE} />
           </button>
         </div>
 
-        <div className="space-y-6">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="text-xs font-bold text-gray-700 mb-1 block">
-                Unidades ({selectedPerson?.frecuencia_pago})
-              </label>
+        <div className="custom-scrollbar flex-1 space-y-4 overflow-y-auto p-5">
+          {/* La sugerencia automática estaba abajo del formulario, después de
+              que ya habías tipeado todo a mano. Va arriba, con el botón que
+              la aplica: es el camino corto y debería ofrecerse primero. */}
+          {laboral ? (
+            <div className="rounded-xl bg-gray-50 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-[13px] font-medium text-gray-900">
+                    El sistema calculó {laboral.unidades_sugeridas || 0} jornadas
+                  </p>
+                  <p className="mt-0.5 text-[12px] text-gray-500">
+                    Neto estimado {fmt(laboral.monto_neto_estimado || 0)} según la asistencia
+                    cargada.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={onAuto}
+                  disabled={saving}
+                  className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-xl bg-white px-3 text-[12px] font-semibold text-gray-700 shadow-sm transition hover:bg-gray-100 disabled:opacity-40"
+                >
+                  <Zap size={13} strokeWidth={STROKE} />
+                  Usar esto
+                </button>
+              </div>
+              {detail?.resumen_liquidacion_ejecutivo?.recommendation ? (
+                <p className="mt-2 border-t border-gray-200 pt-2 text-[12px] leading-4 text-gray-600">
+                  {detail.resumen_liquidacion_ejecutivo.recommendation}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block">
+              <span className={LABEL}>Cuántos períodos ({frecuencia.toLowerCase()})</span>
               <input
                 type="number"
+                min="0"
+                step="0.5"
                 value={settlementForm.unidades}
-                onChange={(e) =>
-                  onSettlementFormChange({ ...settlementForm, unidades: e.target.value })
-                }
+                onChange={set('unidades')}
                 className={CONTROL}
               />
-            </div>
-            <div>
-              <label className="text-xs font-bold text-gray-700 mb-1 block">Método de Pago</label>
+            </label>
+            <label className="block">
+              <span className={LABEL}>Cómo se le paga</span>
               <select
                 value={settlementForm.metodo_pago}
-                onChange={(e) =>
-                  onSettlementFormChange({ ...settlementForm, metodo_pago: e.target.value })
-                }
-                className={CONTROL}
+                onChange={set('metodo_pago')}
+                className={SELECT}
               >
                 {PAYMENT_OPTIONS.map((o) => (
                   <option key={o.value} value={o.value}>
@@ -67,116 +111,95 @@ export function SettlementModal({
                   </option>
                 ))}
               </select>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="text-xs font-bold text-gray-700 mb-1 block">Periodo desde</label>
+            </label>
+            <label className="block">
+              <span className={LABEL}>Período desde</span>
               <input
                 type="date"
                 value={settlementForm.periodo_desde}
-                onChange={(e) =>
-                  onSettlementFormChange({ ...settlementForm, periodo_desde: e.target.value })
-                }
+                onChange={set('periodo_desde')}
                 className={CONTROL}
               />
-            </div>
-            <div>
-              <label className="text-xs font-bold text-gray-700 mb-1 block">Periodo hasta</label>
+            </label>
+            <label className="block">
+              <span className={LABEL}>Período hasta</span>
               <input
                 type="date"
                 value={settlementForm.periodo_hasta}
-                onChange={(e) =>
-                  onSettlementFormChange({ ...settlementForm, periodo_hasta: e.target.value })
-                }
+                onChange={set('periodo_hasta')}
                 className={CONTROL}
               />
-            </div>
+            </label>
           </div>
-
-          {detail?.resumen_laboral ? (
-            <div className="rounded-xl border border-primary-500/15 bg-primary-50/50 p-4">
-              <p className="text-[11px] font-black uppercase tracking-widest text-primary-500 mb-2">
-                Sugerencia automática
-              </p>
-              <div className="grid grid-cols-2 gap-3 text-sm">
-                <div>
-                  <p className="font-semibold text-gray-500">Jornadas</p>
-                  <p className="font-black text-gray-900">
-                    {detail.resumen_laboral.unidades_sugeridas || 0}
-                  </p>
-                </div>
-                <div>
-                  <p className="font-semibold text-gray-500">Neto estimado</p>
-                  <p className="font-black text-gray-900">
-                    {fmt(detail.resumen_laboral.monto_neto_estimado || 0)}
-                  </p>
-                </div>
-              </div>
-              {detail?.resumen_liquidacion_ejecutivo?.recommendation ? (
-                <p className="mt-3 text-xs font-semibold leading-5 text-gray-600">
-                  {detail.resumen_liquidacion_ejecutivo.recommendation}
-                </p>
-              ) : null}
-            </div>
-          ) : null}
 
           <div
-            className={`p-6 rounded-xl flex items-center justify-between border ${liquidacionPreview.neto < 0 ? 'bg-danger-50 border-rose-200' : 'bg-[#E6FFFA] border-success-500/20'}`}
+            className="rounded-xl px-5 py-4"
+            style={{ background: enRojo ? '#FEF2F2' : '#E7F5EF' }}
           >
-            <div>
-              <p
-                className={`text-xs font-bold uppercase tracking-wider mb-1 ${liquidacionPreview.neto < 0 ? 'text-rose-500' : 'text-success-500'}`}
-              >
-                Monto Neto Final
-              </p>
-              <p
-                className={`text-3xl font-bold ${liquidacionPreview.neto < 0 ? 'text-danger-600' : 'text-gray-900'}`}
-              >
-                {liquidacionPreview.label}
-              </p>
-              {liquidacionPreview.neto < 0 && (
-                <p className="text-xs font-semibold text-rose-500 mt-1">
-                  ⚠️ Los adelantos superan el sueldo bruto
-                </p>
-              )}
-            </div>
-            <div
-              className={`h-14 w-14 rounded-full bg-white flex items-center justify-center shadow-sm ${liquidacionPreview.neto < 0 ? 'text-rose-400' : 'text-success-500'}`}
+            <p className="text-[12px]" style={{ color: enRojo ? '#9E141E' : '#0F6E56' }}>
+              Se le paga
+            </p>
+            <p
+              className="mt-1 text-[30px] font-bold leading-none tabular-nums tracking-tight"
+              style={{ color: enRojo ? BRAND : '#08453A' }}
             >
-              <Banknote size={32} />
-            </div>
+              {liquidacionPreview.label}
+            </p>
+            {enRojo ? (
+              <p
+                className="mt-2 flex items-start gap-1.5 text-[12px] leading-4"
+                style={{ color: '#9E141E' }}
+              >
+                <AlertTriangle size={13} strokeWidth={STROKE} className="mt-px shrink-0" />
+                Lo que ya cobró a cuenta supera el bruto del período. Revisá las jornadas antes de
+                confirmar.
+              </p>
+            ) : null}
           </div>
 
-          <textarea
-            value={settlementForm.notas}
-            onChange={(e) => onSettlementFormChange({ ...settlementForm, notas: e.target.value })}
-            className={CONTROL + ' h-20 py-3 resize-none'}
-            placeholder="Añadir nota al recibo..."
-          />
+          {/* El formulario ya mandaba `impacta_caja: 1` siempre, sin control
+              para cambiarlo: una liquidación pagada por transferencia desde
+              otra cuenta igual descontaba del efectivo del día. */}
+          <div className="rounded-xl bg-gray-50 p-4">
+            <ToggleSwitch
+              checked={settlementForm.impacta_caja === 1}
+              onChange={(v) =>
+                onSettlementFormChange({ ...settlementForm, impacta_caja: v ? 1 : 0 })
+              }
+              label="Descontar de la caja"
+              description="Apagalo si el pago sale de otro lado y no del efectivo del local."
+            />
+          </div>
+
+          <label className="block">
+            <span className={LABEL}>Nota del recibo</span>
+            <textarea
+              value={settlementForm.notas}
+              onChange={set('notas')}
+              className={`${CONTROL} h-20 resize-none py-2.5`}
+              placeholder="Opcional: aclaración que quede registrada"
+            />
+          </label>
         </div>
 
-        <div className="mt-8 flex gap-3">
+        <div className="flex gap-2 border-t border-gray-100 px-5 py-4">
           <button
+            type="button"
             onClick={onClose}
-            className="flex-1 h-11 rounded-xl border border-gray-200 text-sm font-bold text-gray-500 hover:bg-gray-50 transition-all"
+            className="h-11 flex-1 rounded-xl bg-gray-100 text-[13px] font-semibold text-gray-700 transition hover:bg-gray-200"
           >
             Cancelar
           </button>
           <button
-            onClick={onAuto}
-            disabled={saving}
-            className="flex-1 h-11 rounded-xl bg-primary-500 text-white text-sm font-bold shadow-lg shadow-[#5D87FF]/20 active:scale-95 transition-all disabled:opacity-50"
-          >
-            Auto liquidar
-          </button>
-          <button
+            type="button"
             onClick={onConfirmar}
-            disabled={saving}
-            className="flex-1 h-11 rounded-xl bg-success-500 text-white text-sm font-bold shadow-lg shadow-[#13DEB9]/20 active:scale-95 transition-all"
+            // Este botón NO tenía `disabled`: dos clics seguidos registraban
+            // dos liquidaciones y le pagabas dos veces a la misma persona.
+            disabled={saving || enRojo}
+            style={{ background: BRAND }}
+            className="h-11 flex-[2] rounded-xl text-[13px] font-semibold text-white transition hover:brightness-110 disabled:opacity-40"
           >
-            Confirmar Pago
+            {saving ? 'Registrando…' : `Confirmar ${liquidacionPreview.label}`}
           </button>
         </div>
       </div>

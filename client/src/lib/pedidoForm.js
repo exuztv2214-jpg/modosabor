@@ -144,6 +144,11 @@ export function createEmptyCustomer() {
     nivel: 'Bronce',
     latitud: null,
     longitud: null,
+    direccion_barrio_id: null,
+    direccion_barrio_nombre: '',
+    direccion_manzana_id: null,
+    direccion_manzana: '',
+    direccion_casa: '',
   };
 }
 
@@ -298,6 +303,20 @@ export function buildPedidoPayload({
     cliente_latitud: customer?.latitud ?? null,
     cliente_longitud: customer?.longitud ?? null,
     cliente_ubicacion_exacta: Boolean(customer?.ubicacionExacta),
+    direccion_barrio_id: customer?.direccion_barrio_id ?? null,
+    direccion_barrio_nombre: customer?.direccion_barrio_nombre || '',
+    direccion_manzana_id: customer?.direccion_manzana_id ?? null,
+    direccion_manzana: customer?.direccion_manzana || '',
+    direccion_casa: customer?.direccion_casa || '',
+    direccion_estructurada: customer?.direccion_barrio_id
+      ? {
+          barrio_id: customer.direccion_barrio_id,
+          barrio_nombre: customer.direccion_barrio_nombre || '',
+          manzana_id: customer.direccion_manzana_id ?? null,
+          manzana: customer.direccion_manzana || '',
+          casa: customer.direccion_casa || '',
+        }
+      : undefined,
     items: JSON.stringify(normalizedItems),
     subtotal: Number(summary.subtotal || 0),
     costo_envio: Number(summary.envio || 0),

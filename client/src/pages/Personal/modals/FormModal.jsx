@@ -1,7 +1,30 @@
-import { X, Camera } from 'lucide-react';
-import { AvatarDisplay } from '../components.jsx';
-import { CONTROL, ROLES, TURNOS, FREQUENCY_OPTIONS } from '../constants.js';
+import { X, Camera, Bike } from 'lucide-react';
+
+import { BRAND, STROKE, Z } from '../../../lib/theme.js';
 import { formatAmountForInput } from '../../../lib/amountInput.js';
+import { AvatarDisplay } from '../components.jsx';
+import { ToggleSwitch } from './ToggleSwitch.jsx';
+import {
+  CONTROL,
+  LABEL,
+  SELECT,
+  ROLES,
+  TURNOS,
+  FREQUENCY_OPTIONS,
+  PAYMENT_OPTIONS,
+} from '../constants.js';
+
+function Campo({ label, hint, span = false, children }) {
+  return (
+    <div className={span ? 'md:col-span-2' : undefined}>
+      <label className="block">
+        <span className={LABEL}>{label}</span>
+        {children}
+      </label>
+      {hint ? <p className="mt-1 text-[11px] leading-4 text-gray-400">{hint}</p> : null}
+    </div>
+  );
+}
 
 export function FormModal({
   modal,
@@ -11,104 +34,99 @@ export function FormModal({
   onGuardar,
   saving,
   categorias,
-  avatarPickerOpen,
   onAvatarPickerOpen,
-  onSelectAvatar,
-  fileInputRef,
-  handleFileUpload,
 }) {
   if (!modal) return null;
 
+  const set = (campo) => (e) => onFormChange({ ...form, [campo]: e.target.value });
+  const esNuevo = modal === 'nuevo';
+
   return (
     <div
-      className="fixed inset-0 z-[1000] flex items-center justify-center bg-[#2A3547]/40 p-4 backdrop-blur-sm"
+      className="fixed inset-0 flex items-center justify-center bg-gray-900/40 p-4 backdrop-blur-sm"
+      style={{ zIndex: Z.modal }}
       onClick={onClose}
     >
       <div
-        className="w-full max-w-xl max-h-[90vh] flex flex-col rounded-2xl bg-white shadow-2xl animate-in zoom-in-95 duration-200"
+        className="flex max-h-[90vh] w-full max-w-xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="p-6 flex items-center justify-between border-b border-gray-100">
-          <h3 className="text-xl font-bold text-gray-900">
-            {modal === 'nuevo' ? 'Agregar Nuevo Miembro' : 'Editar Datos del Personal'}
+        <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
+          <h3 className="text-[16px] font-semibold text-gray-900">
+            {esNuevo ? 'Nuevo miembro del equipo' : 'Editar ficha'}
           </h3>
           <button
+            type="button"
             onClick={onClose}
-            className="rounded-full p-2 hover:bg-gray-100 text-gray-400 transition-all"
+            className="rounded-lg p-1.5 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
           >
-            <X size={20} />
+            <X size={18} strokeWidth={STROKE} />
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-8 space-y-6 custom-scrollbar">
+        <div className="custom-scrollbar flex-1 space-y-5 overflow-y-auto p-5">
           <div className="flex flex-col items-center">
-            <div className="relative group cursor-pointer">
-              <div className="h-28 w-28 rounded-full overflow-hidden border-4 border-primary-50 shadow-md group-hover:border-primary-500 transition-all">
-                <AvatarDisplay url={form.avatar_url} nombre={form.nombre} size="w-full h-full" />
+            <button type="button" onClick={onAvatarPickerOpen} className="group relative">
+              <div className="rounded-full border-4 border-gray-100 transition group-hover:border-gray-200">
+                <AvatarDisplay url={form.avatar_url} nombre={form.nombre} size="h-24 w-24" />
               </div>
-              <button
-                onClick={onAvatarPickerOpen}
-                className="absolute bottom-0 right-0 h-9 w-9 bg-primary-500 text-white rounded-full border-4 border-white shadow-lg flex items-center justify-center hover:bg-primary-600 transition-all"
+              <span
+                className="absolute bottom-0 right-0 flex h-8 w-8 items-center justify-center rounded-full border-[3px] border-white text-white transition group-hover:brightness-110"
+                style={{ background: BRAND }}
               >
-                <Camera size={16} />
-              </button>
-            </div>
-            <p className="mt-3 text-xs font-bold text-primary-500 uppercase tracking-wider">
-              Foto de Perfil
-            </p>
+                <Camera size={14} strokeWidth={STROKE} />
+              </span>
+            </button>
+            <p className="mt-2 text-[12px] text-gray-500">Tocá la foto para cambiarla</p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="md:col-span-2">
-              <label className="text-xs font-bold text-gray-700 mb-1 block">Nombre Completo</label>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <Campo label="Nombre completo" span>
               <input
                 value={form.nombre}
-                onChange={(e) => onFormChange({ ...form, nombre: e.target.value })}
+                onChange={set('nombre')}
                 className={CONTROL}
-                placeholder="Ej: Roberto Gomez"
+                placeholder="Ej: Roberto Gómez"
+                autoFocus
               />
-            </div>
-            <div>
-              <label className="text-xs font-bold text-gray-700 mb-1 block">Rol Operativo</label>
-              <select
-                value={form.rol_operativo}
-                onChange={(e) => onFormChange({ ...form, rol_operativo: e.target.value })}
-                className={CONTROL}
-              >
+            </Campo>
+
+            <Campo
+              label="Rol"
+              hint={
+                form.rol_operativo === 'delivery'
+                  ? 'Se crea o actualiza también como rider en Delivery.'
+                  : null
+              }
+            >
+              <select value={form.rol_operativo} onChange={set('rol_operativo')} className={SELECT}>
                 {ROLES.map((r) => (
                   <option key={r.value} value={r.value}>
                     {r.label}
                   </option>
                 ))}
               </select>
-              {form.rol_operativo === 'delivery' ? (
-                <p className="mt-2 text-[11px] font-bold uppercase tracking-widest text-success-600">
-                  Se crea o actualiza también en Delivery automáticamente
-                </p>
-              ) : null}
-            </div>
-            <div>
-              <label className="text-xs font-bold text-gray-700 mb-1 block">
-                Categoría Laboral
-              </label>
+            </Campo>
+
+            <Campo label="Categoría">
               <select
                 value={form.categoria_id}
                 onChange={(e) => onFormChange({ ...form, categoria_id: Number(e.target.value) })}
-                className={CONTROL}
+                className={SELECT}
               >
-                {categorias.map((c) => (
+                {(categorias || []).map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.icono} {c.nombre}
                   </option>
                 ))}
               </select>
-            </div>
-            <div>
-              <label className="text-xs font-bold text-gray-700 mb-1 block">Turno</label>
+            </Campo>
+
+            <Campo label="Turno habitual">
               <select
                 value={form.turno_preferido}
-                onChange={(e) => onFormChange({ ...form, turno_preferido: e.target.value })}
-                className={CONTROL}
+                onChange={set('turno_preferido')}
+                className={SELECT}
               >
                 {TURNOS.map((t) => (
                   <option key={t.value} value={t.value}>
@@ -116,15 +134,13 @@ export function FormModal({
                   </option>
                 ))}
               </select>
-            </div>
-            <div>
-              <label className="text-xs font-bold text-gray-700 mb-1 block">
-                Frecuencia de Pago
-              </label>
+            </Campo>
+
+            <Campo label="Cada cuánto se le paga">
               <select
                 value={form.frecuencia_pago}
-                onChange={(e) => onFormChange({ ...form, frecuencia_pago: e.target.value })}
-                className={CONTROL}
+                onChange={set('frecuencia_pago')}
+                className={SELECT}
               >
                 {FREQUENCY_OPTIONS.map((f) => (
                   <option key={f.value} value={f.value}>
@@ -132,37 +148,56 @@ export function FormModal({
                   </option>
                 ))}
               </select>
-            </div>
-            <div>
-              <label className="text-xs font-bold text-gray-700 mb-1 block">Sueldo Base ($)</label>
+            </Campo>
+
+            <Campo label="Sueldo base">
               <input
                 type="text"
                 inputMode="decimal"
                 value={form.monto_base}
-                onChange={(e) => onFormChange({ ...form, monto_base: e.target.value })}
+                onChange={set('monto_base')}
                 onBlur={() =>
                   onFormChange((prev) => ({
                     ...prev,
                     monto_base: prev.monto_base === '' ? '' : formatAmountForInput(prev.monto_base),
                   }))
                 }
-                className={CONTROL + ' font-mono'}
+                className={`${CONTROL} font-mono`}
                 placeholder="0,00"
               />
-            </div>
-            <div>
-              <label className="text-xs font-bold text-gray-700 mb-1 block">
-                Teléfono / WhatsApp
-              </label>
+            </Campo>
+
+            {/* El medio de pago preferido se guarda en la base y la liquidación
+                lo usa como valor por defecto, pero no había forma de cargarlo
+                desde ningún formulario. */}
+            <Campo label="Cómo cobra">
+              <select
+                value={form.medio_pago_preferido}
+                onChange={set('medio_pago_preferido')}
+                className={SELECT}
+              >
+                {PAYMENT_OPTIONS.map((p) => (
+                  <option key={p.value} value={p.value}>
+                    {p.label}
+                  </option>
+                ))}
+              </select>
+            </Campo>
+
+            <Campo label="Teléfono / WhatsApp">
               <input
                 value={form.telefono}
-                onChange={(e) => onFormChange({ ...form, telefono: e.target.value })}
+                onChange={set('telefono')}
                 className={CONTROL}
-                placeholder="Ej: 3811234567"
+                inputMode="tel"
+                placeholder="3811234567"
               />
-            </div>
-            <div>
-              <label className="text-xs font-bold text-gray-700 mb-1 block">PIN de fichada</label>
+            </Campo>
+
+            <Campo
+              label="PIN de fichada"
+              hint="Lo usa para marcar ingreso y salida desde el celular del local."
+            >
               <input
                 value={form.clock_pin}
                 onChange={(e) =>
@@ -171,79 +206,108 @@ export function FormModal({
                     clock_pin: e.target.value.replace(/\D/g, '').slice(0, 6),
                   })
                 }
-                className={CONTROL}
-                placeholder="Ej: 2214"
+                className={`${CONTROL} font-mono tracking-[0.2em]`}
+                inputMode="numeric"
+                placeholder="2214"
               />
-              <p className="mt-1 text-[11px] font-semibold text-gray-400">
-                Lo usa para marcar ingreso y salida desde el celular del local.
-              </p>
-            </div>
-            <div className="md:col-span-2">
-              <label className="text-xs font-bold text-gray-700 mb-1 block">Email</label>
+            </Campo>
+
+            <Campo label="Email" span>
               <input
                 type="email"
                 value={form.email}
-                onChange={(e) => onFormChange({ ...form, email: e.target.value })}
+                onChange={set('email')}
                 className={CONTROL}
-                placeholder="usuario@modosabor.com"
+                placeholder="nombre@ejemplo.com"
               />
-            </div>
-            <div>
-              <label className="text-xs font-bold text-gray-700 mb-1 block">
-                Fecha de Nacimiento
-              </label>
+            </Campo>
+
+            <Campo label="Fecha de nacimiento" hint="Para avisarte del cumpleaños.">
               <input
                 type="date"
                 value={form.fecha_nacimiento}
-                onChange={(e) => onFormChange({ ...form, fecha_nacimiento: e.target.value })}
+                onChange={set('fecha_nacimiento')}
                 className={CONTROL}
               />
-            </div>
-            <div>
-              <label className="text-xs font-bold text-gray-700 mb-1 block">Fecha de Ingreso</label>
+            </Campo>
+
+            <Campo label="Fecha de ingreso">
               <input
                 type="date"
                 value={form.fecha_ingreso}
-                onChange={(e) => onFormChange({ ...form, fecha_ingreso: e.target.value })}
+                onChange={set('fecha_ingreso')}
                 className={CONTROL}
               />
-            </div>
-            <div className="md:col-span-2">
-              <label className="text-xs font-bold text-gray-700 mb-1 block">
-                Dirección Principal
-              </label>
+            </Campo>
+
+            <Campo label="Dirección" span>
               <input
                 value={form.direccion}
-                onChange={(e) => onFormChange({ ...form, direccion: e.target.value })}
+                onChange={set('direccion')}
                 className={CONTROL}
-                placeholder="Ej: Av. Siempre Viva 123"
+                placeholder="Calle y número"
               />
-            </div>
-            <div className="md:col-span-2">
-              <label className="text-xs font-bold text-gray-700 mb-1 block">Notas Internas</label>
+            </Campo>
+
+            <Campo label="Notas internas" span>
               <textarea
                 value={form.notas}
-                onChange={(e) => onFormChange({ ...form, notas: e.target.value })}
-                className={CONTROL + ' h-20 py-3 resize-none'}
-                placeholder="Anotaciones importantes..."
+                onChange={set('notas')}
+                className={`${CONTROL} h-20 resize-none py-2.5`}
+                placeholder="Lo que quieras recordar sobre esta persona"
+              />
+            </Campo>
+          </div>
+
+          {/* Faltaba por completo: `activo` existía en la base y en el
+              formulario, pero no había ningún control para cambiarlo. La única
+              forma de sacar a alguien del equipo era borrarlo, y eso se lleva
+              puesto el historial de sueldos y asistencia. */}
+          {!esNuevo ? (
+            <div className="rounded-xl bg-gray-50 p-4">
+              <ToggleSwitch
+                checked={Number(form.activo) === 1}
+                onChange={(v) => onFormChange({ ...form, activo: v ? 1 : 0 })}
+                label="Sigue trabajando acá"
+                description="Si lo apagás queda dado de baja: no aparece en los turnos ni en la lista de activos, pero se conserva todo su historial."
               />
             </div>
-          </div>
+          ) : null}
+
+          {form.rol_operativo === 'delivery' ? (
+            <div
+              className="flex items-start gap-2 rounded-xl px-4 py-3"
+              style={{ background: '#E7F5EF' }}
+            >
+              <Bike
+                size={14}
+                strokeWidth={STROKE}
+                className="mt-0.5 shrink-0"
+                style={{ color: '#0F6E56' }}
+              />
+              <p className="text-[12px] leading-4" style={{ color: '#0F6E56' }}>
+                Al guardar también se crea o actualiza su usuario de rider para la app de delivery.
+              </p>
+            </div>
+          ) : null}
         </div>
 
-        <div className="p-6 border-t border-gray-100 flex gap-3 bg-gray-50/50">
+        <div className="flex gap-2 border-t border-gray-100 px-5 py-4">
           <button
+            type="button"
             onClick={onClose}
-            className="flex-1 h-11 rounded-xl border border-gray-200 bg-white text-sm font-bold text-gray-500 hover:bg-gray-50 transition-all"
+            className="h-11 flex-1 rounded-xl bg-gray-100 text-[13px] font-semibold text-gray-700 transition hover:bg-gray-200"
           >
             Cancelar
           </button>
           <button
+            type="button"
             onClick={onGuardar}
-            disabled={saving}
-            className="flex-1 h-11 rounded-xl bg-primary-500 text-white text-sm font-bold shadow-lg shadow-[#5D87FF]/20 hover:bg-primary-600 active:scale-95 transition-all disabled:opacity-50"
+            disabled={saving || !form.nombre.trim()}
+            style={{ background: BRAND }}
+            className="h-11 flex-1 rounded-xl text-[13px] font-semibold text-white transition hover:brightness-110 disabled:opacity-40"
           >
-            {saving ? 'Guardando...' : 'Guardar Cambios'}
+            {saving ? 'Guardando…' : esNuevo ? 'Agregar al equipo' : 'Guardar cambios'}
           </button>
         </div>
       </div>

@@ -1,7 +1,61 @@
-import { X, Plus, Trash2, ImagePlus, TimerReset } from 'lucide-react';
+import { useMemo } from 'react';
+import { ImageOff, ImagePlus, Plus, Trash2, X } from 'lucide-react';
+
+import { BRAND, STROKE } from '../../lib/theme.js';
 import ActionDialog from '../../components/ActionDialog.jsx';
-import { CONTROL, fmtMoney, rgba, codeFor, normalizeExtras, getTemplateHint } from './utils';
+import { CONTROL, fmtMoney, rgba, normalizeExtras, getTemplateHint } from './utils';
 import PriceSummary from './PriceSummary';
+
+const CATEGORIA_FALLBACK = '#6B7280';
+
+/**
+ * Todos los campos eran `placeholder` sin etiqueta.
+ *
+ * Mientras estaban vacíos se leía "Precio de venta", "Costo", "Stock"… pero
+ * apenas cargabas los números quedaban cuatro cajas iguales con cifras y sin
+ * forma de saber cuál era cuál. En un formulario de precios eso es un
+ * problema real, no una cuestión de gusto.
+ */
+function Campo({ label, hint, children, className = '' }) {
+  return (
+    <div className={className}>
+      <label className="block text-[12px] font-medium text-gray-600">{label}</label>
+      <div className="mt-1">{children}</div>
+      {hint ? <p className="mt-1 text-[11px] leading-4 text-gray-400">{hint}</p> : null}
+    </div>
+  );
+}
+
+function Seccion({ title, description, action, children }) {
+  return (
+    <section className="rounded-2xl bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.06)]">
+      <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 className="text-[15px] font-semibold text-gray-900">{title}</h3>
+          {description ? (
+            <p className="mt-0.5 max-w-lg text-[12px] leading-4 text-gray-500">{description}</p>
+          ) : null}
+        </div>
+        {action}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function BotonQuitar({ onClick, titulo }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={titulo}
+      aria-label={titulo}
+      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-gray-400 transition hover:bg-rose-50 hover:text-rose-600"
+    >
+      <Trash2 size={15} strokeWidth={STROKE} />
+    </button>
+  );
+}
 
 export default function ProductoFormModal({
   modal,
@@ -17,7 +71,6 @@ export default function ProductoFormModal({
   recipeManagedStock,
   saving,
   categoryDialog,
-  productosLength,
   fileInputRef,
   onClose,
   onGuardar,
@@ -40,233 +93,256 @@ export default function ProductoFormModal({
   onConfirmCategoryChange,
   onCloseCategoryDialog,
 }) {
+  // Se llamaba dos veces por render: una para saber si mostrar el bloque y
+  // otra para recorrerlo.
+  const extrasVisibles = useMemo(() => normalizeExtras(extrasEditor), [extrasEditor]);
+
   if (!modal) return null;
+
+  const color = selectedCategoryInfo?.color || CATEGORIA_FALLBACK;
+  const esNuevo = modal === 'nuevo';
 
   return (
     <>
       <div
-        className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/35 p-4 backdrop-blur-sm"
+        className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/35 p-4 backdrop-blur-sm"
         onClick={onClose}
       >
         <div
-          className="flex max-h-[calc(100vh-2rem)] w-full max-w-5xl flex-col overflow-hidden rounded-[28px] border border-white/70 bg-white shadow-[0_24px_70px_rgba(15,23,42,0.26)]"
+          className="flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
           onClick={(event) => event.stopPropagation()}
         >
-          <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
+          <div className="flex shrink-0 items-center justify-between gap-4 border-b border-gray-100 px-5 py-4">
             <div>
-              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-gray-400">
-                {modal === 'nuevo' ? 'Nuevo producto' : 'Editar producto'}
-              </p>
-              <h2 className="mt-1 text-xl font-black tracking-tight text-gray-950">
-                {modal === 'nuevo' ? 'Crear producto' : 'Ajustar producto'}
+              {/* Decía "Nuevo producto" arriba y "Crear producto" abajo: el
+                  mismo dato dos veces, uno en gris y otro en negrita. */}
+              <h2 className="text-[17px] font-semibold text-gray-900">
+                {esNuevo ? 'Nuevo producto' : `Editar ${form.nombre || 'producto'}`}
               </h2>
+              <p className="mt-0.5 text-[12px] text-gray-500">
+                Lo que cargues acá se ve en el TPV y en la web pública
+              </p>
             </div>
             <button
               type="button"
               onClick={onClose}
-              className="flex h-10 w-10 items-center justify-center rounded-2xl border border-gray-200 text-gray-500 transition hover:bg-gray-50"
+              aria-label="Cerrar"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
             >
-              <X size={16} />
+              <X size={18} strokeWidth={STROKE} />
             </button>
           </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto">
-            <div className="grid gap-0 lg:grid-cols-[1fr_0.95fr]">
-              <div className="space-y-4 p-5">
-                <section className="rounded-[24px] border border-gray-200 bg-gray-50/70 p-4">
+          <div className="min-h-0 flex-1 overflow-y-auto bg-[#F6F7F9] p-4">
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_300px]">
+              <div className="space-y-4">
+                <Seccion title="Datos del producto">
                   <div className="grid gap-3 sm:grid-cols-2">
-                    <div className="sm:col-span-2">
-                      <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.18em] text-gray-500">
-                        Información base
-                      </p>
+                    <Campo label="Nombre" className="sm:col-span-2">
                       <input
                         value={form.nombre}
                         onChange={(event) => onFormChange('nombre', event.target.value)}
-                        placeholder="Nombre del producto"
+                        placeholder="Ej: Milanesa napolitana"
                         className={`${CONTROL} w-full`}
                       />
-                    </div>
+                    </Campo>
 
-                    <textarea
-                      value={form.descripcion}
-                      onChange={(event) => onFormChange('descripcion', event.target.value)}
-                      rows={3}
-                      placeholder="Descripción breve para el admin, TPV y web"
-                      className="min-h-[112px] rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm font-medium text-gray-700 outline-none transition focus:border-primary-500 focus:bg-white focus:ring-4 focus:ring-[#5D87FF]/10 sm:col-span-2"
-                    />
+                    <Campo label="Descripción" className="sm:col-span-2">
+                      <textarea
+                        value={form.descripcion}
+                        onChange={(event) => onFormChange('descripcion', event.target.value)}
+                        rows={3}
+                        placeholder="Qué lleva, para cuántos alcanza, cómo viene…"
+                        className="w-full resize-none rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-[14px] text-gray-800 outline-none transition placeholder:text-gray-400 focus:border-gray-400 focus:ring-2 focus:ring-gray-900/5"
+                      />
+                    </Campo>
 
-                    <select
-                      value={String(form.categoria_id || '')}
-                      onChange={(event) => onChangeCategory(event.target.value)}
-                      className={`${CONTROL} w-full`}
-                    >
-                      <option value="">Selecciona una categoría</option>
-                      {categorias.map((categoria) => (
-                        <option key={categoria.id} value={categoria.id}>
-                          {categoria.nombre}
-                        </option>
-                      ))}
-                    </select>
+                    <Campo label="Categoría">
+                      <select
+                        value={String(form.categoria_id || '')}
+                        onChange={(event) => onChangeCategory(event.target.value)}
+                        className={`${CONTROL} w-full`}
+                      >
+                        <option value="">Elegí una categoría</option>
+                        {categorias.map((categoria) => (
+                          <option key={categoria.id} value={categoria.id}>
+                            {categoria.nombre}
+                          </option>
+                        ))}
+                      </select>
+                    </Campo>
 
-                    <input
-                      type="number"
-                      value={form.tiempo_preparacion}
-                      onChange={(event) =>
-                        onFormChange('tiempo_preparacion', Number(event.target.value || 0))
-                      }
-                      placeholder="Tiempo de preparación"
-                      className={`${CONTROL} w-full`}
-                    />
-                  </div>
-                </section>
-
-                <section className="rounded-[24px] border border-gray-200 bg-gray-50/70 p-4">
-                  <div
-                    className={`grid gap-3 ${structuredPricingConfig ? 'sm:grid-cols-4' : 'sm:grid-cols-3'}`}
-                  >
-                    {structuredPricingConfig ? (
-                      formPriceOptions.map((option) => (
-                        <input
-                          key={`price-${option.nombre}`}
-                          type="number"
-                          value={option.finalPrice}
-                          onChange={(event) => {
-                            onStructuredPriceChange?.(option.nombre, event.target.value);
-                          }}
-                          placeholder={option.label}
-                          className={`${CONTROL} w-full`}
-                        />
-                      ))
-                    ) : (
+                    <Campo label="Tiempo de preparación" hint="En minutos, para la cocina">
                       <input
                         type="number"
-                        value={form.precio}
-                        onChange={(event) => onFormChange('precio', event.target.value)}
-                        placeholder="Precio de venta"
-                        className={`${CONTROL} w-full`}
+                        min="0"
+                        value={form.tiempo_preparacion}
+                        onChange={(event) =>
+                          onFormChange('tiempo_preparacion', Number(event.target.value || 0))
+                        }
+                        className={`${CONTROL} w-full tabular-nums`}
                       />
+                    </Campo>
+                  </div>
+                </Seccion>
+
+                <Seccion title="Precio y stock" description={structuredPricingConfig?.helper}>
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                    {structuredPricingConfig ? (
+                      formPriceOptions.map((option) => (
+                        <Campo key={`price-${option.nombre}`} label={option.label}>
+                          <input
+                            type="number"
+                            min="0"
+                            value={option.finalPrice}
+                            onChange={(event) =>
+                              onStructuredPriceChange?.(option.nombre, event.target.value)
+                            }
+                            className={`${CONTROL} w-full tabular-nums`}
+                          />
+                        </Campo>
+                      ))
+                    ) : (
+                      <Campo label="Precio de venta">
+                        <input
+                          type="number"
+                          min="0"
+                          value={form.precio}
+                          onChange={(event) => onFormChange('precio', event.target.value)}
+                          className={`${CONTROL} w-full tabular-nums`}
+                        />
+                      </Campo>
                     )}
-                    <input
-                      type="number"
-                      value={form.precio_anterior}
-                      onChange={(event) => onFormChange('precio_anterior', event.target.value)}
-                      placeholder="Precio anterior (tachado, opcional)"
-                      className={`${CONTROL} w-full`}
-                    />
-                    <input
-                      type="number"
-                      value={form.costo}
-                      onChange={(event) => onFormChange('costo', event.target.value)}
-                      placeholder="Costo"
-                      className={`${CONTROL} w-full`}
-                    />
-                    <input
-                      type="number"
-                      value={form.stock || 0}
-                      onChange={(event) => onFormChange('stock', event.target.value)}
-                      placeholder="Stock"
-                      disabled={recipeManagedStock}
-                      className={`${CONTROL} w-full disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400`}
-                    />
-                  </div>
-                  {structuredPricingConfig && (
-                    <p className="mt-3 text-xs font-semibold text-gray-500">
-                      {structuredPricingConfig.helper}
-                    </p>
-                  )}
-                  {recipeManagedStock && (
-                    <p className="mt-3 text-xs font-semibold text-gray-500">
-                      Este producto usa stock por receta. El ajuste de stock se hace desde
-                      Inventario.
-                    </p>
-                  )}
 
-                  <div className="mt-4 flex flex-wrap gap-3">
-                    <button
-                      type="button"
-                      onClick={onToggleActivo}
-                      className={`inline-flex h-11 items-center rounded-2xl px-4 text-sm font-bold transition ${form.activo === 1 ? 'bg-success-50 text-success-700' : 'bg-gray-200 text-gray-600'}`}
-                    >
-                      {form.activo === 1 ? 'Activo' : 'Inactivo'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={onToggleDestacado}
-                      className={`inline-flex h-11 items-center rounded-2xl px-4 text-sm font-bold transition ${form.destacado === 1 ? 'bg-warning-50 text-warning-700' : 'bg-gray-200 text-gray-600'}`}
-                    >
-                      {form.destacado === 1 ? 'Destacado' : 'Normal'}
-                    </button>
-                  </div>
-                </section>
+                    <Campo label="Precio anterior" hint="Opcional, se muestra tachado">
+                      <input
+                        type="number"
+                        min="0"
+                        value={form.precio_anterior}
+                        onChange={(event) => onFormChange('precio_anterior', event.target.value)}
+                        className={`${CONTROL} w-full tabular-nums`}
+                      />
+                    </Campo>
 
-                <section className="rounded-[24px] border border-gray-200 bg-gray-50/70 p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-gray-500">
-                        Variantes
-                      </p>
-                      <p className="mt-1 text-sm text-gray-500">
-                        {structuredPricingConfig
-                          ? 'Las presentaciones y sus precios finales se manejan arriba. Acá solo ajusta variantes avanzadas si realmente las necesitas.'
-                          : 'Se usan en TPV y en la web pública con grupos y opciones.'}
-                      </p>
-                      <p className="mt-2 text-xs font-semibold text-gray-400">
-                        {getTemplateHint(selectedCategoryInfo?.nombre)}
-                      </p>
-                    </div>
-                    <div className="flex gap-2">
+                    <Campo label="Costo" hint="Sin esto el margen del día sale mal">
+                      <input
+                        type="number"
+                        min="0"
+                        value={form.costo}
+                        onChange={(event) => onFormChange('costo', event.target.value)}
+                        className={`${CONTROL} w-full tabular-nums`}
+                      />
+                    </Campo>
+
+                    <Campo
+                      label="Stock"
+                      hint={recipeManagedStock ? 'Se calcula desde Inventario' : undefined}
+                    >
+                      <input
+                        type="number"
+                        value={form.stock || 0}
+                        onChange={(event) => onFormChange('stock', event.target.value)}
+                        disabled={recipeManagedStock}
+                        className={`${CONTROL} w-full tabular-nums disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400`}
+                      />
+                    </Campo>
+                  </div>
+
+                  <div className="mt-4 grid gap-2 border-t border-gray-100 pt-3 sm:grid-cols-2">
+                    <label className="flex cursor-pointer items-start gap-2.5 rounded-xl bg-gray-50 p-3">
+                      <input
+                        type="checkbox"
+                        checked={form.activo === 1}
+                        onChange={onToggleActivo}
+                        className="mt-0.5 h-4 w-4 shrink-0 rounded border-gray-300"
+                        style={{ accentColor: BRAND }}
+                      />
+                      <span>
+                        <span className="block text-[13px] font-medium text-gray-900">
+                          Publicado
+                        </span>
+                        <span className="mt-0.5 block text-[12px] leading-4 text-gray-500">
+                          Si lo apagás desaparece del TPV y de la web.
+                        </span>
+                      </span>
+                    </label>
+
+                    <label className="flex cursor-pointer items-start gap-2.5 rounded-xl bg-gray-50 p-3">
+                      <input
+                        type="checkbox"
+                        checked={form.destacado === 1}
+                        onChange={onToggleDestacado}
+                        className="mt-0.5 h-4 w-4 shrink-0 rounded border-gray-300"
+                        style={{ accentColor: BRAND }}
+                      />
+                      <span>
+                        <span className="block text-[13px] font-medium text-gray-900">
+                          Destacado
+                        </span>
+                        <span className="mt-0.5 block text-[12px] leading-4 text-gray-500">
+                          Aparece primero en la web pública.
+                        </span>
+                      </span>
+                    </label>
+                  </div>
+                </Seccion>
+
+                <Seccion
+                  title="Variantes"
+                  description={
+                    structuredPricingConfig
+                      ? 'Las presentaciones y sus precios se manejan arriba. Acá sólo si necesitás algo distinto.'
+                      : getTemplateHint(selectedCategoryInfo?.nombre) ||
+                        'Grupos de opciones que el cliente elige al pedir.'
+                  }
+                  action={
+                    <div className="flex shrink-0 gap-2">
                       <button
                         type="button"
                         onClick={onApplyTemplate}
-                        className="inline-flex h-10 items-center rounded-2xl border border-gray-200 bg-white px-4 text-xs font-bold text-gray-600 transition hover:bg-gray-50"
+                        className="h-9 rounded-xl bg-gray-100 px-3 text-[12px] font-semibold text-gray-700 transition hover:bg-gray-200"
                       >
                         Usar plantilla
                       </button>
                       <button
                         type="button"
                         onClick={onAddVariantGroup}
-                        className="inline-flex h-10 items-center rounded-2xl bg-primary-500 px-4 text-xs font-bold text-white transition hover:bg-[#4A74EF]"
+                        className="inline-flex h-9 items-center gap-1 rounded-xl bg-gray-100 px-3 text-[12px] font-semibold text-gray-700 transition hover:bg-gray-200"
                       >
-                        <Plus size={14} className="mr-1.5" />
-                        Agregar grupo
+                        <Plus size={13} strokeWidth={STROKE} />
+                        Grupo
                       </button>
                     </div>
-                  </div>
-
-                  <div className="mt-4 space-y-3">
-                    {variantesEditor.length === 0 ? (
-                      <div className="rounded-[20px] border border-dashed border-gray-200 bg-white px-4 py-5 text-sm text-gray-400">
-                        Este producto no tiene variantes cargadas todavía.
-                      </div>
-                    ) : (
-                      variantesEditor.map((group, groupIndex) => (
-                        <div
-                          key={`group-${groupIndex}`}
-                          className="rounded-[22px] border border-white bg-white p-3 shadow-sm"
-                        >
+                  }
+                >
+                  {variantesEditor.length === 0 ? (
+                    <p className="rounded-xl border border-dashed border-gray-200 px-4 py-6 text-center text-[13px] text-gray-400">
+                      Sin variantes. Este producto se pide tal cual.
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      {variantesEditor.map((group, groupIndex) => (
+                        <div key={`group-${groupIndex}`} className="rounded-xl bg-gray-50 p-3">
                           <div className="flex items-center gap-2">
                             <input
                               value={group.nombre}
                               onChange={(event) =>
                                 onUpdateVariantGroup(groupIndex, event.target.value)
                               }
-                              placeholder={`Grupo ${groupIndex + 1} - ej: Tamaño`}
-                              className={`${CONTROL} h-10 flex-1 border-0 bg-gray-50 px-3 focus:bg-white`}
+                              placeholder={`Grupo ${groupIndex + 1} — ej: Tamaño`}
+                              className={`${CONTROL} flex-1`}
                             />
-                            <button
-                              type="button"
+                            <BotonQuitar
                               onClick={() => onRemoveVariantGroup(groupIndex)}
-                              className="flex h-10 w-10 items-center justify-center rounded-2xl border border-rose-200 text-danger-600 transition hover:bg-danger-50"
-                            >
-                              <Trash2 size={14} />
-                            </button>
+                              titulo="Quitar grupo"
+                            />
                           </div>
 
-                          <div className="mt-3 space-y-2">
+                          <div className="mt-2 space-y-2">
                             {(group.opciones || []).map((option, optionIndex) => (
                               <div
                                 key={`option-${groupIndex}-${optionIndex}`}
-                                className="grid gap-2 sm:grid-cols-[1fr_140px_40px]"
+                                className="flex items-center gap-2"
                               >
                                 <input
                                   value={option.nombre}
@@ -278,8 +354,8 @@ export default function ProductoFormModal({
                                       event.target.value
                                     )
                                   }
-                                  placeholder="Nombre de opción"
-                                  className={`${CONTROL} h-10 border-0 bg-gray-50 px-3 focus:bg-white`}
+                                  placeholder="Opción"
+                                  className={`${CONTROL} flex-1`}
                                 />
                                 <input
                                   type="number"
@@ -292,16 +368,14 @@ export default function ProductoFormModal({
                                       event.target.value
                                     )
                                   }
-                                  placeholder="0"
-                                  className={`${CONTROL} h-10 border-0 bg-gray-50 px-3 focus:bg-white`}
+                                  placeholder="+ $"
+                                  title="Cuánto suma al precio base"
+                                  className={`${CONTROL} w-[110px] tabular-nums`}
                                 />
-                                <button
-                                  type="button"
+                                <BotonQuitar
                                   onClick={() => onRemoveVariantOption(groupIndex, optionIndex)}
-                                  className="flex h-10 w-10 items-center justify-center rounded-2xl border border-rose-200 text-danger-600 transition hover:bg-danger-50"
-                                >
-                                  <X size={14} />
-                                </button>
+                                  titulo="Quitar opción"
+                                />
                               </div>
                             ))}
                           </div>
@@ -309,273 +383,167 @@ export default function ProductoFormModal({
                           <button
                             type="button"
                             onClick={() => onAddVariantOption(groupIndex)}
-                            className="mt-3 inline-flex h-9 items-center rounded-2xl border border-gray-200 px-3 text-xs font-bold text-gray-600 transition hover:bg-gray-50"
+                            className="mt-2 inline-flex h-9 items-center gap-1 rounded-xl bg-white px-3 text-[12px] font-semibold text-gray-700 transition hover:bg-gray-100"
                           >
-                            <Plus size={13} className="mr-1.5" />
+                            <Plus size={13} strokeWidth={STROKE} />
                             Agregar opción
                           </button>
                         </div>
-                      ))
-                    )}
-                  </div>
-                </section>
-
-                <section className="rounded-[24px] border border-gray-200 bg-gray-50/70 p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-gray-500">
-                        Extras
-                      </p>
-                      <p className="mt-1 text-sm text-gray-500">
-                        Opcionales como borde relleno, salsas o agregados.
-                      </p>
+                      ))}
                     </div>
+                  )}
+                </Seccion>
+
+                <Seccion
+                  title="Extras"
+                  description="Agregados opcionales: borde relleno, salsas, porción extra."
+                  action={
                     <button
                       type="button"
                       onClick={onAddExtra}
-                      className="inline-flex h-10 items-center rounded-2xl bg-primary-500 px-4 text-xs font-bold text-white transition hover:bg-[#4A74EF]"
+                      className="inline-flex h-9 shrink-0 items-center gap-1 rounded-xl bg-gray-100 px-3 text-[12px] font-semibold text-gray-700 transition hover:bg-gray-200"
                     >
-                      <Plus size={14} className="mr-1.5" />
-                      Agregar extra
+                      <Plus size={13} strokeWidth={STROKE} />
+                      Extra
                     </button>
-                  </div>
-
-                  <div className="mt-4 space-y-2.5">
-                    {extrasEditor.length === 0 ? (
-                      <div className="rounded-[20px] border border-dashed border-gray-200 bg-white px-4 py-5 text-sm text-gray-400">
-                        No hay extras cargados para este producto.
-                      </div>
-                    ) : (
-                      extrasEditor.map((extra, index) => (
-                        <div
-                          key={`extra-${index}`}
-                          className="grid gap-2 rounded-[20px] border border-white bg-white p-2 shadow-sm sm:grid-cols-[1fr_140px_40px]"
-                        >
+                  }
+                >
+                  {extrasEditor.length === 0 ? (
+                    <p className="rounded-xl border border-dashed border-gray-200 px-4 py-6 text-center text-[13px] text-gray-400">
+                      Sin extras cargados.
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      {extrasEditor.map((extra, index) => (
+                        <div key={`extra-${index}`} className="flex items-center gap-2">
                           <input
                             value={extra.nombre}
                             onChange={(event) => onUpdateExtra(index, 'nombre', event.target.value)}
                             placeholder={`Extra ${index + 1}`}
-                            className={`${CONTROL} h-10 border-0 bg-gray-50 px-3 focus:bg-white`}
+                            className={`${CONTROL} flex-1`}
                           />
                           <input
                             type="number"
+                            min="0"
                             value={extra.precio}
                             onChange={(event) => onUpdateExtra(index, 'precio', event.target.value)}
-                            placeholder="0"
-                            className={`${CONTROL} h-10 border-0 bg-gray-50 px-3 focus:bg-white`}
+                            placeholder="$"
+                            className={`${CONTROL} w-[110px] tabular-nums`}
                           />
-                          <button
-                            type="button"
-                            onClick={() => onRemoveExtra(index)}
-                            className="flex h-10 w-10 items-center justify-center rounded-2xl border border-rose-200 text-danger-600 transition hover:bg-danger-50"
-                          >
-                            <Trash2 size={14} />
-                          </button>
+                          <BotonQuitar onClick={() => onRemoveExtra(index)} titulo="Quitar extra" />
                         </div>
-                      ))
-                    )}
-                  </div>
-                </section>
+                      ))}
+                    </div>
+                  )}
+                </Seccion>
               </div>
 
-              <div className="border-t border-gray-100 bg-gray-50/80 p-5 lg:border-l lg:border-t-0">
-                <section className="rounded-[24px] border border-gray-200 bg-white p-4 shadow-sm">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-gray-500">
-                        Imagen
-                      </p>
-                      <p className="mt-1 text-sm text-gray-500">
-                        Carga una foto real para tarjetas, TPV y web pública.
-                      </p>
-                    </div>
-                    {imagePreview && (
-                      <button
-                        type="button"
-                        onClick={onClearImage}
-                        className="inline-flex h-9 items-center justify-center rounded-2xl border border-rose-200 px-3 text-xs font-bold text-danger-600 transition hover:bg-danger-50"
-                      >
-                        Quitar
-                      </button>
+              {/* ── Rail derecha ── */}
+              <div className="space-y-4">
+                <Seccion title="Foto">
+                  <label className="flex cursor-pointer flex-col items-center justify-center overflow-hidden rounded-xl border border-dashed border-gray-300 transition hover:border-gray-400">
+                    {imagePreview ? (
+                      <img src={imagePreview} alt="" className="h-40 w-full object-cover" />
+                    ) : (
+                      <span className="flex h-40 w-full flex-col items-center justify-center gap-2">
+                        <ImagePlus size={22} strokeWidth={STROKE} className="text-gray-400" />
+                        <span className="text-[13px] font-medium text-gray-600">Subir foto</span>
+                        <span className="text-[11px] text-gray-400">JPG, PNG o WebP</span>
+                      </span>
                     )}
-                  </div>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(event) => onImageChange(event.target.files?.[0])}
+                    />
+                  </label>
 
-                  <div className="mt-4 grid gap-3 sm:grid-cols-[132px_1fr]">
-                    <div className="flex h-32 items-center justify-center overflow-hidden rounded-[22px] border border-white bg-gray-50 shadow-sm">
-                      {imagePreview ? (
-                        <img
-                          src={imagePreview}
-                          alt="preview"
-                          className="h-full w-full object-cover"
-                        />
-                      ) : (
-                        <div className="text-center">
-                          <div
-                            className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl"
-                            style={{
-                              backgroundColor: rgba(selectedCategoryInfo?.color, 0.14),
-                              color: selectedCategoryInfo?.color || '#f97316',
-                            }}
-                          >
-                            <ImagePlus size={20} />
-                          </div>
-                          <p className="mt-2 text-xs font-semibold text-gray-500">Sin imagen</p>
-                        </div>
-                      )}
-                    </div>
-
-                    <label className="flex min-h-[128px] cursor-pointer flex-col items-center justify-center rounded-[22px] border border-dashed border-gray-300 bg-gray-50 px-5 text-center transition hover:border-primary-500/35 hover:bg-primary-50">
-                      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary-50 text-primary-500">
-                        <ImagePlus size={20} />
-                      </div>
-                      <span className="mt-3 text-sm font-bold text-gray-800">
-                        {imagePreview ? 'Reemplazar imagen' : 'Subir imagen real'}
-                      </span>
-                      <span className="mt-1 max-w-[240px] text-xs leading-5 text-gray-500">
-                        JPG, PNG o WebP. Ideal para que el catálogo se vea más rico y profesional.
-                      </span>
-                      <input
-                        ref={fileInputRef}
-                        type="file"
-                        accept="image/*"
-                        className="hidden"
-                        onChange={(event) => onImageChange(event.target.files?.[0])}
-                      />
-                    </label>
-                  </div>
-                </section>
-
-                <section className="mt-4 rounded-[24px] border border-gray-200 bg-white p-4 shadow-sm">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-gray-500">
-                        Preview
-                      </p>
-                      <p className="mt-1 text-sm text-gray-500">
-                        Así se va a ver dentro del panel.
-                      </p>
-                    </div>
-                    <div className="inline-flex items-center gap-2 rounded-full bg-gray-50 px-3 py-1.5 text-xs font-bold text-gray-500">
-                      <TimerReset size={13} />
-                      {form.tiempo_preparacion || 0} min
-                    </div>
-                  </div>
-
-                  <div className="mt-3 rounded-[24px] border border-white bg-white shadow-sm">
-                    <div
-                      className="h-28 rounded-t-[24px] px-4 py-4"
-                      style={{
-                        background: `linear-gradient(135deg, ${rgba(selectedCategoryInfo?.color, 0.28)}, ${rgba(selectedCategoryInfo?.color, 0.06)})`,
-                      }}
+                  {imagePreview ? (
+                    <button
+                      type="button"
+                      onClick={onClearImage}
+                      className="mt-2 h-9 w-full rounded-xl bg-gray-100 text-[12px] font-semibold text-gray-700 transition hover:bg-rose-50 hover:text-rose-700"
                     >
-                      <div className="inline-flex rounded-full bg-white/80 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.16em] text-gray-500 backdrop-blur">
-                        {codeFor(modal?.id, productosLength)}
-                      </div>
-                    </div>
-                    <div className="-mt-8 px-4 pb-4">
-                      <div
-                        className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-[20px] border border-white text-3xl shadow-sm"
-                        style={{ backgroundColor: rgba(selectedCategoryInfo?.color, 0.14) }}
-                      >
+                      Quitar foto
+                    </button>
+                  ) : null}
+                </Seccion>
+
+                {/*
+                  La vista previa dibujaba una tarjeta con degradado y el ícono
+                  montado con margen negativo — un diseño que la grilla ya no
+                  usa. Mostraba algo que no existe. Ahora replica la tarjeta
+                  real: banda con el color de la categoría y las dos métricas.
+                */}
+                <Seccion title="Cómo se va a ver">
+                  <div className="overflow-hidden rounded-xl border border-gray-100">
+                    <div
+                      className="flex items-center gap-2.5 px-3 py-2.5"
+                      style={{ background: rgba(color, 0.13) }}
+                    >
+                      <span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-white">
                         {imagePreview ? (
-                          <img
-                            src={imagePreview}
-                            alt="preview"
-                            className="h-full w-full object-cover"
-                          />
+                          <img src={imagePreview} alt="" className="h-full w-full object-cover" />
+                        ) : selectedCategoryInfo?.icono ? (
+                          <span className="text-[18px]">{selectedCategoryInfo.icono}</span>
                         ) : (
-                          selectedCategoryInfo?.icono || '🍽️'
+                          <ImageOff size={15} strokeWidth={STROKE} style={{ color }} />
                         )}
-                      </div>
-                      <h3 className="mt-3 text-lg font-black tracking-tight text-gray-950">
-                        {form.nombre || 'Nombre del producto'}
-                      </h3>
-                      <p className="mt-1 text-sm text-gray-500">
-                        {form.descripcion || 'Sin descripción cargada.'}
-                      </p>
-
-                      <div className="mt-3 grid grid-cols-2 gap-2">
-                        <div className="rounded-2xl bg-slate-50 px-3 py-3 text-sm">
-                          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-gray-400">
-                            Precio
-                          </p>
-                          <PriceSummary
-                            options={formPriceOptions}
-                            basePrice={form.precio || 0}
-                            singleClassName="mt-1 font-semibold text-primary-500"
-                            multiClassName="mt-1 space-y-1 text-xs font-semibold text-primary-500"
-                            itemClassName=""
-                          />
-                        </div>
-                        <div className="rounded-2xl bg-slate-50 px-3 py-3 text-sm">
-                          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-gray-400">
-                            Stock
-                          </p>
-                          <p className="mt-1 font-semibold text-gray-900">
-                            {recipeManagedStock
-                              ? 'Se calcula en inventario'
-                              : `${form.stock || 0} uds`}
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        <span
-                          className="rounded-full px-3 py-1.5 text-xs font-semibold"
-                          style={{
-                            backgroundColor: rgba(selectedCategoryInfo?.color, 0.12),
-                            color: selectedCategoryInfo?.color || '#f97316',
-                          }}
-                        >
-                          {selectedCategoryInfo?.icono || '🍽️'}{' '}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[13px] font-semibold text-gray-900">
+                          {form.nombre || 'Nombre del producto'}
+                        </span>
+                        <span className="block truncate text-[11px]" style={{ color }}>
                           {selectedCategoryInfo?.nombre || 'Sin categoría'}
                         </span>
-                        <span
-                          className={`rounded-full px-3 py-1.5 text-xs font-semibold ${form.activo === 1 ? 'bg-success-100 text-success-700' : 'bg-gray-200 text-gray-600'}`}
-                        >
-                          {form.activo === 1 ? 'Activo' : 'Inactivo'}
-                        </span>
-                        {form.destacado === 1 && (
-                          <span className="rounded-full bg-warning-50 px-3 py-1.5 text-xs font-semibold text-warning-700">
-                            Destacado
-                          </span>
-                        )}
-                      </div>
-
-                      {normalizeExtras(extrasEditor).length > 0 && (
-                        <div className="mt-4">
-                          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-gray-400">
-                            Extras visibles
-                          </p>
-                          <div className="mt-2 flex flex-wrap gap-2">
-                            {normalizeExtras(extrasEditor).map((extra, index) => (
-                              <span
-                                key={`preview-extra-${index}`}
-                                className="rounded-full bg-gray-100 px-3 py-1.5 text-xs font-semibold text-gray-600"
-                              >
-                                {extra.nombre} +{fmtMoney(extra.precio)}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
+                      </span>
                     </div>
-                  </div>
 
-                  <div className="mt-4 rounded-[20px] border border-dashed border-gray-200 bg-gray-50 px-4 py-4 text-sm text-gray-500">
-                    Consejo: si este producto va a la web pública, intenta que la foto sea final y
-                    que las variantes queden bien nombradas para el selector del cliente.
+                    <div className="grid grid-cols-2 gap-2 p-3">
+                      <div className="rounded-lg bg-gray-50 px-2.5 py-2">
+                        <p className="text-[11px] text-gray-500">Precio</p>
+                        <PriceSummary
+                          options={formPriceOptions}
+                          basePrice={form.precio || 0}
+                          singleClassName="mt-0.5 text-[15px] font-bold tabular-nums text-gray-900"
+                          multiClassName="mt-0.5 space-y-0.5"
+                          itemClassName="text-[12px] font-bold tabular-nums text-gray-900"
+                        />
+                      </div>
+                      <div className="rounded-lg bg-gray-50 px-2.5 py-2">
+                        <p className="text-[11px] text-gray-500">Stock</p>
+                        <p className="mt-0.5 text-[15px] font-bold tabular-nums text-gray-900">
+                          {recipeManagedStock ? '—' : form.stock || 0}
+                        </p>
+                      </div>
+                    </div>
+
+                    {extrasVisibles.length > 0 ? (
+                      <div className="flex flex-wrap gap-1 px-3 pb-3">
+                        {extrasVisibles.map((extra, index) => (
+                          <span
+                            key={`preview-extra-${index}`}
+                            className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] text-gray-600"
+                          >
+                            {extra.nombre} +{fmtMoney(extra.precio)}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
                   </div>
-                </section>
+                </Seccion>
               </div>
             </div>
           </div>
 
-          <div className="flex flex-col gap-2 border-t border-gray-100 bg-white px-5 py-4 sm:flex-row sm:justify-end">
+          <div className="flex shrink-0 justify-end gap-2 border-t border-gray-100 px-5 py-4">
             <button
               type="button"
               onClick={onClose}
-              className="h-11 rounded-2xl border border-gray-200 px-5 text-sm font-bold text-gray-600 transition hover:bg-gray-50"
+              className="h-11 rounded-xl bg-gray-100 px-5 text-[13px] font-semibold text-gray-700 transition hover:bg-gray-200"
             >
               Cancelar
             </button>
@@ -583,9 +551,10 @@ export default function ProductoFormModal({
               type="button"
               onClick={onGuardar}
               disabled={saving}
-              className="h-11 rounded-2xl bg-primary-500 px-5 text-sm font-bold text-white shadow-[0_14px_30px_rgba(93,135,255,0.26)] transition hover:-translate-y-0.5 hover:bg-[#4a74ef] disabled:opacity-60"
+              style={{ background: BRAND }}
+              className="h-11 rounded-xl px-6 text-[13px] font-semibold text-white transition hover:brightness-110 disabled:opacity-50"
             >
-              {saving ? 'Guardando...' : modal === 'nuevo' ? 'Crear producto' : 'Guardar cambios'}
+              {saving ? 'Guardando…' : esNuevo ? 'Crear producto' : 'Guardar cambios'}
             </button>
           </div>
         </div>
@@ -594,7 +563,7 @@ export default function ProductoFormModal({
       <ActionDialog
         open={Boolean(categoryDialog)}
         title="Cambiar categoría"
-        description="Cambiar la categoría puede reemplazar las variantes sugeridas del producto. Conviene revisarlo antes de guardar."
+        description="Cambiar la categoría reemplaza las variantes sugeridas del producto. Revisalas antes de guardar."
         confirmLabel="Cambiar igual"
         cancelLabel="Cancelar"
         tone="warning"

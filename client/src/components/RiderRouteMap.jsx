@@ -38,6 +38,12 @@ export default function RiderRouteMap({
   clientLng,
   clientAddress,
   clientLocationExact = false,
+  // Coordenadas puestas por geocoding del servidor (no compartidas por
+  // el cliente). Son aproximadas pero suficientes para trazar la ruta:
+  // sin esto el rider se quedaba sin mapa en casi todos los pedidos,
+  // porque la mayoria entra con la direccion escrita a mano.
+  clientGeocoded = false,
+  geocodingPrecision = '',
   onNavigate,
   mapConfig = {},
 }) {
@@ -53,11 +59,21 @@ export default function RiderRouteMap({
   const [isArriving, setIsArriving] = useState(false);
   const prevRiderRef = useRef({ lat: null, lng: null });
   const arrivingNotifiedRef = useRef(false);
+  // Aceptamos tanto el punto exacto que comparte el cliente como el
+  // aproximado que resolvio el geocoding. Un mapa con destino aproximado
+  // es MUCHO mas util que ningun mapa: el rider ve por donde ir y ajusta
+  // los ultimos metros mirando la numeracion.
   const hasClientCoordinates =
-    clientLocationExact &&
+    (clientLocationExact || clientGeocoded) &&
     Number.isFinite(Number(clientLat)) &&
     Number.isFinite(Number(clientLng)) &&
+    // El (0,0) es un punto real en Africa: hay que descartarlo explicitamente.
+    (Math.abs(Number(clientLat)) > 0.0001 || Math.abs(Number(clientLng)) > 0.0001) &&
     isInsideServiceArea(clientLat, clientLng, mapConfig);
+
+  // Si el punto vino del geocoding y no de la numeracion exacta, avisamos
+  // para que el rider no confie ciegamente en el pin.
+  const puntoAproximado = !clientLocationExact && clientGeocoded;
   const effectiveClientLat = hasClientCoordinates ? Number(clientLat) : null;
   const effectiveClientLng = hasClientCoordinates ? Number(clientLng) : null;
   const safeAddress = buildAddressForMaps(clientAddress, mapConfig);
@@ -407,6 +423,16 @@ export default function RiderRouteMap({
               <p className="mt-0.5 text-sm font-semibold text-gray-800 leading-snug">
                 {clientAddress}
               </p>
+              {/* El pin es aproximado: el rider tiene que confirmar la
+                  numeracion al llegar. Mejor decirlo que dejarlo confiar
+                  ciegamente en un punto que puede estar a media cuadra. */}
+              {puntoAproximado && (
+                <p className="mt-1.5 text-[10px] font-bold leading-snug text-amber-600">
+                  {geocodingPrecision === 'numeracion'
+                    ? 'Ubicación estimada por la dirección'
+                    : 'Punto aproximado — confirmá la numeración al llegar'}
+                </p>
+              )}
             </div>
           </div>
         </div>

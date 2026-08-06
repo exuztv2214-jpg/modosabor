@@ -1,126 +1,154 @@
-import { format, parseISO } from 'date-fns';
+import { format, parseISO, isValid } from 'date-fns';
+
+import { BRAND } from '../../../lib/theme.js';
+import { Card, Empty, Pill } from '../components.jsx';
 import { fmt } from '../constants.js';
 
-export function MovimientosTab({ detail }) {
-  return (
-    <div className="space-y-6">
-      <div className="rounded-xl bg-white shadow-[0_4px_24px_rgba(0,0,0,0.04)] border border-gray-100 overflow-hidden">
-        <div className="p-6 border-b border-gray-50 flex items-center justify-between">
-          <h4 className="text-base font-bold text-gray-900">Historial de Liquidaciones</h4>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left">
-            <thead>
-              <tr className="bg-gray-50/50">
-                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">
-                  Fecha
-                </th>
-                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">
-                  Periodo
-                </th>
-                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">
-                  Método
-                </th>
-                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider text-right">
-                  Neto
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-50">
-              {detail.liquidaciones.map((liq) => (
-                <tr key={liq.id} className="hover:bg-gray-50/50 transition-all">
-                  <td className="px-6 py-4">
-                    <p className="text-sm font-bold text-gray-700">
-                      {format(parseISO(liq.creado_en), 'dd/MM/yyyy')}
-                    </p>
-                  </td>
-                  <td className="px-6 py-4">
-                    <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
-                      {liq.periodo_desde
-                        ? `${liq.periodo_desde} - ${liq.periodo_hasta}`
-                        : liq.frecuencia_pago}
-                    </p>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className="px-2.5 py-1 rounded-lg bg-gray-100 text-[10px] font-bold text-gray-600 uppercase tracking-wider">
-                      {liq.metodo_pago}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                    <p className="text-sm font-bold text-success-600">{fmt(liq.monto_neto)}</p>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+/** `format(parseISO(x))` explota si `x` viene vacío o mal formado. */
+function fecha(valor, patron = 'dd/MM/yyyy') {
+  if (!valor) return '—';
+  try {
+    const d = parseISO(String(valor));
+    return isValid(d) ? format(d, patron) : '—';
+  } catch {
+    return '—';
+  }
+}
 
-      <div className="rounded-xl bg-white shadow-[0_4px_24px_rgba(0,0,0,0.04)] border border-gray-100 overflow-hidden">
-        <div className="p-6 border-b border-gray-50">
-          <h4 className="text-base font-bold text-gray-900">Últimos Movimientos de Caja</h4>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left">
-            <thead>
-              <tr className="bg-gray-50/50">
-                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">
-                  Fecha
-                </th>
-                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">
-                  Tipo
-                </th>
-                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">
-                  Descripción
-                </th>
-                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider text-right">
-                  Monto
-                </th>
-                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider text-center">
-                  Estado
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-50">
-              {detail.movimientos.map((m) => (
-                <tr key={m.id} className="hover:bg-gray-50/50 transition-all">
-                  <td className="px-6 py-4">
-                    <p className="text-sm font-bold text-gray-700">
-                      {format(parseISO(m.creado_en), 'dd/MM/yyyy HH:mm')}
-                    </p>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span
-                      className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider ${
-                        m.tipo === 'adelanto'
-                          ? 'bg-danger-50 text-danger-600'
-                          : m.tipo === 'descuento'
-                            ? 'bg-warning-50 text-warning-600'
-                            : 'bg-primary-50 text-primary-500'
-                      }`}
-                    >
-                      {m.tipo}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4">
-                    <p className="text-sm font-semibold text-gray-600">{m.descripcion}</p>
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                    <p className="text-sm font-bold text-gray-900">{fmt(m.monto)}</p>
-                  </td>
-                  <td className="px-6 py-4 text-center">
-                    <span
-                      className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase ${m.estado === 'pendiente' ? 'bg-warning-100 text-warning-700' : 'bg-success-100 text-success-700'}`}
-                    >
-                      {m.estado}
-                    </span>
-                  </td>
+const TONOS_TIPO = {
+  adelanto: { bg: '#FEF2F2', fg: '#9E141E', label: 'Adelanto' },
+  descuento: { bg: '#FDF3D3', fg: '#95661A', label: 'Descuento' },
+  consumo: { bg: '#F1F5F9', fg: '#475569', label: 'Consumo' },
+};
+
+const METODOS = {
+  efectivo: 'Efectivo',
+  transferencia: 'Transferencia',
+  mercadopago: 'Mercado Pago',
+  modo: 'Modo',
+  uala: 'Ualá',
+};
+
+export function MovimientosTab({ detail }) {
+  // Se hacía `detail.liquidaciones.map(...)` sin guarda: si el endpoint no
+  // devolvía el array (empleado recién creado), la pestaña rompía entera.
+  const liquidaciones = Array.isArray(detail?.liquidaciones) ? detail.liquidaciones : [];
+  const movimientos = Array.isArray(detail?.movimientos) ? detail.movimientos : [];
+
+  const pendientes = movimientos.filter(
+    (m) => String(m.estado || '').toLowerCase() === 'pendiente'
+  );
+  const totalPendiente = pendientes.reduce((acc, m) => acc + Number(m.monto || 0), 0);
+
+  return (
+    <div className="space-y-4">
+      <Card
+        title="Movimientos"
+        helper="Adelantos, descuentos y consumos cargados a la cuenta"
+        action={
+          pendientes.length > 0 ? (
+            <span
+              className="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium"
+              style={{ background: '#FEF2F2', color: '#9E141E' }}
+            >
+              {fmt(totalPendiente)} sin liquidar
+            </span>
+          ) : null
+        }
+      >
+        {movimientos.length === 0 ? (
+          <Empty
+            title="Sin movimientos"
+            description="Acá aparecen los adelantos, descuentos y consumos que le vayas cargando."
+          />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead>
+                <tr className="text-[12px] text-gray-500">
+                  <th className="pb-3 font-normal">Fecha</th>
+                  <th className="pb-3 font-normal">Tipo</th>
+                  <th className="pb-3 font-normal">Detalle</th>
+                  <th className="pb-3 text-right font-normal">Monto</th>
+                  <th className="pb-3 text-right font-normal">Estado</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {movimientos.map((m) => {
+                  const tono = TONOS_TIPO[m.tipo] || TONOS_TIPO.consumo;
+                  const pendiente = String(m.estado || '').toLowerCase() === 'pendiente';
+                  return (
+                    <tr key={m.id}>
+                      <td className="py-3 text-[13px] tabular-nums text-gray-600">
+                        {fecha(m.creado_en, 'dd/MM/yy HH:mm')}
+                      </td>
+                      <td className="py-3">
+                        <Pill label={tono.label} bg={tono.bg} fg={tono.fg} />
+                      </td>
+                      <td className="max-w-[240px] truncate py-3 text-[13px] text-gray-700">
+                        {m.descripcion || '—'}
+                      </td>
+                      <td className="py-3 text-right text-[13px] font-semibold tabular-nums text-gray-900">
+                        {fmt(m.monto)}
+                      </td>
+                      <td className="py-3 text-right">
+                        <span
+                          className="text-[12px]"
+                          style={{ color: pendiente ? BRAND : '#6B7280' }}
+                        >
+                          {pendiente ? 'Sin liquidar' : 'Liquidado'}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+
+      <Card title="Liquidaciones" helper="Cada vez que se le pagó y por cuánto">
+        {liquidaciones.length === 0 ? (
+          <Empty
+            title="Todavía no se le liquidó nada"
+            description="Cuando confirmes una liquidación va a quedar registrada acá."
+          />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead>
+                <tr className="text-[12px] text-gray-500">
+                  <th className="pb-3 font-normal">Fecha</th>
+                  <th className="pb-3 font-normal">Período</th>
+                  <th className="pb-3 font-normal">Método</th>
+                  <th className="pb-3 text-right font-normal">Neto pagado</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {liquidaciones.map((liq) => (
+                  <tr key={liq.id}>
+                    <td className="py-3 text-[13px] tabular-nums text-gray-600">
+                      {fecha(liq.creado_en)}
+                    </td>
+                    <td className="py-3 text-[13px] text-gray-700">
+                      {liq.periodo_desde
+                        ? `${liq.periodo_desde} → ${liq.periodo_hasta || '—'}`
+                        : liq.frecuencia_pago || '—'}
+                    </td>
+                    <td className="py-3 text-[13px] text-gray-700">
+                      {METODOS[liq.metodo_pago] || liq.metodo_pago || '—'}
+                    </td>
+                    <td className="py-3 text-right text-[13px] font-semibold tabular-nums text-gray-900">
+                      {fmt(liq.monto_neto)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
     </div>
   );
 }

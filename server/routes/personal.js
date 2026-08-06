@@ -2650,208 +2650,35 @@ router.post('/:id/movimientos', auth, requirePermission('config.manage'), (req, 
   }
 });
 
+/**
+ * Liquidación manual.
+ *
+ * El cuerpo de esta ruta era una copia literal de `createLiquidacion` (arriba
+ * en este mismo archivo): las mismas validaciones, el mismo INSERT, el mismo
+ * recorrido de movimientos pendientes, el mismo asiento en caja y la misma
+ * respuesta. Unas doscientas líneas duplicadas de lógica que mueve plata.
+ *
+ * El riesgo concreto de tenerlo dos veces es que un arreglo entre en una sola
+ * de las dos: `/liquidaciones/auto` ya usaba la función, así que un cambio en
+ * el prorrateo de adelantos hecho ahí no llegaba nunca a la liquidación
+ * manual, que es la que más se usa.
+ *
+ * Se conserva la implementación de la función porque es la que ya estaba en
+ * uso por el camino automático, y porque abre la transacción antes del `try`:
+ * la versión de la ruta hacía `BEGIN` adentro, así que si el `BEGIN` fallaba
+ * el `catch` intentaba un ROLLBACK sobre una transacción inexistente.
+ */
 router.post('/:id/liquidaciones', auth, requirePermission('config.manage'), (req, res) => {
   const person = db.prepare('SELECT * FROM personal WHERE id = ?').get(req.params.id);
   if (!person) {
     return res.status(404).json({ error: 'Personal no encontrado' });
   }
 
-  const frecuenciaPago = normalizeFrequency(person.frecuencia_pago);
-  const metodoPago = normalizePaymentMethod(req.body?.metodo_pago ?? person.medio_pago_preferido);
-  const unidades = roundStock(parseLocalizedNumber(req.body?.unidades || 1));
-  const montoBase = roundLocalizedNumber(req.body?.monto_base ?? person.monto_base);
-  const periodoDesde = cleanText(req.body?.periodo_desde);
-  const periodoHasta = cleanText(req.body?.periodo_hasta);
-  const notas = cleanText(req.body?.notas);
-  const impactaCaja =
-    Number(req.body?.impacta_caja) === 1 ||
-    (req.body?.impacta_caja === undefined && metodoPago === 'efectivo');
-  const actor = actorFromRequest(req);
-
-  if (unidades <= 0) {
-    return res.status(400).json({ error: 'Las unidades a liquidar deben ser mayores a 0' });
-  }
-  if (montoBase < 0) {
-    return res.status(400).json({ error: 'El monto base debe ser 0 o mayor' });
-  }
-
-  const montoBruto = roundStock(montoBase * unidades);
-  const pendientes = db
-    .prepare(
-      `
-    SELECT *
-    FROM personal_movimientos
-    WHERE personal_id = ? AND estado = 'pendiente' AND saldo_pendiente > 0
-    ORDER BY datetime(creado_en) ASC, id ASC
-  `
-    )
-    .all(person.id)
-    .map(serializeMovement);
-
   try {
-    db.exec('BEGIN');
-
-    const result = db
-      .prepare(
-        `
-      INSERT INTO personal_liquidaciones (
-        personal_id, periodo_desde, periodo_hasta, frecuencia_pago, unidades,
-        monto_base, monto_bruto, total_adelantos, total_descuentos, total_consumos,
-        monto_neto, metodo_pago, notas, actor_id, actor_nombre
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, 0, 0, ?, ?, ?, ?)
-    `
-      )
-      .run(
-        person.id,
-        periodoDesde,
-        periodoHasta,
-        frecuenciaPago,
-        unidades,
-        montoBase,
-        montoBruto,
-        metodoPago,
-        notas,
-        actor.actor_id,
-        actor.actor_nombre
-      );
-
-    const liquidacionId = result.lastInsertRowid;
-    const insertItem = db.prepare(`
-      INSERT INTO personal_liquidacion_items (
-        liquidacion_id, movimiento_id, tipo, descripcion, monto_original, monto_aplicado, saldo_restante
-      ) VALUES (?, ?, ?, ?, ?, ?, ?)
-    `);
-
-    const totals = { adelantos: 0, descuentos: 0, consumos: 0 };
-    let remainingGross = montoBruto;
-
-    pendientes.forEach((movement) => {
-      if (remainingGross <= 0) return;
-
-      const pendiente = roundStock(movement.saldo_pendiente || 0);
-      if (pendiente <= 0) return;
-
-      const aplicado = roundStock(Math.min(remainingGross, pendiente));
-      if (aplicado <= 0) return;
-
-      remainingGross = roundStock(remainingGross - aplicado);
-      const saldoRestante = roundStock(pendiente - aplicado);
-      if (movement.tipo === 'adelanto') totals.adelantos = roundStock(totals.adelantos + aplicado);
-      if (movement.tipo === 'descuento')
-        totals.descuentos = roundStock(totals.descuentos + aplicado);
-      if (movement.tipo === 'consumo') totals.consumos = roundStock(totals.consumos + aplicado);
-
-      db.prepare(
-        `
-        UPDATE personal_movimientos
-        SET saldo_pendiente = ?, estado = ?
-        WHERE id = ?
-      `
-      ).run(saldoRestante, saldoRestante > 0 ? 'pendiente' : 'aplicado', movement.id);
-
-      insertItem.run(
-        liquidacionId,
-        movement.id,
-        movement.tipo,
-        movement.descripcion,
-        movement.monto,
-        aplicado,
-        saldoRestante
-      );
-    });
-
-    const montoNeto = roundStock(
-      montoBruto - totals.adelantos - totals.descuentos - totals.consumos
-    );
-    let cajaMovimientoId = null;
-    let cajaRegistrada = false;
-
-    if (impactaCaja && metodoPago === 'efectivo' && montoNeto > 0) {
-      const cajaActiva = getActiveCaja();
-      if (cajaActiva) {
-        const resultCaja = db
-          .prepare(
-            `
-          INSERT INTO caja_movimientos (cierre_id, tipo, monto, motivo, actor_id, actor_nombre)
-          VALUES (?, 'salida', ?, ?, ?, ?)
-        `
-          )
-          .run(
-            cajaActiva.id,
-            montoNeto,
-            `Pago a ${person.nombre}${periodoHasta ? ` (${periodoHasta})` : ''}`,
-            actor.actor_id,
-            actor.actor_nombre
-          );
-        cajaMovimientoId = resultCaja.lastInsertRowid;
-        cajaRegistrada = true;
-      }
-    }
-
-    db.prepare(
-      `
-      UPDATE personal_liquidaciones
-      SET total_adelantos = ?, total_descuentos = ?, total_consumos = ?, monto_neto = ?, caja_movimiento_id = ?
-      WHERE id = ?
-    `
-    ).run(
-      totals.adelantos,
-      totals.descuentos,
-      totals.consumos,
-      montoNeto,
-      cajaMovimientoId,
-      liquidacionId
-    );
-
-    // Actualizar contadores en personal
-    db.prepare(
-      'UPDATE personal SET total_liquidaciones = total_liquidaciones + 1 WHERE id = ?'
-    ).run(person.id);
-
-    db.exec('COMMIT');
-
-    logAudit(db, {
-      modulo: 'personal',
-      accion: 'liquidacion_pago',
-      entidad: 'personal_liquidacion',
-      entidad_id: liquidacionId,
-      actor_id: actor.actor_id,
-      actor_nombre: actor.actor_nombre,
-      detalle: {
-        personal_id: person.id,
-        personal_nombre: person.nombre,
-        frecuencia_pago: frecuenciaPago,
-        unidades,
-        monto_bruto: montoBruto,
-        total_adelantos: totals.adelantos,
-        total_descuentos: totals.descuentos,
-        total_consumos: totals.consumos,
-        monto_neto: montoNeto,
-        metodo_pago: metodoPago,
-        caja_registrada: cajaRegistrada,
-      },
-    });
-
-    const liquidacion = db
-      .prepare('SELECT * FROM personal_liquidaciones WHERE id = ?')
-      .get(liquidacionId);
-    const items = db
-      .prepare('SELECT * FROM personal_liquidacion_items WHERE liquidacion_id = ? ORDER BY id ASC')
-      .all(liquidacionId);
-
-    res.json({
-      ...serializeLiquidacion(liquidacion),
-      items: items.map((item) => ({
-        ...item,
-        monto_original: roundStock(item.monto_original || 0),
-        monto_aplicado: roundStock(item.monto_aplicado || 0),
-        saldo_restante: roundStock(item.saldo_restante || 0),
-      })),
-      caja_registrada: cajaRegistrada,
-    });
+    const result = createLiquidacion(person, req.body, actorFromRequest(req));
+    return res.json(result);
   } catch (error) {
-    db.exec('ROLLBACK');
-    res.status(400).json({ error: error.message || 'No se pudo liquidar el pago' });
+    return res.status(400).json({ error: error.message || 'No se pudo liquidar el pago' });
   }
 });
 

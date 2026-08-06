@@ -47,6 +47,7 @@ const {
 } = require('../utils/pedidoItems');
 const { geocodeClienteDireccion } = require('../utils/geocode');
 const { asegurarCodigoTarjeta } = require('./fidelizacionService');
+const { resolverDireccionEstructurada } = require('./direccionesEstructuradas');
 
 const ESTADO_LABELS = {
   [PedidoState.NUEVO]: 'recibido',
@@ -318,6 +319,15 @@ function createPedidoRecord(payload) {
     cliente_latitud = null,
     cliente_longitud = null,
     cliente_ubicacion_exacta = 0,
+    direccion_barrio_id = null,
+    direccion_barrio_nombre = '',
+    direccion_manzana_id = null,
+    direccion_manzana = '',
+    direccion_casa = '',
+    direccion_origen = '',
+    direccion_confianza = 0,
+    cliente_geocodificado = 0,
+    cliente_geocoding_precision = '',
     entrega_foto = '',
     entrega_foto_en = null,
     cupon_id = null,
@@ -420,10 +430,12 @@ function createPedidoRecord(payload) {
         subtotal, costo_envio, descuento, total, tipo_entrega, mesa, hora_entrega, metodo_pago,
         notas, origen, pago_estado, pago_id, mp_preference_id, pago_detalle, delivery_zona, tiempo_estimado_min,
         turno_operativo, entrega_pin, cliente_latitud, cliente_longitud, cliente_ubicacion_exacta,
-        entrega_foto, entrega_foto_en,
+        direccion_barrio_id, direccion_barrio_nombre, direccion_manzana_id, direccion_manzana,
+        direccion_casa, direccion_origen, direccion_confianza, cliente_geocodificado,
+        cliente_geocoding_precision, entrega_foto, entrega_foto_en,
         repartidor_id, marketing_campana_id, marketing_promo_id, marketing_origen, marketing_codigo,
         marketing_source, marketing_medium, marketing_campaign, marketing_content
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       numero,
@@ -453,6 +465,15 @@ function createPedidoRecord(payload) {
       optionalNumber(cliente_latitud),
       optionalNumber(cliente_longitud),
       cliente_ubicacion_exacta ? 1 : 0,
+      optionalNumber(direccion_barrio_id),
+      String(direccion_barrio_nombre || ''),
+      optionalNumber(direccion_manzana_id),
+      String(direccion_manzana || ''),
+      String(direccion_casa || ''),
+      String(direccion_origen || ''),
+      Number(direccion_confianza || 0),
+      cliente_geocodificado ? 1 : 0,
+      String(cliente_geocoding_precision || ''),
       entrega_foto || '',
       entrega_foto_en || null,
       optionalNumber(repartidor_id),
@@ -703,8 +724,10 @@ async function buildPedidoPayload(body, options = {}) {
     throw new Error('Mesa requerida para pedido de salon');
   }
 
-  // ── GEOCODIFICACIÓN AUTOMÁTICA ──
-  // Si no hay coordenadas del cliente pero hay dirección, intentamos geocodificar
+  // ── DIRECCIÓN ESTRUCTURADA + GEOCODIFICACIÓN AUTOMÁTICA ──
+  // Prioridad: GPS compartido por el cliente -> casa/manzana/barrio conocido
+  // -> geocoding externo. Así evitamos que direcciones de barrios locales
+  // terminen en otra ciudad o en otro número de calle.
   let clienteLatitud = optionalNumber(body.cliente_latitud);
   let clienteLongitud = optionalNumber(body.cliente_longitud);
   let clienteUbicacionExacta =
@@ -712,8 +735,42 @@ async function buildPedidoPayload(body, options = {}) {
     clienteLongitud !== null &&
     (body.cliente_ubicacion_exacta === true || Number(body.cliente_ubicacion_exacta) === 1);
 
+  const direccionInput = {
+    ...(body.direccion_estructurada || {}),
+    barrio_id: body.direccion_barrio_id || body.direccion_estructurada?.barrio_id,
+    barrio_nombre: body.direccion_barrio_nombre || body.direccion_estructurada?.barrio_nombre,
+    manzana_id: body.direccion_manzana_id || body.direccion_estructurada?.manzana_id,
+    manzana: body.direccion_manzana || body.direccion_estructurada?.manzana,
+    casa: body.direccion_casa || body.direccion_estructurada?.casa,
+  };
+  const tieneDireccionEstructurada = Boolean(
+    direccionInput.barrio_id ||
+    direccionInput.barrio_nombre ||
+    direccionInput.manzana_id ||
+    direccionInput.manzana
+  );
+  const direccionResuelta =
+    tipoEntrega === 'delivery' && tieneDireccionEstructurada
+      ? resolverDireccionEstructurada(direccionInput)
+      : null;
+
+  if (
+    !clienteUbicacionExacta &&
+    direccionResuelta &&
+    optionalNumber(direccionResuelta.latitud) !== null &&
+    optionalNumber(direccionResuelta.longitud) !== null
+  ) {
+    clienteLatitud = optionalNumber(direccionResuelta.latitud);
+    clienteLongitud = optionalNumber(direccionResuelta.longitud);
+    clienteUbicacionExacta = false;
+  }
+
+  let clienteGeocodificado = 0;
+  let clienteGeocodingPrecision = '';
+
   if (
     tipoEntrega === 'delivery' &&
+    !tieneDireccionEstructurada &&
     (clienteLatitud === null || clienteLongitud === null) &&
     String(body.cliente_direccion || '').trim()
   ) {
@@ -723,6 +780,8 @@ async function buildPedidoPayload(body, options = {}) {
         clienteLatitud = geo.lat;
         clienteLongitud = geo.lng;
         clienteUbicacionExacta = false;
+        clienteGeocodificado = 1;
+        clienteGeocodingPrecision = geo.precision || geo.type || 'geocoding';
       }
     } catch (e) {
       // Silencioso: si falla la geocodificación, el pedido se crea sin coordenadas
@@ -764,6 +823,17 @@ async function buildPedidoPayload(body, options = {}) {
     cliente_latitud: clienteLatitud,
     cliente_longitud: clienteLongitud,
     cliente_ubicacion_exacta: clienteUbicacionExacta ? 1 : 0,
+    direccion_barrio_id: direccionResuelta?.barrio?.id || optionalNumber(direccionInput.barrio_id),
+    direccion_barrio_nombre:
+      direccionResuelta?.barrio?.nombre || String(direccionInput.barrio_nombre || ''),
+    direccion_manzana_id:
+      direccionResuelta?.manzana?.id || optionalNumber(direccionInput.manzana_id),
+    direccion_manzana: direccionResuelta?.manzana?.letra || String(direccionInput.manzana || ''),
+    direccion_casa: direccionResuelta?.casa || String(direccionInput.casa || ''),
+    direccion_origen: direccionResuelta?.origen || '',
+    direccion_confianza: Number(direccionResuelta?.confianza || 0),
+    cliente_geocodificado: clienteGeocodificado,
+    cliente_geocoding_precision: direccionResuelta?.precision || clienteGeocodingPrecision,
     cupon_id: cuponData.cupon?.id || null,
     cupon_codigo: cuponData.cupon?.codigo || null,
     cupon_validacion: cuponData,

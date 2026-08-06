@@ -7,6 +7,7 @@ const { resolveShiftLabel } = require('../utils/shifts');
 const { summarizePaymentRows } = require('../utils/paymentStatus');
 const { hydratePedido } = require('../services/pedidoService');
 
+const { fechaLocal } = require('../utils/fechaLocal');
 function toDateOnly(value) {
   return new Date(value).toISOString().split('T')[0];
 }
@@ -327,7 +328,7 @@ function buildClientAnalytics(rows, desde, hasta) {
       COUNT(*) AS pedidos,
       COALESCE(SUM(total), 0) AS total
     FROM pedidos
-    WHERE DATE(creado_en) BETWEEN ? AND ? AND estado != 'cancelado'
+    WHERE ${fechaLocal('creado_en')} BETWEEN ? AND ? AND estado != 'cancelado'
     GROUP BY COALESCE(cliente_id, 0), COALESCE(NULLIF(cliente_nombre, ''), 'Consumidor final'), COALESCE(NULLIF(cliente_telefono, ''), '')
     ORDER BY total DESC, pedidos DESC
     LIMIT 8
@@ -694,14 +695,14 @@ router.get('/dashboard', auth, requirePermission('dashboard.view'), (req, res) =
   // Ventas hoy
   const ventasHoy = db
     .prepare(
-      "SELECT COUNT(*) as pedidos, COALESCE(SUM(total),0) as total FROM pedidos WHERE DATE(creado_en)=? AND estado!='cancelado'"
+      `SELECT COUNT(*) as pedidos, COALESCE(SUM(total),0) as total FROM pedidos WHERE ${fechaLocal('creado_en')}=? AND estado!='cancelado'`
     )
     .get(hoy);
 
   // Ventas ayer para calcular tendencia
   const ventasAyerRow = db
     .prepare(
-      "SELECT COUNT(*) as pedidos, COALESCE(SUM(total),0) as total FROM pedidos WHERE DATE(creado_en)=? AND estado!='cancelado'"
+      `SELECT COUNT(*) as pedidos, COALESCE(SUM(total),0) as total FROM pedidos WHERE ${fechaLocal('creado_en')}=? AND estado!='cancelado'`
     )
     .get(ayer);
   const ventasAyer = ventasAyerRow.total || 0;
@@ -725,15 +726,15 @@ router.get('/dashboard', auth, requirePermission('dashboard.view'), (req, res) =
   const ventas7dias = db
     .prepare(
       `
-    SELECT DATE(creado_en) as fecha, COUNT(*) as pedidos, COALESCE(SUM(total),0) as total
-    FROM pedidos WHERE DATE(creado_en) >= DATE('now','-6 days') AND estado!='cancelado'
-    GROUP BY DATE(creado_en) ORDER BY fecha ASC
+    SELECT ${fechaLocal('creado_en')} as fecha, COUNT(*) as pedidos, COALESCE(SUM(total),0) as total
+    FROM pedidos WHERE ${fechaLocal('creado_en')} >= DATE('now','-3 hours','-6 days') AND estado!='cancelado'
+    GROUP BY ${fechaLocal('creado_en')} ORDER BY fecha ASC
   `
     )
     .all();
 
   const pedidosHoyDetallados = db
-    .prepare("SELECT * FROM pedidos WHERE DATE(creado_en)=? AND estado!='cancelado'")
+    .prepare(`SELECT * FROM pedidos WHERE ${fechaLocal('creado_en')}=? AND estado!='cancelado'`)
     .all(hoy);
   const paymentSummaryHoy = summarizePaymentRows(pedidosHoyDetallados);
   const porMetodoPago = paymentSummaryHoy.byMethod;
@@ -757,7 +758,7 @@ router.get('/dashboard', auth, requirePermission('dashboard.view'), (req, res) =
 
   // Margen bruto ayer (para tendencia)
   const pedidosAyerDetallados = db
-    .prepare("SELECT * FROM pedidos WHERE DATE(creado_en)=? AND estado!='cancelado'")
+    .prepare(`SELECT * FROM pedidos WHERE ${fechaLocal('creado_en')}=? AND estado!='cancelado'`)
     .all(ayer);
   const itemsAyer = getPedidoItemRows(pedidosAyerDetallados.map((p) => p.id));
   const costoAyer = itemsAyer.reduce((acc, item) => {
@@ -843,6 +844,11 @@ router.get('/dashboard', auth, requirePermission('dashboard.view'), (req, res) =
     margenBrutoHoy,
     margenPctHoy,
     tendenciaMargen,
+    // El tablero necesita saber si la comparacion de margen es valida.
+    // Antes usaba `ventasAyer` como sustituto, asi que un dia con ventas
+    // pero sin costos cargados mostraba "0% vs ayer" como si fuera un dato
+    // real. Con el margen de ayer explicito puede distinguir "sin datos".
+    margenBrutoAyer: margenAyer,
   });
 });
 
@@ -850,13 +856,13 @@ router.get('/ventas', auth, requirePermission('reportes.view'), (req, res) => {
   const { desde, hasta } = parseDateRange(req);
   const pedidos = db
     .prepare(
-      "SELECT * FROM pedidos WHERE DATE(creado_en) BETWEEN ? AND ? AND estado!='cancelado' ORDER BY creado_en DESC"
+      `SELECT * FROM pedidos WHERE ${fechaLocal('creado_en')} BETWEEN ? AND ? AND estado!='cancelado' ORDER BY creado_en DESC`
     )
     .all(desde, hasta)
     .map(hydratePedido);
   const totales = db
     .prepare(
-      "SELECT COUNT(*) as cantidad, COALESCE(SUM(total),0) as total FROM pedidos WHERE DATE(creado_en) BETWEEN ? AND ? AND estado!='cancelado'"
+      `SELECT COUNT(*) as cantidad, COALESCE(SUM(total),0) as total FROM pedidos WHERE ${fechaLocal('creado_en')} BETWEEN ? AND ? AND estado!='cancelado'`
     )
     .get(desde, hasta);
   res.json({ pedidos, totales });
@@ -871,7 +877,7 @@ router.get('/premium', auth, requirePermission('reportes.view'), (req, res) => {
       `
     SELECT *
     FROM pedidos
-    WHERE DATE(creado_en) BETWEEN ? AND ?
+    WHERE ${fechaLocal('creado_en')} BETWEEN ? AND ?
     ORDER BY datetime(creado_en) DESC
   `
     )

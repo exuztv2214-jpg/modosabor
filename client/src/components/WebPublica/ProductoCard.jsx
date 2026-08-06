@@ -112,7 +112,7 @@ export default function ProductoCard({
             ) : (
               <UtensilsCrossed size={28} className="text-gray-400" strokeWidth={1.75} />
             )}
-            <span className="text-[10px] font-black uppercase tracking-[0.16em] text-gray-500/70">
+            <span className="text-[12px] font-medium text-gray-500">
               {producto?.categoria_nombre || 'Sin foto'}
             </span>
           </div>
@@ -122,7 +122,7 @@ export default function ProductoCard({
         {badge && (
           <div className="absolute top-3 left-3">
             <span
-              className={`inline-flex items-center px-2.5 py-1 rounded-lg text-white text-[10px] font-bold shadow-md ${badge.style}`}
+              className={`inline-flex items-center px-2.5 py-1 rounded-lg text-white text-[12px] font-semibold shadow-md ${badge.style}`}
               style={badge.style === 'bg-primary-500' ? { backgroundColor: colorPrimario } : {}}
             >
               {badge.text}
@@ -134,36 +134,38 @@ export default function ProductoCard({
       <div className="flex flex-1 flex-col p-4">
         {producto.categoria_nombre ? (
           <p
-            className="mb-1 flex flex-wrap items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.18em]"
+            className="mb-1 flex flex-wrap items-center gap-1.5 text-[13px] font-medium"
             style={{ color: colorPrimario }}
           >
             {producto.categoria_nombre}
             {esMenuDelDia && (
               <span
-                className="rounded-full px-2 py-0.5 text-[9px] tracking-[0.1em]"
+                className="rounded-full px-2 py-0.5 text-[12px]"
                 style={{ backgroundColor: theme?.accentSoft || '#fff2d9', color: '#9a5b05' }}
               >
                 {producto.menu_dia_tipo === 'ejecutivo' ? 'Ejecutivo' : 'Económico'}
               </span>
             )}
             {tienePromoJugoPostre && (
-              <span className="rounded-full bg-success-100 px-2 py-0.5 text-[9px] tracking-[0.1em] text-success-700">
+              <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[12px] text-emerald-700">
                 +Jugo y postre
               </span>
             )}
           </p>
         ) : null}
-        <h3 className="text-base font-black text-gray-900 leading-snug mb-1">{producto.nombre}</h3>
+        <h3 className="mb-1 text-[17px] font-semibold leading-snug text-gray-900">
+          {producto.nombre}
+        </h3>
 
         {producto.descripcion && (
-          <p className="mb-2 text-xs text-gray-500 line-clamp-2 leading-relaxed">
+          <p className="mb-2 line-clamp-2 text-[14px] leading-snug text-gray-600">
             {producto.descripcion}
           </p>
         )}
 
         {variantHint ? (
           <p
-            className="mb-2 inline-flex w-fit items-center rounded-lg px-2.5 py-1 text-[10px] font-bold"
+            className="mb-2 inline-flex w-fit items-center rounded-lg px-2.5 py-1 text-[13px] font-medium"
             style={{ backgroundColor: theme?.accentSoft || '#fff2d9', color: '#9a5b05' }}
           >
             {variantHint}
@@ -176,11 +178,11 @@ export default function ProductoCard({
               <div className="flex flex-wrap gap-x-3 gap-y-1">
                 {structuredPrices.items.map((item) => (
                   <div key={item.label} className="flex flex-col">
-                    <span className="text-[10px] font-bold text-gray-400 leading-none uppercase tracking-[0.12em]">
+                    <span className="text-[12px] font-medium leading-none text-gray-500">
                       {item.label}
                     </span>
                     <span
-                      className="text-lg font-bold leading-none"
+                      className="text-[22px] font-bold leading-none"
                       style={{ color: colorPrimario }}
                     >
                       {fmt(item.price)}
@@ -191,17 +193,20 @@ export default function ProductoCard({
             ) : (
               <div className="flex flex-col gap-0.5">
                 {primaryPrice.label ? (
-                  <span className="text-[10px] font-bold text-gray-400 leading-none uppercase tracking-[0.12em]">
+                  <span className="text-[12px] font-medium leading-none text-gray-500">
                     {primaryPrice.label}
                   </span>
                 ) : null}
                 {producto.precio_anterior &&
                   Number(producto.precio_anterior) > Number(producto.precio) && (
-                    <span className="text-xs font-bold text-gray-400 line-through leading-none">
+                    <span className="text-[13px] font-medium leading-none text-gray-400 line-through">
                       {fmt(producto.precio_anterior)}
                     </span>
                   )}
-                <span className="text-lg font-bold leading-none" style={{ color: colorPrimario }}>
+                <span
+                  className="text-[22px] font-bold leading-none"
+                  style={{ color: colorPrimario }}
+                >
                   {fmt(primaryPrice.price)}
                 </span>
               </div>
@@ -216,7 +221,7 @@ export default function ProductoCard({
               >
                 <Minus size={16} strokeWidth={2.5} />
               </button>
-              <span className="text-sm font-bold text-gray-900 w-6 text-center">
+              <span className="w-6 text-center text-[15px] font-semibold text-gray-900">
                 {cantidadSimple}
               </span>
               <button
@@ -231,10 +236,20 @@ export default function ProductoCard({
             <button
               onClick={() => onAgregar(producto)}
               disabled={!disponible}
-              className="flex h-10 min-w-[94px] items-center justify-center rounded-xl px-3 text-xs font-black uppercase tracking-[0.18em] transition-all active:scale-95 shadow-sm hover:shadow-md disabled:opacity-40"
+              // Era `text-xs font-black uppercase tracking-[0.18em]` con la
+              // palabra "Sumar", que no dice nada. El botón de agregar es el
+              // que decide la venta: ahora es legible y dice qué hace.
+              className="flex h-11 min-w-[104px] items-center justify-center gap-1.5 rounded-xl px-4 text-[14px] font-semibold shadow-sm transition-all hover:shadow-md active:scale-95 disabled:opacity-40"
               style={{ backgroundColor: colorPrimario, color: 'white' }}
             >
-              {tieneVariantes ? 'Ver' : 'Sumar'}
+              {tieneVariantes ? (
+                'Elegir'
+              ) : (
+                <>
+                  <Plus size={16} strokeWidth={2.5} />
+                  Agregar
+                </>
+              )}
             </button>
           )}
         </div>

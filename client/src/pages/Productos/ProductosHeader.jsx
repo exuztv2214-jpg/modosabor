@@ -1,41 +1,14 @@
-import {
-  Package,
-  Sparkles,
-  Star,
-  AlertTriangle,
-  CircleDollarSign,
-  RefreshCw,
-  LayoutGrid,
-  List,
-  Plus,
-  Search,
-  CheckSquare,
-  Square,
-  X,
-  Eye,
-  EyeOff,
-} from 'lucide-react';
-import { fmtMoney, rgba } from './utils';
+import { Eye, EyeOff, LayoutGrid, List, Plus, RefreshCw, Search, X } from 'lucide-react';
 
-function StatCard({ label, value, icon: Icon, tone, helper }) {
-  return (
-    <div className="group rounded-2xl border border-gray-100 bg-white p-5 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:border-[#D7E3FF] hover:shadow-xl">
-      <div className="flex items-center justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-gray-500">{label}</p>
-          <p className="mt-2 truncate text-2xl font-black tracking-tight text-gray-900">{value}</p>
-          {helper && <p className="mt-1 text-xs text-gray-500">{helper}</p>}
-        </div>
-        <div
-          className="flex h-12 w-12 items-center justify-center rounded-2xl shadow-sm transition-transform duration-300 group-hover:scale-110"
-          style={{ backgroundColor: rgba(tone, 0.14), color: tone }}
-        >
-          <Icon size={18} />
-        </div>
-      </div>
-    </div>
-  );
-}
+import { BRAND, STROKE } from '../../lib/theme.js';
+import { Stat } from '../Clientes/clientesUi.jsx';
+import { CONTROL, fmtMoney } from './utils';
+
+// `CONTROL` estaba definido acá y también exportado desde `utils.js`, con la
+// única diferencia de un `w-full`. Dos fuentes de verdad para el mismo input:
+// tocabas una y la otra quedaba distinta. El ancho va en el uso puntual.
+const SELECT =
+  'h-11 rounded-xl border border-gray-200 bg-white px-3 text-[13px] font-medium text-gray-700 outline-none transition focus:border-gray-400 focus:ring-2 focus:ring-gray-900/5';
 
 export default function ProductosHeader({
   stats,
@@ -54,189 +27,215 @@ export default function ProductosHeader({
   onRecargar,
   onNuevo,
   filteredCount,
-  isAllSelected,
-  onToggleSelectAll,
   selectedCount,
   onBulkActivo,
   onClearSelected,
+  hayFiltros,
+  onLimpiarFiltros,
 }) {
   return (
     <>
-      <section className="rounded-[28px] border border-gray-100 bg-white p-6 shadow-sm">
-        <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
-          <div className="flex items-start gap-4">
-            <div className="hidden h-14 w-14 items-center justify-center rounded-2xl bg-primary-50 text-primary-500 shadow-sm sm:flex">
-              <Package size={28} />
-            </div>
-            <div className="max-w-2xl">
-              <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-primary-500">
-                Catálogo de productos
-              </p>
-              <h1 className="mt-2 text-3xl font-bold tracking-tight text-gray-800 sm:text-4xl">
-                Productos
-              </h1>
-              <p className="mt-2 text-sm leading-6 text-gray-500">
-                Catálogo operativo con foco en imagen, precio, stock y estructura de variantes para
-                mantener coherencia con TPV, dashboard y web pública.
-              </p>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={onRecargar}
-              className="inline-flex h-11 items-center gap-2 rounded-2xl border border-gray-200 bg-white px-4 text-sm font-semibold text-gray-700 transition hover:bg-gray-50"
-            >
-              <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
-              Recargar
-            </button>
-
-            <div className="inline-flex rounded-2xl border border-gray-200 bg-gray-50 p-1">
-              <button
-                type="button"
-                onClick={() => onViewModeChange('grid')}
-                className={`inline-flex h-9 items-center gap-2 rounded-[14px] px-4 text-sm font-semibold transition ${viewMode === 'grid' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:bg-white hover:text-gray-700'}`}
-              >
-                <LayoutGrid size={14} />
-                Grid
-              </button>
-              <button
-                type="button"
-                onClick={() => onViewModeChange('list')}
-                className={`inline-flex h-9 items-center gap-2 rounded-[14px] px-4 text-sm font-semibold transition ${viewMode === 'list' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:bg-white hover:text-gray-700'}`}
-              >
-                <List size={14} />
-                Lista
-              </button>
-            </div>
-
-            <button
-              type="button"
-              onClick={onNuevo}
-              className="inline-flex h-11 items-center gap-2 rounded-2xl bg-primary-500 px-5 text-sm font-bold text-white shadow-[0_14px_30px_rgba(93,135,255,0.26)] transition hover:-translate-y-0.5 hover:bg-[#4a74ef]"
-            >
-              <Plus size={15} />
-              Nuevo producto
-            </button>
-          </div>
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight text-gray-900">Productos</h1>
+          <p className="mt-0.5 text-[13px] text-gray-500">
+            {stats.total === 0
+              ? 'Todavía no hay productos cargados'
+              : `${stats.total} en el catálogo · ${stats.activos} activos`}
+          </p>
         </div>
-      </section>
 
-      <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
-        <StatCard label="Total" value={stats.total} icon={Package} tone="#5D87FF" />
-        <StatCard label="Activos" value={stats.activos} icon={Sparkles} tone="#13DEB9" />
-        <StatCard label="Destacados" value={stats.destacados} icon={Star} tone="#FFAE1F" />
-        <StatCard label="Stock bajo" value={stats.stockBajo} icon={AlertTriangle} tone="#FA896B" />
-        <StatCard
-          label="Inventario"
-          value={fmtMoney(stats.inventario)}
-          icon={CircleDollarSign}
-          tone="#49BEFF"
-          helper="Costo x stock"
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={onNuevo}
+            style={{ background: BRAND }}
+            className="flex h-11 items-center gap-2 rounded-xl px-4 text-[13px] font-semibold text-white transition hover:brightness-110"
+          >
+            <Plus size={16} strokeWidth={STROKE} />
+            Nuevo producto
+          </button>
+
+          <div className="flex rounded-xl bg-gray-200/70 p-1">
+            <button
+              type="button"
+              onClick={() => onViewModeChange('grid')}
+              title="Ver como tarjetas"
+              className={`flex h-9 w-9 items-center justify-center rounded-lg transition ${
+                viewMode === 'grid' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'
+              }`}
+            >
+              <LayoutGrid size={16} strokeWidth={STROKE} />
+            </button>
+            <button
+              type="button"
+              onClick={() => onViewModeChange('list')}
+              title="Ver como lista"
+              className={`flex h-9 w-9 items-center justify-center rounded-lg transition ${
+                viewMode === 'list' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'
+              }`}
+            >
+              <List size={16} strokeWidth={STROKE} />
+            </button>
+          </div>
+
+          <button
+            type="button"
+            onClick={onRecargar}
+            title="Actualizar"
+            className="flex h-11 w-11 items-center justify-center rounded-xl bg-white text-gray-500 shadow-[0_1px_2px_rgba(15,23,42,0.06)] transition hover:bg-gray-50"
+          >
+            <RefreshCw size={16} strokeWidth={STROKE} className={loading ? 'animate-spin' : ''} />
+          </button>
+        </div>
+      </div>
+
+      {/*
+        Eran cinco tarjetas: total, activos, destacados, stock bajo e
+        inventario. "Total" y "activos" ya están en el subtítulo de arriba, y
+        "destacados" no es algo que se accione. Quedan las cuatro que sí
+        piden hacer algo cuando el número sube.
+      */}
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <Stat
+          label="Stock bajo"
+          value={stats.stockBajo}
+          helper={stats.stockBajo > 0 ? 'Menos de 10 unidades' : 'Nada por reponer'}
+          alerta={stats.stockBajo > 0}
         />
-      </section>
+        <Stat
+          label="Sin publicar"
+          value={stats.inactivos}
+          helper="No se ven en el TPV ni en la web"
+          tono="ambar"
+        />
+        <Stat
+          label="Sin costo cargado"
+          value={stats.sinCosto}
+          helper="Sin costo, el margen del día sale mal"
+          tono={stats.sinCosto > 0 ? 'ambar' : 'verde'}
+        />
+        <Stat
+          label="Valor del inventario"
+          value={fmtMoney(stats.inventario)}
+          helper="Costo por stock actual"
+          tono="verde"
+        />
+      </div>
 
-      <section className="rounded-[28px] border border-gray-100 bg-white p-6 shadow-sm">
-        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-          <div className="relative w-full xl:max-w-md">
-            <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
+      <div className="rounded-2xl bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.06)]">
+        <div className="grid gap-3 lg:grid-cols-[minmax(0,1.6fr)_repeat(3,minmax(0,1fr))]">
+          <div className="relative">
+            <Search
+              size={16}
+              strokeWidth={STROKE}
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+            />
             <input
               value={busqueda}
               onChange={(event) => onBusquedaChange(event.target.value)}
-              placeholder="Buscar productos..."
-              className="h-11 w-full rounded-2xl border border-gray-200 bg-gray-50 pl-11 pr-4 text-sm font-medium text-gray-700 outline-none transition focus:border-primary-500 focus:bg-white focus:ring-4 focus:ring-[#5D87FF]/10"
+              placeholder="Buscar por nombre, código o descripción"
+              className={`${CONTROL} w-full pl-9`}
             />
           </div>
 
-          <div className="flex flex-col gap-3 sm:flex-row">
-            <select
-              value={filtroCategoria}
-              onChange={(event) => onFiltroCategoriaChange(event.target.value)}
-              className="h-11 min-w-[180px] rounded-2xl border border-gray-200 bg-gray-50 px-4 text-sm font-medium text-gray-700 outline-none transition focus:border-primary-500 focus:bg-white focus:ring-4 focus:ring-[#5D87FF]/10"
-            >
-              <option value="todas">Todas las categorías</option>
-              {categorias.map((categoria) => (
-                <option key={categoria.id} value={String(categoria.id)}>
-                  {categoria.nombre}
-                </option>
-              ))}
-            </select>
-            <select
-              value={filtroEstado}
-              onChange={(event) => onFiltroEstadoChange(event.target.value)}
-              className="h-11 min-w-[140px] rounded-2xl border border-gray-200 bg-gray-50 px-4 text-sm font-medium text-gray-700 outline-none transition focus:border-primary-500 focus:bg-white focus:ring-4 focus:ring-[#5D87FF]/10"
-            >
-              <option value="todos">Todos</option>
-              <option value="activos">Activos</option>
-              <option value="inactivos">Inactivos</option>
-            </select>
-            <select
-              value={sortBy}
-              onChange={(event) => onSortByChange(event.target.value)}
-              className="h-11 min-w-[150px] rounded-2xl border border-gray-200 bg-gray-50 px-4 text-sm font-medium text-gray-700 outline-none transition focus:border-primary-500 focus:bg-white focus:ring-4 focus:ring-[#5D87FF]/10"
-            >
-              <option value="nombre">Nombre</option>
-              <option value="precio">Precio</option>
-              <option value="stock">Stock</option>
-              <option value="categoria">Categoría</option>
-            </select>
-          </div>
-        </div>
-
-        <div className="mt-4 flex flex-wrap items-center gap-2 text-sm text-gray-500">
-          <button
-            type="button"
-            onClick={onToggleSelectAll}
-            title={isAllSelected ? 'Deseleccionar todos' : 'Seleccionar todos'}
-            className="flex items-center gap-1.5 rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs font-semibold text-gray-600 transition hover:border-primary-500/30 hover:text-primary-500"
+          <select
+            value={filtroCategoria}
+            onChange={(event) => onFiltroCategoriaChange(event.target.value)}
+            className={SELECT}
           >
-            {isAllSelected ? <CheckSquare size={13} /> : <Square size={13} />}
-            Sel. todos
-          </button>
-          <span className="rounded-full bg-slate-100 px-3 py-1.5 font-semibold text-slate-600">
-            {filteredCount} visibles
-          </span>
-          <span className="rounded-full bg-primary-50 px-3 py-1.5 font-semibold text-primary-500">
-            {viewMode === 'grid' ? 'Vista tarjetas' : 'Vista tabla'}
-          </span>
-          <span className="rounded-full bg-[#E8F7FF] px-3 py-1.5 font-semibold text-info-500">
-            Variantes y extras integrados
-          </span>
+            <option value="todas">Todas las categorías</option>
+            {categorias.map((categoria) => (
+              <option key={categoria.id} value={String(categoria.id)}>
+                {categoria.nombre}
+              </option>
+            ))}
+          </select>
+
+          <select
+            value={filtroEstado}
+            onChange={(event) => onFiltroEstadoChange(event.target.value)}
+            className={SELECT}
+          >
+            <option value="todos">Activos e inactivos</option>
+            <option value="activos">Solo activos</option>
+            <option value="inactivos">Solo inactivos</option>
+          </select>
+
+          <select
+            value={sortBy}
+            onChange={(event) => onSortByChange(event.target.value)}
+            className={SELECT}
+          >
+            <option value="nombre">Ordenar por nombre</option>
+            <option value="precio">Por precio</option>
+            <option value="stock">Por stock</option>
+            <option value="categoria">Por categoría</option>
+          </select>
         </div>
 
-        {selectedCount > 0 && (
-          <div className="mt-3 flex flex-wrap items-center gap-3 rounded-2xl border border-[#D7E3FF] bg-primary-50 px-5 py-3">
-            <span className="text-sm font-bold text-primary-500">
-              {selectedCount} seleccionado{selectedCount !== 1 ? 's' : ''}
-            </span>
+        {hayFiltros ? (
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-gray-100 pt-3">
+            <p className="text-[12px] text-gray-500">
+              {filteredCount === 0 ? (
+                'Ningún producto coincide'
+              ) : (
+                <>
+                  Mostrando <span className="font-semibold text-gray-900">{filteredCount}</span> de{' '}
+                  {stats.total}
+                </>
+              )}
+            </p>
+            <button
+              type="button"
+              onClick={onLimpiarFiltros}
+              className="inline-flex items-center gap-1 text-[12px] font-semibold text-gray-500 transition hover:text-gray-900"
+            >
+              <X size={13} strokeWidth={STROKE} />
+              Limpiar filtros
+            </button>
+          </div>
+        ) : null}
+      </div>
+
+      {/*
+        La barra de selección múltiple estaba metida dentro del panel de
+        filtros y sólo se veía si el panel quedaba en pantalla. Ahora es una
+        barra propia que aparece únicamente cuando hay algo seleccionado.
+      */}
+      {selectedCount > 0 ? (
+        <div className="flex flex-wrap items-center gap-2 rounded-2xl bg-gray-900 px-4 py-3">
+          <span className="text-[13px] font-semibold text-white">
+            {selectedCount} seleccionado{selectedCount !== 1 ? 's' : ''}
+          </span>
+          <div className="ml-auto flex flex-wrap gap-2">
             <button
               type="button"
               onClick={() => onBulkActivo(1)}
-              className="flex h-9 items-center gap-1.5 rounded-xl bg-success-500 px-4 text-xs font-bold text-white shadow-sm transition hover:bg-emerald-600 active:scale-95"
+              className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-white/15 px-3 text-[12px] font-semibold text-white transition hover:bg-white/25"
             >
-              <Eye size={14} />
-              Activar todos
+              <Eye size={14} strokeWidth={STROKE} />
+              Activar
             </button>
             <button
               type="button"
               onClick={() => onBulkActivo(0)}
-              className="flex h-9 items-center gap-1.5 rounded-xl bg-warning-500 px-4 text-xs font-bold text-white shadow-sm transition hover:bg-amber-600 active:scale-95"
+              className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-white/15 px-3 text-[12px] font-semibold text-white transition hover:bg-white/25"
             >
-              <EyeOff size={14} />
-              Desactivar todos
+              <EyeOff size={14} strokeWidth={STROKE} />
+              Desactivar
             </button>
             <button
               type="button"
               onClick={onClearSelected}
-              className="ml-auto flex h-9 items-center gap-1.5 rounded-xl border border-[#B7CEFF] bg-white px-4 text-xs font-bold text-primary-500 transition hover:bg-[#DDE9FF]"
+              className="inline-flex h-9 items-center gap-1.5 rounded-xl px-3 text-[12px] font-semibold text-white/70 transition hover:text-white"
             >
-              <X size={13} />
+              <X size={14} strokeWidth={STROKE} />
               Limpiar
             </button>
           </div>
-        )}
-      </section>
+        </div>
+      ) : null}
     </>
   );
 }

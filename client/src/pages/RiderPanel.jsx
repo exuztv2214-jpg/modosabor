@@ -73,6 +73,7 @@ import {
   wipeRiderDevice,
 } from '../lib/nativeRiderGps.js';
 import api from '../lib/api.js';
+import { BRAND } from '../lib/theme.js';
 import { checkForUpdate, dismissUpdate, downloadAndInstall } from '../lib/riderUpdater.js';
 import { socketManager } from '../lib/socket.js';
 import { runDeliveredAlert, runOrderAlert, useOrderAlertPlayback } from '../lib/orderAlerts.js';
@@ -232,11 +233,9 @@ function PinModal({ pedidoNumero, onConfirm, onClose }) {
         <div style={{ textAlign: 'center', marginBottom: '28px' }}>
           <p
             style={{
-              fontSize: '11px',
-              fontWeight: 900,
-              textTransform: 'uppercase',
-              letterSpacing: '0.22em',
-              color: '#9CA3AF',
+              fontSize: '13px',
+              fontWeight: 600,
+              color: '#6B7280',
               marginBottom: '8px',
             }}
           >
@@ -245,6 +244,8 @@ function PinModal({ pedidoNumero, onConfirm, onClose }) {
           <div
             style={{ display: 'flex', justifyContent: 'center', gap: '12px', marginTop: '18px' }}
           >
+            {/* Los puntos y el botón usaban #5D87FF, el azul de la plantilla
+                vieja. Es la única pantalla del rider que se ve azul. */}
             {Array.from({ length: 8 }).map((_, i) => (
               <div
                 key={i}
@@ -252,7 +253,7 @@ function PinModal({ pedidoNumero, onConfirm, onClose }) {
                   width: '13px',
                   height: '13px',
                   borderRadius: '50%',
-                  background: i < value.length ? '#5D87FF' : '#E5E7EB',
+                  background: i < value.length ? BRAND : '#E5E7EB',
                   transition: 'background 0.12s',
                 }}
               />
@@ -302,17 +303,15 @@ function PinModal({ pedidoNumero, onConfirm, onClose }) {
             height: '62px',
             borderRadius: '18px',
             border: 'none',
-            background: value ? '#5D87FF' : '#E5E7EB',
+            background: value ? BRAND : '#E5E7EB',
             color: value ? 'white' : '#9CA3AF',
-            fontSize: '14px',
-            fontWeight: 900,
-            textTransform: 'uppercase',
-            letterSpacing: '0.15em',
+            fontSize: '15px',
+            fontWeight: 700,
             cursor: value ? 'pointer' : 'not-allowed',
             transition: 'all 0.2s',
           }}
         >
-          {loading ? 'Verificando...' : 'Confirmar entrega'}
+          {loading ? 'Verificando…' : 'Confirmar entrega'}
         </button>
         <button
           onClick={onClose}
@@ -407,10 +406,8 @@ function SwipeButton({ onComplete, disabled }) {
         ) : (
           <span
             style={{
-              fontSize: '12px',
-              fontWeight: 900,
-              textTransform: 'uppercase',
-              letterSpacing: '0.16em',
+              fontSize: '14px',
+              fontWeight: 600,
               color: '#059669',
               opacity: Math.max(0, 1 - progress * 2),
             }}
@@ -1585,10 +1582,10 @@ export default function RiderPanel() {
                   <Zap size={24} strokeWidth={2.5} />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-[10px] font-black uppercase tracking-[0.22em] opacity-90">
+                  <p className="text-[10px] font-semibold opacity-90">
                     {updateInfo.isForced ? 'Actualización obligatoria' : 'Nueva versión'}
                   </p>
-                  <h2 className="text-xl font-black leading-tight">
+                  <h2 className="text-xl font-semibold leading-tight">
                     Modo Sabor Rider {updateInfo.versionName}
                   </h2>
                 </div>
@@ -1605,9 +1602,7 @@ export default function RiderPanel() {
             <div className="px-6 py-5 max-h-[40vh] overflow-y-auto">
               {updateInfo.changelog ? (
                 <>
-                  <p className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-500 mb-2">
-                    Qué hay de nuevo
-                  </p>
+                  <p className="text-[10px] font-semibold text-gray-500 mb-2">Qué hay de nuevo</p>
                   <div className="text-sm font-semibold text-gray-800 whitespace-pre-line leading-relaxed">
                     {updateInfo.changelog}
                   </div>
@@ -1619,7 +1614,7 @@ export default function RiderPanel() {
               )}
               {updateInfo.isForced && (
                 <div className="mt-4 rounded-2xl border border-red-100 bg-red-50 px-4 py-3">
-                  <p className="text-xs font-black uppercase tracking-wider text-red-700">
+                  <p className="text-xs font-semibold text-red-700">
                     Esta actualización es obligatoria
                   </p>
                   <p className="mt-1 text-xs font-semibold text-red-600">
@@ -1635,7 +1630,7 @@ export default function RiderPanel() {
                 type="button"
                 onClick={handleAcceptUpdate}
                 disabled={updateDownloading}
-                className="flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-[#dc1f2d] to-[#b91c1c] text-sm font-black uppercase tracking-widest text-white shadow-lg shadow-red-200 transition-all active:scale-[0.98] hover:brightness-110 disabled:opacity-60"
+                className="flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-[#dc1f2d] to-[#b91c1c] text-sm font-semibold text-white shadow-lg shadow-red-200 transition-all active:scale-[0.98] hover:brightness-110 disabled:opacity-60"
               >
                 {updateDownloading ? (
                   <>
@@ -1653,7 +1648,7 @@ export default function RiderPanel() {
                 <button
                   type="button"
                   onClick={handleDismissUpdate}
-                  className="h-11 w-full rounded-2xl text-xs font-black uppercase tracking-widest text-gray-500 hover:bg-gray-50"
+                  className="h-11 w-full rounded-2xl text-xs font-semibold text-gray-500 hover:bg-gray-50"
                 >
                   Más tarde
                 </button>
@@ -1699,8 +1694,7 @@ export default function RiderPanel() {
           borderRadius: '20px',
           background: '#111',
           color: '#fff',
-          fontWeight: 900,
-          letterSpacing: '0.02em',
+          fontWeight: 600,
         },
       });
       fireRiderConfetti(36);
@@ -1737,10 +1731,8 @@ export default function RiderPanel() {
           >
             <img src={RIDER_FLAME_ASSET} alt="Modo Sabor" className="h-full w-full object-cover" />
           </motion.div>
-          <p className="mt-8 text-[11px] font-black uppercase tracking-[0.46em] text-white/70">
-            Modo Sabor
-          </p>
-          <h1 className="mt-2 text-4xl font-black tracking-tight">Riders</h1>
+          <p className="mt-8 text-[11px] font-semibold text-white/70">Modo Sabor</p>
+          <h1 className="mt-2 text-4xl font-semibold tracking-tight">Riders</h1>
           <p className="mt-3 text-sm font-bold text-white/70">Preparando tu turno...</p>
         </motion.div>
       </div>
@@ -1798,13 +1790,13 @@ export default function RiderPanel() {
               </motion.div>
 
               <p
-                className="mt-6 text-[11px] font-black uppercase tracking-[0.42em] text-white/70"
+                className="mt-6 text-[11px] font-semibold text-white/70"
                 style={{ fontFamily: '"Poppins","Inter",sans-serif' }}
               >
                 Modo Sabor
               </p>
               <h1
-                className="mt-1 text-4xl font-black leading-none tracking-tight text-white"
+                className="mt-1 text-4xl font-semibold leading-none tracking-tight text-white"
                 style={{ fontFamily: '"Poppins","Inter",sans-serif' }}
               >
                 Riders
@@ -1824,7 +1816,7 @@ export default function RiderPanel() {
             >
               <div className="space-y-4">
                 <div>
-                  <label className="mb-1.5 flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.22em] text-gray-500">
+                  <label className="mb-1.5 flex items-center gap-2 text-[10px] font-semibold text-gray-500">
                     <User size={12} />
                     ID de repartidor
                   </label>
@@ -1833,13 +1825,13 @@ export default function RiderPanel() {
                     inputMode="numeric"
                     value={loginForm.id}
                     onChange={(e) => setLoginForm({ ...loginForm, id: e.target.value })}
-                    className="h-14 w-full rounded-2xl border-2 border-gray-100 bg-gray-50 px-5 text-xl font-black text-gray-900 tabular-nums outline-none transition focus:border-[#dc1f2d] focus:bg-white"
+                    className="h-14 w-full rounded-2xl border-2 border-gray-100 bg-gray-50 px-5 text-xl font-semibold text-gray-900 tabular-nums outline-none transition focus:border-[#dc1f2d] focus:bg-white"
                     placeholder="Ej: 1"
                     autoComplete="off"
                   />
                 </div>
                 <div>
-                  <label className="mb-1.5 flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.22em] text-gray-500">
+                  <label className="mb-1.5 flex items-center gap-2 text-[10px] font-semibold text-gray-500">
                     <LocateFixed size={12} />
                     Código de acceso
                   </label>
@@ -1848,7 +1840,7 @@ export default function RiderPanel() {
                       type={showAccessCode ? 'text' : 'password'}
                       value={loginForm.code}
                       onChange={(e) => setLoginForm({ ...loginForm, code: e.target.value })}
-                      className="h-14 w-full rounded-2xl border-2 border-gray-100 bg-gray-50 px-5 pr-14 text-xl font-black text-gray-900 tracking-widest outline-none transition focus:border-[#dc1f2d] focus:bg-white"
+                      className="h-14 w-full rounded-2xl border-2 border-gray-100 bg-gray-50 px-5 pr-14 text-xl font-semibold text-gray-900 tracking-widest outline-none transition focus:border-[#dc1f2d] focus:bg-white"
                       placeholder="••••••••"
                       autoComplete="current-password"
                     />
@@ -1861,13 +1853,12 @@ export default function RiderPanel() {
                       {showAccessCode ? <EyeOff size={20} /> : <Eye size={20} />}
                     </button>
                   </div>
-                  `r`n{' '}
                 </div>
               </div>
 
               <button
                 type="submit"
-                className="mt-6 flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-[#dc1f2d] to-[#b91c1c] text-sm font-black uppercase tracking-[0.22em] text-white shadow-lg shadow-red-200 transition-all active:scale-[0.98] hover:brightness-110"
+                className="mt-6 flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-[#dc1f2d] to-[#b91c1c] text-sm font-semibold text-white shadow-lg shadow-red-200 transition-all active:scale-[0.98] hover:brightness-110"
               >
                 Ingresar
                 <Zap size={16} strokeWidth={3} />
@@ -1885,9 +1876,7 @@ export default function RiderPanel() {
                 transition={{ delay: 0.35, duration: 0.4 }}
                 className="mt-5 rounded-2xl border border-white/20 bg-white/10 p-4 backdrop-blur-md text-left"
               >
-                <p className="text-[10px] font-black uppercase tracking-[0.22em] text-white/90">
-                  Instalar como app
-                </p>
+                <p className="text-[10px] font-semibold text-white/90">Instalar como app</p>
                 <p className="mt-1 text-xs font-medium text-white/80 leading-relaxed">
                   {installReady
                     ? 'Instalá la app en el celular para tenerla siempre a mano.'
@@ -1897,7 +1886,7 @@ export default function RiderPanel() {
                   <button
                     type="button"
                     onClick={installRiderApp}
-                    className="mt-3 inline-flex h-10 items-center gap-2 rounded-xl bg-white px-4 text-[11px] font-black uppercase tracking-widest text-[#dc1f2d] shadow-md"
+                    className="mt-3 inline-flex h-10 items-center gap-2 rounded-xl bg-white px-4 text-[11px] font-semibold text-[#dc1f2d] shadow-md"
                   >
                     <Smartphone size={14} /> Instalar
                   </button>
@@ -1905,7 +1894,7 @@ export default function RiderPanel() {
               </motion.div>
             )}
 
-            <p className="mt-8 text-center text-[10px] font-black uppercase tracking-[0.28em] text-white/60">
+            <p className="mt-8 text-center text-[10px] font-semibold text-white/60">
               Hecho con <span className="text-red-300">❤</span> en Monteros
             </p>
           </motion.div>
@@ -1918,8 +1907,14 @@ export default function RiderPanel() {
   // ─────────────────────────────────────────────────────────────────
   // RENDER: app principal
   // ─────────────────────────────────────────────────────────────────
-  const primaryColor = data?.settings?.rider_app_color_primario || '#5D87FF';
-  const secondaryColor = data?.settings?.rider_app_color_secundario || '#49BEFF';
+  /*
+    Los fallbacks eran #5D87FF y #49BEFF, los azules de la plantilla original.
+    Si `rider_app_color_primario` no está configurado —que es el caso por
+    defecto— la app del rider arrancaba en azul, sin nada que ver con la marca.
+    Ahora cae al rojo Modo Sabor y al bordó del degradé.
+  */
+  const primaryColor = data?.settings?.rider_app_color_primario || BRAND;
+  const secondaryColor = data?.settings?.rider_app_color_secundario || '#B91C1C';
   const appName = data?.settings?.rider_app_nombre || RIDER_HEADER_NAME;
   const telefonoLocal = data?.settings?.negocio_telefono || '';
   const showRiderLogo = String(data?.settings?.rider_app_mostrar_logo ?? '1') === '1';
@@ -1965,13 +1960,11 @@ export default function RiderPanel() {
           {/* Saludo dinamico segun la hora: sirve de contexto de turno
               y hace que la app se sienta menos generica. */}
           <div className="min-w-0">
-            <h2 className="text-sm font-black tracking-tight text-gray-900 leading-none">
+            <h2 className="text-sm font-semibold tracking-tight text-gray-900 leading-none">
               {saludoPorHora().saludo},{' '}
               {String(data?.repartidor?.nombre || 'Repartidor').split(' ')[0]}
             </h2>
-            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-1">
-              {saludoPorHora().turno}
-            </p>
+            <p className="text-[10px] font-bold text-gray-400 mt-1">{saludoPorHora().turno}</p>
           </div>
         </div>
 
@@ -1983,8 +1976,8 @@ export default function RiderPanel() {
           <button
             onClick={() => toggleOnline()}
             aria-label={isOnline ? 'Pasar a no disponible' : 'Pasar a disponible'}
-            className={`flex items-center gap-1.5 h-9 px-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
-              isOnline ? 'bg-success-50 text-success-700' : 'bg-gray-100 text-gray-500'
+            className={`flex items-center gap-1.5 h-9 px-3 rounded-xl text-[10px] font-semibold transition-all ${
+              isOnline ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-500'
             }`}
           >
             {isOnline ? <Zap size={13} strokeWidth={3} /> : <ZapOff size={13} strokeWidth={3} />}
@@ -1995,7 +1988,7 @@ export default function RiderPanel() {
           {telefonoLocal && (
             <a
               href={`tel:${telefonoLocal}`}
-              className="h-9 w-9 rounded-xl bg-primary-50 flex items-center justify-center text-primary-600"
+              className="h-9 w-9 rounded-xl bg-brand-50 flex items-center justify-center text-brand-600"
               title="Llamar al local"
             >
               <PhoneCall size={16} />
@@ -2038,7 +2031,9 @@ export default function RiderPanel() {
                   riderLat={riderLocation.lat}
                   riderLng={riderLocation.lng}
                   onAbrir={setSelectedPedido}
-                  onNavegar={setSelectedPedido}
+                  // "Ver ruta en el mapa" entra directo al modo fullscreen
+                  // con el mapa y la ruta trazada, sin pasar por el detalle.
+                  onNavegar={(p) => setModoRutaPedidoId(p.id)}
                 />
               )}
 
@@ -2051,24 +2046,20 @@ export default function RiderPanel() {
                 entregas y los numeros tenian tamaños distintos (2xl vs lg)
                 lo que se veia desfasado. Ahora todos son text-2xl con
                 tabular-nums, y cada stat tiene su chip de icono. */}
-              <div className="relative overflow-hidden rounded-[28px] bg-gradient-to-br from-blue-600 via-blue-600 to-blue-500 p-5 shadow-xl shadow-primary-200">
+              <div className="relative overflow-hidden rounded-[28px] bg-gradient-to-br from-brand-600 via-brand-600 to-brand-500 p-5 shadow-xl shadow-brand-200">
                 <div className="pointer-events-none absolute -right-10 -top-10 h-40 w-40 rounded-full bg-white/10 blur-2xl" />
                 <div className="pointer-events-none absolute -bottom-8 -left-6 h-32 w-32 rounded-full bg-white/5 blur-2xl" />
                 <div className="relative">
                   <div className="flex items-center justify-between mb-4">
                     <div>
-                      <p className="text-[10px] font-black uppercase tracking-[0.22em] text-blue-200">
-                        Tu turno de hoy
-                      </p>
-                      <p className="text-lg font-black text-white leading-tight mt-0.5">
+                      <p className="text-[10px] font-semibold text-brand-200">Tu turno de hoy</p>
+                      <p className="text-lg font-semibold text-white leading-tight mt-0.5">
                         {nowTime} · {format(new Date(), "EEE dd 'de' MMM", { locale: es })}
                       </p>
                     </div>
                     <div className="flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1.5 backdrop-blur-sm">
                       <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-                      <span className="text-[10px] font-black uppercase tracking-widest text-white">
-                        Online
-                      </span>
+                      <span className="text-[10px] font-semibold text-white">Online</span>
                     </div>
                   </div>
                   {(() => {
@@ -2078,10 +2069,10 @@ export default function RiderPanel() {
                     return (
                       <div className="mb-3">
                         <div className="flex items-center justify-between mb-1">
-                          <span className="text-[9px] font-black uppercase tracking-widest text-blue-200">
+                          <span className="text-[9px] font-semibold text-brand-200">
                             Meta diaria
                           </span>
-                          <span className="text-[10px] font-black tabular-nums text-white">
+                          <span className="text-[10px] font-semibold tabular-nums text-white">
                             {resumenDia.entregados}/{meta}
                           </span>
                         </div>
@@ -2110,15 +2101,13 @@ export default function RiderPanel() {
                       className="rounded-2xl bg-white/15 backdrop-blur-sm px-3 py-3 text-center"
                     >
                       <div className="flex items-center justify-center h-6 mb-1.5">
-                        <Package size={14} className="text-blue-200" />
+                        <Package size={14} className="text-brand-200" />
                       </div>
                       <AnimatedNumber
                         value={resumenDia.entregados}
-                        className="text-2xl font-black text-white tabular-nums leading-none block"
+                        className="text-2xl font-semibold text-white tabular-nums leading-none block"
                       />
-                      <p className="text-[9px] font-black text-blue-200 uppercase tracking-widest mt-1.5">
-                        Entregas
-                      </p>
+                      <p className="text-[9px] font-semibold text-brand-200 mt-1.5">Entregas</p>
                     </motion.div>
                     <motion.div
                       initial={{ opacity: 0, y: 10 }}
@@ -2127,16 +2116,14 @@ export default function RiderPanel() {
                       className="rounded-2xl bg-white/15 backdrop-blur-sm px-3 py-3 text-center"
                     >
                       <div className="flex items-center justify-center h-6 mb-1.5">
-                        <DollarSign size={14} className="text-blue-200" />
+                        <DollarSign size={14} className="text-brand-200" />
                       </div>
                       <AnimatedNumber
                         value={resumenDia.efectivo}
                         format={(n) => fmt(n)}
-                        className="text-lg font-black text-white tabular-nums leading-none block"
+                        className="text-lg font-semibold text-white tabular-nums leading-none block"
                       />
-                      <p className="text-[9px] font-black text-blue-200 uppercase tracking-widest mt-1.5">
-                        Efectivo
-                      </p>
+                      <p className="text-[9px] font-semibold text-brand-200 mt-1.5">Efectivo</p>
                     </motion.div>
                     <motion.div
                       initial={{ opacity: 0, y: 10 }}
@@ -2145,16 +2132,14 @@ export default function RiderPanel() {
                       className="rounded-2xl bg-white/15 backdrop-blur-sm px-3 py-3 text-center"
                     >
                       <div className="flex items-center justify-center h-6 mb-1.5">
-                        <TrendingUp size={14} className="text-blue-200" />
+                        <TrendingUp size={14} className="text-brand-200" />
                       </div>
                       <AnimatedNumber
                         value={resumenDia.total}
                         format={(n) => fmt(n)}
-                        className="text-lg font-black text-white tabular-nums leading-none block"
+                        className="text-lg font-semibold text-white tabular-nums leading-none block"
                       />
-                      <p className="text-[9px] font-black text-blue-200 uppercase tracking-widest mt-1.5">
-                        Total
-                      </p>
+                      <p className="text-[9px] font-semibold text-brand-200 mt-1.5">Total</p>
                     </motion.div>
                   </div>
                 </div>
@@ -2175,12 +2160,10 @@ export default function RiderPanel() {
                     href={`tel:${telefonoLocal}`}
                     className="flex flex-col items-center gap-1.5 rounded-2xl bg-white border border-gray-100 p-3 shadow-sm hover:shadow-md active:scale-95 transition-all"
                   >
-                    <div className="h-9 w-9 rounded-xl bg-success-50 flex items-center justify-center text-success-600">
+                    <div className="h-9 w-9 rounded-xl bg-emerald-50 flex items-center justify-center text-emerald-600">
                       <PhoneCall size={16} />
                     </div>
-                    <span className="text-[10px] font-black uppercase tracking-widest text-gray-600">
-                      Llamar local
-                    </span>
+                    <span className="text-[10px] font-semibold text-gray-600">Llamar local</span>
                   </a>
                 ) : (
                   <div />
@@ -2190,12 +2173,10 @@ export default function RiderPanel() {
                   onClick={() => fetchData()}
                   className="flex flex-col items-center gap-1.5 rounded-2xl bg-white border border-gray-100 p-3 shadow-sm hover:shadow-md active:scale-95 transition-all"
                 >
-                  <div className="h-9 w-9 rounded-xl bg-primary-50 flex items-center justify-center text-primary-600">
+                  <div className="h-9 w-9 rounded-xl bg-brand-50 flex items-center justify-center text-brand-600">
                     <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
                   </div>
-                  <span className="text-[10px] font-black uppercase tracking-widest text-gray-600">
-                    Actualizar
-                  </span>
+                  <span className="text-[10px] font-semibold text-gray-600">Actualizar</span>
                 </button>
                 <button
                   type="button"
@@ -2205,9 +2186,7 @@ export default function RiderPanel() {
                   <div className="h-9 w-9 rounded-xl bg-violet-50 flex items-center justify-center text-violet-600">
                     <History size={16} />
                   </div>
-                  <span className="text-[10px] font-black uppercase tracking-widest text-gray-600">
-                    Historial
-                  </span>
+                  <span className="text-[10px] font-semibold text-gray-600">Historial</span>
                 </button>
               </motion.div>
 
@@ -2216,7 +2195,7 @@ export default function RiderPanel() {
                 <div className="rounded-[24px] bg-violet-50 border border-violet-200 px-5 py-4">
                   <div className="flex items-center gap-2 mb-3">
                     <Route size={16} className="text-violet-600" />
-                    <p className="text-[10px] font-black text-violet-600 uppercase tracking-widest">
+                    <p className="text-[10px] font-semibold text-violet-600">
                       Ruta optimizada · {sortedPedidos.length} entregas
                     </p>
                   </div>
@@ -2241,12 +2220,12 @@ export default function RiderPanel() {
                           }`}
                         >
                           <div
-                            className={`h-8 w-8 rounded-full ${stopColors[idx % stopColors.length]} flex items-center justify-center text-white text-xs font-black shrink-0`}
+                            className={`h-8 w-8 rounded-full ${stopColors[idx % stopColors.length]} flex items-center justify-center text-white text-xs font-semibold shrink-0`}
                           >
                             {idx + 1}
                           </div>
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm font-black text-gray-900 truncate">
+                            <p className="text-sm font-semibold text-gray-900 truncate">
                               {pedido.cliente_nombre}
                             </p>
                             <p className="text-xs text-gray-500 truncate">
@@ -2258,7 +2237,7 @@ export default function RiderPanel() {
                               local), que es lo que realmente le importa al
                               rider para saber cuanto le falta al siguiente. */}
                             {Number.isFinite(pedido._distanciaDesdeAnterior) && (
-                              <p className="text-xs font-black text-violet-600">
+                              <p className="text-xs font-semibold text-violet-600">
                                 {fmtDistancia(pedido._distanciaDesdeAnterior)}
                               </p>
                             )}
@@ -2273,7 +2252,7 @@ export default function RiderPanel() {
                   {sortedPedidos[0]?.cliente_latitud && sortedPedidos[0]?.cliente_longitud && (
                     <button
                       onClick={() => openNav(sortedPedidos[0])}
-                      className="mt-3 w-full h-11 rounded-2xl bg-violet-600 text-white flex items-center justify-center gap-2 text-xs font-black uppercase tracking-widest shadow-lg shadow-violet-200"
+                      className="mt-3 w-full h-11 rounded-2xl bg-violet-600 text-white flex items-center justify-center gap-2 text-xs font-semibold shadow-lg shadow-violet-200"
                     >
                       <Navigation size={14} /> Navegar a Parada 1
                     </button>
@@ -2283,32 +2262,28 @@ export default function RiderPanel() {
 
               {/* ── Timer en reparto activo ── */}
               {inTransitOrder && (
-                <div className="rounded-[24px] bg-success-50 border border-emerald-200 px-5 py-4 flex items-center justify-between">
+                <div className="rounded-[24px] bg-emerald-50 border border-emerald-200 px-5 py-4 flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    <div className="h-10 w-10 rounded-xl bg-success-500 flex items-center justify-center">
+                    <div className="h-10 w-10 rounded-xl bg-emerald-500 flex items-center justify-center">
                       <Truck size={18} color="white" />
                     </div>
                     <div>
-                      <p className="text-[10px] font-black text-success-600 uppercase tracking-widest">
-                        En reparto
-                      </p>
-                      <p className="text-sm font-black text-emerald-800">
+                      <p className="text-[10px] font-semibold text-emerald-600">En reparto</p>
+                      <p className="text-sm font-semibold text-emerald-800">
                         #{inTransitOrder.numero} · {inTransitOrder.cliente_nombre || 'S/N'}
                       </p>
                       {inTransitOrder.hora_entrega ? (
-                        <p className="mt-1 text-[10px] font-black uppercase tracking-[0.18em] text-emerald-600">
+                        <p className="mt-1 text-[10px] font-semibold text-emerald-600">
                           Entrega {inTransitOrder.hora_entrega}
                         </p>
                       ) : null}
                     </div>
                   </div>
                   <div className="text-right">
-                    <p className="text-2xl font-black text-success-700 tabular-nums">
+                    <p className="text-2xl font-semibold text-emerald-700 tabular-nums">
                       {fmtTimer(deliveryElapsed)}
                     </p>
-                    <p className="text-[9px] text-emerald-500 uppercase font-black">
-                      Tiempo en ruta
-                    </p>
+                    <p className="text-[12px] text-emerald-600 font-medium">Tiempo en ruta</p>
                   </div>
                 </div>
               )}
@@ -2320,18 +2295,18 @@ export default function RiderPanel() {
                 </p>
                 <div className="mt-4 flex flex-wrap items-center gap-3">
                   <div
-                    className={`h-2.5 w-2.5 rounded-full ${trackingActive ? 'bg-success-500 animate-pulse' : 'bg-gray-300'}`}
+                    className={`h-2.5 w-2.5 rounded-full ${trackingActive ? 'bg-emerald-500 animate-pulse' : 'bg-gray-300'}`}
                   />
-                  <span className="text-[10px] font-black uppercase text-gray-400 tracking-widest">
+                  <span className="text-[12px] font-medium text-gray-400">
                     {trackingActive ? 'GPS activo' : 'Sin reparto activo'}
                   </span>
                   <span
-                    className={`rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-widest ${
+                    className={`rounded-full px-3 py-1 text-[10px] font-semibold ${
                       locationPermission === 'granted'
-                        ? 'bg-success-50 text-success-600'
+                        ? 'bg-emerald-50 text-emerald-600'
                         : locationPermission === 'denied'
-                          ? 'bg-danger-50 text-danger-600'
-                          : 'bg-warning-50 text-warning-600'
+                          ? 'bg-rose-50 text-rose-600'
+                          : 'bg-amber-50 text-amber-600'
                     }`}
                   >
                     GPS{' '}
@@ -2343,10 +2318,10 @@ export default function RiderPanel() {
                   </span>
                   {trackingActive && lastGpsAgeSeconds !== null && (
                     <span
-                      className={`rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-widest ${
+                      className={`rounded-full px-3 py-1 text-[10px] font-semibold ${
                         lastGpsAgeSeconds <= 90
-                          ? 'bg-success-50 text-success-700'
-                          : 'bg-warning-50 text-warning-700'
+                          ? 'bg-emerald-50 text-emerald-700'
+                          : 'bg-amber-50 text-amber-700'
                       }`}
                     >
                       {lastGpsAgeSeconds <= 90
@@ -2356,12 +2331,12 @@ export default function RiderPanel() {
                   )}
                 </div>
                 {lastPositionAt && (
-                  <p className="mt-3 text-[11px] font-bold uppercase tracking-widest text-gray-400">
+                  <p className="mt-3 text-[11px] font-bold text-gray-400">
                     Último GPS: {format(parseDate(lastPositionAt), 'HH:mm', { locale: es })}
                   </p>
                 )}
                 {locationError && (
-                  <div className="mt-4 rounded-2xl border border-rose-100 bg-danger-50 px-4 py-3 text-sm font-semibold text-danger-700">
+                  <div className="mt-4 rounded-2xl border border-rose-100 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">
                     {locationError}
                   </div>
                 )}
@@ -2370,7 +2345,7 @@ export default function RiderPanel() {
                     <button
                       type="button"
                       onClick={requestLocationAccess}
-                      className="inline-flex h-11 items-center gap-2 rounded-2xl bg-blue-600 px-5 text-xs font-black uppercase tracking-widest text-white shadow-lg shadow-primary-100"
+                      className="inline-flex h-11 items-center gap-2 rounded-2xl bg-brand-600 px-5 text-xs font-semibold text-white shadow-lg shadow-brand-100"
                     >
                       <LocateFixed size={15} /> Activar GPS
                     </button>
@@ -2380,7 +2355,7 @@ export default function RiderPanel() {
                       <button
                         type="button"
                         onClick={requestLocationAccess}
-                        className="inline-flex h-11 items-center gap-2 rounded-2xl border border-gray-200 bg-white px-4 text-xs font-black uppercase tracking-widest text-gray-700 shadow-sm"
+                        className="inline-flex h-11 items-center gap-2 rounded-2xl border border-gray-200 bg-white px-4 text-xs font-semibold text-gray-700 shadow-sm"
                       >
                         <RefreshCw size={14} /> Revalidar GPS
                       </button>
@@ -2389,7 +2364,7 @@ export default function RiderPanel() {
                     <button
                       type="button"
                       onClick={installRiderApp}
-                      className="inline-flex h-11 items-center gap-2 rounded-2xl border border-primary-200 bg-primary-50 px-4 text-xs font-black uppercase tracking-widest text-blue-700"
+                      className="inline-flex h-11 items-center gap-2 rounded-2xl border border-brand-200 bg-brand-50 px-4 text-xs font-semibold text-brand-700"
                     >
                       <Smartphone size={14} /> Instalar app
                     </button>
@@ -2413,44 +2388,42 @@ export default function RiderPanel() {
               {activeTab === 'pedidos' && (
                 <div className="space-y-3">
                   <div className="flex items-center justify-between px-1">
-                    <h3 className="text-xs font-black uppercase text-gray-400 tracking-[0.2em]">
+                    <h3 className="text-[13px] font-semibold text-gray-500">
                       Asignados ({data?.pedidos?.length || 0})
                     </h3>
-                    <button onClick={fetchData} className="text-primary-600">
+                    <button onClick={fetchData} className="text-brand-600">
                       <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
                     </button>
                   </div>
 
                   {!data?.pedidos?.length ? (
                     isOnline ? (
-                      <div className="rounded-[32px] bg-gradient-to-br from-blue-50 via-white to-blue-50 border border-blue-100 py-12 text-center flex flex-col items-center relative overflow-hidden">
+                      <div className="rounded-[32px] bg-gradient-to-br from-brand-50 via-white to-brand-50 border border-brand-100 py-12 text-center flex flex-col items-center relative overflow-hidden">
                         {/* Ondas de radar animadas: 3 círculos concéntricos que
                           se expanden con desfase, dan sensación de "escaneando"
                           el mapa a la espera de pedidos. */}
                         <div className="relative h-28 w-28 mb-5">
-                          <div className="absolute inset-0 rounded-full bg-primary-500/20 animate-ping" />
+                          <div className="absolute inset-0 rounded-full bg-brand-500/20 animate-ping" />
                           <div
-                            className="absolute inset-3 rounded-full bg-primary-500/25 animate-ping"
+                            className="absolute inset-3 rounded-full bg-brand-500/25 animate-ping"
                             style={{ animationDelay: '0.4s' }}
                           />
                           <div
-                            className="absolute inset-6 rounded-full bg-primary-500/30 animate-ping"
+                            className="absolute inset-6 rounded-full bg-brand-500/30 animate-ping"
                             style={{ animationDelay: '0.8s' }}
                           />
-                          <div className="absolute inset-8 rounded-full bg-primary-500 flex items-center justify-center shadow-lg shadow-primary-200">
+                          <div className="absolute inset-8 rounded-full bg-brand-500 flex items-center justify-center shadow-lg shadow-brand-200">
                             <Package size={26} className="text-white" strokeWidth={2.2} />
                           </div>
                         </div>
-                        <p className="text-sm font-black uppercase tracking-widest text-primary-600">
-                          Esperando pedidos
-                        </p>
+                        <p className="text-sm font-semibold text-brand-600">Esperando pedidos</p>
                         <p className="mt-2 text-xs font-semibold text-gray-500 max-w-xs px-4">
                           Cuando entre uno nuevo te va a sonar y vibrar acá. Dejá la app abierta
                           aunque bloquees el celular.
                         </p>
                         <div className="mt-4 flex items-center gap-2 rounded-full bg-white/80 px-3 py-1.5 shadow-sm border border-gray-100">
-                          <div className="h-2 w-2 rounded-full bg-success-500 animate-pulse" />
-                          <span className="text-[10px] font-black uppercase tracking-widest text-gray-500">
+                          <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                          <span className="text-[10px] font-semibold text-gray-500">
                             Modo activo
                           </span>
                         </div>
@@ -2499,13 +2472,13 @@ export default function RiderPanel() {
                               <div
                                 className={`h-12 w-12 rounded-[18px] flex items-center justify-center transition-colors ${
                                   pedido.estado === 'en_camino'
-                                    ? 'bg-success-50'
-                                    : 'bg-gray-50 group-hover:bg-primary-50'
+                                    ? 'bg-emerald-50'
+                                    : 'bg-gray-50 group-hover:bg-brand-50'
                                 }`}
                               >
                                 {hasMultipleDeliveries && stopNumber ? (
                                   <span
-                                    className={`h-7 w-7 rounded-full ${stopColors[(stopNumber - 1) % stopColors.length]} flex items-center justify-center text-white text-[10px] font-black`}
+                                    className={`h-7 w-7 rounded-full ${stopColors[(stopNumber - 1) % stopColors.length]} flex items-center justify-center text-white text-[10px] font-semibold`}
                                   >
                                     {stopNumber}
                                   </span>
@@ -2514,14 +2487,14 @@ export default function RiderPanel() {
                                     size={22}
                                     className={
                                       pedido.estado === 'en_camino'
-                                        ? 'text-success-600'
-                                        : 'text-gray-400 group-hover:text-primary-600'
+                                        ? 'text-emerald-600'
+                                        : 'text-gray-400 group-hover:text-brand-600'
                                     }
                                   />
                                 )}
                               </div>
                               <div>
-                                <p className="text-sm font-black text-gray-900 uppercase tracking-tight">
+                                <p className="text-sm font-semibold text-gray-900">
                                   #{pedido.numero} · {pedido.cliente_nombre}
                                 </p>
                                 <p className="text-xs font-bold text-gray-400 truncate max-w-[200px]">
@@ -2529,10 +2502,10 @@ export default function RiderPanel() {
                                 </p>
                                 {urgencia.minutos !== null && urgencia.nivel !== 'ok' ? (
                                   <span
-                                    className={`mt-1 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-widest ${
+                                    className={`mt-1 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-semibold ${
                                       urgencia.nivel === 'urgente'
-                                        ? 'bg-danger-50 text-danger-700'
-                                        : 'bg-warning-50 text-warning-700'
+                                        ? 'bg-rose-50 text-rose-700'
+                                        : 'bg-amber-50 text-amber-700'
                                     }`}
                                   >
                                     <Clock size={10} strokeWidth={3} />
@@ -2540,26 +2513,26 @@ export default function RiderPanel() {
                                   </span>
                                 ) : null}
                                 {pedido.hora_entrega ? (
-                                  <p className="text-[10px] font-black uppercase tracking-[0.18em] text-violet-600 mt-0.5">
+                                  <p className="text-[10px] font-semibold text-violet-600 mt-0.5">
                                     Entrega {pedido.hora_entrega}
                                   </p>
                                 ) : null}
                                 {hasMultipleDeliveries && pedido.distance !== undefined && (
-                                  <p className="text-[10px] font-black text-violet-500 mt-0.5">
+                                  <p className="text-[10px] font-semibold text-violet-500 mt-0.5">
                                     {Math.round(pedido.distance)}m de distancia
                                   </p>
                                 )}
-                                <p className="text-xs font-black text-gray-700 mt-0.5">
+                                <p className="text-xs font-semibold text-gray-700 mt-0.5">
                                   {fmt(pedido.total)}
                                 </p>
                               </div>
                             </div>
                             <div className="flex flex-col items-end gap-2 shrink-0">
                               <span
-                                className={`text-[9px] font-black uppercase px-2 py-1 rounded-lg ${
+                                className={`text-[11px] font-medium px-2 py-1 rounded-lg ${
                                   pedido.estado === 'en_camino'
-                                    ? 'bg-success-50 text-success-600'
-                                    : 'bg-primary-50 text-primary-600'
+                                    ? 'bg-emerald-50 text-emerald-600'
+                                    : 'bg-brand-50 text-brand-600'
                                 }`}
                               >
                                 {pedido.estado.replace('_', ' ')}
@@ -2580,9 +2553,7 @@ export default function RiderPanel() {
                   {historialSesion.length === 0 ? (
                     <div className="py-16 text-center flex flex-col items-center opacity-30">
                       <Star size={48} strokeWidth={1} className="mb-4" />
-                      <p className="text-sm font-bold uppercase tracking-widest">
-                        Aún no entregaste nada
-                      </p>
+                      <p className="text-sm font-bold">Aún no entregaste nada</p>
                     </div>
                   ) : (
                     historialSesion.map((p, i) => (
@@ -2591,26 +2562,26 @@ export default function RiderPanel() {
                         className="rounded-[24px] bg-white border border-gray-100 p-4 flex items-center justify-between shadow-sm"
                       >
                         <div className="flex items-center gap-3">
-                          <div className="h-10 w-10 rounded-xl bg-success-50 flex items-center justify-center">
-                            <CheckCircle2 size={18} className="text-success-600" />
+                          <div className="h-10 w-10 rounded-xl bg-emerald-50 flex items-center justify-center">
+                            <CheckCircle2 size={18} className="text-emerald-600" />
                           </div>
                           <div>
-                            <p className="text-sm font-black text-gray-900">
+                            <p className="text-sm font-semibold text-gray-900">
                               #{p.numero} · {p.cliente_nombre || 'S/N'}
                             </p>
                             <p className="text-xs text-gray-400">{p.cliente_direccion}</p>
                             {p.hora_entrega ? (
-                              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-violet-600 mt-0.5">
+                              <p className="text-[10px] font-semibold text-violet-600 mt-0.5">
                                 Entrega {p.hora_entrega}
                               </p>
                             ) : null}
-                            <p className="text-[10px] text-success-600 font-bold mt-0.5">
+                            <p className="text-[10px] text-emerald-600 font-bold mt-0.5">
                               {p.entregado_en ? format(parseDate(p.entregado_en), 'HH:mm') : ''} ·{' '}
                               {paymentMethodLabel(p.metodo_pago)}
                             </p>
                           </div>
                         </div>
-                        <p className="text-sm font-black text-gray-900">{fmt(p.total)}</p>
+                        <p className="text-sm font-semibold text-gray-900">{fmt(p.total)}</p>
                       </div>
                     ))
                   )}
@@ -2632,7 +2603,7 @@ export default function RiderPanel() {
             <div className="flex flex-1 flex-col animate-in slide-in-from-right duration-300">
               <button
                 onClick={() => setSelectedPedido(null)}
-                className="mb-3 flex w-fit items-center gap-2 rounded-xl px-2 py-2 text-xs font-black uppercase tracking-wider text-gray-500 transition hover:bg-white hover:text-gray-900"
+                className="mb-3 flex w-fit items-center gap-2 rounded-xl px-2 py-2 text-xs font-semibold text-gray-500 transition hover:bg-white hover:text-gray-900"
               >
                 <X size={18} /> Volver
               </button>
@@ -2656,21 +2627,21 @@ export default function RiderPanel() {
                   <div className="relative">
                     <div className="mb-4 flex items-center justify-between gap-3">
                       <div
-                        className="rounded-full px-4 py-1.5 text-[11px] font-black uppercase tracking-widest text-white shadow-sm"
+                        className="rounded-full px-4 py-1.5 text-[11px] font-semibold text-white shadow-sm"
                         style={{ backgroundColor: primaryColor }}
                       >
                         #{selectedPedido.numero}
                       </div>
                       <div className="flex items-center gap-2">
                         {selectedPedido.estado === 'en_camino' && (
-                          <div className="flex items-center gap-1.5 rounded-full bg-success-500 px-3 py-1.5 shadow-sm">
+                          <div className="flex items-center gap-1.5 rounded-full bg-emerald-500 px-3 py-1.5 shadow-sm">
                             <Clock size={12} className="text-white" />
-                            <span className="text-xs font-black tabular-nums text-white">
+                            <span className="text-xs font-semibold tabular-nums text-white">
                               {fmtTimer(deliveryElapsed)}
                             </span>
                           </div>
                         )}
-                        <span className="rounded-full bg-white/70 px-2.5 py-1 text-[10px] font-black uppercase tracking-widest text-gray-500 backdrop-blur-sm">
+                        <span className="rounded-full bg-white/70 px-2.5 py-1 text-[10px] font-semibold text-gray-500 backdrop-blur-sm">
                           {format(parseDate(selectedPedido.creado_en), 'HH:mm')} HS
                         </span>
                       </div>
@@ -2679,7 +2650,7 @@ export default function RiderPanel() {
                     <div className="flex items-center gap-4">
                       {/* Avatar con inicial del cliente */}
                       <div
-                        className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl text-2xl font-black text-white shadow-md"
+                        className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl text-2xl font-semibold text-white shadow-md"
                         style={{
                           background: `linear-gradient(135deg, ${primaryColor}, ${primaryColor}dd)`,
                         }}
@@ -2690,10 +2661,8 @@ export default function RiderPanel() {
                           .toUpperCase()}
                       </div>
                       <div className="min-w-0 flex-1">
-                        <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">
-                          Cliente
-                        </p>
-                        <h3 className="mt-0.5 break-words text-xl font-black leading-tight text-gray-900 sm:text-2xl">
+                        <p className="text-[10px] font-semibold text-gray-400">Cliente</p>
+                        <h3 className="mt-0.5 break-words text-xl font-semibold leading-tight text-gray-900 sm:text-2xl">
                           {selectedPedido.cliente_nombre}
                         </h3>
                       </div>
@@ -2706,10 +2675,10 @@ export default function RiderPanel() {
                             <Clock size={16} />
                           </div>
                           <div className="min-w-0 flex-1">
-                            <p className="text-[10px] font-black text-violet-500 uppercase tracking-widest">
+                            <p className="text-[10px] font-semibold text-violet-500">
                               Hora de entrega
                             </p>
-                            <p className="text-sm font-black text-violet-900 leading-tight">
+                            <p className="text-sm font-semibold text-violet-900 leading-tight">
                               {selectedPedido.hora_entrega}
                             </p>
                           </div>
@@ -2723,30 +2692,26 @@ export default function RiderPanel() {
                           <MapPin size={16} />
                         </div>
                         <div className="min-w-0 flex-1">
-                          <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
-                            Dirección
-                          </p>
-                          <p className="break-words text-sm font-black leading-snug text-gray-900">
+                          <p className="text-[10px] font-semibold text-gray-400">Dirección</p>
+                          <p className="break-words text-sm font-semibold leading-snug text-gray-900">
                             {selectedPedido.cliente_direccion}
                           </p>
                         </div>
                       </div>
-                      <div className="flex items-center gap-3 rounded-2xl border border-emerald-100 bg-success-50/60 p-3">
-                        <div className="h-9 w-9 rounded-xl bg-success-500 flex items-center justify-center text-white shrink-0 shadow-sm">
+                      <div className="flex items-center gap-3 rounded-2xl border border-emerald-100 bg-emerald-50/60 p-3">
+                        <div className="h-9 w-9 rounded-xl bg-emerald-500 flex items-center justify-center text-white shrink-0 shadow-sm">
                           <Phone size={16} />
                         </div>
                         <div className="min-w-0 flex-1">
-                          <p className="text-[10px] font-black text-success-600 uppercase tracking-widest">
-                            Teléfono
-                          </p>
-                          <p className="text-sm font-black text-emerald-900">
+                          <p className="text-[10px] font-semibold text-emerald-600">Teléfono</p>
+                          <p className="text-sm font-semibold text-emerald-900">
                             {selectedPedido.cliente_telefono || 'No disponible'}
                           </p>
                         </div>
                         {selectedPedido.cliente_telefono && (
                           <a
                             href={`tel:${selectedPedido.cliente_telefono}`}
-                            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-success-500 text-white shadow-md shadow-success-200 transition-all active:scale-90 hover:bg-emerald-600"
+                            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-500 text-white shadow-md shadow-emerald-200 transition-all active:scale-90 hover:bg-emerald-600"
                           >
                             <Phone size={18} fill="currentColor" />
                           </a>
@@ -2777,6 +2742,8 @@ export default function RiderPanel() {
                           clientLat={selectedPedido.cliente_latitud}
                           clientLng={selectedPedido.cliente_longitud}
                           clientLocationExact={Boolean(selectedPedido.cliente_ubicacion_exacta)}
+                          clientGeocoded={Boolean(selectedPedido.cliente_geocodificado)}
+                          geocodingPrecision={selectedPedido.cliente_geocoding_precision}
                           clientAddress={selectedPedido.cliente_direccion}
                           onNavigate={() => openNav(selectedPedido)}
                           mapConfig={mapConfig}
@@ -2791,7 +2758,7 @@ export default function RiderPanel() {
                     {/* ── Multi-delivery: otras paradas ── */}
                     {hasMultipleDeliveries && (
                       <div className="p-3 border-t border-gray-100 bg-gray-50/50">
-                        <p className="text-[10px] font-black uppercase text-gray-400 tracking-widest mb-2">
+                        <p className="text-[12px] font-medium text-gray-400 mb-2">
                           Otras paradas en tu ruta
                         </p>
                         <div className="flex flex-wrap gap-2">
@@ -2813,13 +2780,13 @@ export default function RiderPanel() {
                                   className="inline-flex items-center gap-1.5 rounded-xl bg-white border border-gray-200 px-3 py-2 text-xs font-bold text-gray-700 shadow-sm hover:shadow-md transition-all"
                                 >
                                   <span
-                                    className={`h-5 w-5 rounded-full ${stopColors[globalIdx % stopColors.length]} flex items-center justify-center text-white text-[9px] font-black`}
+                                    className={`h-5 w-5 rounded-full ${stopColors[globalIdx % stopColors.length]} flex items-center justify-center text-white text-[9px] font-semibold`}
                                   >
                                     {globalIdx + 1}
                                   </span>
                                   <span className="truncate max-w-[120px]">{p.cliente_nombre}</span>
                                   {p.distance !== undefined && (
-                                    <span className="text-[10px] text-violet-500 font-black">
+                                    <span className="text-[10px] text-violet-500 font-semibold">
                                       {Math.round(p.distance)}m
                                     </span>
                                   )}
@@ -2837,7 +2804,7 @@ export default function RiderPanel() {
                     <div className="grid grid-cols-2 gap-2 border-t border-gray-100 bg-gray-50/60 p-3 sm:grid-cols-4">
                       <button
                         onClick={() => openNav(selectedPedido)}
-                        className="flex h-14 flex-col items-center justify-center gap-1 rounded-2xl text-[10px] font-black uppercase tracking-widest text-white shadow-md transition-all active:scale-95"
+                        className="flex h-14 flex-col items-center justify-center gap-1 rounded-2xl text-[10px] font-semibold text-white shadow-md transition-all active:scale-95"
                         style={{
                           background: `linear-gradient(135deg, ${primaryColor}, ${primaryColor}dd)`,
                           boxShadow: `0 4px 12px ${primaryColor}40`,
@@ -2858,7 +2825,7 @@ export default function RiderPanel() {
                         )}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="flex h-14 flex-col items-center justify-center gap-1 rounded-2xl bg-gradient-to-br from-sky-500 to-sky-600 text-[10px] font-black uppercase tracking-widest text-white shadow-md shadow-sky-200 transition-all active:scale-95"
+                        className="flex h-14 flex-col items-center justify-center gap-1 rounded-2xl bg-gradient-to-br from-sky-500 to-sky-600 text-[10px] font-semibold text-white shadow-md shadow-sky-200 transition-all active:scale-95"
                       >
                         <Route size={18} /> Waze
                       </a>
@@ -2867,7 +2834,7 @@ export default function RiderPanel() {
                           href={`https://wa.me/${String(selectedPedido.cliente_telefono).replace(/\D/g, '')}`}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="flex h-14 flex-col items-center justify-center gap-1 rounded-2xl bg-gradient-to-br from-emerald-500 to-emerald-600 text-[10px] font-black uppercase tracking-widest text-white shadow-md shadow-emerald-200 transition-all active:scale-95"
+                          className="flex h-14 flex-col items-center justify-center gap-1 rounded-2xl bg-gradient-to-br from-emerald-500 to-emerald-600 text-[10px] font-semibold text-white shadow-md shadow-emerald-200 transition-all active:scale-95"
                         >
                           <Phone size={18} /> WhatsApp
                         </a>
@@ -2881,7 +2848,7 @@ export default function RiderPanel() {
                             .then(() => toast.success('Dirección copiada'))
                             .catch(() => toast.error('No se pudo copiar'))
                         }
-                        className="flex h-14 flex-col items-center justify-center gap-1 rounded-2xl border border-gray-200 bg-white text-[10px] font-black uppercase tracking-widest text-gray-700 shadow-sm transition-all active:scale-95"
+                        className="flex h-14 flex-col items-center justify-center gap-1 rounded-2xl border border-gray-200 bg-white text-[10px] font-semibold text-gray-700 shadow-sm transition-all active:scale-95"
                       >
                         <Copy size={16} /> Copiar
                       </button>
@@ -2912,11 +2879,11 @@ export default function RiderPanel() {
                     <>
                       <div className="mx-5 mb-4 flex-1 rounded-[22px] bg-gray-50 p-5 sm:mx-6">
                         <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-                          <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                          <span className="text-[10px] font-semibold text-gray-400">
                             Resumen del pedido
                           </span>
                           <span
-                            className={`rounded-lg px-2.5 py-1 text-[10px] font-black ${paymentStatusTone(selectedPedido.pago_estado)}`}
+                            className={`rounded-lg px-2.5 py-1 text-[10px] font-semibold ${paymentStatusTone(selectedPedido.pago_estado)}`}
                           >
                             {paymentMethodLabel(selectedPedido.metodo_pago)} ·{' '}
                             {paymentStatusLabel(selectedPedido.pago_estado)}
@@ -2929,14 +2896,14 @@ export default function RiderPanel() {
                               className="flex justify-between gap-4 text-sm bg-white rounded-xl p-3 border border-gray-100"
                             >
                               <div className="flex items-center gap-2 min-w-0">
-                                <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-primary-50 text-primary-600 text-[10px] font-black shrink-0">
+                                <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-brand-50 text-brand-600 text-[10px] font-semibold shrink-0">
                                   {it.cantidad}x
                                 </span>
                                 <p className="min-w-0 break-words font-bold text-gray-700">
                                   {it.nombre}
                                 </p>
                               </div>
-                              <p className="shrink-0 font-black text-gray-900">
+                              <p className="shrink-0 font-semibold text-gray-900">
                                 {fmt(it.precio_unitario * it.cantidad)}
                               </p>
                             </div>
@@ -2952,14 +2919,14 @@ export default function RiderPanel() {
                         <div className="pointer-events-none absolute -right-8 -top-8 h-32 w-32 rounded-full bg-white/15 blur-2xl" />
                         <div className="relative flex items-center justify-between">
                           <div>
-                            <p className="text-[10px] font-black uppercase tracking-[0.22em] text-white/80">
+                            <p className="text-[10px] font-semibold text-white/80">
                               {yaCobrado ? '✓ Ya cobrado' : 'Total a cobrar'}
                             </p>
                             <p className="mt-1 text-[10px] font-bold text-white/70">
                               {paymentMethodLabel(selectedPedido.metodo_pago)}
                             </p>
                           </div>
-                          <p className="text-3xl font-black text-white tabular-nums leading-none">
+                          <p className="text-3xl font-semibold text-white tabular-nums leading-none">
                             {fmt(selectedPedido.total)}
                           </p>
                         </div>
@@ -2974,7 +2941,7 @@ export default function RiderPanel() {
                     <div>
                       <div className="mb-3 flex items-center gap-2">
                         <CreditCard size={15} className="text-gray-500" />
-                        <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">
+                        <p className="text-[10px] font-semibold text-gray-500">
                           Medio que usará el cliente
                         </p>
                       </div>
@@ -2997,9 +2964,9 @@ export default function RiderPanel() {
                                 type="button"
                                 disabled={changingPayment || selectedPedido.metodo_pago === method}
                                 onClick={() => changePaymentMethod(selectedPedido.id, method)}
-                                className={`min-h-11 rounded-xl border px-3 py-2 text-xs font-black transition ${
+                                className={`min-h-11 rounded-xl border px-3 py-2 text-xs font-semibold transition ${
                                   selectedPedido.metodo_pago === method
-                                    ? 'border-primary-500 bg-primary-50 text-primary-700'
+                                    ? 'border-brand-500 bg-brand-50 text-brand-700'
                                     : 'border-gray-200 bg-white text-gray-700'
                                 } disabled:opacity-60`}
                               >
@@ -3027,7 +2994,7 @@ export default function RiderPanel() {
                       )}`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-success-50 text-xs font-black uppercase tracking-widest text-success-700 transition-all active:scale-95"
+                      className="flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 text-xs font-semibold text-emerald-700 transition-all active:scale-95"
                     >
                       <PhoneCall size={14} /> Escribir al local por WhatsApp
                     </a>
@@ -3039,7 +3006,7 @@ export default function RiderPanel() {
                         await updateEstado(selectedPedido.id, 'en_camino');
                         setModoRutaPedidoId(selectedPedido.id);
                       }}
-                      className="rider-primary-button flex h-14 w-full items-center justify-center gap-3 rounded-2xl text-sm font-black uppercase tracking-wide text-white shadow-lg transition-all active:scale-[0.98]"
+                      className="rider-primary-button flex h-14 w-full items-center justify-center gap-3 rounded-2xl text-sm font-semibold text-white shadow-lg transition-all active:scale-[0.98]"
                     >
                       <Truck size={22} /> Comenzar reparto
                     </button>
@@ -3049,7 +3016,7 @@ export default function RiderPanel() {
                   {selectedPedido.estado === 'en_camino' && (
                     <button
                       onClick={() => setModoRutaPedidoId(selectedPedido.id)}
-                      className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-gray-900 bg-gray-900 text-xs font-black uppercase tracking-widest text-white transition active:scale-[0.98]"
+                      className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-gray-900 bg-gray-900 text-xs font-semibold text-white transition active:scale-[0.98]"
                     >
                       <Navigation size={15} /> Modo ruta
                     </button>
@@ -3067,7 +3034,7 @@ export default function RiderPanel() {
                   <div className="grid grid-cols-2 gap-3">
                     <button
                       onClick={() => setIncidenciaOpen(true)}
-                      className="flex h-12 items-center justify-center gap-2 rounded-2xl border border-amber-200 bg-warning-50 text-[11px] font-black uppercase tracking-wide text-warning-700 active:scale-95 transition-transform"
+                      className="flex h-12 items-center justify-center gap-2 rounded-2xl border border-amber-200 bg-amber-50 text-[11px] font-semibold text-amber-700 active:scale-95 transition-transform"
                     >
                       <AlertCircle size={15} /> Reportar problema
                     </button>
@@ -3077,7 +3044,7 @@ export default function RiderPanel() {
                           updateEstado(selectedPedido.id, 'cancelado');
                         }
                       }}
-                      className="flex h-12 items-center justify-center gap-2 rounded-2xl border border-rose-200 bg-danger-50 text-[11px] font-black uppercase tracking-wide text-danger-700 active:scale-95 transition-transform"
+                      className="flex h-12 items-center justify-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 text-[11px] font-semibold text-rose-700 active:scale-95 transition-transform"
                     >
                       <X size={15} /> Cancelar
                     </button>
@@ -3090,9 +3057,9 @@ export default function RiderPanel() {
                         initial={{ opacity: 0, y: 10 }}
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, y: 10 }}
-                        className="rounded-2xl border border-amber-200 bg-warning-50 p-4"
+                        className="rounded-2xl border border-amber-200 bg-amber-50 p-4"
                       >
-                        <p className="mb-3 text-[10px] font-black uppercase tracking-widest text-warning-700">
+                        <p className="mb-3 text-[10px] font-semibold text-amber-700">
                           ¿Qué pasó? Elegí el motivo:
                         </p>
                         <div className="grid grid-cols-2 gap-2">
@@ -3118,7 +3085,7 @@ export default function RiderPanel() {
                                   );
                                 }
                               }}
-                              className="rounded-xl bg-white border border-amber-100 px-3 py-3 text-[11px] font-black uppercase tracking-wide text-gray-700 active:scale-95 transition-transform hover:border-amber-300"
+                              className="rounded-xl bg-white border border-amber-100 px-3 py-3 text-[11px] font-semibold text-gray-700 active:scale-95 transition-transform hover:border-amber-300"
                             >
                               {label}
                             </button>
@@ -3126,7 +3093,7 @@ export default function RiderPanel() {
                         </div>
                         <button
                           onClick={() => setIncidenciaOpen(false)}
-                          className="mt-3 w-full h-10 rounded-xl bg-white border border-gray-200 text-[10px] font-black uppercase tracking-widest text-gray-500"
+                          className="mt-3 w-full h-10 rounded-xl bg-white border border-gray-200 text-[10px] font-semibold text-gray-500"
                         >
                           Cerrar
                         </button>
@@ -3152,14 +3119,14 @@ export default function RiderPanel() {
       )}
 
       {/* ── Footer ──────────────────────────────────────────────── */}
-      <footer className="px-6 py-3 bg-white border-t border-gray-100 flex items-center justify-between text-[10px] font-black uppercase tracking-widest">
+      <footer className="px-6 py-3 bg-white border-t border-gray-100 flex items-center justify-between text-[10px] font-semibold">
         <div className="flex items-center gap-2">
           <div
             className={`h-2 w-2 rounded-full ${
               !isConnected
                 ? 'bg-rose-500 animate-pulse'
                 : isOnline
-                  ? 'bg-success-500 animate-pulse'
+                  ? 'bg-emerald-500 animate-pulse'
                   : 'bg-gray-300'
             }`}
           />
@@ -3186,7 +3153,7 @@ export default function RiderPanel() {
           <button
             type="button"
             onClick={handleLogoutCompleto}
-            className="text-[9px] font-black uppercase tracking-widest text-gray-300 underline decoration-dotted underline-offset-2 hover:text-rose-500"
+            className="text-[9px] font-semibold text-gray-300 underline decoration-dotted underline-offset-2 hover:text-rose-500"
             title="Borra todos los datos del rider en este celular"
           >
             Cambiar de rider

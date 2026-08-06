@@ -2054,6 +2054,149 @@ Se eliminaron los tabs inline que estaban en el medio del contenido.
 
 **Modificados:** `server/routes/repartidores.js` (endpoint stats), `client/src/pages/RiderPanel.jsx`.
 
+### 24.13. 🐞 FIX: distancias absurdas por coordenadas (0,0)
+
+Detectado en la primera prueba en celular real: el hero card mostraba
+**"7602.3 km · 16291 min"** para un pedido en el barrio Mutual de Monteros.
+
+**Causa raíz:** cuando el cliente no comparte su ubicación exacta (caso muy
+común — pide por dirección de texto), `cliente_latitud` y `cliente_longitud`
+llegan en `0` o `null`. El chequeo que tenía era `Number.isFinite(lat)`, y
+`Number.isFinite(0)` devuelve `true`. Entonces calculaba la distancia desde
+Monteros hasta el punto (0,0), que es un lugar real en el Golfo de Guinea,
+en África. De ahí los 7602 km.
+
+**Corrección:**
+
+- Nuevo helper `tieneUbicacionUsable(pedido)` en `riderUx.js` que descarta:
+  coordenadas no finitas, el (0,0) y cercanos, y valores fuera de rango
+  geográfico válido (|lat| > 90, |lng| > 180).
+- `distanciaMetros()` ahora devuelve `null` si cualquiera de los dos puntos
+  es (0,0), en vez de calcular contra África.
+- `ordenarPorCercania()` usa el helper en vez de su chequeo propio.
+- `HeroPedido` y `ModoEnRuta` calculan distancia solo si `tieneUbicacionUsable`.
+- Cuando no hay punto GPS, el hero muestra un aviso explícito
+  ("El cliente no compartió ubicación exacta. Guiate por la dirección.")
+  en vez de un número inventado. Si el pedido sí tiene punto pero el GPS del
+  rider todavía no arrancó, dice "Buscando tu ubicación…" — son dos casos
+  distintos y conviene distinguirlos.
+
+**Nota:** `RiderRouteMap` ya validaba bien esto (usa `clientLocationExact` +
+`isInsideServiceArea`), por eso el mapa mostraba correctamente el fallback
+"Navegación por dirección". El bug era solo en los componentes nuevos.
+
+### 24.14. Flujo de "Ver ruta" corregido
+
+En la prueba también apareció una confusión de flujo: el botón del hero card
+llevaba al **detalle del pedido**, no al mapa. El rider tenía que scrollear
+para encontrar el mapa embebido, o terminaba tocando "MAPS" y saliendo a
+Google Maps — justo lo que queríamos evitar.
+
+Ahora:
+
+- Si el pedido **tiene punto GPS**: el botón dice "Ver ruta en el mapa" y
+  entra directo al modo fullscreen con la ruta trazada.
+- Si **no tiene punto GPS**: dice "Ver pedido" y va al detalle, porque el
+  mapa no puede dibujar una ruta sin destino.
+
+El botón "MAPS" del detalle queda como estaba: es la salida opcional para
+quien quiera la navegación con voz de Google.
+
+### 24.15. Geocoding: que el mapa funcione siempre (02/08/2026)
+
+**El problema que se descubrió probando en el celular.**
+
+El rider abría un pedido y en lugar del mapa veía un cartel que decía
+"Navegación por dirección — El cliente no compartió un punto GPS exacto".
+Eso pasaba en casi todos los pedidos, porque la mayoría entra con la
+dirección escrita a mano ("Urquiza 58") y el cliente rara vez comparte su
+ubicación por WhatsApp.
+
+Sin coordenadas, `RiderRouteMap` no puede trazar nada, así que el mapa
+propio quedaba inutilizado y el rider terminaba tocando "MAPS" y saliendo
+a Google — exactamente lo que se quería evitar.
+
+**Importante:** el mapa nunca dependió de Google. Usa tiles de
+OpenStreetMap y ruteo de OSRM. Lo que faltaba eran las coordenadas.
+
+**La solución: geocodificar las direcciones en el servidor.**
+
+Nuevo servicio `server/services/geocoding.js` que convierte
+"Urquiza 58" → lat/lng usando **Nominatim**, el geocodificador oficial de
+OpenStreetMap. Gratis, sin API key, sin límite mensual, coherente con el
+resto del stack de mapas.
+
+Decisiones de implementación:
+
+- **Rate limit respetado**: Nominatim permite 1 consulta/segundo y exige
+  User-Agent identificable. Ambas cosas implementadas (`RATE_LIMIT_MS`,
+  `USER_AGENT`). Violarlo lleva a bloqueo de IP.
+- **Caché en tabla propia** (`geocoding_cache`): las direcciones se
+  repiten muchísimo (mismos clientes, mismas calles). A partir de la
+  segunda vez es instantáneo y sin red.
+- **Búsqueda acotada a la zona de reparto** con `viewbox` + `bounded`:
+  sin eso, "Urquiza 58" podía matchear una calle Urquiza de Buenos Aires.
+  Además se descarta cualquier resultado que caiga fuera de los bounds.
+- **Fire-and-forget** con `setImmediate`: la creación del pedido no espera
+  por el geocoding. Si Nominatim está caído, el pedido se crea igual.
+  Cuando resuelve, se re-emite por socket para que la app rider reciba
+  las coordenadas sin refrescar.
+- **Enganchado en los dos flujos de creación**: pedido público (web) y
+  pedido interno (TPV), solo cuando `tipo_entrega === 'delivery'`.
+- **NO marca `cliente_ubicacion_exacta`**: el resultado es aproximado.
+  Se usa una columna nueva `cliente_geocodificado` + la precisión
+  (`numeracion` / `calle` / `aproximada`).
+
+**Cambios en el mapa:**
+
+`RiderRouteMap` ahora acepta coordenadas de ambos orígenes — el punto
+exacto del cliente y el aproximado del geocoding. El criterio fue: **un
+mapa con destino aproximado sirve mucho más que ningún mapa**. El rider
+ve por dónde ir y ajusta los últimos metros mirando la numeración.
+
+Para que no confíe ciegamente en el pin, cuando el punto viene del
+geocoding el panel de destino muestra "Punto aproximado — confirmá la
+numeración al llegar".
+
+**Corrección manual:**
+
+- `PUT /pedidos/:id/ubicacion` — el operador pega coordenadas y quedan
+  marcadas como `ubicacion_exacta = 1` (fue verificado por una persona).
+  Valida rango y rechaza el (0,0).
+- `POST /pedidos/:id/geocodificar` — fuerza el reintento, útil si se
+  corrigió un error de tipeo en la dirección.
+- Ambos quedan auditados.
+
+**Backfill:**
+
+`server/scripts/geocodificarPedidos.js` para los pedidos que ya existen.
+Por defecto procesa los últimos 200; con `--todos` procesa todos.
+Idempotente: solo toca los que no tienen coordenadas.
+
+```
+node server/scripts/geocodificarPedidos.js
+node server/scripts/geocodificarPedidos.js --todos
+```
+
+**Limitaciones que conviene tener presentes:**
+
+En pueblos chicos la numeración exacta no siempre está mapeada en OSM.
+Cuando pasa, Nominatim cae al centro de la calle o de la localidad. Es
+aproximado, pero mejor que nada — y para eso está la corrección manual.
+Si un rider avisa que un pin estaba mal, se corrige y queda cacheado para
+la próxima vez que ese cliente pida.
+
+**Archivos nuevos:**
+
+- `server/services/geocoding.js`
+- `server/scripts/geocodificarPedidos.js`
+
+**Modificados:** `server/db/migrations.js` (tabla `geocoding_cache` +
+columnas `cliente_geocodificado` y `cliente_geocoding_precision`),
+`server/routes/pedidos.js` (enganche en ambos POST + 2 endpoints nuevos),
+`client/src/components/RiderRouteMap.jsx`, `client/src/lib/riderUx.js`,
+`client/src/pages/RiderPanel.jsx`, `client/src/components/rider/ModoEnRuta.jsx`.
+
 ### 24.12. Pendientes que quedan del backlog original
 
 Del grupo A quedaron sin hacer, por decisión de bajo ROI:
@@ -2098,3 +2241,222 @@ Notas pendientes:
 - El lint global del server todavia falla por `server/utils/dataPackage.js:100` (`==` en vez de `===`), no relacionado con esta tanda.
 - Falta prueba real en celular/APK del wake lock, modo ruta, ubicacion y notificaciones.
 - Falta publicar v1.2.0 cuando el usuario confirme que local esta listo.
+
+## 2026-08-02 - Direcciones estructuradas / Barrio 150 Viviendas
+
+- Se agregó una capa de direcciones conocidas para evitar que el geocoding externo mande pedidos de barrios locales a otra ciudad o a otro número de calle.
+- Tablas nuevas: `direccion_barrios`, `direccion_manzanas`, `direccion_casas`, `direccion_observaciones`.
+- Columnas nuevas en `pedidos`: barrio/manzana/casa, origen y confianza de dirección.
+- Piloto sembrado: `Barrio 150 Viviendas`, manzanas A-F con cantidad de casas según plano compartido.
+- Resolución de coordenadas: primero casa con punto confirmado, luego centro de manzana, luego centro de barrio, y recién después geocoding normal. Por ahora no se inventaron coordenadas de casas: quedan pendientes para carga manual/confirmada.
+- API nueva: `/api/direcciones/barrios`, `/api/direcciones/barrios/:id/manzanas`, `/api/direcciones/barrios/:id/manzanas/:manzana/casas`, `/api/direcciones/resolver`, `/api/direcciones/casas`.
+- TPV: en delivery aparece selector opcional de barrio conocido, manzana y casa. Al elegirlo arma la dirección del pedido y manda la estructura al backend.
+- Validación: `node --check` en archivos nuevos/modificados, `npm run build`, prueba local de semilla y prueba transaccional de inserción de pedido con rollback.
+- Pendiente recomendado: crear pantalla/admin para marcar coordenada exacta de una casa desde mapa o desde punto confirmado por rider/cliente.
+- Ajuste posterior: si el pedido usa barrio/manzana/casa estructurada pero no hay coordenada confirmada, se evita el geocoding externo para no guardar un punto dudoso.
+
+## 2026-08-02 - Ampliacion de planos de barrios conocidos
+
+- Se ampliaron las direcciones estructuradas a partir de los planos enviados por el local/remises.
+- Barrios preliminares agregados: `40 Viviendas Omodedo`, `69 Viviendas`, `100 Viviendas`, `50 Viviendas`, `34 Viviendas`, `Barrio Mutual`, `48 Viviendas` y `105 Viviendas`.
+- Donde el plano tiene numeracion completa se cargaron manzanas/casas como base operativa; donde el plano esta incompleto se cargo el barrio/manzana como referencia, sin inventar casas ni coordenadas.
+- Regla importante: si no hay coordenada confirmada por casa/manzana/barrio, el sistema conserva la direccion estructurada y evita geocoding externo dudoso.
+- Validaciones: `node --check` en migraciones, servicio/ruta de direcciones y pedidos; listado local de barrios dio 9 barrios; `npm run build` OK.
+- Pendiente recomendado: crear administrador visual de barrios para corregir planos, cargar coordenadas por casa, importar ubicaciones confirmadas por rider/cliente y marcar confianza del dato.
+
+## 2026-08-02 - Admin de barrios y GPS confirmado
+
+- Se agrego la pantalla `/admin/direcciones` en el sistema para administrar barrios conocidos del delivery.
+- El menu muestra `Barrios y direcciones` dentro de Operaciones, con permiso `pedidos.edit`.
+- La pantalla permite ver barrios/manzanas/casas, pegar coordenadas, usar ubicacion del navegador si esta disponible y guardar punto confirmado.
+- API extendida: guardar centro de barrio, centro de manzana y casa exacta confirmada.
+- Se corrigio el guardado para usar las columnas reales `actualizado_en` de las tablas de direcciones.
+- Validaciones: `node --check` en servicio/rutas, prueba transaccional con rollback de barrio/manzana/casa y `npm run build` OK.
+- Pendiente: conectar observaciones automaticas del rider/cliente para sugerir coordenadas pendientes y aceptarlas desde esta pantalla.
+
+## 25. Rediseño completo del TPV (03/08/2026)
+
+### Por qué se hizo
+
+El TPV funcionaba pero se veía amontonado y pesado. La auditoría encontró que
+`TpvSidebar.jsx` tenía **1095 líneas y recibía 77 props**, y apilaba doce
+bloques en un solo scroll: modo de entrega, cliente, fidelidad, historial
+express, clientes del día, dirección con barrios, rider (con chips _y_ un
+select duplicado), pre-chequeo, venta en espera, notas rápidas, carrito,
+última venta, descuento, métodos de pago, pago mixto y efectivo. Todo visible
+siempre, aunque el 90% de las ventas no usara la mayoría.
+
+Se compararon Square, Toast, Lightspeed, NCR Aloha y Oracle MICROS, más dos
+referencias visuales que trajo Hernán. El hallazgo que ordenó todo el trabajo:
+**ninguno de los TPV profesionales pone el cobro dentro de la columna del
+pedido.** Va en un modal.
+
+### El cambio estructural
+
+El cobro salió de la columna y pasó a `TpvPaymentModal.jsx`, un modal a
+pantalla completa con teclado numérico, botón "Justo" y sugerencias de
+billetes calculadas sobre el total. Eso permitió que la columna baje de 620px
+a 380px y que la zona de cobro se lleve la pantalla entera cuando corresponde.
+
+Antes se había intentado el camino opuesto — ensanchar la columna a 620px y
+agrandar los botones — y no funcionó: era tratar el síntoma. Queda anotado
+porque costó dos vueltas de ida y vuelta.
+
+### El sistema visual
+
+- **Un solo acento: el rojo de marca `#DC1F2D`.** Se agregó la escala `brand`
+  completa a `tailwind.config.js`. El azul `primary` dejó de usarse en el TPV.
+  La regla: el color se reserva, no se reparte. Si aparece en más de cinco
+  lugares por pantalla deja de significar algo.
+- **Se eliminó `font-black` de todo el módulo.** Ahora 600 para títulos, 500
+  para etiquetas, y negrita reservada para plata. También se sacaron las
+  mayúsculas con `letter-spacing`, que le daban aire de formulario viejo. Este
+  fue el cambio más barato y de mayor impacto visual.
+- **Fondo gris `#F6F7F9` con tarjetas blancas flotando.** La separación la hace
+  el fondo, no los bordes. Dos radios: 12px controles, 16px tarjetas.
+- **Un solo `strokeWidth` de lucide** (`STROKE = 1.9`), exportado de `tpvUi.jsx`.
+  Antes convivían 1.75, 2 y 2.6 en la misma fila.
+- **`tabular-nums` en todos los números**, para que los totales no bailen al
+  cambiar de dígito.
+
+### Archivos nuevos (`client/src/components/TPV/`)
+
+| Archivo                | Qué hace                                                                                      |
+| ---------------------- | --------------------------------------------------------------------------------------------- |
+| `tpvUi.jsx`            | `fmt`, `BRAND`, `TPV_BG`, `STROKE`, `Popover`, `UtilityButton`, `BlockedHint`, `SectionLabel` |
+| `paymentBrands.jsx`    | Color, ícono y logo opcional por método de pago; `PaymentMark`, `PaymentButton`               |
+| `TpvPaymentModal.jsx`  | Modal de cobro con teclado numérico                                                           |
+| `TpvUtilityBar.jsx`    | 5 íconos con badge: espera, notas, descuento, horario, última venta                           |
+| `TpvCustomerBlock.jsx` | Cliente, fidelidad, historial, barrios de Monteros, rider                                     |
+| `TpvCartList.jsx`      | Items con miniatura del producto                                                              |
+
+Reescritos: `TpvSidebar.jsx` (1095 → ~250 líneas), `TpvHeader.jsx`,
+`TpvCatalog.jsx`. Modificados: `client/src/pages/TPV.jsx`,
+`client/tailwind.config.js`. Docs: `client/public/pagos/LEEME.md`.
+
+`TpvCheckout.jsx` quedó obsoleto y vacío — hay que borrarlo.
+
+### Qué se sacó de la pantalla (sin eliminar funciones)
+
+Pre-chequeo completo, barra de chips de estado bajo el header, los 4 chips de
+atajos de teclado permanentes, el `<select>` de rider duplicado, la tarjeta de
+venta en espera vacía, la tarjeta de última venta, la fidelidad permanente,
+el historial express, los clientes del día y el botón TICKET separado.
+
+Todo vive ahora en popovers con badge numérico. **Nada se eliminó.** El botón
+TICKET resultó redundante: `config.impresion_auto_tpv` ya existía y
+Ctrl+Shift+Enter sigue funcionando para el caso puntual.
+
+### Detalles operativos que se sumaron
+
+- **Tooltip de bloqueo** en el botón de cobrar deshabilitado. No es opcional:
+  al sacar el pre-chequeo pasó a ser la única forma de saber qué falta.
+- **Rider en una línea** ("Juan · automático" con link "cambiar"). El bloque
+  completo sólo aparece si hay dos o más.
+- **Miniatura en cada item del pedido.** Se agregó `imagen` y
+  `categoria_icono` al item cuando se carga al carrito.
+- **Stepper en la tarjeta del catálogo**: si el producto está una sola vez en
+  el carrito, "Agregar" se convierte en `− n +`. Con dos líneas del mismo
+  producto (variantes distintas) no aparece, porque restar sería ambiguo.
+  Validado también en `restarDesdeCatalogo`, no sólo en la UI.
+- **Categorías como tarjetas cuadradas** de 88×92 con imagen, nombre y
+  contador de items. Fallback a emoji y después a inicial.
+- **Skeleton** al cargar el catálogo en vez de grilla vacía.
+- **Toast con número y total** al cerrar la venta.
+- Los dos botones de cobrar usan el color por **estilo inline**, no por clase
+  de Tailwind: si la config no se releyó, una clase inexistente dejaba el
+  fondo transparente y el texto blanco invisible. Pasó una vez en desarrollo.
+
+### Decisiones tomadas y su motivo
+
+- **Rojo de marca como único acento** (elegido por Hernán sobre verde
+  operativo). Mantiene coherencia con la app rider y la web pública.
+- **Alcance cerrado al TPV.** Se descartaron por ahora la cola de pedidos
+  activos arriba del catálogo y la barra lateral de navegación, que son las
+  dos mejoras más valiosas de las referencias en términos de operación diaria.
+  Quedan como candidatas para cuando haya tiempo.
+- **No se usaron los logos oficiales** de Mercado Pago, MODO y Ualá: son
+  marcas registradas y habría que licenciarlas y versionarlas. Se dejó el
+  campo `logo` preparado en `paymentBrands.jsx` y la carpeta
+  `client/public/pagos/` con instrucciones.
+- **No se migró a Phosphor Icons** pese a evaluarlo. La investigación mostró
+  que lucide es el estándar de facto en 2026 y que el aire premium de las
+  referencias viene del layout y la tipografía, no del pack de íconos.
+
+### Pendiente
+
+1. **Correr `lint` y `build`.** El código se escribió sin sandbox disponible;
+   nunca se compiló. El prompt `PROMPT-CODEX-TPV.md` en la raíz cubre esto con
+   la lista de íconos de lucide a verificar contra la versión 0.344.
+2. **Apagar `BYPASS_CAJA_CERRADA`** en `client/src/pages/TPV.jsx` (línea ~36).
+   Se puso en `true` para poder mirar el diseño sin abrir turno.
+3. **Borrar `TpvCheckout.jsx`.**
+4. **Cargar fotos a productos y a las 8 categorías.** Es lo único que hoy
+   separa visualmente este TPV de las referencias, y no lo arregla el código.
+5. Logos oficiales de las billeteras, si se quieren.
+
+---
+
+## [URGENTE] Parche de seguridad — 6 de agosto de 2026
+
+Se descubrieron y corrigieron **dos vulnerabilidades críticas** durante la auditoría exhaustiva del día.
+
+### 🔴 1. Credenciales de producción en el repositorio
+
+**Problema:** `.claude/settings.local.json` estaba trackeado en git y contenía:
+
+- Email: `admin@modosabor.com`
+- Password: `Huracan840921`
+- Cookies de sesión de Railway
+- Comandos curl con credenciales embebidas
+
+**Impacto:** Cualquiera con acceso al repo tenía acceso al panel de administración de producción.
+
+**Acciones tomadas:**
+
+1. `git rm --cached .claude/settings.local.json` → eliminado del tracking
+2. Añadido `.claude/settings.local.json` a `.gitignore`
+3. Commiteado con hash `558f28fb`
+
+**⚠️ ACCIÓN PENDIENTE (requiere intervención humana):**
+
+- **Rotar el password** `admin@modosabor.com` en producción INMEDIATAMENTE
+- Forzar logout de todas las sesiones activas
+- Verificar que no haya sesiones sospechosas en el panel de admin
+
+---
+
+### 🔴 2. Sanitización HTML rompía datos válidos
+
+**Problema:** `server/middleware/sanitize.js` escapaba `"` → `&quot;` en **todos** los strings del body de entrada. Esto rompía:
+
+- URLs con parámetros (`?key="value"`)
+- JSONs stringificados
+- Descripciones de productos con comillas
+- Direcciones de clientes
+- Enlaces de Google Maps
+- Contenido de marketing
+
+**Acciones tomadas:**
+
+1. Eliminado `"` del `HTML_ESCAPE_MAP`
+2. Cambiada la regex de `/[<>&"]/g` a `/[<>&]/g`
+3. Eliminado el `JSON_STRING_KEYS` y la función `isJsonStringField` (ya no eran necesarios)
+4. Añadido comentario explicativo en el archivo sobre por qué las comillas no se escapan
+5. Commiteado con hash `558f28fb`
+
+**Nota técnica:** La defensa contra XSS debe implementarse en la **capa de presentación (frontend)**, nunca mutando datos en la entrada a la API. Escapar HTML en el middleware de entrada es un antipatrón que corrompe datos legítimos.
+
+---
+
+### Archivos modificados en este parche
+
+| Archivo                         | Cambio                                               |
+| ------------------------------- | ---------------------------------------------------- |
+| `.claude/settings.local.json`   | Eliminado del tracking de git                        |
+| `.gitignore`                    | Añadida regla para `.claude/settings.local.json`     |
+| `server/middleware/sanitize.js` | Eliminado escape de comillas; simplificado el código |
+
+---
+
+_Entrada generada tras auditoría exhaustiva del 2026-08-06._

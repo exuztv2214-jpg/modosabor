@@ -108,6 +108,13 @@ function runMigrations(db) {
   ensureColumn(db, 'pedidos', 'cliente_latitud', 'REAL');
   ensureColumn(db, 'pedidos', 'cliente_longitud', 'REAL');
   ensureColumn(db, 'pedidos', 'cliente_ubicacion_exacta', 'INTEGER DEFAULT 0');
+  ensureColumn(db, 'pedidos', 'direccion_barrio_id', 'INTEGER');
+  ensureColumn(db, 'pedidos', 'direccion_barrio_nombre', "TEXT DEFAULT ''");
+  ensureColumn(db, 'pedidos', 'direccion_manzana_id', 'INTEGER');
+  ensureColumn(db, 'pedidos', 'direccion_manzana', "TEXT DEFAULT ''");
+  ensureColumn(db, 'pedidos', 'direccion_casa', "TEXT DEFAULT ''");
+  ensureColumn(db, 'pedidos', 'direccion_origen', "TEXT DEFAULT ''");
+  ensureColumn(db, 'pedidos', 'direccion_confianza', 'REAL DEFAULT 0');
   ensureColumn(db, 'pedidos', 'entrega_foto', "TEXT DEFAULT ''");
   ensureColumn(db, 'pedidos', 'entrega_foto_en', 'TEXT');
   ensureColumn(db, 'pedidos', 'inventario_aplicado', 'INTEGER DEFAULT 0');
@@ -234,6 +241,296 @@ function runMigrations(db) {
     ON pedido_eventos(estado, creado_en DESC)
   `);
 
+  // ── Cache de geocoding ──────────────────────────────────────────
+  // Convertir "Urquiza 58" en lat/lng cuesta una llamada de red con
+  // rate limit de 1/seg. Como las direcciones se repiten muchísimo
+  // (mismos clientes, mismas calles), cachearlas hace que a partir de
+  // la segunda vez sea instantáneo y sin red.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS geocoding_cache (
+      clave TEXT PRIMARY KEY,
+      direccion_original TEXT NOT NULL,
+      latitud REAL NOT NULL,
+      longitud REAL NOT NULL,
+      precision_geocoding TEXT DEFAULT '',
+      actualizado_en DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  // Marcamos qué pedidos tienen coordenadas puestas por geocoding (a
+  // diferencia de las que compartió el cliente). Sirve para distinguir
+  // en el admin cuáles conviene revisar a mano.
+  ensureColumn(db, 'pedidos', 'cliente_geocodificado', 'INTEGER DEFAULT 0');
+  ensureColumn(db, 'pedidos', 'cliente_geocoding_precision', "TEXT DEFAULT ''");
+
+  // ── Direcciones estructuradas ──────────────────────────────────
+  // Barrios/manzanas/casas conocidas por el local. Cuando una casa
+  // tiene punto confirmado, el sistema usa ese GPS antes que geocoding
+  // externo. Si todavía no lo tiene, conserva la dirección escrita y
+  // permite completar coordenadas exactas más adelante.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS direccion_barrios (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      nombre TEXT NOT NULL UNIQUE,
+      aliases TEXT DEFAULT '[]',
+      localidad TEXT DEFAULT 'Monteros',
+      provincia TEXT DEFAULT 'Tucuman',
+      centro_lat REAL,
+      centro_lng REAL,
+      poligono TEXT DEFAULT '[]',
+      activo INTEGER DEFAULT 1,
+      notas TEXT DEFAULT '',
+      creado_en DATETIME DEFAULT CURRENT_TIMESTAMP,
+      actualizado_en DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS direccion_manzanas (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      barrio_id INTEGER NOT NULL,
+      letra TEXT NOT NULL,
+      latitud REAL,
+      longitud REAL,
+      cantidad_casas INTEGER DEFAULT 0,
+      casas_validas TEXT DEFAULT '[]',
+      poligono TEXT DEFAULT '[]',
+      notas TEXT DEFAULT '',
+      activo INTEGER DEFAULT 1,
+      creado_en DATETIME DEFAULT CURRENT_TIMESTAMP,
+      actualizado_en DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(barrio_id, letra),
+      FOREIGN KEY (barrio_id) REFERENCES direccion_barrios(id) ON DELETE CASCADE
+    )
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS direccion_casas (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      barrio_id INTEGER NOT NULL,
+      manzana_id INTEGER NOT NULL,
+      casa TEXT NOT NULL,
+      latitud REAL,
+      longitud REAL,
+      origen TEXT DEFAULT 'manual_confirmado',
+      confianza REAL DEFAULT 1,
+      precision_m REAL,
+      observaciones INTEGER DEFAULT 0,
+      notas TEXT DEFAULT '',
+      activo INTEGER DEFAULT 1,
+      creado_en DATETIME DEFAULT CURRENT_TIMESTAMP,
+      actualizado_en DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(barrio_id, manzana_id, casa),
+      FOREIGN KEY (barrio_id) REFERENCES direccion_barrios(id) ON DELETE CASCADE,
+      FOREIGN KEY (manzana_id) REFERENCES direccion_manzanas(id) ON DELETE CASCADE
+    )
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS direccion_observaciones (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      pedido_id INTEGER,
+      barrio_id INTEGER,
+      manzana_id INTEGER,
+      casa TEXT DEFAULT '',
+      latitud REAL NOT NULL,
+      longitud REAL NOT NULL,
+      accuracy_m REAL,
+      origen TEXT DEFAULT 'rider_entregado',
+      estado TEXT DEFAULT 'pendiente',
+      notas TEXT DEFAULT '',
+      creado_en DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (pedido_id) REFERENCES pedidos(id) ON DELETE SET NULL,
+      FOREIGN KEY (barrio_id) REFERENCES direccion_barrios(id) ON DELETE SET NULL,
+      FOREIGN KEY (manzana_id) REFERENCES direccion_manzanas(id) ON DELETE SET NULL
+    )
+  `);
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_direccion_manzanas_barrio
+    ON direccion_manzanas(barrio_id, activo, letra)
+  `);
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_direccion_casas_lookup
+    ON direccion_casas(barrio_id, manzana_id, casa, activo)
+  `);
+
+  try {
+    const upsertBarrio = db.prepare(
+      `
+      INSERT INTO direccion_barrios
+        (nombre, aliases, localidad, provincia, notas)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(nombre) DO UPDATE SET
+        aliases = excluded.aliases,
+        localidad = excluded.localidad,
+        provincia = excluded.provincia,
+        notas = excluded.notas,
+        activo = 1,
+        actualizado_en = CURRENT_TIMESTAMP
+    `
+    );
+
+    const getBarrio = db.prepare('SELECT id FROM direccion_barrios WHERE nombre = ?');
+    const upsertManzana = db.prepare(
+      `
+      INSERT INTO direccion_manzanas
+        (barrio_id, letra, cantidad_casas, casas_validas, notas)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(barrio_id, letra) DO UPDATE SET
+        cantidad_casas = excluded.cantidad_casas,
+        casas_validas = excluded.casas_validas,
+        notas = excluded.notas,
+        activo = 1,
+        actualizado_en = CURRENT_TIMESTAMP
+    `
+    );
+
+    const seedBarrio = ({ nombre, aliases = [], notas = '', manzanas = [] }) => {
+      upsertBarrio.run(nombre, JSON.stringify(aliases), 'Monteros', 'Tucuman', notas);
+      const barrio = getBarrio.get(nombre);
+      if (!barrio?.id) return;
+      manzanas.forEach(({ letra, casas = 0, notas: notasManzana = '' }) => {
+        const cantidad = Math.max(0, Number(casas || 0));
+        const casasValidas =
+          cantidad > 0 ? Array.from({ length: cantidad }, (_, index) => String(index + 1)) : [];
+        upsertManzana.run(
+          barrio.id,
+          String(letra || '')
+            .trim()
+            .toUpperCase(),
+          cantidad,
+          JSON.stringify(casasValidas),
+          notasManzana ||
+            'Plano preliminar: pendiente marcar centro/manzana y puntos exactos de casas.'
+        );
+      });
+    };
+
+    seedBarrio({
+      nombre: 'Barrio 150 Viviendas',
+      aliases: ['150 viviendas', 'b 150 viviendas', 'barrio 150', '150 viv'],
+      notas:
+        'Piloto cargado desde plano local: entre Rivadavia, 24 de Septiembre, Urquiza y Las Heras/Salta. Coordenadas exactas pendientes de confirmacion.',
+      manzanas: [
+        { letra: 'A', casas: 34 },
+        { letra: 'B', casas: 8 },
+        { letra: 'C', casas: 40 },
+        { letra: 'D', casas: 20 },
+        { letra: 'E', casas: 23 },
+        { letra: 'F', casas: 28 },
+      ],
+    });
+
+    seedBarrio({
+      nombre: 'Barrio 40 Viviendas Omodedo',
+      aliases: ['40 viviendas', 'b 40 viviendas', 'barrio 40', 'omodedo', 'omodeo'],
+      notas:
+        'Plano preliminar compartido: Omodedo / Cristo / Santa Fe / 25 de Mayo. Algunas letras aparecen repetidas en sectores; se cargan como sectores para no pisar datos.',
+      manzanas: [
+        { letra: 'A', casas: 18 },
+        { letra: 'B', casas: 18 },
+        { letra: 'C', casas: 18 },
+        { letra: 'D', casas: 18 },
+        { letra: 'E', casas: 18 },
+        { letra: 'F1', casas: 18 },
+        { letra: 'F2', casas: 18 },
+        { letra: 'G1', casas: 18 },
+        { letra: 'G2', casas: 18 },
+      ],
+    });
+
+    seedBarrio({
+      nombre: 'Barrio 69 Viviendas',
+      aliases: ['69 viviendas', 'b 69 viviendas', 'barrio 69'],
+      notas:
+        'Plano preliminar Remis La Union. Pendiente limpiar duplicados con mapa final y confirmar conteo por manzana.',
+      manzanas: [
+        { letra: 'A', casas: 24 },
+        { letra: 'B', casas: 16 },
+        { letra: 'C', casas: 14 },
+        { letra: 'D', casas: 24 },
+        { letra: 'E', casas: 18 },
+        { letra: 'F', casas: 18 },
+        { letra: 'G', casas: 25 },
+        { letra: 'H', casas: 28 },
+        { letra: 'I', casas: 12 },
+        { letra: 'J', casas: 20 },
+      ],
+    });
+
+    seedBarrio({
+      nombre: 'Barrio 100 Viviendas',
+      aliases: ['100 viviendas', 'b 100 viviendas', 'barrio 100'],
+      notas:
+        'Plano preliminar junto a 69 Viviendas y Alberdi/Maipu. Coordenadas exactas pendientes.',
+      manzanas: [
+        { letra: 'D', casas: 13 },
+        { letra: 'E', casas: 15 },
+        { letra: 'F', casas: 18 },
+        { letra: 'G', casas: 25 },
+        { letra: 'H', casas: 28 },
+      ],
+    });
+
+    seedBarrio({
+      nombre: 'Barrio 50 Viviendas',
+      aliases: ['50 viviendas', 'b 50 viviendas', 'barrio 50'],
+      notas:
+        'Plano preliminar sector Santa Fe / Alberdi. Pendiente confirmar si comparte hojas con 69 Viviendas.',
+      manzanas: [
+        { letra: 'A', casas: 24 },
+        { letra: 'B', casas: 20 },
+        { letra: 'C', casas: 8 },
+      ],
+    });
+
+    seedBarrio({
+      nombre: 'Barrio 34 Viviendas',
+      aliases: ['34 viviendas', 'b 34 viviendas', 'barrio 34'],
+      notas: 'Plano preliminar sector Santa Fe. Pendiente confirmar manzanas finales.',
+      manzanas: [
+        { letra: 'I', casas: 12 },
+        { letra: 'J', casas: 20 },
+      ],
+    });
+
+    seedBarrio({
+      nombre: 'Barrio Mutual',
+      aliases: ['mutual', 'b mutual', 'barrio mutual'],
+      notas:
+        'Plano preliminar: avenida central, Ruta 325, plaza y manzanas A-E. Sin numeracion completa en imagen.',
+      manzanas: [
+        { letra: 'A', casas: 0 },
+        { letra: 'B', casas: 0 },
+        { letra: 'C', casas: 0 },
+        { letra: 'D', casas: 0 },
+        { letra: 'E', casas: 0 },
+      ],
+    });
+
+    seedBarrio({
+      nombre: 'Barrio 48 Viviendas',
+      aliases: ['48 viviendas', 'b 48 viviendas', 'barrio 48'],
+      notas:
+        'Plano general compartido, sector calles 4/6/8/10/12. Pendiente cargar manzanas exactas.',
+      manzanas: [
+        { letra: 'MZA 1', casas: 0 },
+        { letra: 'MZA 2A', casas: 0 },
+        { letra: 'MZA 2B', casas: 0 },
+      ],
+    });
+
+    seedBarrio({
+      nombre: 'Barrio 105 Viviendas',
+      aliases: ['105 viviendas', 'b 105 viviendas', 'barrio 105'],
+      notas: 'Plano general compartido. Pendiente cargar manzanas exactas.',
+      manzanas: [],
+    });
+  } catch (e) {
+    logger.error('Error al sembrar direcciones estructuradas', { message: e.message });
+  }
   // ============================================
   // BACKFILLS
   // ============================================
@@ -533,11 +830,14 @@ function runMigrations(db) {
       zonas.length > 0 &&
       zonas.every((item) => oldIds.includes(String(item.id || '')))
     ) {
+      // Modo Sabor reparte gratis en todo Monteros: las tres zonas van en 0.
+      // Antes 'cerca' y 'extendida' se escribian con 1500 y 2500.
       const defaultZonas = JSON.stringify([
         {
           id: 'monteros',
           nombre: 'Monteros',
           keywords: ['monteros', 'centro', 'casco centrico', 'las piedras'],
+          catchAll: true,
           costo_envio: 0,
           tiempo_estimado_min: 25,
           activa: true,
@@ -546,7 +846,7 @@ function runMigrations(db) {
           id: 'cerca',
           nombre: 'Fuera de Monteros - cerca',
           keywords: ['santa lucia', 'santalucia', 'villa quinteros'],
-          costo_envio: 1500,
+          costo_envio: 0,
           tiempo_estimado_min: 40,
           activa: true,
         },
@@ -554,7 +854,7 @@ function runMigrations(db) {
           id: 'extendida',
           nombre: 'Fuera de Monteros - extendida',
           keywords: ['ruta', 'km', 'afuera', 'rio seco', 'famailla', 'concepcion'],
-          costo_envio: 2500,
+          costo_envio: 0,
           tiempo_estimado_min: 55,
           activa: true,
         },

@@ -1,56 +1,89 @@
-import { Briefcase, Clock, Star, Bike, Pencil, Trash2 } from 'lucide-react';
-import { AvatarDisplay } from './components.jsx';
+import { Bike, Star, Trash2, Pencil, Wallet } from 'lucide-react';
 
-export function ProfileCard({ detail, selectedPerson, onEditar, onLiquidar, onEliminar }) {
+import { BRAND, STROKE } from '../../lib/theme.js';
+import { AvatarDisplay, Pill } from './components.jsx';
+import { fmt, rolLabel, turnoLabel } from './constants.js';
+
+export function ProfileCard({ detail, onEditar, onLiquidar, onEliminar }) {
+  const item = detail.item;
+  const debe = Number(item.pendiente_total || 0) > 0;
+
   return (
-    <div className="flex flex-col sm:flex-row justify-between items-center sm:items-end -mt-10 gap-6">
-      <div className="flex flex-col sm:flex-row items-center sm:items-end gap-6">
-        <div className="h-28 w-28 rounded-full border-4 border-white bg-gray-100 shadow-lg overflow-hidden shrink-0">
+    <div className="-mt-10 flex flex-col items-center justify-between gap-5 sm:flex-row sm:items-end">
+      <div className="flex flex-col items-center gap-4 sm:flex-row sm:items-end">
+        <div className="shrink-0 rounded-full border-4 border-white shadow-sm">
           <AvatarDisplay
-            url={detail.item.avatar_url}
-            nombre={detail.item.nombre}
-            size="w-full h-full"
+            url={item.avatar_url}
+            seed={item.id}
+            nombre={item.nombre}
+            size="h-24 w-24"
           />
         </div>
-        <div className="text-center sm:text-left pb-1">
-          <h2 className="text-2xl font-bold text-gray-900 leading-tight">{detail.item.nombre}</h2>
-          <div className="flex flex-wrap items-center justify-center sm:justify-start gap-4 mt-1">
-            <span className="flex items-center gap-1.5 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-              <Briefcase size={14} className="text-primary-500" /> {detail.item.rol_operativo}
+
+        <div className="pb-1 text-center sm:text-left">
+          <div className="flex items-center justify-center gap-2 sm:justify-start">
+            <h2 className="text-xl font-semibold leading-tight tracking-tight text-gray-900">
+              {item.nombre}
+            </h2>
+            {/* Una baja no se distinguía en ningún lado de la ficha: podías
+                estar liquidándole un sueldo a alguien que ya no trabaja. */}
+            {!item.activo ? <Pill label="Dado de baja" bg="#F1F5F9" fg="#475569" /> : null}
+          </div>
+
+          <div className="mt-1.5 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[12px] text-gray-500 sm:justify-start">
+            {/* Se mostraban los valores crudos de la base: "cocina", "manana". */}
+            <span>{rolLabel(item.rol_operativo)}</span>
+            <span className="text-gray-300">·</span>
+            <span>{turnoLabel(item.turno_preferido)}</span>
+            <span className="text-gray-300">·</span>
+            <span className="inline-flex items-center gap-1">
+              <Star size={12} strokeWidth={STROKE} className="text-amber-500" />
+              {item.puntos_reconocimiento || 0} pts
             </span>
-            <span className="flex items-center gap-1.5 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-              <Clock size={14} className="text-warning-500" /> {detail.item.turno_preferido}
-            </span>
-            <span className="flex items-center gap-1.5 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-              <Star size={14} className="text-amber-400" /> {detail.item.puntos_reconocimiento} pts
-            </span>
-            {detail.item.rol_operativo === 'delivery' ? (
-              <span className="flex items-center gap-1.5 text-xs font-semibold text-success-600 uppercase tracking-wider">
-                <Bike size={14} className="text-emerald-500" /> Rider sincronizado
-              </span>
+            {item.rol_operativo === 'delivery' ? (
+              <>
+                <span className="text-gray-300">·</span>
+                <span className="inline-flex items-center gap-1 text-emerald-700">
+                  <Bike size={12} strokeWidth={STROKE} />
+                  Rider sincronizado
+                </span>
+              </>
             ) : null}
           </div>
+
+          {debe ? (
+            <p className="mt-1.5 text-[12px] font-medium" style={{ color: BRAND }}>
+              Debe {fmt(item.pendiente_total)} sin liquidar
+            </p>
+          ) : null}
         </div>
       </div>
-      <div className="flex gap-2 pb-1">
+
+      <div className="flex shrink-0 gap-2 pb-1">
         <button
-          onClick={() => onEditar(detail.item)}
-          className="h-10 px-4 rounded-lg bg-gray-50 text-gray-700 text-xs font-bold hover:bg-gray-100 transition-all"
+          type="button"
+          onClick={() => onEditar(item)}
+          className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-gray-100 px-3.5 text-[13px] font-semibold text-gray-700 transition hover:bg-gray-200"
         >
-          Editar Perfil
+          <Pencil size={14} strokeWidth={STROKE} />
+          Editar
         </button>
         <button
+          type="button"
           onClick={onLiquidar}
-          className="h-10 px-4 rounded-lg bg-primary-500 text-white text-xs font-bold shadow-lg shadow-[#5D87FF]/20 hover:bg-primary-600 transition-all"
+          style={{ background: BRAND }}
+          className="inline-flex h-10 items-center gap-1.5 rounded-xl px-3.5 text-[13px] font-semibold text-white transition hover:brightness-110"
         >
-          Liquidar Pago
+          <Wallet size={14} strokeWidth={STROKE} />
+          Liquidar
         </button>
         <button
-          onClick={() => onEliminar(detail.item)}
-          className="flex h-10 w-10 items-center justify-center rounded-lg border border-rose-100 bg-danger-50 text-rose-500 hover:bg-danger-100 transition-all"
-          title="Eliminar personal"
+          type="button"
+          onClick={() => onEliminar(item)}
+          title="Eliminar del sistema"
+          className="flex h-10 w-10 items-center justify-center rounded-xl bg-gray-100 text-gray-500 transition hover:bg-rose-50 hover:text-rose-600"
         >
-          <Trash2 size={16} />
+          <Trash2 size={15} strokeWidth={STROKE} />
         </button>
       </div>
     </div>

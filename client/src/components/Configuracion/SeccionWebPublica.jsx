@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
-import { Eye, ImagePlus, Megaphone, MonitorSmartphone, Plus, Trash2 } from 'lucide-react';
+import { Eye, ImagePlus, Megaphone, Plus, Trash2 } from 'lucide-react';
 
 import api from '../../lib/api.js';
+import { resolveAssetUrl } from '../../lib/assets.js';
 
 import {
   SectionCard,
@@ -151,12 +152,59 @@ function FileButton({ label, onUploaded }) {
         type="button"
         onClick={() => inputRef.current?.click()}
         disabled={uploading}
-        className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-rose-600 px-4 text-sm font-bold text-white transition hover:bg-rose-700 disabled:opacity-50"
+        className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-gray-900 px-4 text-[12px] font-semibold text-white transition hover:bg-gray-800 disabled:opacity-50"
       >
-        <ImagePlus size={16} />
-        {uploading ? 'Subiendo...' : label}
+        <ImagePlus size={14} strokeWidth={1.9} />
+        {uploading ? 'Subiendo…' : label}
       </button>
     </>
+  );
+}
+
+/**
+ * Campo de imagen con vista previa.
+ *
+ * Antes cada imagen de esta pantalla —hero, popup y cada promo— tenía un
+ * campo de texto para pegar la ruta y, aparte, un botón para subirla. Dos
+ * formas de hacer lo mismo, sin ver nunca el resultado. Ahora se sube y se
+ * ve; la ruta queda como dato secundario.
+ *
+ * La vista previa pasa por `resolveAssetUrl` porque las rutas se guardan
+ * relativas (`/uploads/promo.jpg`) y la API vive en otro dominio: sin eso,
+ * la imagen no cargaba nunca en el panel.
+ */
+function ImagenField({ label, value, onChange, hint }) {
+  const url = value ? resolveAssetUrl(value) : null;
+
+  return (
+    <div>
+      <p className="mb-1 text-[13px] font-medium text-gray-700">{label}</p>
+      <div className="flex items-center gap-3 rounded-xl bg-gray-50 p-3">
+        <div className="flex h-16 w-24 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-white">
+          {url ? (
+            <img src={url} alt="" className="h-full w-full object-cover" />
+          ) : (
+            <ImagePlus size={18} strokeWidth={1.6} className="text-gray-300" />
+          )}
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[12px] text-gray-500">{value || 'Sin imagen'}</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <FileButton label={value ? 'Cambiar' : 'Subir imagen'} onUploaded={onChange} />
+            {value ? (
+              <button
+                type="button"
+                onClick={() => onChange('')}
+                className="inline-flex h-10 items-center rounded-xl px-3 text-[12px] font-semibold text-gray-500 transition hover:bg-white hover:text-gray-800"
+              >
+                Quitar
+              </button>
+            ) : null}
+          </div>
+          {hint ? <p className="mt-1.5 text-[11px] text-gray-400">{hint}</p> : null}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -246,30 +294,25 @@ export default function SeccionWebPublica({ config, setConfig }) {
   };
   const removePromo = (index) => setPromos(promos.filter((_, current) => current !== index));
 
-  const previewImage = config.web_hero_imagen || config.negocio_logo || '';
-  const activePromos = promos.filter((promo) => promo.activa);
+  const [promoAbierta, setPromoAbierta] = useState(null);
+
+  // La vista previa pasa por `resolveAssetUrl`: las rutas se guardan
+  // relativas y la API vive en otro dominio, así que sin esto la imagen del
+  // hero nunca cargaba en el panel aunque sí se viera en la web pública.
+  const previewImage = resolveAssetUrl(config.web_hero_imagen || config.negocio_logo || '');
+  const activePromos = promos.filter((promo) => promo.activa && promo.mostrar_banner);
 
   return (
     <div className="mx-auto max-w-7xl p-4 md:p-6 space-y-8">
-      <div className="sticky top-[84px] z-10 mb-8 flex items-center justify-between rounded-[28px] border border-gray-200 bg-white/95 px-5 py-4 shadow-sm backdrop-blur-sm">
-        <div className="flex items-center gap-4">
-          <div className="h-12 w-12 rounded-2xl bg-danger-100 flex items-center justify-center">
-            <MonitorSmartphone className="text-danger-600" size={24} />
-          </div>
-          <div>
-            <h2 className="text-xl font-bold text-gray-900">Web pública</h2>
-            <p className="text-sm text-gray-500">
-              Vidriera, promos, popup y destacados del menu online.
-            </p>
-          </div>
-        </div>
+      {/* El título de la sección lo muestra el módulo arriba de las pestañas. */}
+      <div className="flex justify-end">
         <a
           href="/"
           target="_blank"
           rel="noreferrer"
-          className="hidden items-center gap-2 rounded-xl bg-rose-600 px-4 py-2.5 text-sm font-bold text-white shadow-lg shadow-danger-100 md:inline-flex"
+          className="inline-flex h-10 items-center gap-2 rounded-xl bg-gray-100 px-4 text-[13px] font-semibold text-gray-600 transition hover:bg-gray-200"
         >
-          <Eye size={16} />
+          <Eye size={15} strokeWidth={1.9} />
           Ver como cliente
         </a>
       </div>
@@ -282,12 +325,12 @@ export default function SeccionWebPublica({ config, setConfig }) {
       >
         <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
           <InputField
-            label="Titulo"
+            label="Título"
             value={config.web_hero_titulo || ''}
             onChange={(event) => setField('web_hero_titulo', event.target.value)}
           />
           <InputField
-            label="Texto del boton"
+            label="Texto del botón"
             value={config.web_hero_boton_texto || ''}
             onChange={(event) => setField('web_hero_boton_texto', event.target.value)}
           />
@@ -299,18 +342,12 @@ export default function SeccionWebPublica({ config, setConfig }) {
               onChange={(event) => setField('web_hero_subtitulo', event.target.value)}
             />
           </div>
-          <div className="space-y-3">
-            <InputField
-              label="Imagen del hero"
-              value={config.web_hero_imagen || ''}
-              onChange={(event) => setField('web_hero_imagen', event.target.value)}
-              placeholder="/uploads/promo.jpg"
-            />
-            <FileButton
-              label="Subir imagen hero"
-              onUploaded={(url) => setField('web_hero_imagen', url)}
-            />
-          </div>
+          <ImagenField
+            label="Imagen de fondo"
+            value={config.web_hero_imagen || ''}
+            onChange={(url) => setField('web_hero_imagen', url)}
+            hint="Apaisada, al menos 1200 px de ancho."
+          />
           <ActionFields
             prefix="web_hero"
             value={config}
@@ -342,19 +379,19 @@ export default function SeccionWebPublica({ config, setConfig }) {
             onChange={(event) => setField('web_popup_frecuencia_horas', event.target.value)}
           />
           <InputField
-            label="Titulo"
+            label="Título"
             value={config.web_popup_titulo || ''}
             onChange={(event) => setField('web_popup_titulo', event.target.value)}
           />
           <InputField
-            label="Texto del boton"
+            label="Texto del botón"
             value={config.web_popup_boton_texto || ''}
             onChange={(event) => setField('web_popup_boton_texto', event.target.value)}
           />
           <div className="md:col-span-2">
             <TextareaField
               rows={3}
-              label="Descripcion"
+              label="Descripción"
               value={config.web_popup_descripcion || ''}
               onChange={(event) => setField('web_popup_descripcion', event.target.value)}
             />
@@ -371,17 +408,11 @@ export default function SeccionWebPublica({ config, setConfig }) {
             value={toDateTimeLocal(config.web_popup_hasta)}
             onChange={(event) => setField('web_popup_hasta', event.target.value)}
           />
-          <div className="space-y-3">
-            <InputField
-              label="Imagen popup"
-              value={config.web_popup_imagen || ''}
-              onChange={(event) => setField('web_popup_imagen', event.target.value)}
-            />
-            <FileButton
-              label="Subir imagen popup"
-              onUploaded={(url) => setField('web_popup_imagen', url)}
-            />
-          </div>
+          <ImagenField
+            label="Imagen del popup"
+            value={config.web_popup_imagen || ''}
+            onChange={(url) => setField('web_popup_imagen', url)}
+          />
           <ActionFields
             prefix="web_popup"
             value={config}
@@ -423,33 +454,61 @@ export default function SeccionWebPublica({ config, setConfig }) {
             </div>
           ) : (
             promos.map((promo, index) => (
-              <div
-                key={promo.id || index}
-                className="rounded-2xl border border-gray-200 bg-gray-50/70 p-4"
-              >
-                <div className="mb-4 flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-black uppercase tracking-widest text-gray-900">
-                      {promo.titulo || `Promo ${index + 1}`}
-                    </p>
-                    <p className="text-xs text-gray-500">
-                      {promo.activa ? 'Activa' : 'Pausada'} ·{' '}
-                      {promo.mostrar_banner ? 'Banner' : 'Oculta en banner'}
-                    </p>
-                  </div>
+              <div key={promo.id || index} className="rounded-xl bg-gray-50 p-4">
+                {/*
+                  Cada promo despliega diez campos. Con cuatro o cinco cargadas
+                  la pantalla se volvía un scroll interminable, así que sólo se
+                  abre la que se está editando.
+                */}
+                <div className="flex flex-wrap items-center gap-3">
                   <button
                     type="button"
-                    onClick={() => removePromo(index)}
-                    className="h-10 rounded-xl border border-rose-200 bg-white px-3 text-sm font-bold text-danger-600"
+                    onClick={() => setPromoAbierta(promoAbierta === index ? null : index)}
+                    className="flex min-w-0 flex-1 items-center gap-3 text-left"
                   >
-                    <span className="inline-flex items-center gap-2">
-                      <Trash2 size={14} /> Quitar
+                    <span className="min-w-0">
+                      <span className="block truncate text-[14px] font-semibold text-gray-900">
+                        {promo.titulo || `Promo ${index + 1}`}
+                      </span>
+                      <span className="mt-0.5 block text-[12px] text-gray-500">
+                        {promo.activa ? 'Activa' : 'Pausada'}
+                        {promo.precio_texto ? ` · ${promo.precio_texto}` : ''}
+                      </span>
                     </span>
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => updatePromo(index, 'activa', !promo.activa)}
+                    className={`shrink-0 rounded-lg px-2.5 py-1 text-[11px] font-semibold transition ${promo.activa ? 'bg-gray-900 text-white' : 'bg-gray-200 text-gray-500'}`}
+                  >
+                    {promo.activa ? 'Activa' : 'Pausada'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPromoAbierta(promoAbierta === index ? null : index)}
+                    className="shrink-0 rounded-lg px-2.5 py-1 text-[11px] font-semibold text-gray-500 transition hover:bg-white hover:text-gray-800"
+                  >
+                    {promoAbierta === index ? 'Cerrar' : 'Editar'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (window.confirm(`¿Quitar la promo "${promo.titulo || index + 1}"?`)) {
+                        removePromo(index);
+                      }
+                    }}
+                    aria-label="Quitar promo"
+                    className="shrink-0 rounded-lg p-1.5 text-gray-300 transition hover:bg-white hover:text-gray-700"
+                  >
+                    <Trash2 size={15} strokeWidth={1.9} />
+                  </button>
                 </div>
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+
+                <div
+                  className={`grid grid-cols-1 gap-4 md:grid-cols-2 ${promoAbierta === index ? 'mt-4' : 'hidden'}`}
+                >
                   <InputField
-                    label="Titulo"
+                    label="Título"
                     value={promo.titulo}
                     onChange={(event) => updatePromo(index, 'titulo', event.target.value)}
                   />
@@ -472,7 +531,7 @@ export default function SeccionWebPublica({ config, setConfig }) {
                   <div className="md:col-span-2">
                     <TextareaField
                       rows={3}
-                      label="Descripcion"
+                      label="Descripción"
                       value={promo.descripcion}
                       onChange={(event) => updatePromo(index, 'descripcion', event.target.value)}
                     />
@@ -489,31 +548,17 @@ export default function SeccionWebPublica({ config, setConfig }) {
                     value={promo.hasta}
                     onChange={(event) => updatePromo(index, 'hasta', event.target.value)}
                   />
-                  <div className="space-y-3">
-                    <InputField
-                      label="Imagen"
-                      value={promo.imagen}
-                      onChange={(event) => updatePromo(index, 'imagen', event.target.value)}
-                    />
-                    <FileButton
-                      label="Subir imagen promo"
-                      onUploaded={(url) => updatePromo(index, 'imagen', url)}
-                    />
-                  </div>
-                  <div className="grid grid-cols-1 gap-3">
-                    <ToggleSwitch
-                      label="Activa"
-                      checked={promo.activa}
-                      onChange={(checked) => updatePromo(index, 'activa', checked)}
-                      color="emerald"
-                    />
-                    <ToggleSwitch
-                      label="Mostrar en banner"
-                      checked={promo.mostrar_banner}
-                      onChange={(checked) => updatePromo(index, 'mostrar_banner', checked)}
-                      color="rose"
-                    />
-                  </div>
+                  <ImagenField
+                    label="Imagen"
+                    value={promo.imagen}
+                    onChange={(url) => updatePromo(index, 'imagen', url)}
+                  />
+                  <ToggleSwitch
+                    label="Mostrar en el banner de la vidriera"
+                    description="Si lo apagás, la promo existe pero no se ve en la portada."
+                    checked={promo.mostrar_banner}
+                    onChange={(checked) => updatePromo(index, 'mostrar_banner', checked)}
+                  />
                   <ActionFields
                     value={promo}
                     onChange={(key, value) => updatePromo(index, key, value)}

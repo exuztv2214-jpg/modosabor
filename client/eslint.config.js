@@ -7,7 +7,17 @@ import jsxA11y from 'eslint-plugin-jsx-a11y';
 import importPlugin from 'eslint-plugin-import';
 
 export default [
-  { ignores: ['dist', 'node_modules'] },
+  {
+    ignores: [
+      'dist',
+      'node_modules',
+      'android/app/build/**',
+      'android/app/src/main/assets/**',
+      'ios/App/App/public/**',
+      'android/.gradle/**',
+      'android/build/**',
+    ],
+  },
   {
     files: ['**/*.{js,jsx}'],
     languageOptions: {

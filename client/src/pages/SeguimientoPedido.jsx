@@ -168,9 +168,24 @@ export default function SeguimientoPedido() {
   useEffect(() => {
     let mounted = true;
 
-    const load = async () => {
+    /*
+      `load` corre cada 15 segundos por el setInterval de más abajo.
+
+      Antes hacía `setLoading(true)` en cada corrida: el cliente que estaba
+      mirando el seguimiento veía la pantalla entera reemplazada por
+      "Cargando seguimiento..." cada 15 segundos, y el mapa en vivo se
+      desmontaba y volvía a montar cada vez (perdiendo zoom y encuadre).
+      El spinner ahora es sólo para la carga inicial: `esRefresco` distingue
+      una cosa de la otra.
+
+      Lo mismo con el error: una falla puntual de red en un refresco tiraba
+      abajo el pedido ya cargado y mostraba "No encontramos ese pedido",
+      cuando en realidad estaba todo bien. Ahora un refresco fallido se
+      ignora en silencio y se reintenta en la vuelta siguiente.
+    */
+    const load = async ({ esRefresco = false } = {}) => {
       try {
-        if (mounted) setLoading(true);
+        if (mounted && !esRefresco) setLoading(true);
 
         const pedidoUrl = token
           ? `/pedidos/${id}?token=${encodeURIComponent(token)}`
@@ -187,14 +202,15 @@ export default function SeguimientoPedido() {
         setError('');
       } catch (err) {
         if (!mounted) return;
+        if (esRefresco) return;
         setError('No encontramos ese pedido. Verifica el link o escribinos por WhatsApp.');
       } finally {
-        if (mounted) setLoading(false);
+        if (mounted && !esRefresco) setLoading(false);
       }
     };
 
     load();
-    const interval = setInterval(load, 15000);
+    const interval = setInterval(() => load({ esRefresco: true }), 15000);
 
     const cleanupSockets = [];
 
@@ -362,9 +378,7 @@ export default function SeguimientoPedido() {
       <div className="mx-auto max-w-5xl">
         <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="text-xs font-bold uppercase tracking-[0.22em] text-indigo-600">
-              Seguimiento en vivo
-            </p>
+            <p className="text-xs font-bold text-indigo-600">Seguimiento en vivo</p>
             <h1 className="mt-2 text-3xl font-bold text-gray-900">Tu pedido</h1>
             <p className="mt-2 text-sm text-gray-500">
               Revisa el estado del pedido y el avance de la entrega.
@@ -389,7 +403,7 @@ export default function SeguimientoPedido() {
             )}
             <Link
               to="/"
-              className="inline-flex items-center gap-2 rounded-xl bg-primary-500 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-600"
+              className="inline-flex items-center gap-2 rounded-xl bg-brand-500 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-600"
             >
               Volver al menu
             </Link>
@@ -402,7 +416,7 @@ export default function SeguimientoPedido() {
           </div>
         ) : error ? (
           <div className={`${cardClass} p-10 text-center`}>
-            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-danger-50 text-danger-600">
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-rose-50 text-rose-600">
               <XCircle size={28} />
             </div>
             <h2 className="mt-4 text-xl font-bold text-gray-900">No pudimos abrir el pedido</h2>
@@ -414,9 +428,7 @@ export default function SeguimientoPedido() {
               <div className="border-b border-gray-200 bg-gradient-to-r from-orange-50 to-white px-6 py-6">
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                   <div>
-                    <p className="text-xs font-bold uppercase tracking-[0.18em] text-orange-600">
-                      Pedido #{pedido.numero}
-                    </p>
+                    <p className="text-xs font-bold text-orange-600">Pedido #{pedido.numero}</p>
                     <h2 className="mt-2 text-2xl font-bold text-gray-900">
                       {tipoEntregaLabel(pedido.tipo_entrega)}
                     </h2>
@@ -425,9 +437,9 @@ export default function SeguimientoPedido() {
                   <div
                     className={`rounded-full px-4 py-2 text-sm font-bold ${
                       pedido.estado === 'cancelado'
-                        ? 'bg-danger-100 text-danger-700'
+                        ? 'bg-rose-100 text-rose-700'
                         : pedido.estado === 'entregado'
-                          ? 'bg-success-100 text-success-700'
+                          ? 'bg-emerald-100 text-emerald-700'
                           : 'bg-orange-100 text-orange-700'
                     }`}
                   >
@@ -454,7 +466,7 @@ export default function SeguimientoPedido() {
                     </p>
                   ) : null}
                   {pedido.tipo_entrega === 'delivery' && pedido.ubicacion_repartidor_atrasada ? (
-                    <p className="mt-1 text-xs font-semibold text-warning-700">
+                    <p className="mt-1 text-xs font-semibold text-amber-700">
                       La ultima ubicacion del repartidor ya tiene varios minutos; el ETA puede
                       variar.
                     </p>
@@ -465,7 +477,7 @@ export default function SeguimientoPedido() {
                     </p>
                   ) : null}
                   <div className="mt-4">
-                    <div className="flex items-center justify-between text-xs font-bold uppercase tracking-[0.16em] text-gray-400">
+                    <div className="flex items-center justify-between text-xs font-bold text-gray-400">
                       <span>Progreso</span>
                       <span>{progressPercent}%</span>
                     </div>
@@ -480,17 +492,15 @@ export default function SeguimientoPedido() {
 
                 {/* Mapa de tracking en tiempo real */}
                 {pedido.repartidor?.latitud && pedido.repartidor?.longitud ? (
-                  <div className="mb-6 overflow-hidden rounded-2xl border border-primary-100 bg-white shadow-sm">
-                    <div className="flex items-center justify-between border-b border-primary-100 bg-primary-50 px-5 py-4">
+                  <div className="mb-6 overflow-hidden rounded-2xl border border-brand-100 bg-white shadow-sm">
+                    <div className="flex items-center justify-between border-b border-brand-100 bg-brand-50 px-5 py-4">
                       <div>
-                        <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-primary-600">
-                          Tracking live
-                        </p>
+                        <p className="text-[10px] font-bold text-brand-600">Tracking live</p>
                         <h3 className="mt-1 text-lg font-bold text-gray-900">
                           Tu delivery en vivo
                         </h3>
                       </div>
-                      <div className="rounded-full bg-white px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-blue-700">
+                      <div className="rounded-full bg-white px-3 py-1 text-[10px] font-bold text-brand-700">
                         {riderGpsStale ? 'Última señal' : 'En movimiento'}
                       </div>
                     </div>
@@ -514,7 +524,7 @@ export default function SeguimientoPedido() {
                       />
                     </div>
                     {riderGpsAgeMinutes !== null ? (
-                      <div className="border-t border-primary-100 bg-white px-5 py-3 text-xs font-semibold text-gray-500">
+                      <div className="border-t border-brand-100 bg-white px-5 py-3 text-xs font-semibold text-gray-500">
                         {riderGpsStale
                           ? `La última ubicación del rider se actualizó hace ${riderGpsAgeMinutes} min.`
                           : 'Ubicación del rider actualizada recientemente.'}
@@ -560,11 +570,11 @@ export default function SeguimientoPedido() {
                               <p className="mt-1 text-sm text-gray-500">{estado.hint}</p>
                             </div>
                             {current ? (
-                              <span className="rounded-full bg-primary-500 px-3 py-1 text-xs font-bold text-white shadow-sm">
+                              <span className="rounded-full bg-brand-500 px-3 py-1 text-xs font-bold text-white shadow-sm">
                                 Actual
                               </span>
                             ) : active ? (
-                              <span className="rounded-full bg-success-100 px-3 py-1 text-xs font-bold text-success-700">
+                              <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-700">
                                 Hecho
                               </span>
                             ) : (
@@ -578,7 +588,7 @@ export default function SeguimientoPedido() {
                 </div>
 
                 {pedido.estado === 'cancelado' ? (
-                  <div className="mt-6 rounded-xl border border-rose-200 bg-danger-50 px-4 py-4 text-sm text-danger-700">
+                  <div className="mt-6 rounded-xl border border-rose-200 bg-rose-50 px-4 py-4 text-sm text-rose-700">
                     El pedido fue cancelado. Si necesitas ayuda, escribinos y lo revisamos juntos.
                   </div>
                 ) : null}
@@ -624,10 +634,8 @@ export default function SeguimientoPedido() {
                     </div>
                   ) : null}
                   {pedido.tipo_entrega === 'delivery' && pedido.entrega_pin ? (
-                    <div className="rounded-xl border border-amber-200 bg-warning-50 px-4 py-3">
-                      <p className="text-xs font-bold uppercase tracking-[0.16em] text-warning-700">
-                        Codigo de entrega
-                      </p>
+                    <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+                      <p className="text-xs font-bold text-amber-700">Codigo de entrega</p>
                       <p className="mt-1 text-2xl font-bold tracking-[0.2em] text-gray-900">
                         {pedido.entrega_pin}
                       </p>
@@ -637,10 +645,8 @@ export default function SeguimientoPedido() {
                     </div>
                   ) : null}
                   {pedido.estado === 'entregado' && pedido.entrega_foto ? (
-                    <div className="rounded-xl border border-emerald-200 bg-success-50 px-4 py-3">
-                      <p className="text-xs font-bold uppercase tracking-[0.16em] text-success-700">
-                        Entrega validada
-                      </p>
+                    <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+                      <p className="text-xs font-bold text-emerald-700">Entrega validada</p>
                       <p className="mt-1 text-sm text-emerald-900">
                         La entrega quedo registrada con comprobante de rider.
                       </p>
@@ -704,10 +710,8 @@ export default function SeguimientoPedido() {
                   ) : null}
                 </div>
                 {pedido.repartidor ? (
-                  <div className="mt-5 rounded-xl border border-primary-100 bg-primary-50 px-4 py-4">
-                    <p className="text-xs font-bold uppercase tracking-[0.18em] text-blue-700">
-                      Delivery
-                    </p>
+                  <div className="mt-5 rounded-xl border border-brand-100 bg-brand-50 px-4 py-4">
+                    <p className="text-xs font-bold text-brand-700">Delivery</p>
                     <p className="mt-2 font-bold text-gray-900">{pedido.repartidor.nombre}</p>
                     {pedido.repartidor.telefono ? (
                       <p className="mt-1 text-sm text-gray-600">
@@ -720,7 +724,7 @@ export default function SeguimientoPedido() {
                       </p>
                     ) : null}
                     {pedido.entrega_pin ? (
-                      <p className="mt-2 text-sm font-semibold text-blue-900">
+                      <p className="mt-2 text-sm font-semibold text-brand-900">
                         PIN de validacion: {pedido.entrega_pin}
                       </p>
                     ) : null}

@@ -4,7 +4,12 @@ import { X, Phone, Navigation, MapPin, ChevronUp, AlertCircle } from 'lucide-rea
 
 import RiderRouteMap from '../RiderRouteMap.jsx';
 import { useWakeLock } from '../../lib/useWakeLock.js';
-import { fmtDistancia, etaMinutos, distanciaMetros } from '../../lib/riderUx.js';
+import {
+  fmtDistancia,
+  etaMinutos,
+  distanciaMetros,
+  tieneUbicacionUsable,
+} from '../../lib/riderUx.js';
 import { haptic } from '../../lib/riderHaptics.js';
 
 const fmtPesos = (n) => `$${Number(n || 0).toLocaleString('es-AR')}`;
@@ -49,7 +54,11 @@ export default function ModoEnRuta({
 
   if (!pedido) return null;
 
-  const dist = distanciaMetros(riderLat, riderLng, pedido.cliente_latitud, pedido.cliente_longitud);
+  // Sin punto GPS real no hay distancia posible. El (0,0) que llega
+  // cuando el cliente no comparte ubicacion daba miles de km.
+  const dist = tieneUbicacionUsable(pedido)
+    ? distanciaMetros(riderLat, riderLng, pedido.cliente_latitud, pedido.cliente_longitud)
+    : null;
   const eta = dist !== null ? etaMinutos(dist) : null;
   const cerca = dist !== null && dist < 150;
 
@@ -76,10 +85,8 @@ export default function ModoEnRuta({
               <X size={18} strokeWidth={3} />
             </button>
             <div className="min-w-0 flex-1">
-              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-white/50">
-                Pedido #{pedido.numero}
-              </p>
-              <p className="truncate text-sm font-black text-white">
+              <p className="text-[12px] font-medium text-white/50">Pedido #{pedido.numero}</p>
+              <p className="truncate text-sm font-bold text-white">
                 {pedido.cliente_nombre || 'Sin nombre'}
               </p>
             </div>
@@ -89,10 +96,10 @@ export default function ModoEnRuta({
                   cerca ? 'bg-emerald-500' : 'bg-white/10'
                 }`}
               >
-                <p className="text-sm font-black leading-none text-white tabular-nums">
+                <p className="text-sm font-bold leading-none text-white tabular-nums">
                   {fmtDistancia(dist)}
                 </p>
-                <p className="mt-0.5 text-[9px] font-black uppercase tracking-widest text-white/70">
+                <p className="mt-0.5 text-[12px] font-medium text-white/70">
                   {cerca ? '¡Llegando!' : `${eta} min`}
                 </p>
               </div>
@@ -107,6 +114,8 @@ export default function ModoEnRuta({
               clientLat={pedido.cliente_latitud}
               clientLng={pedido.cliente_longitud}
               clientLocationExact={Boolean(pedido.cliente_ubicacion_exacta)}
+              clientGeocoded={Boolean(pedido.cliente_geocodificado)}
+              geocodingPrecision={pedido.cliente_geocoding_precision}
               clientAddress={pedido.cliente_direccion}
               onNavigate={() => onNavegarExterno?.(pedido)}
               mapConfig={mapConfig}
@@ -122,7 +131,7 @@ export default function ModoEnRuta({
               className="flex w-full flex-col items-center gap-1 px-5 pb-1 pt-3"
             >
               <span className="h-1 w-10 rounded-full bg-gray-300" />
-              <span className="flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-gray-400">
+              <span className="flex items-center gap-1 text-[12px] font-medium text-gray-400">
                 <ChevronUp
                   size={12}
                   strokeWidth={3}
@@ -149,10 +158,8 @@ export default function ModoEnRuta({
                     </div>
 
                     <div className="flex items-center justify-between rounded-2xl bg-gray-50 px-4 py-3">
-                      <span className="text-[10px] font-black uppercase tracking-widest text-gray-500">
-                        A cobrar
-                      </span>
-                      <span className="text-xl font-black tabular-nums text-gray-900">
+                      <span className="text-[12px] font-medium text-gray-500">A cobrar</span>
+                      <span className="text-xl font-bold tabular-nums text-gray-900">
                         {fmtPesos(pedido.total)}
                       </span>
                     </div>
@@ -162,24 +169,27 @@ export default function ModoEnRuta({
                         <a
                           href={`tel:${pedido.cliente_telefono}`}
                           onClick={() => haptic('tap')}
-                          className="flex h-11 items-center justify-center gap-1.5 rounded-xl bg-success-50 text-[10px] font-black uppercase tracking-widest text-success-700"
+                          className="flex h-11 items-center justify-center gap-1.5 rounded-xl bg-emerald-50 text-[13px] font-semibold text-emerald-700"
                         >
-                          <Phone size={13} /> Llamar
+                          <Phone size={14} /> Llamar
                         </a>
                       )}
+                      {/* Estos tres botones se usan manejando. El texto pasó de
+                          10px con tracking ancho a 13px normal: a 10px en un
+                          celular en la mano no se lee. */}
                       <button
                         type="button"
                         onClick={() => onNavegarExterno?.(pedido)}
-                        className="flex h-11 items-center justify-center gap-1.5 rounded-xl bg-primary-50 text-[10px] font-black uppercase tracking-widest text-primary-600"
+                        className="flex h-11 items-center justify-center gap-1.5 rounded-xl bg-gray-100 text-[13px] font-semibold text-gray-700"
                       >
-                        <Navigation size={13} /> Maps
+                        <Navigation size={14} /> Maps
                       </button>
                       <button
                         type="button"
                         onClick={() => onIncidencia?.(pedido)}
-                        className="flex h-11 items-center justify-center gap-1.5 rounded-xl bg-warning-50 text-[10px] font-black uppercase tracking-widest text-warning-700"
+                        className="flex h-11 items-center justify-center gap-1.5 rounded-xl bg-amber-50 text-[13px] font-semibold text-amber-700"
                       >
-                        <AlertCircle size={13} /> Problema
+                        <AlertCircle size={14} /> Problema
                       </button>
                     </div>
                   </div>
@@ -195,7 +205,7 @@ export default function ModoEnRuta({
                   haptic('success');
                   onEntregar?.(pedido);
                 }}
-                className={`flex h-16 w-full items-center justify-center rounded-2xl text-base font-black uppercase tracking-widest text-white shadow-lg transition active:scale-[0.98] ${
+                className={`flex h-16 w-full items-center justify-center rounded-2xl text-[17px] font-bold text-white shadow-lg transition active:scale-[0.98] ${
                   cerca ? 'bg-emerald-500 shadow-emerald-200' : 'bg-gray-900'
                 }`}
               >

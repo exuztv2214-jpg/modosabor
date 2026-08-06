@@ -11,12 +11,18 @@ import {
   runOrderAlert,
   useOrderAlertPlayback,
 } from '../lib/orderAlerts.js';
+import { msDesde } from '../lib/fechas.js';
 
 function wasCreatedRecently(value) {
-  if (!value) return false;
-  const timestamp = new Date(value).getTime();
-  if (!Number.isFinite(timestamp)) return false;
-  return Math.abs(Date.now() - timestamp) <= 2 * 60 * 1000;
+  /*
+    `new Date(value)` sobre el string crudo de SQLite leía la fecha UTC como
+    local: en Tucumán quedaba 3 horas adelantada y el `Math.abs(...) <= 2min`
+    nunca se cumplía. O sea que **la alerta sonora de pedido nuevo no sonaba
+    nunca**. Ver lib/fechas.js.
+  */
+  const edad = msDesde(value);
+  if (edad === null) return false;
+  return edad <= 2 * 60 * 1000;
 }
 
 export default function GlobalOrderAlerts() {

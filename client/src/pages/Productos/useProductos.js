@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import api from '../../lib/api.js';
+import { resolveAssetUrl } from '../../lib/assets.js';
 import {
   EMPTY_FORM,
   codeFor,
@@ -63,29 +64,40 @@ export default function useProductos() {
   const productosUi = useMemo(() => {
     return productos.map((producto, index) => {
       const categoriaInfo = categoriasMap.get(producto.categoria_id);
+      // El stock de un producto por receta lo calcula el inventario a partir
+      // de los insumos, así que compararlo contra un mínimo de unidades no
+      // significa nada: todos daban "stock bajo" para siempre, incluso los
+      // que tenían insumos de sobra.
+      const porReceta = producto.stock_mode === 'recipe';
+      const variantGroups = parseJsonList(producto.variantes);
       return {
         ...producto,
         codigo: codeFor(producto.id, index),
         categoriaInfo,
-        variantGroups: parseJsonList(producto.variantes),
+        porReceta,
+        stockBajo: !porReceta && Number(producto.stock || 0) < 10,
+        variantGroups,
         extrasList: parseJsonList(producto.extras),
+        // Se calculaba dentro de cada tarjeta, o sea en cada render de cada
+        // uno de los productos de la lista. Acá se hace una vez.
+        priceOptions: getPricingOptionTotals(categoriaInfo?.nombre, producto.precio, variantGroups),
       };
     });
   }, [productos, categoriasMap]);
 
   const filtered = useMemo(() => {
     const term = busqueda.trim().toLowerCase();
+    // `producto.nombre.toLowerCase()` sin guarda tiraba abajo la pantalla
+    // entera si algún producto quedaba con el nombre nulo.
+    const texto = (valor) => String(valor ?? '').toLowerCase();
+
     const list = productosUi.filter((producto) => {
       const matchesSearch =
         !term ||
-        producto.nombre.toLowerCase().includes(term) ||
-        producto.codigo.toLowerCase().includes(term) ||
-        String(producto.descripcion || '')
-          .toLowerCase()
-          .includes(term) ||
-        String(producto.categoriaInfo?.nombre || '')
-          .toLowerCase()
-          .includes(term);
+        texto(producto.nombre).includes(term) ||
+        texto(producto.codigo).includes(term) ||
+        texto(producto.descripcion).includes(term) ||
+        texto(producto.categoriaInfo?.nombre).includes(term);
 
       const matchesCategory =
         filtroCategoria === 'todas' || String(producto.categoria_id || '') === filtroCategoria;
@@ -97,21 +109,30 @@ export default function useProductos() {
       return matchesSearch && matchesCategory && matchesState;
     });
 
+    const porNombre = (a, b) => String(a.nombre || '').localeCompare(String(b.nombre || ''), 'es');
+
     if (sortBy === 'precio')
       return [...list].sort((a, b) => Number(b.precio || 0) - Number(a.precio || 0));
     if (sortBy === 'stock')
       return [...list].sort((a, b) => Number(a.stock || 0) - Number(b.stock || 0));
     if (sortBy === 'categoria')
-      return [...list].sort((a, b) =>
-        String(a.categoriaInfo?.nombre || '').localeCompare(String(b.categoriaInfo?.nombre || ''))
+      return [...list].sort(
+        (a, b) =>
+          String(a.categoriaInfo?.nombre || '').localeCompare(
+            String(b.categoriaInfo?.nombre || ''),
+            'es'
+          ) || porNombre(a, b)
       );
-    return [...list].sort((a, b) => a.nombre.localeCompare(b.nombre));
+    return [...list].sort(porNombre);
   }, [busqueda, filtroCategoria, filtroEstado, sortBy, productosUi]);
 
   const stats = useMemo(() => {
     const activos = productosUi.filter((producto) => Number(producto.activo) === 1).length;
     const destacados = productosUi.filter((producto) => Number(producto.destacado) === 1).length;
-    const stockBajo = productosUi.filter((producto) => Number(producto.stock || 0) < 10).length;
+    const stockBajo = productosUi.filter((producto) => producto.stockBajo).length;
+    // Los productos sin costo cargado entraban como 0 y hundían el valor del
+    // inventario sin avisar. Ahora se cuentan aparte para poder decirlo.
+    const sinCosto = productosUi.filter((producto) => Number(producto.costo || 0) <= 0).length;
     const inventario = productosUi.reduce(
       (acc, producto) => acc + Number(producto.costo || 0) * Number(producto.stock || 0),
       0
@@ -120,8 +141,10 @@ export default function useProductos() {
     return {
       total: productosUi.length,
       activos,
+      inactivos: productosUi.length - activos,
       destacados,
       stockBajo,
+      sinCosto,
       inventario,
     };
   }, [productosUi]);
@@ -185,7 +208,9 @@ export default function useProductos() {
     setVariantesEditor(normalizedPricing.groups);
     setExtrasEditor(parseJsonList(producto.extras));
     setImageFile(null);
-    setImagePreview(producto.imagen || '');
+    // Sin resolver, la foto guardada en /uploads no cargaba en el editor y
+    // parecía que el producto no tenía imagen.
+    setImagePreview(resolveAssetUrl(producto.imagen));
     setRemoveImage(false);
     setModal(producto);
   };
@@ -246,25 +271,44 @@ export default function useProductos() {
     );
   };
 
+  /**
+   * Cada `URL.createObjectURL` reserva memoria hasta que se libera a mano.
+   * Como no se liberaba nunca, probar diez fotos en el mismo modal dejaba
+   * diez imágenes colgadas en memoria hasta recargar la página.
+   */
+  const objectUrlRef = useRef('');
+  const setPreviewFromFile = (file) => {
+    if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
+    objectUrlRef.current = file ? URL.createObjectURL(file) : '';
+    setImagePreview(objectUrlRef.current);
+  };
+
+  useEffect(
+    () => () => {
+      if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
+    },
+    []
+  );
+
   const handleImageChange = (file) => {
     if (!file) return;
     if (!file.type.startsWith('image/')) {
-      toast.error('Selecciona una imagen valida');
+      toast.error('Elegí un archivo de imagen');
       return;
     }
     if (file.size > 5 * 1024 * 1024) {
-      toast.error('La imagen supera 5MB');
+      toast.error('La imagen supera los 5 MB');
       return;
     }
 
     setImageFile(file);
-    setImagePreview(URL.createObjectURL(file));
+    setPreviewFromFile(file);
     setRemoveImage(false);
   };
 
   const clearImage = () => {
     setImageFile(null);
-    setImagePreview('');
+    setPreviewFromFile(null);
     setRemoveImage(true);
     setForm((prev) => ({ ...prev, imagen: '' }));
   };

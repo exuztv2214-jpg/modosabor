@@ -1,61 +1,47 @@
 import { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
-import {
-  Megaphone,
-  TicketPercent,
-  CalendarDays,
-  MessageSquareText,
-  Share2,
-  Plus,
-  Edit2,
-  Trash2,
-  Copy,
-  RefreshCw,
-  CheckCircle2,
-  CircleDollarSign,
-  Users,
-  Receipt,
-  BarChart3,
-} from 'lucide-react';
+import { BarChart3, CalendarDays, Library, Megaphone, Plus, RefreshCw, X } from 'lucide-react';
 
 import api from '../lib/api.js';
-import PublicadorFacebookPanel from '../components/Marketing/PublicadorFacebookPanel.jsx';
 import ActionDialog from '../components/ActionDialog.jsx';
+import { APP_BG, BRAND, STROKE } from '../lib/theme.js';
+import { fondoModal, useCerrarConEscape } from '../hooks/useCerrarConEscape.js';
+import MarketingResumen from './Marketing/MarketingResumen.jsx';
+import MarketingCampanas from './Marketing/MarketingCampanas.jsx';
+import MarketingBiblioteca from './Marketing/MarketingBiblioteca.jsx';
+import MarketingAgenda from './Marketing/MarketingAgenda.jsx';
+import {
+  CALENDAR_STATES,
+  CHANNELS,
+  CONTENT_STATES,
+  PROMO_TYPES,
+  copiar,
+  toInputDate,
+} from './Marketing/marketingUtils.js';
 
+/**
+ * Marketing.
+ *
+ * Estaba organizado en seis pestañas que eran, una por una, las tablas de la
+ * base: Dashboard, Promos, Contenido, Campañas, Calendario y Publicador. Eso
+ * te obliga a saber el modelo de datos para usarlo.
+ *
+ * Ahora son cuatro y siguen cómo se trabaja:
+ *
+ *  · Resumen — qué está corriendo y qué trajo.
+ *  · Campañas — la unidad real; junta promo, contenido, canal y código.
+ *  · Biblioteca — promos y contenido, que son insumos de una campaña.
+ *  · Agenda — qué publicar y cuándo, con el publicador de Facebook al lado.
+ */
 const TABS = [
-  { id: 'dashboard', label: 'Dashboard', icon: BarChart3 },
-  { id: 'promos', label: 'Promos', icon: TicketPercent },
-  { id: 'contenido', label: 'Contenido', icon: MessageSquareText },
+  { id: 'resumen', label: 'Resumen', icon: BarChart3 },
   { id: 'campanas', label: 'Campañas', icon: Megaphone },
-  { id: 'calendario', label: 'Calendario', icon: CalendarDays },
-  { id: 'publicador', label: 'Publicador', icon: Share2 },
+  { id: 'biblioteca', label: 'Biblioteca', icon: Library },
+  { id: 'agenda', label: 'Agenda', icon: CalendarDays },
 ];
 
-const CHANNELS = ['instagram', 'facebook', 'tiktok', 'google', 'general'];
-const PROMO_TYPES = [
-  { value: 'descuento_fijo', label: 'Descuento fijo' },
-  { value: 'porcentaje', label: 'Porcentaje' },
-  { value: 'envio_gratis', label: 'Envío gratis' },
-  { value: 'combo_especial', label: 'Combo especial' },
-  { value: 'promo_producto', label: 'Promo por producto' },
-];
-const CONTENT_STATES = ['borrador', 'listo', 'publicado'];
-const CALENDAR_STATES = ['pendiente', 'listo', 'publicado', 'cancelado'];
-
-const fmtMoney = (value) => `$${Number(value || 0).toLocaleString('es-AR')}`;
-const fmtDate = (value) => {
-  if (!value) return '-';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '-';
-  return date.toLocaleString('es-AR', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-};
-const toInputDate = (value) => (value ? new Date(value).toISOString().slice(0, 16) : '');
+const CONTROL =
+  'h-11 w-full rounded-xl border border-gray-200 bg-white px-3 text-[14px] text-gray-800 outline-none transition placeholder:text-gray-400 focus:border-gray-400 focus:ring-2 focus:ring-gray-900/5';
 
 const emptyPromo = {
   nombre: '',
@@ -105,117 +91,73 @@ const emptyCalendario = {
   observaciones: '',
 };
 
-function Badge({ children, tone = 'slate' }) {
-  const styles = {
-    slate: 'bg-slate-100 text-slate-700',
-    green: 'bg-success-100 text-success-700',
-    blue: 'bg-primary-100 text-primary-700',
-    amber: 'bg-warning-100 text-warning-700',
-    rose: 'bg-danger-100 text-danger-700',
-  };
+function Campo({ label, hint, children, className = '' }) {
   return (
-    <span
-      className={`inline-flex rounded-full px-2.5 py-1 text-xs font-bold ${styles[tone] || styles.slate}`}
-    >
-      {children}
-    </span>
+    <div className={className}>
+      <label className="block text-[12px] font-medium text-gray-600">{label}</label>
+      <div className="mt-1">{children}</div>
+      {hint ? <p className="mt-1 text-[11px] leading-4 text-gray-400">{hint}</p> : null}
+    </div>
   );
 }
 
-function Modal({ open, title, onClose, children, maxWidth = 'max-w-3xl' }) {
+function Modal({ open, title, subtitle, onClose, onSubmit, saving, children }) {
+  useCerrarConEscape(open, onClose);
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className={`w-full ${maxWidth} rounded-3xl bg-white p-6 shadow-2xl`}>
-        <div className="mb-5 flex items-center justify-between">
-          <h3 className="text-lg font-black text-slate-900">{title}</h3>
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/35 p-4 backdrop-blur-sm"
+      onClick={fondoModal(onClose)}
+    >
+      <form
+        onSubmit={onSubmit}
+        className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
+      >
+        <div className="flex shrink-0 items-center justify-between gap-4 border-b border-gray-100 px-5 py-4">
+          <div>
+            <h3 className="text-[17px] font-semibold text-gray-900">{title}</h3>
+            {subtitle ? <p className="mt-0.5 text-[12px] text-gray-500">{subtitle}</p> : null}
+          </div>
           <button
+            type="button"
             onClick={onClose}
-            className="rounded-2xl bg-slate-100 px-3 py-2 text-sm font-bold text-slate-600"
+            aria-label="Cerrar"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
           >
-            Cerrar
+            <X size={18} strokeWidth={STROKE} />
           </button>
         </div>
-        {children}
-      </div>
-    </div>
-  );
-}
 
-function StatCard({ icon: Icon, label, value, tone = 'blue' }) {
-  const tones = {
-    blue: 'bg-primary-100 text-primary-700',
-    green: 'bg-success-100 text-success-700',
-    amber: 'bg-warning-100 text-warning-700',
-    rose: 'bg-danger-100 text-danger-700',
-    violet: 'bg-violet-100 text-violet-700',
-  };
-  return (
-    <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="flex items-center gap-4">
-        <div
-          className={`flex h-12 w-12 items-center justify-center rounded-2xl ${tones[tone] || tones.blue}`}
-        >
-          <Icon size={22} />
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-5">{children}</div>
+
+        <div className="flex shrink-0 justify-end gap-2 border-t border-gray-100 px-5 py-4">
+          <button
+            type="button"
+            onClick={onClose}
+            className="h-11 rounded-xl bg-gray-100 px-5 text-[13px] font-semibold text-gray-700 transition hover:bg-gray-200"
+          >
+            Cancelar
+          </button>
+          <button
+            type="submit"
+            disabled={saving}
+            style={{ background: BRAND }}
+            className="h-11 rounded-xl px-6 text-[13px] font-semibold text-white transition hover:brightness-110 disabled:opacity-40"
+          >
+            {saving ? 'Guardando…' : 'Guardar'}
+          </button>
         </div>
-        <div>
-          <p className="text-2xl font-black text-slate-900">{value}</p>
-          <p className="text-sm text-slate-500">{label}</p>
-        </div>
-      </div>
+      </form>
     </div>
-  );
-}
-
-function TextField({ label, ...props }) {
-  return (
-    <label className="space-y-1">
-      <span className="text-sm font-bold text-slate-700">{label}</span>
-      <input
-        {...props}
-        className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-100"
-      />
-    </label>
-  );
-}
-
-function SelectField({ label, children, ...props }) {
-  return (
-    <label className="space-y-1">
-      <span className="text-sm font-bold text-slate-700">{label}</span>
-      <select
-        {...props}
-        className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-100"
-      >
-        {children}
-      </select>
-    </label>
-  );
-}
-
-function TextAreaField({ label, ...props }) {
-  return (
-    <label className="space-y-1">
-      <span className="text-sm font-bold text-slate-700">{label}</span>
-      <textarea
-        {...props}
-        className="min-h-[110px] w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-100"
-      />
-    </label>
   );
 }
 
 export default function MarketingDigital() {
-  const [tab, setTab] = useState('dashboard');
+  const [tab, setTab] = useState('resumen');
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [dashboard, setDashboard] = useState(null);
-  const [references, setReferences] = useState({
-    cupones: [],
-    productos: [],
-    promos: [],
-    contenidos: [],
-    campanas: [],
-  });
+  const [references, setReferences] = useState({ cupones: [], productos: [] });
   const [promos, setPromos] = useState([]);
   const [contenidos, setContenidos] = useState([]);
   const [campanas, setCampanas] = useState([]);
@@ -227,20 +169,10 @@ export default function MarketingDigital() {
   const [calendarioForm, setCalendarioForm] = useState(emptyCalendario);
   const [deleteDialog, setDeleteDialog] = useState(null);
 
-  const metrics = dashboard?.metrics || {};
-  const activeCampaigns = useMemo(() => dashboard?.active_campaigns || [], [dashboard]);
-
   const loadAll = async () => {
     setLoading(true);
     try {
-      const [
-        dashboardData,
-        referencesData,
-        promosData,
-        contenidosData,
-        campanasData,
-        calendarioData,
-      ] = await Promise.all([
+      const [dash, refs, pr, co, ca, cal] = await Promise.all([
         api.get('/marketing/dashboard'),
         api.get('/marketing/references'),
         api.get('/marketing/promos'),
@@ -248,14 +180,17 @@ export default function MarketingDigital() {
         api.get('/marketing/campanas'),
         api.get('/marketing/calendario'),
       ]);
-      setDashboard(dashboardData);
-      setReferences(referencesData);
-      setPromos(promosData);
-      setContenidos(contenidosData);
-      setCampanas(campanasData);
-      setCalendario(calendarioData);
+      setDashboard(dash);
+      setReferences(refs || { cupones: [], productos: [] });
+      setPromos(pr || []);
+      setContenidos(co || []);
+      setCampanas(ca || []);
+      setCalendario(cal || []);
     } catch (error) {
-      toast.error(error.message || 'No se pudo cargar Marketing Digital');
+      // Leía `error.message`. El interceptor de axios rechaza con el cuerpo
+      // del servidor, que trae `.error`, así que el mensaje real nunca se
+      // veía: siempre salía el genérico. Pasaba en las tres llamadas.
+      toast.error(error?.error || 'No se pudo cargar Marketing');
     } finally {
       setLoading(false);
     }
@@ -265,9 +200,27 @@ export default function MarketingDigital() {
     loadAll();
   }, []);
 
+  /**
+   * Resultado real por campaña.
+   *
+   * El backend devuelve las atribuciones sueltas; acá se agrupan para poder
+   * decir, en cada tarjeta, cuántos pedidos y cuánta plata trajo.
+   */
+  const atribucionPorCampana = useMemo(() => {
+    const filas = dashboard?.recent_attributions || [];
+    return filas.reduce((acc, row) => {
+      const id = row.marketing_campana_id;
+      if (!id) return acc;
+      if (!acc[id]) acc[id] = { pedidos: 0, ventas: 0 };
+      if (row.pedido_id) acc[id].pedidos += 1;
+      acc[id].ventas += Number(row.monto || row.total || 0);
+      return acc;
+    }, {});
+  }, [dashboard]);
+
   const openModal = (type, item = null) => {
     setModal({ type, item });
-    if (type === 'promo')
+    if (type === 'promo') {
       setPromoForm(
         item
           ? {
@@ -279,8 +232,9 @@ export default function MarketingDigital() {
             }
           : emptyPromo
       );
+    }
     if (type === 'contenido') setContenidoForm(item ? { ...item } : emptyContenido);
-    if (type === 'campana')
+    if (type === 'campana') {
       setCampanaForm(
         item
           ? {
@@ -292,7 +246,8 @@ export default function MarketingDigital() {
             }
           : emptyCampana
       );
-    if (type === 'calendario')
+    }
+    if (type === 'calendario') {
       setCalendarioForm(
         item
           ? {
@@ -304,762 +259,676 @@ export default function MarketingDigital() {
             }
           : emptyCalendario
       );
+    }
   };
 
   const closeModal = () => setModal({ type: '', item: null });
 
-  const saveEntity = async (type, payload) => {
-    const editing = modal.item?.id;
-    const base = `/marketing/${type}`;
-    if (editing) return api.put(`${base}/${editing}`, payload);
+  const guardar = async (recurso, payload) => {
+    const editando = modal.item?.id;
+    const base = `/marketing/${recurso}`;
+    if (editando) return api.put(`${base}/${editando}`, payload);
     return api.post(base, payload);
   };
 
-  const removeEntity = async (type, id, label) => {
-    setDeleteDialog({ type, id, label });
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+
+    if (modal.type === 'campana') {
+      if (!campanaForm.nombre.trim()) return toast.error('Poné un nombre a la campaña');
+      if (
+        campanaForm.fecha_inicio &&
+        campanaForm.fecha_fin &&
+        campanaForm.fecha_inicio > campanaForm.fecha_fin
+      ) {
+        return toast.error('La fecha de fin es anterior a la de inicio');
+      }
+    }
+    if (modal.type === 'promo') {
+      if (!promoForm.nombre.trim()) return toast.error('Poné un nombre a la promo');
+      if (promoForm.tipo_promo === 'porcentaje' && Number(promoForm.valor) > 100) {
+        return toast.error('Un porcentaje no puede superar el 100%');
+      }
+    }
+    if (modal.type === 'contenido' && !contenidoForm.titulo.trim()) {
+      return toast.error('Poné un título al contenido');
+    }
+    if (modal.type === 'calendario' && !calendarioForm.fecha_programada) {
+      return toast.error('Elegí cuándo se publica');
+    }
+
+    setSaving(true);
+    try {
+      if (modal.type === 'promo') await guardar('promos', promoForm);
+      if (modal.type === 'contenido') await guardar('contenidos', contenidoForm);
+      if (modal.type === 'campana') await guardar('campanas', campanaForm);
+      if (modal.type === 'calendario') await guardar('calendario', calendarioForm);
+      toast.success('Guardado');
+      closeModal();
+      loadAll();
+    } catch (error) {
+      toast.error(error?.error || 'No se pudo guardar');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const confirmarEliminar = async () => {
     if (!deleteDialog) return;
     try {
-      await api.delete(`/marketing/${deleteDialog.type}/${deleteDialog.id}`);
+      await api.delete(`/marketing/${deleteDialog.recurso}/${deleteDialog.id}`);
       toast.success('Eliminado');
       setDeleteDialog(null);
       loadAll();
     } catch (error) {
-      toast.error(error.message || 'No se pudo eliminar');
+      toast.error(error?.error || 'No se pudo eliminar');
     }
   };
 
-  const copyText = async (value) => {
+  const marcarPublicado = async (item) => {
     try {
-      await navigator.clipboard.writeText(value);
-      toast.success('Copiado');
-    } catch {
-      toast.error('No se pudo copiar');
-    }
-  };
-
-  const handleSubmit = async (event) => {
-    event.preventDefault();
-    try {
-      if (modal.type === 'promo') await saveEntity('promos', promoForm);
-      if (modal.type === 'contenido') await saveEntity('contenidos', contenidoForm);
-      if (modal.type === 'campana') await saveEntity('campanas', campanaForm);
-      if (modal.type === 'calendario') await saveEntity('calendario', calendarioForm);
-      toast.success('Guardado');
-      closeModal();
+      await api.put(`/marketing/calendario/${item.id}`, { ...item, estado: 'publicado' });
+      toast.success('Marcada como publicada');
       loadAll();
     } catch (error) {
-      toast.error(error.message || 'No se pudo guardar');
+      toast.error(error?.error || 'No se pudo actualizar');
     }
   };
 
+  const onCopiar = (texto, mensaje) => copiar(texto, toast, mensaje);
+
+  const pedirBorrar = (recurso, item, label) => setDeleteDialog({ recurso, id: item.id, label });
+
+  const accionPrincipal = {
+    campanas: { label: 'Nueva campaña', onClick: () => openModal('campana') },
+    biblioteca: { label: 'Nueva promo', onClick: () => openModal('promo') },
+    agenda: { label: 'Agendar publicación', onClick: () => openModal('calendario') },
+  }[tab];
+
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <h1 className="text-3xl font-black text-slate-900">Marketing Digital</h1>
-          <p className="mt-1 text-slate-500">
-            Promos, contenido, campañas, calendario y tracking real hacia la carta online y pedidos.
-          </p>
+    <div className="min-h-screen px-4 py-6 sm:px-6" style={{ background: APP_BG }}>
+      <div className="mx-auto max-w-7xl space-y-4 pb-10">
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight text-gray-900">Marketing</h1>
+            <p className="mt-0.5 text-[13px] text-gray-500">
+              Campañas con código de seguimiento, para saber qué trajo cada peso
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {accionPrincipal ? (
+              <button
+                type="button"
+                onClick={accionPrincipal.onClick}
+                style={{ background: BRAND }}
+                className="flex h-11 items-center gap-2 rounded-xl px-4 text-[13px] font-semibold text-white transition hover:brightness-110"
+              >
+                <Plus size={16} strokeWidth={STROKE} />
+                {accionPrincipal.label}
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={loadAll}
+              title="Actualizar"
+              className="flex h-11 w-11 items-center justify-center rounded-xl bg-white text-gray-500 shadow-[0_1px_2px_rgba(15,23,42,0.06)] transition hover:bg-gray-50"
+            >
+              <RefreshCw size={16} strokeWidth={STROKE} className={loading ? 'animate-spin' : ''} />
+            </button>
+          </div>
         </div>
-        <button
-          onClick={loadAll}
-          className="inline-flex items-center gap-2 rounded-2xl bg-white px-4 py-3 text-sm font-bold text-slate-700 shadow-sm ring-1 ring-slate-200"
-        >
-          <RefreshCw size={16} />
-          Actualizar
-        </button>
+
+        <div className="flex w-fit flex-wrap rounded-xl bg-gray-200/70 p-1">
+          {TABS.map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setTab(id)}
+              className={`inline-flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-[13px] font-semibold transition ${
+                tab === id
+                  ? 'bg-white text-gray-900 shadow-sm'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              <Icon size={14} strokeWidth={STROKE} />
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {loading ? (
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="h-28 animate-pulse rounded-2xl bg-gray-200/70" />
+            ))}
+          </div>
+        ) : (
+          <>
+            {tab === 'resumen' && (
+              <MarketingResumen
+                dashboard={dashboard}
+                campanas={campanas}
+                calendario={calendario}
+                onIrACampanas={() => setTab('campanas')}
+                onIrAAgenda={() => setTab('agenda')}
+                onCopiar={onCopiar}
+              />
+            )}
+
+            {tab === 'campanas' && (
+              <MarketingCampanas
+                campanas={campanas}
+                atribucionPorCampana={atribucionPorCampana}
+                onCrear={() => openModal('campana')}
+                onEditar={(item) => openModal('campana', item)}
+                onEliminar={(item) => pedirBorrar('campanas', item, `la campaña "${item.nombre}"`)}
+                onCopiar={onCopiar}
+              />
+            )}
+
+            {tab === 'biblioteca' && (
+              <MarketingBiblioteca
+                promos={promos}
+                contenidos={contenidos}
+                onCrearPromo={() => openModal('promo')}
+                onEditarPromo={(item) => openModal('promo', item)}
+                onEliminarPromo={(item) => pedirBorrar('promos', item, `la promo "${item.nombre}"`)}
+                onCrearContenido={() => openModal('contenido')}
+                onEditarContenido={(item) => openModal('contenido', item)}
+                onEliminarContenido={(item) =>
+                  pedirBorrar('contenidos', item, `el contenido "${item.titulo}"`)
+                }
+                onCopiar={onCopiar}
+              />
+            )}
+
+            {tab === 'agenda' && (
+              <MarketingAgenda
+                calendario={calendario}
+                onCrear={() => openModal('calendario')}
+                onEditar={(item) => openModal('calendario', item)}
+                onEliminar={(item) => pedirBorrar('calendario', item, 'esta publicación')}
+                onMarcarPublicado={marcarPublicado}
+              />
+            )}
+          </>
+        )}
       </div>
 
-      <div className="flex flex-wrap gap-2 rounded-3xl bg-white p-2 shadow-sm ring-1 ring-slate-200">
-        {TABS.map(({ id, label, icon: Icon }) => (
-          <button
-            key={id}
-            onClick={() => setTab(id)}
-            className={`inline-flex items-center gap-2 rounded-2xl px-4 py-2.5 text-sm font-bold transition ${tab === id ? 'bg-primary-500 text-white shadow-lg shadow-primary-200' : 'text-slate-600 hover:bg-slate-100'}`}
-          >
-            <Icon size={16} />
-            {label}
-          </button>
-        ))}
-      </div>
-
-      {loading ? (
-        <div className="rounded-3xl border border-slate-200 bg-white p-12 text-center text-slate-500 shadow-sm">
-          <RefreshCw className="mx-auto mb-3 animate-spin" size={26} />
-          Cargando Marketing Digital...
-        </div>
-      ) : (
-        <>
-          {tab === 'dashboard' && (
-            <div className="space-y-6">
-              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                <StatCard
-                  icon={Megaphone}
-                  label="Campañas activas"
-                  value={metrics.campanas_activas || 0}
-                />
-                <StatCard
-                  icon={TicketPercent}
-                  label="Promos activas"
-                  value={metrics.promos_activas || 0}
-                  tone="green"
-                />
-                <StatCard
-                  icon={MessageSquareText}
-                  label="Conversaciones atribuidas"
-                  value={metrics.conversaciones_atribuidas || 0}
-                  tone="amber"
-                />
-                <StatCard
-                  icon={Receipt}
-                  label="Pedidos atribuidos"
-                  value={metrics.pedidos_atribuidos || 0}
-                  tone="violet"
-                />
-                <StatCard
-                  icon={CircleDollarSign}
-                  label="Ventas atribuidas"
-                  value={fmtMoney(metrics.ventas_atribuidas || 0)}
-                  tone="green"
-                />
-                <StatCard
-                  icon={Users}
-                  label="Clientes nuevos estimados"
-                  value={metrics.clientes_nuevos_estimados || 0}
-                  tone="rose"
-                />
-              </div>
-
-              <div className="grid gap-6 xl:grid-cols-3">
-                <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm xl:col-span-2">
-                  <div className="mb-4 flex items-center justify-between">
-                    <h2 className="text-lg font-black text-slate-900">Campañas activas</h2>
-                    <Badge tone="blue">{activeCampaigns.length}</Badge>
-                  </div>
-                  <div className="space-y-3">
-                    {activeCampaigns.length === 0 ? (
-                      <p className="text-sm text-slate-500">Todavía no hay campañas activas.</p>
-                    ) : (
-                      activeCampaigns.map((item) => (
-                        <div key={item.id} className="rounded-2xl border border-slate-200 p-4">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <p className="font-bold text-slate-900">{item.nombre}</p>
-                            <Badge tone="green">{item.canal || 'general'}</Badge>
-                            <Badge>{item.tracking_slug || 'sin código'}</Badge>
-                          </div>
-                          <p className="mt-2 text-sm text-slate-600">
-                            {item.objetivo || 'Sin objetivo cargado'}
-                          </p>
-                          <p className="mt-2 text-xs text-slate-500">
-                            Llamado a la accion: {item.whatsapp_cta_texto}
-                          </p>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </section>
-
-                <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-                  <div className="mb-4 flex items-center justify-between">
-                    <h2 className="text-lg font-black text-slate-900">Pendientes</h2>
-                    <Badge tone="amber">{metrics.publicaciones_pendientes || 0}</Badge>
-                  </div>
-                  <div className="space-y-3">
-                    {(dashboard?.pending_calendar || []).length === 0 ? (
-                      <p className="text-sm text-slate-500">No hay publicaciones pendientes.</p>
-                    ) : (
-                      (dashboard?.pending_calendar || []).map((item) => (
-                        <div key={item.id} className="rounded-2xl bg-slate-50 p-3">
-                          <p className="text-sm font-bold text-slate-800">
-                            {item.campana_nombre || item.contenido_titulo || 'Publicación'}
-                          </p>
-                          <p className="text-xs text-slate-500">
-                            {fmtDate(item.fecha_programada)} · {item.canal}
-                          </p>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </section>
-              </div>
-            </div>
-          )}
-
-          {tab === 'promos' && (
-            <SectionCrud
-              title="Biblioteca de Promos"
-              buttonLabel="Nueva promo"
-              onCreate={() => openModal('promo')}
-            >
-              <SimpleTable
-                rows={promos}
-                emptyText="Todavía no cargaste promos."
-                columns={[
-                  { key: 'nombre', label: 'Nombre' },
-                  { key: 'tipo_promo', label: 'Tipo' },
-                  {
-                    key: 'valor',
-                    label: 'Valor',
-                    render: (row) =>
-                      row.tipo_promo === 'porcentaje' ? `${row.valor}%` : fmtMoney(row.valor),
-                  },
-                  { key: 'canal_sugerido', label: 'Canal' },
-                  {
-                    key: 'activo',
-                    label: 'Estado',
-                    render: (row) => (
-                      <Badge tone={row.activa ? 'green' : 'slate'}>
-                        {row.activa ? 'Activa' : 'Inactiva'}
-                      </Badge>
-                    ),
-                  },
-                ]}
-                onEdit={(row) => openModal('promo', row)}
-                onDelete={(row) => removeEntity('promos', row.id, `la promo "${row.nombre}"`)}
-              />
-            </SectionCrud>
-          )}
-
-          {tab === 'contenido' && (
-            <SectionCrud
-              title="Ideas y Plantillas de Contenido"
-              buttonLabel="Nuevo contenido"
-              onCreate={() => openModal('contenido')}
-            >
-              <div className="grid gap-4 lg:grid-cols-2">
-                {contenidos.length === 0 ? (
-                  <EmptyCard text="Todavía no cargaste piezas de contenido." />
-                ) : (
-                  contenidos.map((item) => (
-                    <div
-                      key={item.id}
-                      className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="font-black text-slate-900">{item.titulo}</p>
-                          <p className="mt-1 text-sm text-slate-500">
-                            {item.objetivo || 'Sin objetivo'}
-                          </p>
-                        </div>
-                        <Badge
-                          tone={
-                            item.estado === 'publicado'
-                              ? 'green'
-                              : item.estado === 'listo'
-                                ? 'blue'
-                                : 'amber'
-                          }
-                        >
-                          {item.estado}
-                        </Badge>
-                      </div>
-                      <p className="mt-4 text-sm text-slate-700">
-                        {item.texto_corto || item.texto_largo || 'Sin copy todavía'}
-                      </p>
-                      <div className="mt-4 flex items-center justify-between">
-                        <Badge>{item.red_sugerida || 'general'}</Badge>
-                        <div className="flex gap-2">
-                          <ActionButton icon={Edit2} onClick={() => openModal('contenido', item)} />
-                          <ActionButton
-                            icon={Trash2}
-                            onClick={() =>
-                              removeEntity('contenidos', item.id, `el contenido "${item.titulo}"`)
-                            }
-                            danger
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </SectionCrud>
-          )}
-
-          {tab === 'campanas' && (
-            <SectionCrud
-              title="Campañas"
-              buttonLabel="Nueva campaña"
-              onCreate={() => openModal('campana')}
-            >
-              <div className="grid gap-4 xl:grid-cols-2">
-                {campanas.length === 0 ? (
-                  <EmptyCard text="Todavía no cargaste campañas." />
-                ) : (
-                  campanas.map((item) => (
-                    <div
-                      key={item.id}
-                      className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"
-                    >
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <div>
-                          <p className="font-black text-slate-900">{item.nombre}</p>
-                          <p className="text-sm text-slate-500">
-                            {item.objetivo || 'Sin objetivo'}
-                          </p>
-                        </div>
-                        <Badge tone={item.activa ? 'green' : 'slate'}>
-                          {item.activa ? 'Activa' : 'Pausada'}
-                        </Badge>
-                      </div>
-                      <div className="mt-4 flex flex-wrap gap-2 text-xs">
-                        <Badge>{item.canal || 'general'}</Badge>
-                        <Badge tone="blue">{item.tracking_slug || 'sin código'}</Badge>
-                        <Badge tone="amber">{item.promo_nombre || 'sin promo'}</Badge>
-                      </div>
-                      <div className="mt-4 rounded-2xl bg-slate-50 p-4">
-                        <p className="text-xs font-black uppercase tracking-widest text-slate-500">
-                          Llamado a la accion
-                        </p>
-                        <p className="mt-2 text-sm text-slate-800">{item.whatsapp_cta_texto}</p>
-                        <button
-                          onClick={() => copyText(item.whatsapp_cta_texto)}
-                          className="mt-3 inline-flex items-center gap-2 rounded-2xl bg-white px-3 py-2 text-xs font-bold text-slate-700 shadow-sm ring-1 ring-slate-200"
-                        >
-                          <Copy size={14} />
-                          Copiar CTA
-                        </button>
-                      </div>
-                      <div className="mt-4 flex justify-end gap-2">
-                        <ActionButton icon={Edit2} onClick={() => openModal('campana', item)} />
-                        <ActionButton
-                          icon={Trash2}
-                          onClick={() =>
-                            removeEntity('campanas', item.id, `la campaña "${item.nombre}"`)
-                          }
-                          danger
-                        />
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </SectionCrud>
-          )}
-
-          {tab === 'calendario' && (
-            <SectionCrud
-              title="Calendario / Planificador"
-              buttonLabel="Nuevo evento"
-              onCreate={() => openModal('calendario')}
-            >
-              <SimpleTable
-                rows={calendario}
-                emptyText="Todavía no hay publicaciones planificadas."
-                columns={[
-                  {
-                    key: 'fecha_programada',
-                    label: 'Fecha',
-                    render: (row) => fmtDate(row.fecha_programada),
-                  },
-                  { key: 'canal', label: 'Canal' },
-                  {
-                    key: 'campana_nombre',
-                    label: 'Campaña',
-                    render: (row) => row.campana_nombre || '-',
-                  },
-                  {
-                    key: 'contenido_titulo',
-                    label: 'Contenido',
-                    render: (row) => row.contenido_titulo || '-',
-                  },
-                  {
-                    key: 'estado',
-                    label: 'Estado',
-                    render: (row) => (
-                      <Badge
-                        tone={
-                          row.estado === 'publicado'
-                            ? 'green'
-                            : row.estado === 'cancelado'
-                              ? 'rose'
-                              : 'amber'
-                        }
-                      >
-                        {row.estado}
-                      </Badge>
-                    ),
-                  },
-                ]}
-                onEdit={(row) => openModal('calendario', row)}
-                onDelete={(row) => removeEntity('calendario', row.id, 'este evento')}
-              />
-            </SectionCrud>
-          )}
-          {tab === 'publicador' && <PublicadorFacebookPanel />}
-        </>
-      )}
-
-      <Modal
-        open={modal.type === 'promo'}
-        title={modal.item ? 'Editar promo' : 'Nueva promo'}
-        onClose={closeModal}
-      >
-        <EntityForm onSubmit={handleSubmit}>
-          <div className="grid gap-4 md:grid-cols-2">
-            <TextField
-              label="Nombre"
-              value={promoForm.nombre}
-              onChange={(e) => setPromoForm((prev) => ({ ...prev, nombre: e.target.value }))}
-            />
-            <SelectField
-              label="Tipo"
-              value={promoForm.tipo_promo}
-              onChange={(e) => setPromoForm((prev) => ({ ...prev, tipo_promo: e.target.value }))}
-            >
-              {PROMO_TYPES.map((item) => (
-                <option key={item.value} value={item.value}>
-                  {item.label}
-                </option>
-              ))}
-            </SelectField>
-            <TextField
-              label="Valor"
-              value={promoForm.valor}
-              onChange={(e) => setPromoForm((prev) => ({ ...prev, valor: e.target.value }))}
-            />
-            <SelectField
-              label="Canal sugerido"
-              value={promoForm.canal_sugerido}
-              onChange={(e) =>
-                setPromoForm((prev) => ({ ...prev, canal_sugerido: e.target.value }))
-              }
-            >
-              {CHANNELS.map((channel) => (
-                <option key={channel} value={channel}>
-                  {channel}
-                </option>
-              ))}
-            </SelectField>
-            <TextField
-              label="Inicio"
-              type="datetime-local"
-              value={promoForm.fecha_inicio}
-              onChange={(e) => setPromoForm((prev) => ({ ...prev, fecha_inicio: e.target.value }))}
-            />
-            <TextField
-              label="Fin"
-              type="datetime-local"
-              value={promoForm.fecha_fin}
-              onChange={(e) => setPromoForm((prev) => ({ ...prev, fecha_fin: e.target.value }))}
-            />
-            <SelectField
-              label="Cupón real (opcional)"
-              value={promoForm.cupon_id}
-              onChange={(e) => setPromoForm((prev) => ({ ...prev, cupon_id: e.target.value }))}
-            >
-              <option value="">Sin cupón</option>
-              {references.cupones.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.codigo}
-                </option>
-              ))}
-            </SelectField>
-            <SelectField
-              label="Producto (opcional)"
-              value={promoForm.producto_id}
-              onChange={(e) => setPromoForm((prev) => ({ ...prev, producto_id: e.target.value }))}
-            >
-              <option value="">Sin producto</option>
-              {references.productos.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.nombre}
-                </option>
-              ))}
-            </SelectField>
-          </div>
-          <TextAreaField
-            label="Descripción"
-            value={promoForm.descripcion}
-            onChange={(e) => setPromoForm((prev) => ({ ...prev, descripcion: e.target.value }))}
-          />
-          <CheckField
-            label="Promo activa"
-            checked={Boolean(promoForm.activa)}
-            onChange={(checked) => setPromoForm((prev) => ({ ...prev, activa: checked }))}
-          />
-        </EntityForm>
-      </Modal>
-
-      <Modal
-        open={modal.type === 'contenido'}
-        title={modal.item ? 'Editar contenido' : 'Nuevo contenido'}
-        onClose={closeModal}
-      >
-        <EntityForm onSubmit={handleSubmit}>
-          <div className="grid gap-4 md:grid-cols-2">
-            <TextField
-              label="Título interno"
-              value={contenidoForm.titulo}
-              onChange={(e) => setContenidoForm((prev) => ({ ...prev, titulo: e.target.value }))}
-            />
-            <TextField
-              label="Objetivo"
-              value={contenidoForm.objetivo}
-              onChange={(e) => setContenidoForm((prev) => ({ ...prev, objetivo: e.target.value }))}
-            />
-            <SelectField
-              label="Red sugerida"
-              value={contenidoForm.red_sugerida}
-              onChange={(e) =>
-                setContenidoForm((prev) => ({ ...prev, red_sugerida: e.target.value }))
-              }
-            >
-              {CHANNELS.map((channel) => (
-                <option key={channel} value={channel}>
-                  {channel}
-                </option>
-              ))}
-            </SelectField>
-            <SelectField
-              label="Estado"
-              value={contenidoForm.estado}
-              onChange={(e) => setContenidoForm((prev) => ({ ...prev, estado: e.target.value }))}
-            >
-              {CONTENT_STATES.map((state) => (
-                <option key={state} value={state}>
-                  {state}
-                </option>
-              ))}
-            </SelectField>
-          </div>
-          <TextAreaField
-            label="Texto corto"
-            value={contenidoForm.texto_corto}
-            onChange={(e) => setContenidoForm((prev) => ({ ...prev, texto_corto: e.target.value }))}
-          />
-          <TextAreaField
-            label="Texto largo"
-            value={contenidoForm.texto_largo}
-            onChange={(e) => setContenidoForm((prev) => ({ ...prev, texto_largo: e.target.value }))}
-          />
-          <TextField
-            label="CTA"
-            value={contenidoForm.cta}
-            onChange={(e) => setContenidoForm((prev) => ({ ...prev, cta: e.target.value }))}
-          />
-        </EntityForm>
-      </Modal>
-
+      {/* ── Campaña ── */}
       <Modal
         open={modal.type === 'campana'}
-        title={modal.item ? 'Editar campaña' : 'Nueva campaña'}
+        title={modal.item ? `Editar ${modal.item.nombre}` : 'Nueva campaña'}
+        subtitle="El código de seguimiento es lo que después te dice si funcionó"
         onClose={closeModal}
+        onSubmit={handleSubmit}
+        saving={saving}
       >
-        <EntityForm onSubmit={handleSubmit}>
-          <div className="grid gap-4 md:grid-cols-2">
-            <TextField
-              label="Nombre"
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Campo label="Nombre" className="sm:col-span-2">
+            <input
               value={campanaForm.nombre}
-              onChange={(e) => setCampanaForm((prev) => ({ ...prev, nombre: e.target.value }))}
+              onChange={(e) => setCampanaForm((p) => ({ ...p, nombre: e.target.value }))}
+              placeholder="Ej: Promo lluvia julio"
+              className={CONTROL}
             />
-            <TextField
-              label="Objetivo"
+          </Campo>
+
+          <Campo label="Qué buscás con esto" className="sm:col-span-2">
+            <input
               value={campanaForm.objetivo}
-              onChange={(e) => setCampanaForm((prev) => ({ ...prev, objetivo: e.target.value }))}
+              onChange={(e) => setCampanaForm((p) => ({ ...p, objetivo: e.target.value }))}
+              placeholder="Ej: llenar los martes a la noche"
+              className={CONTROL}
             />
-            <SelectField
-              label="Canal"
+          </Campo>
+
+          <Campo label="Dónde se publica">
+            <select
               value={campanaForm.canal}
-              onChange={(e) => setCampanaForm((prev) => ({ ...prev, canal: e.target.value }))}
+              onChange={(e) => setCampanaForm((p) => ({ ...p, canal: e.target.value }))}
+              className={`${CONTROL} font-medium`}
             >
-              {CHANNELS.map((channel) => (
-                <option key={channel} value={channel}>
-                  {channel}
+              {CHANNELS.map((c) => (
+                <option key={c.value} value={c.value}>
+                  {c.label}
                 </option>
               ))}
-            </SelectField>
-            <TextField
-              label="Presupuesto estimado"
+            </select>
+          </Campo>
+
+          <Campo label="Cuánto vas a invertir" hint="Para comparar contra lo que trae">
+            <input
+              type="number"
+              min="0"
               value={campanaForm.presupuesto_estimado}
               onChange={(e) =>
-                setCampanaForm((prev) => ({ ...prev, presupuesto_estimado: e.target.value }))
+                setCampanaForm((p) => ({ ...p, presupuesto_estimado: e.target.value }))
               }
+              placeholder="0"
+              className={`${CONTROL} tabular-nums`}
             />
-            <TextField
-              label="Inicio"
+          </Campo>
+
+          <Campo label="Arranca">
+            <input
               type="datetime-local"
               value={campanaForm.fecha_inicio}
-              onChange={(e) =>
-                setCampanaForm((prev) => ({ ...prev, fecha_inicio: e.target.value }))
-              }
+              onChange={(e) => setCampanaForm((p) => ({ ...p, fecha_inicio: e.target.value }))}
+              className={CONTROL}
             />
-            <TextField
-              label="Fin"
+          </Campo>
+
+          <Campo label="Termina">
+            <input
               type="datetime-local"
               value={campanaForm.fecha_fin}
-              onChange={(e) => setCampanaForm((prev) => ({ ...prev, fecha_fin: e.target.value }))}
+              onChange={(e) => setCampanaForm((p) => ({ ...p, fecha_fin: e.target.value }))}
+              className={CONTROL}
             />
-            <SelectField
-              label="Promo asociada"
-              value={campanaForm.promo_id}
-              onChange={(e) => setCampanaForm((prev) => ({ ...prev, promo_id: e.target.value }))}
+          </Campo>
+
+          <Campo label="Promo que ofrece" hint="Opcional">
+            <select
+              value={campanaForm.promo_id || ''}
+              onChange={(e) => setCampanaForm((p) => ({ ...p, promo_id: e.target.value }))}
+              className={`${CONTROL} font-medium`}
             >
               <option value="">Sin promo</option>
-              {references.promos.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.nombre}
+              {promos.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.nombre}
                 </option>
               ))}
-            </SelectField>
-            <SelectField
-              label="Contenido asociado"
-              value={campanaForm.contenido_id}
-              onChange={(e) =>
-                setCampanaForm((prev) => ({ ...prev, contenido_id: e.target.value }))
-              }
+            </select>
+          </Campo>
+
+          <Campo label="Contenido que usa" hint="Opcional">
+            <select
+              value={campanaForm.contenido_id || ''}
+              onChange={(e) => setCampanaForm((p) => ({ ...p, contenido_id: e.target.value }))}
+              className={`${CONTROL} font-medium`}
             >
               <option value="">Sin contenido</option>
-              {references.contenidos.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.titulo}
+              {contenidos.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.titulo}
                 </option>
               ))}
-            </SelectField>
-            <TextField
-              label="Código / slug de tracking"
+            </select>
+          </Campo>
+
+          <Campo
+            label="Código de seguimiento"
+            className="sm:col-span-2"
+            hint="El cliente lo menciona al pedir. Es lo único que permite saber qué trajo esta campaña. Si lo dejás vacío se genera solo a partir del nombre."
+          >
+            <input
               value={campanaForm.tracking_slug}
               onChange={(e) =>
-                setCampanaForm((prev) => ({ ...prev, tracking_slug: e.target.value }))
+                setCampanaForm((p) => ({ ...p, tracking_slug: e.target.value.toUpperCase() }))
               }
+              placeholder="LLUVIA-JULIO"
+              className={`${CONTROL} font-mono uppercase`}
             />
-            <CheckField
-              label="Campaña activa"
-              checked={Boolean(campanaForm.activa)}
-              onChange={(checked) => setCampanaForm((prev) => ({ ...prev, activa: checked }))}
+          </Campo>
+
+          <Campo label="Notas" className="sm:col-span-2">
+            <textarea
+              value={campanaForm.observaciones}
+              onChange={(e) => setCampanaForm((p) => ({ ...p, observaciones: e.target.value }))}
+              rows={2}
+              className="w-full resize-none rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-[14px] text-gray-800 outline-none transition focus:border-gray-400 focus:ring-2 focus:ring-gray-900/5"
             />
-            <TextField
-              label="marketing_source (opcional)"
-              value={campanaForm.marketing_source}
-              onChange={(e) =>
-                setCampanaForm((prev) => ({ ...prev, marketing_source: e.target.value }))
-              }
-            />
-            <TextField
-              label="marketing_medium (opcional)"
-              value={campanaForm.marketing_medium}
-              onChange={(e) =>
-                setCampanaForm((prev) => ({ ...prev, marketing_medium: e.target.value }))
-              }
-            />
-            <TextField
-              label="marketing_campaign (opcional)"
-              value={campanaForm.marketing_campaign}
-              onChange={(e) =>
-                setCampanaForm((prev) => ({ ...prev, marketing_campaign: e.target.value }))
-              }
-            />
-            <TextField
-              label="marketing_content (opcional)"
-              value={campanaForm.marketing_content}
-              onChange={(e) =>
-                setCampanaForm((prev) => ({ ...prev, marketing_content: e.target.value }))
-              }
-            />
+          </Campo>
+        </div>
+
+        {/*
+          Los campos de UTM se mostraban con sus nombres de base de datos:
+          "marketing_source (opcional)", "marketing_medium (opcional)". Nombres
+          de columna a la vista de alguien que administra un restaurante.
+          Ahora están explicados y plegados, porque el 95% de las veces no se
+          tocan: el sistema los deriva del canal.
+        */}
+        <details className="rounded-xl bg-gray-50 p-3">
+          <summary className="cursor-pointer text-[13px] font-medium text-gray-700">
+            Parámetros de seguimiento avanzados
+          </summary>
+          <p className="mt-1.5 text-[12px] leading-4 text-gray-500">
+            Sólo hace falta tocarlos si medís esta campaña también desde Google Analytics o Meta. Si
+            los dejás vacíos, el sistema los completa según el canal.
+          </p>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <Campo label="Origen (utm_source)">
+              <input
+                value={campanaForm.marketing_source}
+                onChange={(e) =>
+                  setCampanaForm((p) => ({ ...p, marketing_source: e.target.value }))
+                }
+                placeholder="instagram"
+                className={CONTROL}
+              />
+            </Campo>
+            <Campo label="Medio (utm_medium)">
+              <input
+                value={campanaForm.marketing_medium}
+                onChange={(e) =>
+                  setCampanaForm((p) => ({ ...p, marketing_medium: e.target.value }))
+                }
+                placeholder="social"
+                className={CONTROL}
+              />
+            </Campo>
           </div>
-          <TextAreaField
-            label="Observaciones"
-            value={campanaForm.observaciones}
-            onChange={(e) => setCampanaForm((prev) => ({ ...prev, observaciones: e.target.value }))}
+        </details>
+
+        <label className="flex cursor-pointer items-start gap-3 rounded-xl bg-gray-50 p-3">
+          <input
+            type="checkbox"
+            checked={Boolean(campanaForm.activa)}
+            onChange={(e) => setCampanaForm((p) => ({ ...p, activa: e.target.checked }))}
+            className="mt-0.5 h-4 w-4 shrink-0 rounded border-gray-300"
+            style={{ accentColor: BRAND }}
           />
-        </EntityForm>
+          <span>
+            <span className="block text-[13px] font-medium text-gray-900">Campaña habilitada</span>
+            <span className="mt-0.5 block text-[12px] leading-4 text-gray-500">
+              Si la pausás deja de atribuir pedidos aunque esté dentro de la fecha.
+            </span>
+          </span>
+        </label>
       </Modal>
 
+      {/* ── Promo ── */}
+      <Modal
+        open={modal.type === 'promo'}
+        title={modal.item ? `Editar ${modal.item.nombre}` : 'Nueva promo'}
+        subtitle="El beneficio concreto que ofrece una campaña"
+        onClose={closeModal}
+        onSubmit={handleSubmit}
+        saving={saving}
+      >
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Campo label="Nombre" className="sm:col-span-2">
+            <input
+              value={promoForm.nombre}
+              onChange={(e) => setPromoForm((p) => ({ ...p, nombre: e.target.value }))}
+              placeholder="Ej: 2x1 en empanadas"
+              className={CONTROL}
+            />
+          </Campo>
+
+          <Campo label="Tipo">
+            <select
+              value={promoForm.tipo_promo}
+              onChange={(e) => setPromoForm((p) => ({ ...p, tipo_promo: e.target.value }))}
+              className={`${CONTROL} font-medium`}
+            >
+              {PROMO_TYPES.map((t) => (
+                <option key={t.value} value={t.value}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
+          </Campo>
+
+          <Campo
+            label={promoForm.tipo_promo === 'porcentaje' ? 'Cuánto descuenta (%)' : 'Valor'}
+            hint={
+              promoForm.tipo_promo === 'envio_gratis'
+                ? 'No hace falta para envío gratis'
+                : undefined
+            }
+          >
+            <input
+              type="number"
+              min="0"
+              max={promoForm.tipo_promo === 'porcentaje' ? 100 : undefined}
+              value={promoForm.valor}
+              onChange={(e) => setPromoForm((p) => ({ ...p, valor: e.target.value }))}
+              disabled={promoForm.tipo_promo === 'envio_gratis'}
+              className={`${CONTROL} tabular-nums disabled:bg-gray-100 disabled:text-gray-400`}
+            />
+          </Campo>
+
+          <Campo label="Arranca">
+            <input
+              type="datetime-local"
+              value={promoForm.fecha_inicio}
+              onChange={(e) => setPromoForm((p) => ({ ...p, fecha_inicio: e.target.value }))}
+              className={CONTROL}
+            />
+          </Campo>
+
+          <Campo label="Termina">
+            <input
+              type="datetime-local"
+              value={promoForm.fecha_fin}
+              onChange={(e) => setPromoForm((p) => ({ ...p, fecha_fin: e.target.value }))}
+              className={CONTROL}
+            />
+          </Campo>
+
+          <Campo label="Canal sugerido">
+            <select
+              value={promoForm.canal_sugerido}
+              onChange={(e) => setPromoForm((p) => ({ ...p, canal_sugerido: e.target.value }))}
+              className={`${CONTROL} font-medium`}
+            >
+              {CHANNELS.map((c) => (
+                <option key={c.value} value={c.value}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+          </Campo>
+
+          <Campo label="Cupón asociado" hint="Para que el descuento se aplique solo en la caja">
+            <select
+              value={promoForm.cupon_id || ''}
+              onChange={(e) => setPromoForm((p) => ({ ...p, cupon_id: e.target.value }))}
+              className={`${CONTROL} font-medium`}
+            >
+              <option value="">Sin cupón</option>
+              {(references.cupones || []).map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.codigo}
+                </option>
+              ))}
+            </select>
+          </Campo>
+
+          <Campo label="Descripción" className="sm:col-span-2">
+            <textarea
+              value={promoForm.descripcion}
+              onChange={(e) => setPromoForm((p) => ({ ...p, descripcion: e.target.value }))}
+              rows={2}
+              className="w-full resize-none rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-[14px] text-gray-800 outline-none transition focus:border-gray-400 focus:ring-2 focus:ring-gray-900/5"
+            />
+          </Campo>
+        </div>
+
+        <label className="flex cursor-pointer items-center gap-3 rounded-xl bg-gray-50 p-3">
+          <input
+            type="checkbox"
+            checked={Boolean(promoForm.activa)}
+            onChange={(e) => setPromoForm((p) => ({ ...p, activa: e.target.checked }))}
+            className="h-4 w-4 shrink-0 rounded border-gray-300"
+            style={{ accentColor: BRAND }}
+          />
+          <span className="text-[13px] font-medium text-gray-900">Promo habilitada</span>
+        </label>
+      </Modal>
+
+      {/* ── Contenido ── */}
+      <Modal
+        open={modal.type === 'contenido'}
+        title={modal.item ? `Editar ${modal.item.titulo}` : 'Nuevo contenido'}
+        subtitle="Guardá el texto una vez y reusalo al publicar"
+        onClose={closeModal}
+        onSubmit={handleSubmit}
+        saving={saving}
+      >
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Campo label="Título" className="sm:col-span-2">
+            <input
+              value={contenidoForm.titulo}
+              onChange={(e) => setContenidoForm((p) => ({ ...p, titulo: e.target.value }))}
+              placeholder="Ej: Historia martes de milanesas"
+              className={CONTROL}
+            />
+          </Campo>
+
+          <Campo label="Para qué red">
+            <select
+              value={contenidoForm.red_sugerida}
+              onChange={(e) => setContenidoForm((p) => ({ ...p, red_sugerida: e.target.value }))}
+              className={`${CONTROL} font-medium`}
+            >
+              {CHANNELS.map((c) => (
+                <option key={c.value} value={c.value}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+          </Campo>
+
+          <Campo label="Estado">
+            <select
+              value={contenidoForm.estado}
+              onChange={(e) => setContenidoForm((p) => ({ ...p, estado: e.target.value }))}
+              className={`${CONTROL} font-medium`}
+            >
+              {CONTENT_STATES.map((s) => (
+                <option key={s.value} value={s.value}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
+          </Campo>
+
+          <Campo label="Texto corto" className="sm:col-span-2" hint="El que va en la publicación">
+            <textarea
+              value={contenidoForm.texto_corto}
+              onChange={(e) => setContenidoForm((p) => ({ ...p, texto_corto: e.target.value }))}
+              rows={3}
+              className="w-full resize-none rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-[14px] text-gray-800 outline-none transition focus:border-gray-400 focus:ring-2 focus:ring-gray-900/5"
+            />
+          </Campo>
+
+          <Campo label="Texto largo" className="sm:col-span-2" hint="Opcional, para posteos o mail">
+            <textarea
+              value={contenidoForm.texto_largo}
+              onChange={(e) => setContenidoForm((p) => ({ ...p, texto_largo: e.target.value }))}
+              rows={4}
+              className="w-full resize-none rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-[14px] text-gray-800 outline-none transition focus:border-gray-400 focus:ring-2 focus:ring-gray-900/5"
+            />
+          </Campo>
+
+          <Campo label="Llamado a la acción" className="sm:col-span-2">
+            <input
+              value={contenidoForm.cta}
+              onChange={(e) => setContenidoForm((p) => ({ ...p, cta: e.target.value }))}
+              placeholder="Ej: Pedí por WhatsApp"
+              className={CONTROL}
+            />
+          </Campo>
+        </div>
+      </Modal>
+
+      {/* ── Agenda ── */}
       <Modal
         open={modal.type === 'calendario'}
-        title={modal.item ? 'Editar calendario' : 'Nuevo evento'}
+        title={modal.item ? 'Editar publicación' : 'Agendar publicación'}
         onClose={closeModal}
+        onSubmit={handleSubmit}
+        saving={saving}
       >
-        <EntityForm onSubmit={handleSubmit}>
-          <div className="grid gap-4 md:grid-cols-2">
-            <TextField
-              label="Fecha sugerida"
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Campo label="Cuándo se publica">
+            <input
               type="datetime-local"
               value={calendarioForm.fecha_programada}
               onChange={(e) =>
-                setCalendarioForm((prev) => ({ ...prev, fecha_programada: e.target.value }))
+                setCalendarioForm((p) => ({ ...p, fecha_programada: e.target.value }))
               }
+              className={CONTROL}
             />
-            <SelectField
-              label="Canal"
+          </Campo>
+
+          <Campo label="Dónde">
+            <select
               value={calendarioForm.canal}
-              onChange={(e) => setCalendarioForm((prev) => ({ ...prev, canal: e.target.value }))}
+              onChange={(e) => setCalendarioForm((p) => ({ ...p, canal: e.target.value }))}
+              className={`${CONTROL} font-medium`}
             >
-              {CHANNELS.map((channel) => (
-                <option key={channel} value={channel}>
-                  {channel}
+              {CHANNELS.map((c) => (
+                <option key={c.value} value={c.value}>
+                  {c.label}
                 </option>
               ))}
-            </SelectField>
-            <SelectField
-              label="Estado"
-              value={calendarioForm.estado}
-              onChange={(e) => setCalendarioForm((prev) => ({ ...prev, estado: e.target.value }))}
-            >
-              {CALENDAR_STATES.map((state) => (
-                <option key={state} value={state}>
-                  {state}
-                </option>
-              ))}
-            </SelectField>
-            <SelectField
-              label="Campaña"
-              value={calendarioForm.campana_id}
-              onChange={(e) =>
-                setCalendarioForm((prev) => ({ ...prev, campana_id: e.target.value }))
-              }
+            </select>
+          </Campo>
+
+          <Campo label="Campaña">
+            <select
+              value={calendarioForm.campana_id || ''}
+              onChange={(e) => setCalendarioForm((p) => ({ ...p, campana_id: e.target.value }))}
+              className={`${CONTROL} font-medium`}
             >
               <option value="">Sin campaña</option>
-              {references.campanas.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.nombre}
+              {campanas.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.nombre}
                 </option>
               ))}
-            </SelectField>
-            <SelectField
-              label="Contenido"
-              value={calendarioForm.contenido_id}
-              onChange={(e) =>
-                setCalendarioForm((prev) => ({ ...prev, contenido_id: e.target.value }))
-              }
+            </select>
+          </Campo>
+
+          <Campo label="Contenido">
+            <select
+              value={calendarioForm.contenido_id || ''}
+              onChange={(e) => setCalendarioForm((p) => ({ ...p, contenido_id: e.target.value }))}
+              className={`${CONTROL} font-medium`}
             >
               <option value="">Sin contenido</option>
-              {references.contenidos.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.titulo}
+              {contenidos.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.titulo}
                 </option>
               ))}
-            </SelectField>
-            <SelectField
-              label="Promo"
-              value={calendarioForm.promo_id}
-              onChange={(e) => setCalendarioForm((prev) => ({ ...prev, promo_id: e.target.value }))}
+            </select>
+          </Campo>
+
+          <Campo label="Estado">
+            <select
+              value={calendarioForm.estado}
+              onChange={(e) => setCalendarioForm((p) => ({ ...p, estado: e.target.value }))}
+              className={`${CONTROL} font-medium`}
             >
-              <option value="">Sin promo</option>
-              {references.promos.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.nombre}
+              {CALENDAR_STATES.map((s) => (
+                <option key={s.value} value={s.value}>
+                  {s.label}
                 </option>
               ))}
-            </SelectField>
-          </div>
-          <TextAreaField
-            label="Observaciones"
-            value={calendarioForm.observaciones}
-            onChange={(e) =>
-              setCalendarioForm((prev) => ({ ...prev, observaciones: e.target.value }))
-            }
-          />
-        </EntityForm>
+            </select>
+          </Campo>
+
+          <Campo label="Notas" className="sm:col-span-2">
+            <input
+              value={calendarioForm.observaciones}
+              onChange={(e) => setCalendarioForm((p) => ({ ...p, observaciones: e.target.value }))}
+              className={CONTROL}
+            />
+          </Campo>
+        </div>
       </Modal>
+
       <ActionDialog
         open={Boolean(deleteDialog)}
-        title={deleteDialog ? `Eliminar ${deleteDialog.label}` : ''}
-        description="Este elemento dejará de formar parte de la planificación de marketing."
+        title="Eliminar"
+        description={deleteDialog ? `Se elimina ${deleteDialog.label}. No se puede deshacer.` : ''}
         confirmLabel="Eliminar"
         cancelLabel="Cancelar"
         tone="danger"
@@ -1067,105 +936,5 @@ export default function MarketingDigital() {
         onClose={() => setDeleteDialog(null)}
       />
     </div>
-  );
-}
-
-function SectionCrud({ title, buttonLabel, onCreate, children }) {
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-xl font-black text-slate-900">{title}</h2>
-        <button
-          onClick={onCreate}
-          className="inline-flex items-center gap-2 rounded-2xl bg-primary-500 px-4 py-3 text-sm font-bold text-white shadow-lg shadow-primary-200"
-        >
-          <Plus size={16} />
-          {buttonLabel}
-        </button>
-      </div>
-      {children}
-    </div>
-  );
-}
-
-function SimpleTable({ rows, columns, emptyText, onEdit, onDelete }) {
-  if (!rows.length) return <EmptyCard text={emptyText} />;
-  return (
-    <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-      <table className="w-full text-left text-sm">
-        <thead className="bg-slate-50">
-          <tr>
-            {columns.map((column) => (
-              <th key={column.key} className="px-4 py-3 font-black text-slate-700">
-                {column.label}
-              </th>
-            ))}
-            <th className="px-4 py-3 text-right font-black text-slate-700">Acciones</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-100">
-          {rows.map((row) => (
-            <tr key={row.id} className="hover:bg-slate-50">
-              {columns.map((column) => (
-                <td key={column.key} className="px-4 py-3 text-slate-700">
-                  {column.render ? column.render(row) : row[column.key] || '-'}
-                </td>
-              ))}
-              <td className="px-4 py-3">
-                <div className="flex justify-end gap-2">
-                  <ActionButton icon={Edit2} onClick={() => onEdit(row)} />
-                  <ActionButton icon={Trash2} onClick={() => onDelete(row)} danger />
-                </div>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function ActionButton({ icon: Icon, onClick, danger = false }) {
-  return (
-    <button
-      onClick={onClick}
-      className={`rounded-2xl p-2.5 ${danger ? 'bg-danger-50 text-danger-600' : 'bg-slate-100 text-slate-700'}`}
-    >
-      <Icon size={16} />
-    </button>
-  );
-}
-
-function EmptyCard({ text }) {
-  return (
-    <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500">
-      {text}
-    </div>
-  );
-}
-
-function EntityForm({ onSubmit, children }) {
-  return (
-    <form onSubmit={onSubmit} className="space-y-4">
-      {children}
-      <div className="flex justify-end">
-        <button
-          type="submit"
-          className="inline-flex items-center gap-2 rounded-2xl bg-primary-500 px-5 py-3 text-sm font-bold text-white shadow-lg shadow-primary-200"
-        >
-          <CheckCircle2 size={16} />
-          Guardar
-        </button>
-      </div>
-    </form>
-  );
-}
-
-function CheckField({ label, checked, onChange }) {
-  return (
-    <label className="inline-flex items-center gap-3 rounded-2xl bg-slate-50 px-4 py-3 text-sm font-bold text-slate-700">
-      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
-      {label}
-    </label>
   );
 }

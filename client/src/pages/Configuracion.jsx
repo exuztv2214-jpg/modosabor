@@ -1,20 +1,22 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import {
-  Building2,
-  CreditCard,
-  Truck,
-  Printer,
-  Settings,
-  Save,
-  LayoutGrid,
-  Smartphone,
-  MonitorSmartphone,
   BellRing,
+  Building2,
+  Check,
+  CreditCard,
+  LayoutGrid,
+  MonitorSmartphone,
+  Printer,
+  Save,
+  Settings,
+  Smartphone,
+  Truck,
 } from 'lucide-react';
 
 import api from '../lib/api.js';
 import { applyBranding } from '../lib/branding.js';
+import { APP_BG, BRAND, STROKE } from '../lib/theme.js';
 import { useAppConfig } from '../context/AppConfigContext.jsx';
 import SeccionGeneral from '../components/Configuracion/SeccionGeneral.jsx';
 import SeccionModulos from '../components/Configuracion/SeccionModulos.jsx';
@@ -27,6 +29,23 @@ import SeccionWebPublica from '../components/Configuracion/SeccionWebPublica.jsx
 import SeccionAlertas from '../components/Configuracion/SeccionAlertas.jsx';
 import ActionDialog from '../components/ActionDialog.jsx';
 import { safeParseArray } from '../lib/pedidoForm.js';
+
+const TABS = [
+  { id: 'general', label: 'General', icon: Building2, hint: 'Datos del local, marca y turnos' },
+  { id: 'web', label: 'Web pública', icon: MonitorSmartphone, hint: 'Cómo se ve la carta online' },
+  { id: 'modulos', label: 'Módulos', icon: LayoutGrid, hint: 'Qué partes del sistema se usan' },
+  { id: 'pagos', label: 'Pagos', icon: CreditCard, hint: 'Métodos de cobro y Mercado Pago' },
+  { id: 'delivery', label: 'Delivery', icon: Truck, hint: 'Zonas, costos y tiempos de envío' },
+  {
+    id: 'rider',
+    label: 'App rider',
+    icon: Smartphone,
+    hint: 'Comportamiento de la app de reparto',
+  },
+  { id: 'alertas', label: 'Alertas', icon: BellRing, hint: 'Sonidos y avisos de pedidos' },
+  { id: 'impresion', label: 'Impresión', icon: Printer, hint: 'Comandas, tickets y formato' },
+  { id: 'avanzado', label: 'Avanzado', icon: Settings, hint: 'Backups, auditoría y reinicio' },
+];
 
 function buildDefaultTurno(index) {
   return {
@@ -53,6 +72,13 @@ export default function Configuracion() {
   const logoInputRef = useRef(null);
   const faviconInputRef = useRef(null);
 
+  /**
+   * Nueve pestañas con un único botón de guardar es la receta perfecta para
+   * perder trabajo: se editan cinco campos en Pagos, se salta a Delivery, se
+   * cierra la pantalla y no quedó nada. Antes nada avisaba.
+   */
+  const [sucio, setSucio] = useState(false);
+
   const hydrateState = (data) => {
     setConfig(data);
     setDeliveryZones(safeParseArray(data.delivery_zonas));
@@ -60,14 +86,15 @@ export default function Configuracion() {
     setTurnos(
       parsedTurnos.length > 0 ? parsedTurnos : [buildDefaultTurno(0), buildDefaultTurno(1)]
     );
+    setSucio(false);
   };
 
   const fetchConfig = async () => {
     try {
       const data = await api.get('/configuracion/map');
       hydrateState(data);
-    } catch {
-      toast.error('Error al cargar configuración');
+    } catch (error) {
+      toast.error(error?.error || 'No se pudo cargar la configuración');
     } finally {
       setLoading(false);
     }
@@ -78,7 +105,8 @@ export default function Configuracion() {
       const logs = await api.get('/configuracion/audit?limit=10');
       setAuditLogs(Array.isArray(logs) ? logs : []);
     } catch (err) {
-      console.warn('No se pudo cargar el historial de cambios:', err?.message || err);
+      // El interceptor de axios rechaza con `.error`, no con `.message`.
+      console.warn('No se pudo cargar el historial de cambios:', err?.error || err);
     }
   };
 
@@ -86,6 +114,16 @@ export default function Configuracion() {
     fetchConfig();
     fetchAuditLogs();
   }, []);
+
+  useEffect(() => {
+    if (!sucio) return undefined;
+    const onBeforeUnload = (event) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [sucio]);
 
   const saveConfig = async () => {
     setSaving(true);
@@ -101,9 +139,9 @@ export default function Configuracion() {
       applyBranding(updated);
       await refreshConfig(updated);
       await fetchAuditLogs();
-      toast.success('Configuración guardada correctamente');
-    } catch {
-      toast.error('Error al guardar cambios');
+      toast.success('Configuración guardada');
+    } catch (error) {
+      toast.error(error?.error || 'No se pudieron guardar los cambios');
     } finally {
       setSaving(false);
     }
@@ -138,15 +176,33 @@ export default function Configuracion() {
   };
 
   const setToggle = (key, value) => {
+    setSucio(true);
     setConfig((prev) => ({ ...prev, [key]: value ? '1' : '0' }));
   };
 
+  /**
+   * Enlaza un campo del formulario con su clave de configuración.
+   *
+   * Usa `??` y no `||`: con `||`, un valor numérico cero se convertía en
+   * cadena vacía y el campo aparecía en blanco. Pasaba, por ejemplo, con un
+   * costo de envío en 0 para la zona propia.
+   */
   const f = (key) => ({
-    value: config[key] || '',
-    onChange: (event) => setConfig((prev) => ({ ...prev, [key]: event.target.value })),
+    value: config[key] ?? '',
+    onChange: (event) => {
+      setSucio(true);
+      setConfig((prev) => ({ ...prev, [key]: event.target.value }));
+    },
   });
 
+  /** Envuelve un setter para que cualquier cambio marque la pantalla como sucia. */
+  const setConfigSucio = (updater) => {
+    setSucio(true);
+    setConfig(updater);
+  };
+
   const addZone = () => {
+    setSucio(true);
     setDeliveryZones((prev) => [
       ...prev,
       {
@@ -161,20 +217,30 @@ export default function Configuracion() {
   };
 
   const removeZone = (index) => {
+    setSucio(true);
     setDeliveryZones((prev) => prev.filter((_, currentIndex) => currentIndex !== index));
   };
 
   const updateZone = (index, key, value) => {
+    setSucio(true);
     setDeliveryZones((prev) =>
       prev.map((zone, currentIndex) => (currentIndex === index ? { ...zone, [key]: value } : zone))
     );
   };
 
+  // El envío es gratis en todo Monteros. Las zonas sirven para estimar la
+  // demora, no para tarifar; por eso las dos van en 0. El preset anterior
+  // ponía $1.200 en "Barrios cercanos", que no es como trabaja el local.
+  //
+  // `catchAll` en Monteros hace que cualquier dirección que no matchee otra
+  // zona caiga acá en vez de quedar sin zona.
   const applyMonterosPreset = () => {
+    setSucio(true);
     setDeliveryZones([
       {
         id: 'monteros',
         nombre: 'Monteros',
+        catchAll: true,
         costo_envio: 0,
         tiempo_estimado_min: 25,
         keywords: ['monteros', 'centro', 'plaza'],
@@ -183,7 +249,7 @@ export default function Configuracion() {
       {
         id: 'cercana',
         nombre: 'Barrios cercanos',
-        costo_envio: 1200,
+        costo_envio: 0,
         tiempo_estimado_min: 35,
         keywords: ['villa quinteros', 'santa lucia'],
         activa: true,
@@ -192,10 +258,12 @@ export default function Configuracion() {
   };
 
   const addTurno = () => {
+    setSucio(true);
     setTurnos((prev) => [...prev, buildDefaultTurno(prev.length)]);
   };
 
   const updateTurno = (index, key, value) => {
+    setSucio(true);
     setTurnos((prev) =>
       prev.map((turno, currentIndex) =>
         currentIndex === index ? { ...turno, [key]: value } : turno
@@ -204,6 +272,7 @@ export default function Configuracion() {
   };
 
   const removeTurno = (index) => {
+    setSucio(true);
     setTurnos((prev) => prev.filter((_, currentIndex) => currentIndex !== index));
   };
 
@@ -226,8 +295,8 @@ export default function Configuracion() {
       link.remove();
       URL.revokeObjectURL(url);
       toast.success('Backup exportado');
-    } catch {
-      toast.error('Error al exportar backup');
+    } catch (error) {
+      toast.error(error?.error || 'No se pudo exportar el backup');
     }
   };
 
@@ -269,7 +338,7 @@ export default function Configuracion() {
       (dialog.type === 'import-backup' || dialog.type === 'reset-operativo') &&
       dialogInput.trim().toUpperCase() !== 'RESTAURAR'
     ) {
-      toast.error('Escribe RESTAURAR para confirmar');
+      toast.error('Escribí RESTAURAR para confirmar');
       return;
     }
 
@@ -278,7 +347,7 @@ export default function Configuracion() {
         const formData = new FormData();
         formData.append('backup', dialog.file);
         await api.post('/configuracion/backup/import', formData);
-        toast.success('Backup restaurado correctamente. Recargando...');
+        toast.success('Backup restaurado. Recargando…');
         closeDialog();
         setTimeout(() => window.location.reload(), 1500);
         return;
@@ -290,114 +359,109 @@ export default function Configuracion() {
         closeDialog();
         await fetchAuditLogs();
       }
-    } catch {
+    } catch (error) {
       toast.error(
-        dialog.type === 'import-backup' ? 'Error al importar backup' : 'Error al reiniciar'
+        error?.error ||
+          (dialog.type === 'import-backup'
+            ? 'No se pudo importar el backup'
+            : 'No se pudo reiniciar')
       );
     }
   };
 
+  const tabActual = useMemo(() => TABS.find((tab) => tab.id === activeTab), [activeTab]);
+
   if (loading) {
     return (
-      <div className="flex h-96 items-center justify-center">
-        <div className="h-12 w-12 animate-spin rounded-full border-4 border-orange-500 border-t-transparent"></div>
+      <div className="flex h-96 items-center justify-center" style={{ background: APP_BG }}>
+        <div
+          className="h-9 w-9 animate-spin rounded-full border-[3px] border-gray-200"
+          style={{ borderTopColor: BRAND }}
+        />
       </div>
     );
   }
 
-  const tabs = [
-    {
-      id: 'general',
-      label: 'General',
-      icon: Building2,
-      color: 'text-primary-500',
-      bg: 'bg-primary-50',
-    },
-    {
-      id: 'web',
-      label: 'Web pública',
-      icon: MonitorSmartphone,
-      color: 'text-danger-600',
-      bg: 'bg-danger-50',
-    },
-    { id: 'modulos', label: 'Módulos', icon: LayoutGrid, color: 'text-sky-600', bg: 'bg-sky-50' },
-    {
-      id: 'pagos',
-      label: 'Pagos',
-      icon: CreditCard,
-      color: 'text-warning-600',
-      bg: 'bg-warning-50',
-    },
-    {
-      id: 'delivery',
-      label: 'Delivery',
-      icon: Truck,
-      color: 'text-orange-600',
-      bg: 'bg-orange-50',
-    },
-    {
-      id: 'rider',
-      label: 'Rider App',
-      icon: Smartphone,
-      color: 'text-primary-600',
-      bg: 'bg-primary-50',
-    },
-    {
-      id: 'alertas',
-      label: 'Alertas y voz',
-      icon: BellRing,
-      color: 'text-emerald-600',
-      bg: 'bg-emerald-50',
-    },
-    {
-      id: 'impresion',
-      label: 'Impresión',
-      icon: Printer,
-      color: 'text-violet-600',
-      bg: 'bg-violet-50',
-    },
-    { id: 'avanzado', label: 'Avanzado', icon: Settings, color: 'text-gray-600', bg: 'bg-gray-50' },
-  ];
-
   return (
-    <div className="min-h-screen bg-gray-50/50 pb-20">
-      <div className="bg-white border-b border-gray-200 sticky top-0 z-20 px-4 md:px-8">
-        <div className="mx-auto flex w-full max-w-7xl flex-col gap-3 py-3 xl:flex-row xl:items-center xl:justify-between">
-          <div className="overflow-x-auto no-scrollbar">
+    <div className="min-h-screen pb-16" style={{ background: APP_BG }}>
+      {/*
+        Encabezado y pestañas en renglones separados.
+
+        El botón de guardar era hermano de la fila de pestañas, que scrollea
+        en horizontal. En pantallas angostas le comía el espacio y quedaba
+        montado sobre la última pestaña, Avanzado. Ahora cada cosa tiene su
+        renglón y no se pisan nunca.
+
+        Y está siempre visible, no sólo cuando hay cambios: si no aparece
+        nada, el operador no sabe si existe ni dónde buscarlo.
+      */}
+      <div className="sticky top-0 z-20 border-b border-gray-100 bg-white">
+        <div className="mx-auto w-full max-w-7xl px-4 pb-2 pt-4 md:px-6">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h1 className="text-xl font-semibold tracking-tight text-gray-900">
+                {tabActual?.label}
+              </h1>
+              <p className="mt-0.5 text-[13px] text-gray-500">{tabActual?.hint}</p>
+            </div>
+
+            <div className="flex shrink-0 items-center gap-2">
+              {sucio ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (window.confirm('¿Descartar los cambios y volver a lo último guardado?')) {
+                      fetchConfig();
+                    }
+                  }}
+                  className="h-11 rounded-xl px-4 text-[13px] font-semibold text-gray-500 transition hover:bg-gray-100"
+                >
+                  Descartar
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={saveConfig}
+                disabled={saving || !sucio}
+                style={sucio ? { background: BRAND, color: '#FFFFFF' } : undefined}
+                title={sucio ? 'Guardar los cambios' : 'No hay cambios pendientes'}
+                className={`flex h-11 items-center justify-center gap-2 rounded-xl px-5 text-[13px] font-semibold transition disabled:cursor-default ${sucio ? 'hover:brightness-110' : 'bg-gray-100 text-gray-400'}`}
+              >
+                {sucio ? (
+                  <Save size={16} strokeWidth={STROKE} />
+                ) : (
+                  <Check size={16} strokeWidth={STROKE} />
+                )}
+                {saving ? 'Guardando…' : sucio ? 'Guardar cambios' : 'Todo guardado'}
+              </button>
+            </div>
+          </div>
+
+          <div className="no-scrollbar -mx-1 mt-3 overflow-x-auto px-1 pb-1">
             <div className="flex gap-1">
-              {tabs.map((tab) => {
+              {TABS.map((tab) => {
                 const Icon = tab.icon;
-                const isActive = activeTab === tab.id;
+                const activo = activeTab === tab.id;
                 return (
                   <button
                     key={tab.id}
+                    type="button"
                     onClick={() => setActiveTab(tab.id)}
-                    className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition-all whitespace-nowrap ${
-                      isActive
-                        ? `${tab.bg} ${tab.color} ring-1 ring-inset ring-current/20`
-                        : 'text-gray-500 hover:bg-gray-100'
-                    }`}
+                    title={tab.hint}
+                    style={activo ? { background: BRAND, color: '#FFFFFF' } : undefined}
+                    className={`flex h-10 shrink-0 items-center gap-2 whitespace-nowrap rounded-xl px-3.5 text-[13px] transition ${activo ? 'font-semibold' : 'font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-800'}`}
                   >
-                    <Icon size={18} />
+                    <Icon size={16} strokeWidth={STROKE} />
                     {tab.label}
                   </button>
                 );
               })}
             </div>
           </div>
-
-          <button
-            onClick={saveConfig}
-            disabled={saving}
-            className="flex items-center justify-center gap-2 self-start rounded-xl bg-primary-500 px-6 py-2.5 text-sm font-bold text-white shadow-lg shadow-primary-200 transition-all hover:bg-[#4A74EF] hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 xl:self-auto"
-          >
-            <Save size={18} />
-            {saving ? 'Guardando...' : 'Guardar cambios'}
-          </button>
         </div>
       </div>
 
-      <div className="mt-4">
+      <div className="mt-2">
         {activeTab === 'general' && (
           <SeccionGeneral
             config={config}
@@ -415,11 +479,11 @@ export default function Configuracion() {
           />
         )}
         {activeTab === 'modulos' && (
-          <SeccionModulos config={config} setToggle={setToggle} setConfig={setConfig} />
+          <SeccionModulos config={config} setToggle={setToggle} setConfig={setConfigSucio} />
         )}
-        {activeTab === 'web' && <SeccionWebPublica config={config} setConfig={setConfig} />}
+        {activeTab === 'web' && <SeccionWebPublica config={config} setConfig={setConfigSucio} />}
         {activeTab === 'pagos' && (
-          <SeccionPagos config={config} setConfig={setConfig} f={f} setToggle={setToggle} />
+          <SeccionPagos config={config} setConfig={setConfigSucio} f={f} setToggle={setToggle} />
         )}
         {activeTab === 'delivery' && (
           <SeccionDelivery
@@ -433,10 +497,17 @@ export default function Configuracion() {
             applyMonterosPreset={applyMonterosPreset}
           />
         )}
-        {activeTab === 'rider' && <SeccionRider config={config} f={f} setConfig={setConfig} />}
-        {activeTab === 'alertas' && <SeccionAlertas config={config} f={f} setConfig={setConfig} />}
+        {activeTab === 'rider' && <SeccionRider config={config} f={f} setConfig={setConfigSucio} />}
+        {activeTab === 'alertas' && (
+          <SeccionAlertas config={config} f={f} setConfig={setConfigSucio} />
+        )}
         {activeTab === 'impresion' && (
-          <SeccionImpresion config={config} f={f} setToggle={setToggle} setConfig={setConfig} />
+          <SeccionImpresion
+            config={config}
+            f={f}
+            setToggle={setToggle}
+            setConfig={setConfigSucio}
+          />
         )}
         {activeTab === 'avanzado' && (
           <SeccionAvanzado
@@ -450,6 +521,7 @@ export default function Configuracion() {
           />
         )}
       </div>
+
       <ActionDialog
         open={Boolean(dialog)}
         title={dialog?.title || ''}
@@ -458,7 +530,7 @@ export default function Configuracion() {
         cancelLabel="Cancelar"
         tone="danger"
         inputLabel="Confirmación"
-        inputPlaceholder="Escribe RESTAURAR"
+        inputPlaceholder="Escribí RESTAURAR"
         inputValue={dialogInput}
         onInputChange={setDialogInput}
         onConfirm={confirmDialog}

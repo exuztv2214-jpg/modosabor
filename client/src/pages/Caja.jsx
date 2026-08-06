@@ -1,38 +1,42 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import {
   AlertTriangle,
-  BadgeDollarSign,
-  CalendarClock,
+  ArrowDownCircle,
+  ArrowUpCircle,
   ClipboardList,
+  Download,
   Lock,
+  Plus,
   Printer,
   RefreshCw,
-  Shield,
   WalletCards,
-  ArrowUpCircle,
-  ArrowDownCircle,
-  Plus,
   X,
-  Wallet,
-  TrendingUp,
-  FileText,
-  UserCheck,
-  Download,
 } from 'lucide-react';
 
 import api from '../lib/api.js';
 import { fmtMoney } from '../lib/formatters.js';
+import { paymentMethodLabel } from '../lib/paymentStatus.js';
+import { useAuthenticatedSocket } from '../hooks/useAuthenticatedSocket.js';
 import ActionDialog from '../components/ActionDialog.jsx';
+import { APP_BG, BRAND, STROKE } from '../lib/theme.js';
 
+import { parseFechaServidor } from '../lib/fechas.js';
 const fmt = fmtMoney;
 const CONTROL =
-  'w-full rounded-2xl border border-gray-200 bg-white px-4 text-sm font-semibold text-gray-700 shadow-sm outline-none transition focus:border-primary-500 focus:ring-4 focus:ring-[#5D87FF]/10';
+  'w-full rounded-xl border border-gray-200 bg-white px-3 text-[14px] text-gray-800 outline-none transition placeholder:text-gray-400 focus:border-gray-400 focus:ring-2 focus:ring-gray-900/5';
 const OPENING_PRESETS = [0, 10000, 20000, 50000];
 const MOVEMENT_PRESETS = [1000, 2000, 5000, 10000];
 const MOVEMENT_REASONS = {
   entrada: ['Carga de fondo', 'Ingreso manual', 'Vuelto recuperado', 'Otro'],
   salida: ['Compra urgente', 'Pago repartidor', 'Gasto operativo', 'Retiro de efectivo', 'Otro'],
+};
+
+const TIPO_ENTREGA_LABEL = {
+  mostrador: 'Mostrador',
+  delivery: 'Delivery',
+  mesa: 'Mesa',
+  retiro: 'Retiro en local',
 };
 
 function parseMoneyInput(value) {
@@ -45,17 +49,31 @@ function parseMoneyInput(value) {
 }
 
 function fmtDateTime(value) {
-  if (!value) return '-';
-  const parsed = new Date(String(value).replace(' ', 'T'));
+  if (!value) return '—';
+  // La fecha viene en UTC sin marcar: leerla como local mostraba los cierres
+  // y movimientos de caja 3 horas adelantados. Ver lib/fechas.js.
+  const parsed = parseFechaServidor(value);
   if (Number.isNaN(parsed.getTime())) return String(value);
   return parsed.toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' });
 }
 
 function fmtHour(value) {
-  if (!value) return '-';
-  const parsed = new Date(String(value).replace(' ', 'T'));
+  if (!value) return '—';
+  const parsed = parseFechaServidor(value);
   if (Number.isNaN(parsed.getTime())) return String(value);
   return parsed.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+}
+
+/**
+ * Celda de CSV.
+ *
+ * El motivo del movimiento se metía entre comillas sin escapar las que
+ * pudiera traer adentro, así que un motivo como `Compra "urgente"` partía la
+ * fila en dos y corría todas las columnas del archivo.
+ */
+function csvCell(value) {
+  const text = String(value ?? '');
+  return `"${text.replace(/"/g, '""')}"`;
 }
 
 function openPrintWindow(html) {
@@ -78,35 +96,48 @@ function openPrintWindow(html) {
   }, 200);
 }
 
-function StatCard({ icon: Icon, label, value, helper, tint = 'blue' }) {
-  const tints = {
-    blue: 'bg-primary-50 text-primary-500',
-    emerald: 'bg-success-50 text-success-500',
-    rose: 'bg-danger-50 text-danger-500',
-    amber: 'bg-warning-50 text-warning-500',
-    slate: 'bg-gray-50 text-gray-600',
-  };
-
+function Card({ title, helper, action, children, className = '' }) {
   return (
-    <div className="group rounded-[32px] border border-gray-100 bg-white p-6 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-lg">
-      <div className="flex items-start justify-between">
-        <div>
-          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 mb-2">
-            {label}
-          </p>
-          <h3 className="text-2xl font-black text-gray-900">{value}</h3>
-          {helper && (
-            <p className="mt-1 text-[10px] font-bold text-gray-400 uppercase tracking-wider">
-              {helper}
-            </p>
-          )}
+    <div className={`rounded-2xl bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.06)] ${className}`}>
+      {(title || action) && (
+        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+          <div>
+            {title ? <h3 className="text-[15px] font-semibold text-gray-900">{title}</h3> : null}
+            {helper ? <p className="mt-0.5 text-[12px] text-gray-500">{helper}</p> : null}
+          </div>
+          {action}
         </div>
-        <div
-          className={`flex h-12 w-12 items-center justify-center rounded-2xl shadow-sm transition-transform duration-300 group-hover:rotate-6 ${tints[tint]}`}
+      )}
+      {children}
+    </div>
+  );
+}
+
+function Stat({ label, value, helper, alerta = false }) {
+  return (
+    <div className="relative overflow-hidden rounded-2xl bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.06)]">
+      <span
+        className="absolute inset-y-0 left-0 w-1"
+        style={{ background: alerta ? BRAND : '#E5E7EB' }}
+      />
+      <div className="pl-2">
+        <p className="text-[12px] text-gray-500">{label}</p>
+        <p
+          className="mt-1 text-[24px] font-bold leading-none tabular-nums tracking-tight"
+          style={{ color: alerta ? BRAND : '#111827' }}
         >
-          <Icon size={22} strokeWidth={2.5} />
-        </div>
+          {value}
+        </p>
+        {helper ? <p className="mt-1.5 text-[11px] leading-4 text-gray-400">{helper}</p> : null}
       </div>
+    </div>
+  );
+}
+
+function Empty({ children }) {
+  return (
+    <div className="rounded-xl border border-dashed border-gray-200 px-6 py-10 text-center text-[13px] text-gray-400">
+      {children}
     </div>
   );
 }
@@ -127,7 +158,7 @@ export default function Caja() {
   const [saving, setSaving] = useState(false);
   const [closeDialog, setCloseDialog] = useState(false);
 
-  const cargar = async ({ silent = false } = {}) => {
+  const cargar = useCallback(async ({ silent = false } = {}) => {
     if (!silent) setLoading(true);
     try {
       const response = await api.get('/caja/estado');
@@ -143,11 +174,41 @@ export default function Caja() {
     } finally {
       if (!silent) setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     cargar();
-  }, []);
+  }, [cargar]);
+
+  /**
+   * Refresco al vender.
+   *
+   * Esta pantalla no escuchaba nada: abrías la caja a la mañana y los totales
+   * se quedaban congelados hasta que apretabas actualizar a mano. O sea que
+   * podías estar contando la plata contra un "efectivo esperado" de hace
+   * cuarenta minutos. Ahora se actualiza sola cuando entra o cambia un
+   * pedido, con un freno de un segundo para no recargar en ráfaga.
+   */
+  const recargaPendiente = useRef(null);
+  const recargarConFreno = useCallback(() => {
+    if (recargaPendiente.current) return;
+    recargaPendiente.current = window.setTimeout(() => {
+      recargaPendiente.current = null;
+      cargar({ silent: true });
+    }, 1000);
+  }, [cargar]);
+
+  useEffect(
+    () => () => {
+      if (recargaPendiente.current) window.clearTimeout(recargaPendiente.current);
+    },
+    []
+  );
+
+  useAuthenticatedSocket({
+    nuevo_pedido: recargarConFreno,
+    pedido_actualizado_admin: recargarConFreno,
+  });
 
   const resumen = data?.resumen;
   const historial = Array.isArray(data?.historial) ? data.historial : [];
@@ -159,6 +220,8 @@ export default function Caja() {
   const efectivoEsperado =
     Number(data?.activa?.monto_inicial || 0) + Number(resumen?.efectivoNeto || 0);
   const ultimoCierre = historial.find((item) => item.estado === 'cerrada') || null;
+  const pendienteCobro = Number(resumen?.totalPendienteCobro || 0);
+
   const diferencia = useMemo(() => {
     if (!data?.activa) return 0;
     return parseMoneyInput(closing.monto_final_declarado) - efectivoEsperado;
@@ -236,7 +299,7 @@ export default function Caja() {
       return;
     }
     if (!String(movimiento.motivo || '').trim()) {
-      toast.error('Carga un motivo para el movimiento');
+      toast.error('Cargá un motivo para el movimiento');
       return;
     }
     setSaving(true);
@@ -257,24 +320,16 @@ export default function Caja() {
     }
   };
 
-  if (loading && !data?.activa && historial.length === 0) {
-    return (
-      <div className="flex h-screen items-center justify-center bg-background">
-        <div className="animate-spin rounded-full border-4 border-primary-500 border-t-transparent h-12 w-12" />
-      </div>
-    );
-  }
-
   const exportarMovimientosCSV = () => {
     if (!movimientos.length) return toast.error('No hay movimientos para exportar');
     const headers = ['Hora', 'Tipo', 'Motivo', 'Monto'];
     const rows = movimientos.map((m) => [
-      fmtHour(m.creado_en),
-      m.tipo === 'entrada' ? 'Ingreso' : 'Egreso',
-      `"${m.motivo || 'Sin detalle'}"`,
+      csvCell(fmtHour(m.creado_en)),
+      csvCell(m.tipo === 'entrada' ? 'Ingreso' : 'Egreso'),
+      csvCell(m.motivo || 'Sin detalle'),
       Number(m.tipo === 'salida' ? -m.monto : m.monto).toFixed(2),
     ]);
-    const csv = [headers, ...rows].map((r) => r.join(',')).join('\n');
+    const csv = [headers.map(csvCell), ...rows].map((r) => r.join(',')).join('\n');
     const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -285,742 +340,700 @@ export default function Caja() {
     toast.success('Movimientos exportados');
   };
 
+  if (loading && !data?.activa && historial.length === 0) {
+    return (
+      <div className="flex h-screen items-center justify-center" style={{ background: APP_BG }}>
+        <div
+          className="h-10 w-10 animate-spin rounded-full border-[3px] border-gray-200"
+          style={{ borderTopColor: BRAND }}
+        />
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-background px-4 py-8 sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-7xl space-y-8">
-        {/* Header Seccion */}
-        <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+    <div className="min-h-screen px-4 py-6 sm:px-6" style={{ background: APP_BG }}>
+      <div className="mx-auto max-w-7xl space-y-4 pb-10">
+        {/* ── Encabezado ── */}
+        <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
-            <div className="flex items-center gap-3 mb-2">
-              <div className="h-8 w-1 bg-primary-500 rounded-full"></div>
-              <p className="text-sm font-black text-primary-500 uppercase tracking-[0.3em]">
-                Control de Efectivo
-              </p>
-            </div>
-            <h1 className="text-3xl font-black text-gray-900 tracking-tight">Caja y Auditoría</h1>
-            <p className="mt-1 text-gray-500 font-medium">
-              Gestiona aperturas, cierres y gastos operativos del turno.
-            </p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <span
-                className={`px-3 py-1 rounded-full text-[11px] font-bold uppercase ${data?.turno_operativo?.abiertoAhora ? 'bg-success-100 text-success-700' : 'bg-danger-100 text-danger-700'}`}
-              >
+            <h1 className="text-2xl font-semibold tracking-tight text-gray-900">Caja</h1>
+            <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[13px] text-gray-500">
+              <span>
                 {data?.turno_operativo?.abiertoAhora
                   ? `Turno ${data?.turno_operativo?.shiftName}`
                   : 'Fuera de turno'}
               </span>
-              <span className="px-3 py-1 rounded-full bg-primary-50 text-primary-500 text-[11px] font-bold uppercase">
-                Fecha operativa {data?.turno_operativo?.fechaOperativa || '-'}
-              </span>
+              <span>·</span>
+              <span>Fecha operativa {data?.turno_operativo?.fechaOperativa || '—'}</span>
               {data?.activa?.auto_abierta ? (
-                <span className="px-3 py-1 rounded-full bg-warning-100 text-warning-700 text-[11px] font-bold uppercase">
-                  Caja autoabierta
-                </span>
+                <>
+                  <span>·</span>
+                  <span className="text-amber-600">Abierta automáticamente</span>
+                </>
               ) : null}
-            </div>
+            </p>
           </div>
 
-          <div className="flex flex-wrap gap-3">
+          <div className="flex flex-wrap gap-2">
             {data?.activa && (
               <button
+                type="button"
                 onClick={() => setShowMovimientoModal(true)}
-                className="flex h-12 items-center gap-2 rounded-2xl bg-primary-500 text-white px-6 text-sm font-black shadow-lg shadow-primary-100 transition-all hover:bg-primary-600 active:scale-95"
+                style={{ background: BRAND }}
+                className="flex h-11 items-center gap-2 rounded-xl px-4 text-[13px] font-semibold text-white transition hover:brightness-110"
               >
-                <Plus size={18} strokeWidth={3} />
-                REGISTRAR MOVIMIENTO
+                <Plus size={16} strokeWidth={STROKE} />
+                Movimiento
               </button>
             )}
             <button
-              onClick={cargar}
-              className="h-12 px-5 flex items-center justify-center rounded-2xl bg-white border border-gray-100 text-primary-500 shadow-sm hover:bg-gray-50 transition-all"
+              type="button"
+              onClick={() => cargar()}
+              className="flex h-11 items-center gap-2 rounded-xl bg-white px-4 text-[13px] font-semibold text-gray-600 shadow-[0_1px_2px_rgba(15,23,42,0.06)] transition hover:bg-gray-50"
             >
-              <RefreshCw size={18} strokeWidth={3} />
+              <RefreshCw size={16} strokeWidth={STROKE} className={loading ? 'animate-spin' : ''} />
+              Actualizar
             </button>
           </div>
         </div>
 
         {data?.activa ? (
           <>
-            {/* Metricas Modernize */}
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5 lg:gap-6">
-              <StatCard
-                icon={Wallet}
-                label="Fondo Inicial"
+            {/* ── Métricas del turno ── */}
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+              <Stat
+                label="Fondo inicial"
                 value={fmt(data.activa.monto_inicial)}
-                tint="blue"
-                helper={`Por ${data.activa.abierta_por_nombre}`}
+                helper={`Abrió ${data.activa.abierta_por_nombre || 'el sistema'}`}
               />
-              <StatCard
-                icon={TrendingUp}
-                label="Efectivo Cobrado"
+              <Stat
+                label="Efectivo cobrado"
                 value={fmt(resumen?.efectivoVentas)}
-                tint="emerald"
-                helper={`${resumen?.pedidos} órdenes activas en el turno`}
+                // Decía "órdenes activas en el turno" pero el número era el
+                // total de pedidos no cancelados, no los que siguen abiertos.
+                helper={`${resumen?.pedidos || 0} ${Number(resumen?.pedidos) === 1 ? 'pedido' : 'pedidos'} en el turno`}
               />
-              <StatCard
-                icon={ArrowDownCircle}
-                label="Egresos / Gastos"
+              <Stat
+                label="Egresos manuales"
                 value={fmt(resumen?.totalEgresosManuales)}
-                tint="rose"
-                helper="Salidas manuales"
+                helper={`Ingresos manuales ${fmt(resumen?.totalIngresosManuales)}`}
               />
-              <StatCard
-                icon={BadgeDollarSign}
-                label="Efectivo Esperado"
+              <Stat
+                label="Efectivo esperado"
                 value={fmt(efectivoEsperado)}
-                tint="blue"
-                helper="Balance en caja"
+                helper="Fondo + cobros en efectivo − egresos"
               />
-              <StatCard
-                icon={CalendarClock}
-                label="Pagos Digitales"
+              <Stat
+                label="Pagos digitales"
                 value={fmt(resumen?.digitales)}
-                tint="amber"
-                helper={`Pendiente de cobro ${fmt(resumen?.totalPendienteCobro)}`}
+                helper={
+                  pendienteCobro > 0 ? `${fmt(pendienteCobro)} todavía sin cobrar` : 'Todo cobrado'
+                }
+                alerta={pendienteCobro > 0}
               />
             </div>
 
-            <div className="grid grid-cols-1 gap-8 xl:grid-cols-[1fr_400px]">
-              <div className="space-y-8">
-                {/* Resumen de Ventas */}
-                <div className="rounded-[32px] bg-white p-8 shadow-sm border border-gray-100">
-                  <h3 className="text-xl font-black text-gray-900 uppercase tracking-tight mb-8">
-                    Desglose de Ventas
-                  </h3>
-                  <div className="grid gap-6 md:grid-cols-2">
-                    <div className="space-y-4">
-                      <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
-                        Metodos de Pago
-                      </p>
-                      {porMetodo.map((m) => (
-                        <div
-                          key={m.metodo_pago}
-                          className="flex items-center justify-between p-4 rounded-[20px] bg-gray-50 border border-gray-100"
-                        >
-                          <div>
-                            <p className="text-sm font-black text-gray-800 uppercase tracking-tight">
-                              {m.metodo_pago}
-                            </p>
-                            <p className="text-[10px] font-bold text-gray-400 uppercase">
-                              {m.cantidad} pedidos
-                            </p>
-                          </div>
-                          <p className="text-base font-black text-primary-500">{fmt(m.total)}</p>
-                        </div>
-                      ))}
-                      {!porMetodo.length && (
-                        <div className="rounded-[20px] border border-dashed border-gray-200 bg-gray-50 px-4 py-10 text-center text-sm font-semibold text-gray-400">
-                          Aun no hay ventas por metodo en este turno.
-                        </div>
-                      )}
-                    </div>
-                    <div className="space-y-4">
-                      <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
-                        Tipos de Entrega
-                      </p>
-                      {porTipo.map((t) => (
-                        <div
-                          key={t.tipo_entrega}
-                          className="flex items-center justify-between p-4 rounded-[20px] bg-gray-50 border border-gray-100"
-                        >
-                          <div>
-                            <p className="text-sm font-black text-gray-800 uppercase tracking-tight">
-                              {t.tipo_entrega}
-                            </p>
-                            <p className="text-[10px] font-bold text-gray-400 uppercase">
-                              {t.cantidad} pedidos
-                            </p>
-                          </div>
-                          <p className="text-base font-black text-gray-900">{fmt(t.total)}</p>
-                        </div>
-                      ))}
-                      {!porTipo.length && (
-                        <div className="rounded-[20px] border border-dashed border-gray-200 bg-gray-50 px-4 py-10 text-center text-sm font-semibold text-gray-400">
-                          Aun no hay ventas clasificadas por entrega.
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Movimientos Manuales */}
-                <div className="rounded-[32px] bg-white p-8 shadow-sm border border-gray-100">
-                  <div className="flex items-center justify-between mb-8">
-                    <h3 className="text-xl font-black text-gray-900 uppercase tracking-tight">
-                      Movimientos Manuales
-                    </h3>
-                    <div className="flex items-center gap-4">
-                      <div className="text-right">
-                        <p className="text-[9px] font-black text-emerald-500 uppercase tracking-widest">
-                          Ingresos
-                        </p>
-                        <p className="text-sm font-black text-success-600">
-                          +{fmt(resumen?.totalIngresosManuales)}
-                        </p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-[9px] font-black text-rose-500 uppercase tracking-widest">
-                          Egresos
-                        </p>
-                        <p className="text-sm font-black text-danger-600">
-                          -{fmt(resumen?.totalEgresosManuales)}
-                        </p>
-                      </div>
-                      <button
-                        onClick={exportarMovimientosCSV}
-                        disabled={!movimientos.length}
-                        title="Exportar CSV"
-                        className="flex h-9 items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 text-xs font-bold text-gray-600 hover:bg-gray-50 hover:text-primary-500 transition-all shadow-sm disabled:opacity-40"
-                      >
-                        <Download size={14} strokeWidth={2.5} />
-                        CSV
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="overflow-hidden rounded-[24px] border border-gray-100">
-                    <table className="w-full text-left text-sm">
-                      <thead className="bg-gray-50 text-[10px] font-black uppercase text-gray-400 tracking-widest">
-                        <tr>
-                          <th className="px-6 py-4">Hora</th>
-                          <th className="px-6 py-4">Concepto / Motivo</th>
-                          <th className="px-6 py-4 text-right">Monto</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-100 font-bold text-gray-700">
-                        {movimientos.map((m) => (
-                          <tr key={m.id} className="hover:bg-gray-50 transition-colors">
-                            <td className="px-6 py-4">{fmtHour(m.creado_en)}</td>
-                            <td className="px-6 py-4 uppercase text-xs tracking-tight">
-                              {m.motivo || 'Sin detalle'}
-                            </td>
-                            <td
-                              className={`px-6 py-4 text-right ${m.tipo === 'entrada' ? 'text-success-600' : 'text-danger-600'}`}
-                            >
-                              {m.tipo === 'entrada' ? '+' : '-'}
-                              {fmt(m.monto)}
-                            </td>
-                          </tr>
-                        ))}
-                        {!movimientos.length && (
-                          <tr>
-                            <td colSpan="3" className="px-6 py-12 text-center text-gray-400 italic">
-                              No hubo movimientos manuales en este turno
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              </div>
-
-              {/* Sidebar de Cierre */}
-              <div className="space-y-6">
-                <div className="rounded-[32px] bg-primary-500 p-8 text-white shadow-xl shadow-primary-100 sticky top-24">
-                  <div className="flex items-center gap-3 mb-6">
-                    <Lock size={24} strokeWidth={3} />
-                    <h3 className="text-xl font-black uppercase tracking-tight">Cerrar Turno</h3>
-                  </div>
-
-                  <div className="space-y-5">
+            <div className="grid gap-4 xl:grid-cols-[1fr_380px]">
+              <div className="space-y-4">
+                {/* ── Desglose ── */}
+                <Card title="Desglose de ventas del turno">
+                  <div className="grid gap-5 md:grid-cols-2">
                     <div>
-                      <label className="text-[10px] font-black uppercase tracking-widest opacity-80 ml-1">
-                        Efectivo Contado en Caja
-                      </label>
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        value={closing.monto_final_declarado}
-                        onChange={(e) =>
-                          setClosing((p) => ({ ...p, monto_final_declarado: e.target.value }))
-                        }
-                        className="h-14 w-full rounded-2xl bg-white/10 border-none px-4 text-xl font-black text-white focus:bg-white/20 outline-none transition-all placeholder:text-white/30 mt-1"
-                        placeholder="0.00"
-                      />
-                    </div>
-
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setClosing((p) => ({
-                            ...p,
-                            monto_final_declarado: String(efectivoEsperado),
-                          }))
-                        }
-                        className="rounded-full bg-white/15 px-4 py-2 text-[10px] font-black uppercase tracking-[0.18em] text-white transition hover:bg-white/25"
-                      >
-                        Copiar esperado
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setClosing((p) => ({ ...p, monto_final_declarado: '', notas: '' }))
-                        }
-                        className="rounded-full bg-white/10 px-4 py-2 text-[10px] font-black uppercase tracking-[0.18em] text-white/85 transition hover:bg-white/20"
-                      >
-                        Limpiar arqueo
-                      </button>
-                    </div>
-
-                    <div className="p-5 rounded-[24px] bg-white/10 space-y-3">
-                      <div className="flex justify-between text-xs font-bold uppercase tracking-tight">
-                        <span className="opacity-70">Esperado</span>
-                        <span>{fmt(efectivoEsperado)}</span>
-                      </div>
-                      <div className="flex justify-between text-lg font-black uppercase tracking-tight border-t border-white/10 pt-3">
-                        <span>Diferencia</span>
-                        <span
-                          className={
-                            diferencia < 0
-                              ? 'text-rose-200'
-                              : diferencia > 0
-                                ? 'text-emerald-200'
-                                : ''
-                          }
-                        >
-                          {diferencia > 0 ? '+' : ''}
-                          {fmt(diferencia)}
-                        </span>
-                      </div>
-                      <p className="text-[11px] font-semibold text-white/75">
-                        {diferencia === 0
-                          ? 'El arqueo coincide con lo esperado.'
-                          : diferencia > 0
-                            ? 'Sobra efectivo respecto al esperado. Conviene dejar una nota.'
-                            : 'Falta efectivo respecto al esperado. Revisa ventas y movimientos antes de cerrar.'}
-                      </p>
-                    </div>
-
-                    <div>
-                      <label className="text-[10px] font-black uppercase tracking-widest opacity-80 ml-1">
-                        Notas de Cierre
-                      </label>
-                      <textarea
-                        value={closing.notas}
-                        onChange={(e) => setClosing((p) => ({ ...p, notas: e.target.value }))}
-                        placeholder="Observaciones del cierre, diferencia, retiros, etc."
-                        className="mt-1 min-h-[96px] w-full resize-none rounded-2xl bg-white/10 px-4 py-3 text-sm font-semibold text-white outline-none transition-all placeholder:text-white/35 focus:bg-white/15"
-                      />
-                    </div>
-
-                    <button
-                      onClick={solicitarCierreCaja}
-                      disabled={saving || String(closing.monto_final_declarado).trim() === ''}
-                      className="w-full h-14 rounded-2xl bg-white text-primary-500 text-sm font-black uppercase tracking-[0.2em] shadow-lg shadow-black/10 hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50"
-                    >
-                      {saving ? 'CERRANDO...' : 'FINALIZAR TURNO'}
-                    </button>
-                  </div>
-                </div>
-
-                <div className="rounded-[32px] bg-white p-6 shadow-sm border border-gray-100">
-                  <div className="flex items-center gap-3 mb-5">
-                    <div className="h-11 w-11 rounded-2xl bg-[#F2F6FA] text-primary-500 flex items-center justify-center">
-                      <UserCheck size={20} />
-                    </div>
-                    <div>
-                      <h3 className="text-lg font-black text-gray-900 uppercase tracking-tight">
-                        Control Rapido
-                      </h3>
-                      <p className="text-xs font-semibold text-gray-500">
-                        Chequeos utiles antes del cierre
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="space-y-3">
-                    <div className="rounded-[20px] bg-[#F2F6FA] p-4">
-                      <div className="flex items-start gap-3">
-                        <FileText size={16} className="mt-0.5 text-primary-500" />
-                        <p className="text-sm font-semibold text-gray-600">
-                          Si hay diferencia, deja nota antes de cerrar para que quede asentada en
-                          auditoría.
-                        </p>
-                      </div>
-                    </div>
-                    {porTurno.length > 0 && (
-                      <div className="rounded-[20px] border border-gray-100 p-4">
-                        <p className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-400">
-                          Turnos operativos
-                        </p>
-                        <div className="mt-3 space-y-2">
-                          {porTurno.slice(0, 3).map((turno) => (
+                      <p className="mb-2 text-[12px] text-gray-500">Por método de pago</p>
+                      {porMetodo.length ? (
+                        <div className="space-y-1.5">
+                          {porMetodo.map((m) => (
                             <div
-                              key={turno.turno}
-                              className="flex items-center justify-between text-sm"
+                              key={m.metodo_pago}
+                              className="flex items-center justify-between gap-3 rounded-xl bg-gray-50 px-3 py-2.5"
                             >
-                              <span className="font-semibold text-gray-500">
-                                {turno.turno || 'Sin turno'}
-                              </span>
-                              <span className="font-black text-gray-900">{fmt(turno.total)}</span>
+                              <div className="min-w-0">
+                                <p className="truncate text-[13px] font-medium text-gray-900">
+                                  {paymentMethodLabel(m.metodo_pago)}
+                                </p>
+                                <p className="text-[11px] text-gray-400">
+                                  {m.cantidad} {Number(m.cantidad) === 1 ? 'pedido' : 'pedidos'}
+                                </p>
+                              </div>
+                              <p className="shrink-0 text-[14px] font-bold tabular-nums text-gray-900">
+                                {fmt(m.total)}
+                              </p>
                             </div>
                           ))}
                         </div>
-                      </div>
-                    )}
+                      ) : (
+                        <Empty>Todavía no hay cobros en este turno.</Empty>
+                      )}
+                    </div>
+
+                    <div>
+                      <p className="mb-2 text-[12px] text-gray-500">Por tipo de entrega</p>
+                      {porTipo.length ? (
+                        <div className="space-y-1.5">
+                          {porTipo.map((t) => (
+                            <div
+                              key={t.tipo_entrega}
+                              className="flex items-center justify-between gap-3 rounded-xl bg-gray-50 px-3 py-2.5"
+                            >
+                              <div className="min-w-0">
+                                <p className="truncate text-[13px] font-medium text-gray-900">
+                                  {TIPO_ENTREGA_LABEL[t.tipo_entrega] ||
+                                    t.tipo_entrega ||
+                                    'Sin definir'}
+                                </p>
+                                <p className="text-[11px] text-gray-400">
+                                  {t.cantidad} {Number(t.cantidad) === 1 ? 'pedido' : 'pedidos'}
+                                </p>
+                              </div>
+                              <p className="shrink-0 text-[14px] font-bold tabular-nums text-gray-900">
+                                {fmt(t.total)}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <Empty>Todavía no hay ventas clasificadas.</Empty>
+                      )}
+                    </div>
                   </div>
+
+                  {porTurno.length > 1 ? (
+                    <div className="mt-5 border-t border-gray-100 pt-4">
+                      <p className="mb-2 text-[12px] text-gray-500">Por turno operativo</p>
+                      <div className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3">
+                        {porTurno.map((turno) => (
+                          <div
+                            key={turno.turno}
+                            className="flex items-center justify-between gap-3 rounded-xl bg-gray-50 px-3 py-2"
+                          >
+                            <span className="truncate text-[13px] text-gray-700">
+                              {turno.turno || 'Sin turno'}
+                            </span>
+                            <span className="shrink-0 text-[13px] font-bold tabular-nums text-gray-900">
+                              {fmt(turno.total)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                </Card>
+
+                {/* ── Movimientos manuales ── */}
+                <Card
+                  title="Movimientos manuales"
+                  helper={`+${fmt(resumen?.totalIngresosManuales)} de ingresos · −${fmt(resumen?.totalEgresosManuales)} de egresos`}
+                  action={
+                    <button
+                      type="button"
+                      onClick={exportarMovimientosCSV}
+                      disabled={!movimientos.length}
+                      className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-xl bg-gray-100 px-3 text-[12px] font-semibold text-gray-700 transition hover:bg-gray-200 disabled:opacity-40"
+                    >
+                      <Download size={14} strokeWidth={STROKE} />
+                      CSV
+                    </button>
+                  }
+                >
+                  {movimientos.length ? (
+                    <div className="overflow-hidden rounded-xl border border-gray-100">
+                      <table className="w-full text-left text-[13px]">
+                        <thead className="bg-gray-50 text-[11px] text-gray-500">
+                          <tr>
+                            <th className="px-4 py-2.5 font-medium">Hora</th>
+                            <th className="px-4 py-2.5 font-medium">Motivo</th>
+                            <th className="px-4 py-2.5 text-right font-medium">Monto</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                          {movimientos.map((m) => (
+                            <tr key={m.id} className="transition-colors hover:bg-gray-50">
+                              <td className="px-4 py-3 tabular-nums text-gray-500">
+                                {fmtHour(m.creado_en)}
+                              </td>
+                              <td className="px-4 py-3 text-gray-700">
+                                {m.motivo || 'Sin detalle'}
+                              </td>
+                              <td
+                                className="px-4 py-3 text-right font-bold tabular-nums"
+                                style={{ color: m.tipo === 'entrada' ? '#047857' : BRAND }}
+                              >
+                                {m.tipo === 'entrada' ? '+' : '−'}
+                                {fmt(m.monto)}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <Empty>No hubo movimientos manuales en este turno.</Empty>
+                  )}
+                </Card>
+              </div>
+
+              {/* ── Arqueo y cierre ── */}
+              <div className="space-y-4">
+                <div className="sticky top-4 rounded-2xl bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.06)]">
+                  <div className="mb-4 flex items-center gap-2">
+                    <Lock size={16} strokeWidth={STROKE} className="text-gray-400" />
+                    <h3 className="text-[15px] font-semibold text-gray-900">Cerrar turno</h3>
+                  </div>
+
+                  <label className="text-[12px] font-medium text-gray-600">
+                    Efectivo contado en caja
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={closing.monto_final_declarado}
+                    onChange={(e) =>
+                      setClosing((p) => ({ ...p, monto_final_declarado: e.target.value }))
+                    }
+                    className={CONTROL + ' mt-1 h-12 text-[18px] font-semibold tabular-nums'}
+                    placeholder="0,00"
+                  />
+
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setClosing((p) => ({
+                          ...p,
+                          monto_final_declarado: String(efectivoEsperado),
+                        }))
+                      }
+                      className="rounded-lg bg-gray-100 px-3 py-1.5 text-[12px] font-semibold text-gray-700 transition hover:bg-gray-200"
+                    >
+                      Copiar esperado
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setClosing((p) => ({ ...p, monto_final_declarado: '', notas: '' }))
+                      }
+                      className="rounded-lg px-3 py-1.5 text-[12px] font-semibold text-gray-500 transition hover:text-gray-800"
+                    >
+                      Limpiar
+                    </button>
+                  </div>
+
+                  <div className="mt-4 rounded-xl bg-gray-50 p-3">
+                    <div className="flex items-center justify-between text-[13px]">
+                      <span className="text-gray-500">Esperado</span>
+                      <span className="font-bold tabular-nums text-gray-900">
+                        {fmt(efectivoEsperado)}
+                      </span>
+                    </div>
+                    <div className="mt-2 flex items-center justify-between border-t border-gray-200 pt-2 text-[15px]">
+                      <span className="font-semibold text-gray-900">Diferencia</span>
+                      <span
+                        className="font-bold tabular-nums"
+                        style={{
+                          color: diferencia === 0 ? '#047857' : diferencia > 0 ? '#B45309' : BRAND,
+                        }}
+                      >
+                        {diferencia > 0 ? '+' : ''}
+                        {fmt(diferencia)}
+                      </span>
+                    </div>
+                    <p className="mt-2 text-[11px] leading-4 text-gray-500">
+                      {String(closing.monto_final_declarado).trim() === ''
+                        ? 'Contá el efectivo y cargá el total para ver la diferencia.'
+                        : diferencia === 0
+                          ? 'El arqueo coincide con lo esperado.'
+                          : diferencia > 0
+                            ? 'Sobra efectivo. Conviene dejar una nota explicando de dónde salió.'
+                            : 'Falta efectivo. Revisá ventas y movimientos antes de cerrar.'}
+                    </p>
+                  </div>
+
+                  {pendienteCobro > 0 ? (
+                    <div className="mt-3 flex items-start gap-2 rounded-xl bg-amber-50 p-3">
+                      <AlertTriangle
+                        size={15}
+                        strokeWidth={STROKE}
+                        className="mt-0.5 shrink-0 text-amber-600"
+                      />
+                      <p className="text-[12px] leading-4 text-amber-900">
+                        Hay {fmt(pendienteCobro)} en pedidos sin cobrar. No entran en el efectivo
+                        esperado.
+                      </p>
+                    </div>
+                  ) : null}
+
+                  <label className="mt-4 block text-[12px] font-medium text-gray-600">
+                    Notas de cierre
+                  </label>
+                  <textarea
+                    value={closing.notas}
+                    onChange={(e) => setClosing((p) => ({ ...p, notas: e.target.value }))}
+                    placeholder="Diferencias, retiros, observaciones…"
+                    className={CONTROL + ' mt-1 h-20 resize-none py-2.5'}
+                  />
+
+                  <button
+                    type="button"
+                    onClick={solicitarCierreCaja}
+                    disabled={saving || String(closing.monto_final_declarado).trim() === ''}
+                    style={{ background: BRAND }}
+                    className="mt-4 h-12 w-full rounded-xl text-[14px] font-semibold text-white transition hover:brightness-110 disabled:opacity-40"
+                  >
+                    {saving ? 'Cerrando…' : 'Finalizar turno'}
+                  </button>
                 </div>
               </div>
             </div>
           </>
         ) : (
-          /* Caja Cerrada - Estado Modernize */
-          <div className="grid grid-cols-1 gap-8 lg:grid-cols-[450px_1fr]">
-            <div className="rounded-[40px] bg-white p-10 shadow-sm border border-gray-100 flex flex-col items-center text-center">
-              <div className="h-24 w-24 rounded-[32px] bg-primary-50 flex items-center justify-center text-primary-500 mb-8">
-                <WalletCards size={48} strokeWidth={2.5} />
-              </div>
-              <h2 className="text-3xl font-black text-gray-900 tracking-tight mb-4 uppercase">
-                Turno Cerrado
-              </h2>
-              <p className="text-gray-500 font-medium mb-10 leading-relaxed">
-                Inicia un nuevo turno con el fondo de caja inicial para comenzar a registrar ventas
-                y gastos.
-              </p>
-
-              <div className="w-full space-y-4 mb-10 text-left">
+          /* ── Caja cerrada ── */
+          <div className="grid gap-4 lg:grid-cols-[420px_1fr]">
+            <Card>
+              <div className="flex items-center gap-3">
+                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gray-100 text-gray-500">
+                  <WalletCards size={20} strokeWidth={STROKE} />
+                </div>
                 <div>
-                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
-                    Fondo de Apertura ($)
-                  </label>
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    value={opening.monto_inicial}
-                    onChange={(e) => setOpening((p) => ({ ...p, monto_inicial: e.target.value }))}
-                    className={CONTROL + ' mt-1 h-14 text-lg font-black'}
-                    placeholder="0.00"
-                  />
+                  <h2 className="text-[17px] font-semibold text-gray-900">Abrir turno</h2>
+                  <p className="text-[12px] text-gray-500">
+                    Cargá el fondo con el que arranca la caja
+                  </p>
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  {OPENING_PRESETS.map((monto) => (
-                    <button
-                      key={monto}
-                      type="button"
-                      onClick={() => setOpening((p) => ({ ...p, monto_inicial: String(monto) }))}
-                      className="rounded-full bg-primary-50 px-4 py-2 text-[10px] font-black uppercase tracking-[0.18em] text-primary-500 transition hover:bg-primary-100"
-                    >
-                      {monto === 0 ? 'Sin fondo' : fmt(monto)}
-                    </button>
-                  ))}
-                </div>
-                <textarea
-                  value={opening.notas}
-                  onChange={(e) => setOpening((p) => ({ ...p, notas: e.target.value }))}
-                  placeholder="Notas de apertura (opcional)..."
-                  className={CONTROL + ' h-24 py-3 resize-none'}
-                />
               </div>
+
+              <label className="mt-5 block text-[12px] font-medium text-gray-600">
+                Fondo de apertura
+              </label>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={opening.monto_inicial}
+                onChange={(e) => setOpening((p) => ({ ...p, monto_inicial: e.target.value }))}
+                className={CONTROL + ' mt-1 h-12 text-[18px] font-semibold tabular-nums'}
+                placeholder="0,00"
+              />
+              <div className="mt-2 flex flex-wrap gap-2">
+                {OPENING_PRESETS.map((monto) => (
+                  <button
+                    key={monto}
+                    type="button"
+                    onClick={() => setOpening((p) => ({ ...p, monto_inicial: String(monto) }))}
+                    className="rounded-lg bg-gray-100 px-3 py-1.5 text-[12px] font-semibold text-gray-700 transition hover:bg-gray-200"
+                  >
+                    {monto === 0 ? 'Sin fondo' : fmt(monto)}
+                  </button>
+                ))}
+              </div>
+
+              <textarea
+                value={opening.notas}
+                onChange={(e) => setOpening((p) => ({ ...p, notas: e.target.value }))}
+                placeholder="Notas de apertura (opcional)…"
+                className={CONTROL + ' mt-3 h-20 resize-none py-2.5'}
+              />
 
               <button
+                type="button"
                 onClick={abrirCaja}
                 disabled={saving}
-                className="w-full h-16 rounded-[24px] bg-primary-500 text-white text-sm font-black uppercase tracking-[0.3em] shadow-xl shadow-primary-100 hover:bg-primary-600 active:scale-95 transition-all disabled:opacity-50"
+                style={{ background: BRAND }}
+                className="mt-4 h-12 w-full rounded-xl text-[14px] font-semibold text-white transition hover:brightness-110 disabled:opacity-40"
               >
-                {saving ? 'ABRIENDO...' : 'ABRIR CAJA'}
+                {saving ? 'Abriendo…' : 'Abrir caja'}
               </button>
-            </div>
 
-            <div className="rounded-[40px] border-2 border-dashed border-gray-200 flex flex-col items-center justify-center p-10 text-center">
-              <Shield size={64} className="text-gray-200 mb-6" />
-              <h3 className="text-xl font-black text-gray-300 uppercase tracking-widest">
-                Caja Lista Para Abrir
-              </h3>
-              <p className="text-sm text-gray-400 mt-2">
-                Abre un nuevo turno para habilitar arqueo, movimientos manuales y control de
-                efectivo.
-              </p>
-              {ultimoCierre ? (
-                <div className="mt-6 w-full max-w-sm rounded-[28px] bg-white p-5 text-left shadow-sm">
-                  <p className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-400">
-                    Ultimo cierre
-                  </p>
-                  <div className="mt-4 space-y-2 text-sm font-semibold text-gray-500">
-                    <div className="flex items-center justify-between">
-                      <span>Fecha</span>
-                      <span className="font-black text-gray-900">
-                        {fmtDateTime(ultimoCierre.cerrada_en || ultimoCierre.abierta_en)}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span>Fondo inicial</span>
-                      <span className="font-black text-gray-900">
-                        {fmt(ultimoCierre.monto_inicial)}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span>Diferencia</span>
-                      <span
-                        className={`font-black ${Number(ultimoCierre.diferencia) === 0 ? 'text-success-600' : 'text-rose-500'}`}
-                      >
-                        {Number(ultimoCierre.diferencia) > 0 ? '+' : ''}
-                        {fmt(ultimoCierre.diferencia)}
-                      </span>
-                    </div>
-                  </div>
+              {!data?.turno_operativo?.abiertoAhora ? (
+                <p className="mt-3 text-[12px] leading-4 text-amber-700">
+                  Estás fuera del horario de turno configurado. El sistema puede rechazar la
+                  apertura hasta que empiece un turno.
+                </p>
+              ) : null}
+            </Card>
+
+            {ultimoCierre ? (
+              <Card
+                title="Último cierre"
+                helper={fmtDateTime(ultimoCierre.cerrada_en || ultimoCierre.abierta_en)}
+                action={
                   <button
                     type="button"
                     onClick={() => imprimirTicketCierre(ultimoCierre.id)}
-                    className="mt-5 flex h-11 w-full items-center justify-center gap-2 rounded-2xl bg-primary-50 text-xs font-black uppercase tracking-[0.18em] text-primary-500 transition hover:bg-primary-100"
+                    className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-xl bg-gray-100 px-3 text-[12px] font-semibold text-gray-700 transition hover:bg-gray-200"
                   >
-                    <Printer size={16} />
-                    Reimprimir cierre
+                    <Printer size={14} strokeWidth={STROKE} />
+                    Reimprimir
                   </button>
+                }
+              >
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="rounded-xl bg-gray-50 p-3">
+                    <p className="text-[12px] text-gray-500">Fondo inicial</p>
+                    <p className="mt-1 text-[18px] font-bold tabular-nums text-gray-900">
+                      {fmt(ultimoCierre.monto_inicial)}
+                    </p>
+                  </div>
+                  <div className="rounded-xl bg-gray-50 p-3">
+                    <p className="text-[12px] text-gray-500">Contado</p>
+                    <p className="mt-1 text-[18px] font-bold tabular-nums text-gray-900">
+                      {fmt(ultimoCierre.monto_final_declarado)}
+                    </p>
+                  </div>
+                  <div className="rounded-xl bg-gray-50 p-3">
+                    <p className="text-[12px] text-gray-500">Diferencia</p>
+                    <p
+                      className="mt-1 text-[18px] font-bold tabular-nums"
+                      style={{
+                        color: Number(ultimoCierre.diferencia) === 0 ? '#047857' : BRAND,
+                      }}
+                    >
+                      {Number(ultimoCierre.diferencia) > 0 ? '+' : ''}
+                      {fmt(ultimoCierre.diferencia)}
+                    </p>
+                  </div>
                 </div>
-              ) : null}
-            </div>
+              </Card>
+            ) : (
+              <Card>
+                <Empty>Todavía no hay cierres registrados.</Empty>
+              </Card>
+            )}
           </div>
         )}
 
-        {/* Historial de Cierres Moderno */}
-        <div className="rounded-[32px] bg-white p-8 shadow-sm border border-gray-100">
-          <div className="flex items-center justify-between mb-8">
-            <h3 className="text-xl font-black text-gray-900 uppercase tracking-tight">
-              Historial de Turnos
-            </h3>
-            <div className="h-10 w-10 rounded-xl bg-gray-50 flex items-center justify-center text-gray-400">
-              <RefreshCw size={20} />
-            </div>
-          </div>
-          <div className="overflow-x-auto no-scrollbar">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-gray-50 text-[10px] font-black uppercase text-gray-400 tracking-widest">
-                <tr>
-                  <th className="px-6 py-4">Fecha / Turno</th>
-                  <th className="px-6 py-4">Estado</th>
-                  <th className="px-6 py-4">Fondo Inicial</th>
-                  <th className="px-6 py-4">Contado</th>
-                  <th className="px-6 py-4">Diferencia</th>
-                  <th className="px-6 py-4 text-right">Acciones</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {historial.map((item) => (
-                  <tr key={item.id} className="hover:bg-gray-50 transition-colors group">
-                    <td className="px-6 py-4 font-bold text-gray-700">
-                      {fmtDateTime(item.abierta_en)}
-                    </td>
-                    <td className="px-6 py-4">
-                      <span
-                        className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider ${item.estado === 'abierta' ? 'bg-success-50 text-success-600' : 'bg-gray-100 text-gray-400'}`}
-                      >
-                        {item.estado}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 font-bold text-gray-900">{fmt(item.monto_inicial)}</td>
-                    <td className="px-6 py-4 font-bold text-gray-900">
-                      {fmt(item.monto_final_declarado)}
-                    </td>
-                    <td
-                      className={`px-6 py-4 font-black ${Number(item.diferencia) === 0 ? 'text-emerald-500' : 'text-rose-500'}`}
-                    >
-                      {Number(item.diferencia) > 0 ? '+' : ''}
-                      {fmt(item.diferencia)}
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      {item.estado === 'cerrada' && (
-                        <button
-                          onClick={() => imprimirTicketCierre(item.id)}
-                          className="h-10 w-10 rounded-xl bg-primary-50 text-primary-500 flex items-center justify-center hover:bg-primary-500 hover:text-white transition-all shadow-sm"
-                        >
-                          <Printer size={18} />
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-                {!historial.length && (
+        {/* ── Historial ── */}
+        <Card title="Historial de turnos" helper="Últimos 20 cierres">
+          {historial.length ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-[13px]">
+                <thead className="bg-gray-50 text-[11px] text-gray-500">
                   <tr>
-                    <td colSpan="6" className="px-6 py-12 text-center text-gray-400 italic">
-                      Todavía no hay cierres registrados.
-                    </td>
+                    <th className="px-4 py-2.5 font-medium">Apertura</th>
+                    <th className="px-4 py-2.5 font-medium">Estado</th>
+                    <th className="px-4 py-2.5 text-right font-medium">Fondo</th>
+                    <th className="px-4 py-2.5 text-right font-medium">Contado</th>
+                    <th className="px-4 py-2.5 text-right font-medium">Diferencia</th>
+                    <th className="px-4 py-2.5" />
                   </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <div className="rounded-[32px] bg-white p-8 shadow-sm border border-gray-100">
-          <div className="flex items-center justify-between mb-8">
-            <h3 className="text-xl font-black text-gray-900 uppercase tracking-tight">
-              Auditoría reciente
-            </h3>
-            <div className="h-10 w-10 rounded-xl bg-gray-50 flex items-center justify-center text-gray-400">
-              <ClipboardList size={20} />
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {historial.map((item) => {
+                    const dif = Number(item.diferencia || 0);
+                    return (
+                      <tr key={item.id} className="transition-colors hover:bg-gray-50">
+                        <td className="px-4 py-3 text-gray-700">{fmtDateTime(item.abierta_en)}</td>
+                        <td className="px-4 py-3">
+                          <span
+                            className="rounded-full px-2 py-0.5 text-[11px] font-medium"
+                            style={
+                              item.estado === 'abierta'
+                                ? { background: '#ECFDF5', color: '#065F46' }
+                                : { background: '#F1F5F9', color: '#475569' }
+                            }
+                          >
+                            {item.estado === 'abierta' ? 'Abierta' : 'Cerrada'}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-right tabular-nums text-gray-700">
+                          {fmt(item.monto_inicial)}
+                        </td>
+                        <td className="px-4 py-3 text-right font-bold tabular-nums text-gray-900">
+                          {item.estado === 'abierta' ? '—' : fmt(item.monto_final_declarado)}
+                        </td>
+                        <td
+                          className="px-4 py-3 text-right font-bold tabular-nums"
+                          style={{
+                            color:
+                              item.estado === 'abierta' ? '#9CA3AF' : dif === 0 ? '#047857' : BRAND,
+                          }}
+                        >
+                          {item.estado === 'abierta' ? '—' : `${dif > 0 ? '+' : ''}${fmt(dif)}`}
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          {item.estado === 'cerrada' && (
+                            <button
+                              type="button"
+                              onClick={() => imprimirTicketCierre(item.id)}
+                              title="Reimprimir cierre"
+                              className="rounded-lg p-2 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
+                            >
+                              <Printer size={15} strokeWidth={STROKE} />
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
-          </div>
+          ) : (
+            <Empty>Todavía no hay cierres registrados.</Empty>
+          )}
+        </Card>
 
+        {/* ── Auditoría ── */}
+        <Card
+          title="Auditoría reciente"
+          helper="Aperturas, cierres y movimientos registrados por el sistema"
+          action={<ClipboardList size={16} strokeWidth={STROKE} className="mt-1 text-gray-300" />}
+        >
           {auditoria.length ? (
-            <div className="grid gap-4 lg:grid-cols-2">
+            <div className="grid gap-2 lg:grid-cols-2">
               {auditoria.slice(0, 12).map((item) => (
-                <div
-                  key={item.id}
-                  className="rounded-[24px] border border-gray-100 bg-[#F2F6FA] p-5"
-                >
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <p className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-400">
-                        {item.modulo}
+                <div key={item.id} className="rounded-xl border border-gray-100 p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-[13px] font-medium text-gray-900">
+                        {String(item.accion || '').replace(/_/g, ' ')}
                       </p>
-                      <p className="mt-1 text-sm font-black text-gray-900">{item.accion}</p>
-                      <p className="mt-1 text-xs font-semibold text-gray-500">
-                        {item.actor_nombre || 'Sistema'}
+                      <p className="mt-0.5 text-[11px] text-gray-400">
+                        {item.modulo} · {item.actor_nombre || 'Sistema'}
                       </p>
                     </div>
-                    <span className="rounded-full bg-white px-3 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-gray-500">
+                    <span className="shrink-0 text-[11px] tabular-nums text-gray-400">
                       {fmtHour(item.creado_en)}
                     </span>
                   </div>
                   {item.detalle && Object.keys(item.detalle).length > 0 && (
-                    <div className="mt-4 rounded-2xl bg-white px-4 py-3">
+                    <dl className="mt-2 space-y-0.5 border-t border-gray-100 pt-2">
                       {Object.entries(item.detalle)
                         .slice(0, 3)
                         .map(([key, value]) => (
-                          <div
-                            key={key}
-                            className="flex items-center justify-between gap-3 py-1 text-xs"
-                          >
-                            <span className="font-black uppercase tracking-[0.14em] text-gray-400">
-                              {key}
-                            </span>
-                            <span className="truncate text-right font-semibold text-gray-700">
-                              {String(value)}
-                            </span>
+                          <div key={key} className="flex justify-between gap-3 text-[11px]">
+                            <dt className="text-gray-400">{key.replace(/_/g, ' ')}</dt>
+                            <dd className="truncate text-right text-gray-600">{String(value)}</dd>
                           </div>
                         ))}
-                    </div>
+                    </dl>
                   )}
                 </div>
               ))}
             </div>
           ) : (
-            <div className="rounded-[24px] border border-dashed border-gray-200 bg-gray-50 px-6 py-12 text-center text-sm font-semibold text-gray-400">
-              Todavía no hay eventos de auditoría para mostrar.
-            </div>
+            <Empty>Todavía no hay eventos de auditoría.</Empty>
           )}
-        </div>
+        </Card>
       </div>
 
-      {/* Modal Registrar Gasto (Modern) */}
+      {/* ── Modal de movimiento ── */}
       {showMovimientoModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-[40px] bg-white p-8 shadow-2xl animate-in zoom-in-95 duration-200">
-            <div className="mb-8 flex items-center justify-between">
-              <div>
-                <div className="flex items-center gap-2 mb-1">
-                  <div className="h-6 w-1 bg-danger-500 rounded-full"></div>
-                  <p className="text-xs font-black text-danger-500 uppercase tracking-[0.2em]">
-                    Movimiento Manual
-                  </p>
-                </div>
-                <h3 className="text-2xl font-black text-gray-900 tracking-tight uppercase">
-                  {movimiento.tipo === 'salida' ? 'Registrar Salida' : 'Registrar Ingreso'}
-                </h3>
-              </div>
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/35 p-4 backdrop-blur-sm"
+          onClick={() => setShowMovimientoModal(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl bg-white shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
+              <h3 className="text-[17px] font-semibold text-gray-900">
+                {movimiento.tipo === 'salida' ? 'Registrar egreso' : 'Registrar ingreso'}
+              </h3>
               <button
+                type="button"
                 onClick={() => setShowMovimientoModal(false)}
-                className="rounded-full p-2 hover:bg-gray-100 transition-colors"
+                className="rounded-lg p-2 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
               >
-                <X size={24} className="text-gray-400" />
+                <X size={18} strokeWidth={STROKE} />
               </button>
             </div>
 
-            <form onSubmit={registrarMovimiento} className="space-y-6">
-              <div className="grid grid-cols-2 gap-3">
+            <form onSubmit={registrarMovimiento} className="space-y-4 px-6 py-5">
+              <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
                   onClick={() => setMovimiento((p) => ({ ...p, tipo: 'salida' }))}
-                  className={`flex h-14 items-center justify-center gap-2 rounded-2xl border-2 transition-all font-black text-xs uppercase tracking-widest ${movimiento.tipo === 'salida' ? 'border-danger-500 bg-danger-50 text-danger-500' : 'border-gray-100 text-gray-400'}`}
+                  style={movimiento.tipo === 'salida' ? { borderColor: BRAND, color: BRAND } : {}}
+                  className={`flex h-11 items-center justify-center gap-1.5 rounded-xl border text-[13px] font-semibold transition ${
+                    movimiento.tipo === 'salida'
+                      ? 'bg-red-50'
+                      : 'border-gray-200 text-gray-500 hover:bg-gray-50'
+                  }`}
                 >
-                  <ArrowDownCircle size={18} /> Gasto
+                  <ArrowDownCircle size={16} strokeWidth={STROKE} />
+                  Sale plata
                 </button>
                 <button
                   type="button"
                   onClick={() => setMovimiento((p) => ({ ...p, tipo: 'entrada' }))}
-                  className={`flex h-14 items-center justify-center gap-2 rounded-2xl border-2 transition-all font-black text-xs uppercase tracking-widest ${movimiento.tipo === 'entrada' ? 'border-success-500 bg-success-50 text-success-500' : 'border-gray-100 text-gray-400'}`}
+                  className={`flex h-11 items-center justify-center gap-1.5 rounded-xl border text-[13px] font-semibold transition ${
+                    movimiento.tipo === 'entrada'
+                      ? 'border-emerald-600 bg-emerald-50 text-emerald-700'
+                      : 'border-gray-200 text-gray-500 hover:bg-gray-50'
+                  }`}
                 >
-                  <ArrowUpCircle size={18} /> Ingreso
+                  <ArrowUpCircle size={16} strokeWidth={STROKE} />
+                  Entra plata
                 </button>
               </div>
 
               <div>
-                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
-                  Monto ($)
-                </label>
+                <label className="text-[12px] font-medium text-gray-600">Monto</label>
                 <input
                   type="text"
                   inputMode="decimal"
                   required
                   value={movimiento.monto}
                   onChange={(e) => setMovimiento((p) => ({ ...p, monto: e.target.value }))}
-                  className={CONTROL + ' h-14 text-xl font-black mt-1'}
-                  placeholder="0.00"
+                  className={CONTROL + ' mt-1 h-12 text-[18px] font-semibold tabular-nums'}
+                  placeholder="0,00"
                 />
-              </div>
-
-              <div className="flex flex-wrap gap-2">
-                {MOVEMENT_PRESETS.map((monto) => (
-                  <button
-                    key={monto}
-                    type="button"
-                    onClick={() => setMovimiento((p) => ({ ...p, monto: String(monto) }))}
-                    className="rounded-full bg-gray-100 px-4 py-2 text-[10px] font-black uppercase tracking-[0.18em] text-gray-600 transition hover:bg-gray-200"
-                  >
-                    {fmt(monto)}
-                  </button>
-                ))}
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {MOVEMENT_PRESETS.map((monto) => (
+                    <button
+                      key={monto}
+                      type="button"
+                      onClick={() => setMovimiento((p) => ({ ...p, monto: String(monto) }))}
+                      className="rounded-lg bg-gray-100 px-3 py-1.5 text-[12px] font-semibold text-gray-700 transition hover:bg-gray-200"
+                    >
+                      {fmt(monto)}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               <div>
-                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
-                  Concepto / Motivo
-                </label>
+                <label className="text-[12px] font-medium text-gray-600">Motivo</label>
                 <input
                   type="text"
                   required
                   value={movimiento.motivo}
                   onChange={(e) => setMovimiento((p) => ({ ...p, motivo: e.target.value }))}
-                  className={CONTROL + ' h-12 mt-1'}
-                  placeholder="Ej: Compra de Hielo"
+                  className={CONTROL + ' mt-1 h-11'}
+                  placeholder="Ej: compra de hielo"
                 />
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {(MOVEMENT_REASONS[movimiento.tipo] || []).map((motivo) => (
+                    <button
+                      key={motivo}
+                      type="button"
+                      onClick={() =>
+                        setMovimiento((p) => ({ ...p, motivo: motivo === 'Otro' ? '' : motivo }))
+                      }
+                      className="rounded-lg bg-gray-100 px-3 py-1.5 text-[12px] font-semibold text-gray-700 transition hover:bg-gray-200"
+                    >
+                      {motivo === 'Otro' ? 'Otro (escribir)' : motivo}
+                    </button>
+                  ))}
+                </div>
               </div>
 
-              <div className="flex flex-wrap gap-2">
-                {(MOVEMENT_REASONS[movimiento.tipo] || []).map((motivo) => (
-                  <button
-                    key={motivo}
-                    type="button"
-                    onClick={() =>
-                      setMovimiento((p) => ({ ...p, motivo: motivo === 'Otro' ? '' : motivo }))
-                    }
-                    className={`rounded-full px-4 py-2 text-[10px] font-black uppercase tracking-[0.18em] transition ${
-                      motivo === 'Otro'
-                        ? 'bg-gray-100 text-gray-500 hover:bg-gray-200'
-                        : 'bg-primary-50 text-primary-500 hover:bg-primary-100'
-                    }`}
-                  >
-                    {motivo === 'Otro' ? 'Otro (escribir)' : motivo}
-                  </button>
-                ))}
-              </div>
-
-              <div className="flex gap-3 pt-4">
+              <div className="flex justify-end gap-2 border-t border-gray-100 pt-4">
                 <button
                   type="button"
                   onClick={() => setShowMovimientoModal(false)}
-                  className="flex-1 h-14 rounded-2xl border border-gray-200 text-xs font-black text-gray-400 uppercase tracking-widest"
+                  className="h-11 rounded-xl bg-gray-100 px-5 text-[13px] font-semibold text-gray-700 transition hover:bg-gray-200"
                 >
-                  CANCELAR
+                  Cancelar
                 </button>
                 <button
                   type="submit"
                   disabled={saving}
-                  className={`flex-[2] h-14 rounded-2xl text-white text-xs font-black uppercase tracking-widest shadow-lg transition-all active:scale-95 ${movimiento.tipo === 'salida' ? 'bg-danger-500 shadow-danger-100 hover:bg-rose-600' : 'bg-success-500 shadow-success-100 hover:bg-emerald-600'}`}
+                  style={{ background: movimiento.tipo === 'salida' ? BRAND : '#047857' }}
+                  className="h-11 rounded-xl px-6 text-[13px] font-semibold text-white transition hover:brightness-110 disabled:opacity-50"
                 >
-                  {saving ? '...' : 'CONFIRMAR'}
+                  {saving ? 'Guardando…' : 'Confirmar'}
                 </button>
               </div>
             </form>
@@ -1028,10 +1041,19 @@ export default function Caja() {
         </div>
       )}
 
+      {/*
+        El diálogo decía siempre lo mismo. Ahora el monto contado y la
+        diferencia van en el texto: cerrar con $40.000 de faltante era un clic
+        idéntico a cerrar cuadrado.
+      */}
       <ActionDialog
         open={closeDialog}
         title="Finalizar turno"
-        description="Se cerrará la caja del turno actual y se generará el ticket de cierre para imprimir. Esta acción no se puede deshacer."
+        description={
+          diferencia === 0
+            ? `Vas a cerrar con ${fmt(parseMoneyInput(closing.monto_final_declarado))} contados, que coincide con lo esperado. Se genera el ticket de cierre y no se puede deshacer.`
+            : `Vas a cerrar con ${fmt(parseMoneyInput(closing.monto_final_declarado))} contados contra ${fmt(efectivoEsperado)} esperados: ${diferencia > 0 ? 'sobran' : 'faltan'} ${fmt(Math.abs(diferencia))}. Se genera el ticket de cierre y no se puede deshacer.`
+        }
         confirmLabel="Finalizar turno"
         cancelLabel="Cancelar"
         tone="danger"

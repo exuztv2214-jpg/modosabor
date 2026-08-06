@@ -1,3 +1,5 @@
+import { minutosDesde as minutosDesdeServidor } from './fechas.js';
+
 /**
  * Helpers de presentación de la app rider.
  * Lógica pura, sin JSX ni dependencias de React, para poder testear
@@ -21,11 +23,10 @@ export function saludoPorHora(date = new Date()) {
  * Devuelve null si la fecha es inválida.
  */
 export function minutosDesde(fechaIso) {
-  if (!fechaIso) return null;
-  const raw = String(fechaIso).replace(' ', 'T');
-  const t = new Date(raw).getTime();
-  if (!Number.isFinite(t)) return null;
-  return Math.max(0, Math.floor((Date.now() - t) / 60000));
+  // Normalizar el espacio no alcanzaba: la fecha viene en UTC sin marcar, se
+  // leía como local y en Tucumán quedaba 3 horas adelantada, así que la resta
+  // daba negativa y todo pedido figuraba con 0 minutos de espera.
+  return minutosDesdeServidor(fechaIso);
 }
 
 /**
@@ -85,11 +86,50 @@ export function etaMinutos(metros) {
 }
 
 /**
+ * ¿Este pedido tiene una ubicación GPS usable?
+ *
+ * Ojo con el (0,0): es un punto real en el Golfo de Guinea, en África.
+ * Cuando el cliente no comparte su ubicación exacta, las coordenadas
+ * llegan en 0 o null y el cálculo de distancia daba cosas como
+ * "7602 km · 16291 min" desde Monteros. Hay que descartarlo explícitamente,
+ * `Number.isFinite(0)` devuelve true.
+ *
+ * Aceptamos dos orígenes de coordenadas:
+ *  - `cliente_ubicacion_exacta`: el punto que compartió el cliente.
+ *  - `cliente_geocodificado`: el que resolvió el servidor a partir de la
+ *    dirección escrita. Es aproximado, pero un mapa con destino
+ *    aproximado sirve mucho más que ningún mapa — el rider ve por dónde
+ *    ir y ajusta los últimos metros mirando la numeración.
+ */
+export function tieneUbicacionUsable(pedido) {
+  if (!pedido) return false;
+  const lat = Number(pedido.cliente_latitud);
+  const lng = Number(pedido.cliente_longitud);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+  // (0,0) o valores cercanos a cero = sin dato real.
+  if (Math.abs(lat) < 0.0001 && Math.abs(lng) < 0.0001) return false;
+  // Fuera de rango geográfico válido.
+  if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return false;
+  return true;
+}
+
+/** ¿El punto es aproximado (geocoding) en vez de confirmado por el cliente? */
+export function esUbicacionAproximada(pedido) {
+  if (!pedido) return false;
+  return Boolean(pedido.cliente_geocodificado) && !pedido.cliente_ubicacion_exacta;
+}
+
+/**
  * Distancia Haversine en metros entre dos puntos.
+ * Devuelve null si alguna coordenada no es usable (incluye el caso 0,0).
  */
 export function distanciaMetros(lat1, lng1, lat2, lng2) {
   const nums = [lat1, lng1, lat2, lng2].map(Number);
   if (nums.some((n) => !Number.isFinite(n))) return null;
+  // Descartar el origen (0,0) en cualquiera de los dos puntos: es un
+  // "sin dato" disfrazado de coordenada válida.
+  if (Math.abs(nums[0]) < 0.0001 && Math.abs(nums[1]) < 0.0001) return null;
+  if (Math.abs(nums[2]) < 0.0001 && Math.abs(nums[3]) < 0.0001) return null;
   const [a1, o1, a2, o2] = nums;
   const R = 6371000;
   const dLat = ((a2 - a1) * Math.PI) / 180;
@@ -128,10 +168,12 @@ export function ordenarPorCercania(pedidos, riderLat, riderLng) {
   const conCoords = [];
   const sinCoords = [];
   for (const p of lista) {
-    const lat = Number(p?.cliente_latitud);
-    const lng = Number(p?.cliente_longitud);
-    if (Number.isFinite(lat) && Number.isFinite(lng) && (lat !== 0 || lng !== 0)) {
-      conCoords.push({ pedido: p, lat, lng });
+    if (tieneUbicacionUsable(p)) {
+      conCoords.push({
+        pedido: p,
+        lat: Number(p.cliente_latitud),
+        lng: Number(p.cliente_longitud),
+      });
     } else {
       sinCoords.push(p);
     }

@@ -16,14 +16,15 @@ import {
 
 import api from '../lib/api.js';
 
+import { parseFechaServidor } from '../lib/fechas.js';
 const MODULE_COLORS = {
   configuracion: 'bg-gray-100 text-gray-700',
-  inventario: 'bg-primary-100 text-blue-700',
+  inventario: 'bg-blue-100 text-blue-700',
   pedidos: 'bg-indigo-100 text-indigo-700',
   clientes: 'bg-violet-100 text-violet-700',
   usuarios: 'bg-pink-100 text-pink-700',
-  caja: 'bg-success-100 text-success-700',
-  productos: 'bg-warning-100 text-warning-700',
+  caja: 'bg-emerald-100 text-emerald-700',
+  productos: 'bg-amber-100 text-amber-700',
   cupones: 'bg-orange-100 text-orange-700',
   fidelizacion: 'bg-teal-100 text-teal-700',
   delivery: 'bg-sky-100 text-sky-700',
@@ -32,13 +33,13 @@ const MODULE_COLORS = {
 };
 
 const ACTION_COLORS = {
-  crear: 'bg-success-50 text-success-700',
-  create: 'bg-success-50 text-success-700',
-  actualizar: 'bg-primary-50 text-blue-700',
-  update: 'bg-primary-50 text-blue-700',
-  editar: 'bg-primary-50 text-blue-700',
-  eliminar: 'bg-danger-50 text-danger-700',
-  delete: 'bg-danger-50 text-danger-700',
+  crear: 'bg-emerald-50 text-emerald-700',
+  create: 'bg-emerald-50 text-emerald-700',
+  actualizar: 'bg-blue-50 text-blue-700',
+  update: 'bg-blue-50 text-blue-700',
+  editar: 'bg-blue-50 text-blue-700',
+  eliminar: 'bg-rose-50 text-rose-700',
+  delete: 'bg-rose-50 text-rose-700',
   login: 'bg-violet-50 text-violet-700',
   logout: 'bg-gray-100 text-gray-600',
   default: 'bg-gray-100 text-gray-600',
@@ -67,7 +68,10 @@ function getActionColor(accion) {
 function formatDate(dateString) {
   if (!dateString) return '—';
   try {
-    const d = new Date(dateString);
+    // `creado_en` viene en UTC sin marcar: el registro de auditoría mostraba
+    // cada acción 3 horas más tarde de lo que pasó. Ver lib/fechas.js.
+    const d = parseFechaServidor(dateString);
+    if (!Number.isFinite(d.getTime())) return '—';
     return d.toLocaleString('es-AR', {
       day: '2-digit',
       month: '2-digit',
@@ -83,7 +87,8 @@ function formatDate(dateString) {
 
 function isToday(dateString) {
   if (!dateString) return false;
-  const d = new Date(dateString);
+  const d = parseFechaServidor(dateString);
+  if (!Number.isFinite(d.getTime())) return false;
   const now = new Date();
   return (
     d.getFullYear() === now.getFullYear() &&
@@ -94,19 +99,17 @@ function isToday(dateString) {
 
 function Stat({ label, value, icon: Icon, tint = 'blue' }) {
   const tints = {
-    blue: 'bg-primary-50 text-primary-500',
-    emerald: 'bg-success-50 text-success-600',
-    amber: 'bg-warning-50 text-warning-600',
+    blue: 'bg-[#FEF2F2] text-[#DC1F2D]',
+    emerald: 'bg-emerald-50 text-emerald-600',
+    amber: 'bg-amber-50 text-amber-600',
     violet: 'bg-violet-50 text-violet-600',
   };
   return (
     <div className="rounded-[24px] border border-gray-100 bg-white p-4 shadow-sm hover:-translate-y-0.5 hover:shadow-md transition-all">
       <div className="flex items-center justify-between">
         <div>
-          <p className="mb-1 text-[10px] font-black uppercase tracking-[0.18em] text-gray-400">
-            {label}
-          </p>
-          <p className="text-xl font-black text-gray-900 tracking-tight">{value}</p>
+          <p className="mb-1 text-[10px] font-semibold text-gray-400">{label}</p>
+          <p className="text-xl font-semibold text-gray-900 tracking-tight">{value}</p>
         </div>
         <div
           className={`flex h-10 w-10 items-center justify-center rounded-xl shadow-sm ${tints[tint]}`}
@@ -283,7 +286,7 @@ export default function Auditoria() {
       {/* Header */}
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-black text-gray-900 tracking-tight">
+          <h1 className="text-2xl font-semibold text-gray-900 tracking-tight">
             Auditoría del sistema
           </h1>
           <p className="text-sm text-gray-500 mt-0.5">
@@ -301,7 +304,7 @@ export default function Auditoria() {
           <button
             onClick={loadLogs}
             disabled={loading}
-            className="flex items-center gap-2 rounded-2xl bg-primary-500 px-4 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-[#4a6ee0] disabled:opacity-60"
+            className="flex items-center gap-2 rounded-2xl bg-[#DC1F2D] px-4 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-[#B91C2A] disabled:opacity-60"
           >
             <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
             Recargar
@@ -327,20 +330,18 @@ export default function Auditoria() {
               placeholder="Buscar por actor, módulo, acción..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full rounded-2xl border border-gray-200 bg-gray-50 pl-9 pr-4 py-2.5 text-sm outline-none transition focus:border-primary-500 focus:bg-white focus:ring-2 focus:ring-[#5D87FF]/20"
+              className="w-full rounded-2xl border border-gray-200 bg-gray-50 pl-9 pr-4 py-2.5 text-sm outline-none transition focus:border-[#DC1F2D] focus:bg-white focus:ring-2 focus:ring-[#DC1F2D]/20"
             />
           </div>
 
           {/* Limit */}
           <div className="relative">
-            <label className="mb-1 block text-[10px] font-black uppercase tracking-wider text-gray-400">
-              Registros
-            </label>
+            <label className="mb-1 block text-[10px] font-semibold text-gray-400">Registros</label>
             <div className="relative">
               <select
                 value={limit}
                 onChange={(e) => setLimit(Number(e.target.value))}
-                className="appearance-none rounded-2xl border border-gray-200 bg-gray-50 px-4 py-2.5 pr-8 text-sm font-semibold text-gray-700 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-[#5D87FF]/20"
+                className="appearance-none rounded-2xl border border-gray-200 bg-gray-50 px-4 py-2.5 pr-8 text-sm font-semibold text-gray-700 outline-none transition focus:border-[#DC1F2D] focus:ring-2 focus:ring-[#DC1F2D]/20"
               >
                 {LIMIT_OPTIONS.map((l) => (
                   <option key={l} value={l}>
@@ -357,27 +358,23 @@ export default function Auditoria() {
 
           {/* Date from */}
           <div>
-            <label className="mb-1 block text-[10px] font-black uppercase tracking-wider text-gray-400">
-              Desde
-            </label>
+            <label className="mb-1 block text-[10px] font-semibold text-gray-400">Desde</label>
             <input
               type="date"
               value={dateFrom}
               onChange={(e) => setDateFrom(e.target.value)}
-              className="rounded-2xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm font-semibold text-gray-700 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-[#5D87FF]/20"
+              className="rounded-2xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm font-semibold text-gray-700 outline-none transition focus:border-[#DC1F2D] focus:ring-2 focus:ring-[#DC1F2D]/20"
             />
           </div>
 
           {/* Date to */}
           <div>
-            <label className="mb-1 block text-[10px] font-black uppercase tracking-wider text-gray-400">
-              Hasta
-            </label>
+            <label className="mb-1 block text-[10px] font-semibold text-gray-400">Hasta</label>
             <input
               type="date"
               value={dateTo}
               onChange={(e) => setDateTo(e.target.value)}
-              className="rounded-2xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm font-semibold text-gray-700 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-[#5D87FF]/20"
+              className="rounded-2xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm font-semibold text-gray-700 outline-none transition focus:border-[#DC1F2D] focus:ring-2 focus:ring-[#DC1F2D]/20"
             />
           </div>
 
@@ -399,7 +396,7 @@ export default function Auditoria() {
 
       {/* Error state */}
       {error && (
-        <div className="flex items-center gap-3 rounded-[24px] border border-amber-200 bg-warning-50 px-5 py-4">
+        <div className="flex items-center gap-3 rounded-[24px] border border-amber-200 bg-amber-50 px-5 py-4">
           <AlertCircle size={20} className="flex-shrink-0 text-amber-500" />
           <p className="text-sm font-medium text-amber-800">{error}</p>
         </div>
@@ -411,31 +408,21 @@ export default function Auditoria() {
           <table className="w-full text-left text-sm">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-5 py-3 text-[10px] font-black uppercase tracking-wider text-gray-400 whitespace-nowrap">
+                <th className="px-5 py-3 text-[10px] font-semibold text-gray-400 whitespace-nowrap">
                   Fecha
                 </th>
-                <th className="px-4 py-3 text-[10px] font-black uppercase tracking-wider text-gray-400">
-                  Actor
-                </th>
-                <th className="px-4 py-3 text-[10px] font-black uppercase tracking-wider text-gray-400">
-                  Módulo
-                </th>
-                <th className="px-4 py-3 text-[10px] font-black uppercase tracking-wider text-gray-400">
-                  Acción
-                </th>
-                <th className="px-4 py-3 text-[10px] font-black uppercase tracking-wider text-gray-400">
-                  Entidad
-                </th>
-                <th className="px-4 py-3 text-[10px] font-black uppercase tracking-wider text-gray-400">
-                  Detalle
-                </th>
+                <th className="px-4 py-3 text-[10px] font-semibold text-gray-400">Actor</th>
+                <th className="px-4 py-3 text-[10px] font-semibold text-gray-400">Módulo</th>
+                <th className="px-4 py-3 text-[10px] font-semibold text-gray-400">Acción</th>
+                <th className="px-4 py-3 text-[10px] font-semibold text-gray-400">Entidad</th>
+                <th className="px-4 py-3 text-[10px] font-semibold text-gray-400">Detalle</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {loading ? (
                 <tr>
                   <td colSpan={6} className="px-5 py-12 text-center">
-                    <RefreshCw className="mx-auto mb-2 animate-spin text-primary-500" size={24} />
+                    <RefreshCw className="mx-auto mb-2 animate-spin text-[#DC1F2D]" size={24} />
                     <p className="text-sm text-gray-400">Cargando registros...</p>
                   </td>
                 </tr>

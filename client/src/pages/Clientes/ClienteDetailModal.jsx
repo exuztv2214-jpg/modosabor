@@ -1,36 +1,37 @@
+import { Cake, Copy, MapPin, MessageCircle, Pencil, Phone, Trash2, X } from 'lucide-react';
+
+import { APP_BG, BRAND, STROKE } from '../../lib/theme.js';
 import {
-  X,
-  Pencil,
-  Trash2,
-  MessageCircle,
-  Copy,
-  Star,
-  CreditCard,
-  History,
-  Gift,
-  MapPin,
-  Cake,
-  Phone,
-  CheckCircle2,
-  QrCode,
-  Download,
-  ExternalLink,
-  User,
-} from 'lucide-react';
-import { QRCodeSVG } from 'qrcode.react';
+  AvatarDisplay,
+  Card,
+  Empty,
+  EstadoPill,
+  METRICA_TONOS,
+  nivelEstilo,
+} from './clientesUi.jsx';
 import HistorialPedidosPanel from './HistorialPedidosPanel.jsx';
 import FidelizacionPanel from './FidelizacionPanel.jsx';
 import DireccionesPanel from './DireccionesPanel.jsx';
 
-export function AvatarDisplay({ url, nombre, size = 'h-24 w-24' }) {
-  if (url) {
-    return <img src={url} className={`${size} rounded-2xl object-cover shadow-lg`} alt={nombre} />;
-  }
+const TONOS_TIMELINE = {
+  emerald: '#10B981',
+  amber: '#F59E0B',
+  rose: BRAND,
+  sky: '#0EA5E9',
+  blue: '#3B82F6',
+};
+
+function Dato({ icon: Icon, label, value, children }) {
   return (
-    <div
-      className={`${size} rounded-2xl flex items-center justify-center font-black text-3xl text-white shadow-lg bg-gray-400`}
-    >
-      {nombre?.[0]?.toUpperCase() || <User size={24} />}
+    <div className="rounded-xl bg-gray-50 p-3">
+      <p className="text-[11px] text-gray-400">{label}</p>
+      <div className="mt-1 flex items-start gap-2">
+        <Icon size={14} strokeWidth={STROKE} className="mt-0.5 shrink-0 text-gray-400" />
+        <div className="min-w-0 flex-1">
+          <p className="text-[13px] font-medium text-gray-900">{value}</p>
+          {children}
+        </div>
+      </div>
     </div>
   );
 }
@@ -38,18 +39,16 @@ export function AvatarDisplay({ url, nombre, size = 'h-24 w-24' }) {
 export default function ClienteDetailModal({
   detalle,
   onClose,
-  detalleEstado,
   detalleTimeline,
   detalleDirecciones,
   detalleDireccionPrincipal,
-  detalleCardCode,
   detalleClubUrl,
   branding,
   brandingLogoUrl,
   publicAppDiagnostics,
   sellosParaPremio,
   isProfileIncomplete,
-  getTimelineTone,
+  getClienteEstado,
   formatPedidoDate,
   fmtMoney,
   getPrimaryPhoneLink,
@@ -61,231 +60,204 @@ export default function ClienteDetailModal({
   copyToClipboard,
   printLoyaltyCard,
   openWhatsAppCardShare,
-  buildPublicAppUrl,
 }) {
   if (!detalle) return null;
+
+  const sinTelefono = !String(detalle.telefono || '').trim();
+  const codigo = detalle.codigo_tarjeta || `MS-${String(detalle.id).padStart(6, '0')}`;
+  const nivel = nivelEstilo(detalle.nivel);
+
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/30 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/35 p-4 backdrop-blur-sm"
       onClick={onClose}
     >
       <div
-        className="w-full max-w-7xl max-h-[95vh] overflow-y-auto rounded-[40px] bg-[#f7faff] shadow-2xl animate-in zoom-in-95 duration-200 no-scrollbar"
+        className="flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl shadow-2xl"
+        style={{ background: APP_BG }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="relative overflow-hidden rounded-t-[40px] bg-[radial-gradient(circle_at_top_right,rgba(93,135,255,0.28),transparent_28%),linear-gradient(135deg,#eef4ff_0%,#ffffff_52%,#f4fbff_100%)] px-6 pb-8 pt-8 lg:px-8 xl:px-10">
-          <div className="absolute right-6 top-6">
-            <button
-              onClick={onClose}
-              className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/80 bg-white/90 text-gray-500 shadow-sm hover:bg-white"
-            >
-              <X size={18} />
-            </button>
-          </div>
-          <div className="flex flex-col gap-6 pt-8 md:flex-row md:items-end md:justify-between">
-            <div className="flex items-end gap-4">
-              <div className="h-24 w-24 overflow-hidden rounded-[30px] border-4 border-white bg-gray-100 shadow-lg">
+        {/* ── Cabecera, pintada con el color del nivel ── */}
+        <div
+          className="shrink-0 border-b border-black/5 px-6 py-4"
+          style={{ background: nivel.banda }}
+        >
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="flex min-w-0 items-center gap-3">
+              <span
+                className="shrink-0 rounded-[16px] p-[3px]"
+                style={{ background: nivel.fuerte }}
+              >
                 <AvatarDisplay
                   url={detalle.avatar_url}
+                  fallbackId={detalle.id}
                   nombre={detalle.nombre}
-                  size="w-full h-full"
+                  size="h-14 w-14 text-[20px]"
                 />
-              </div>
-              <div>
-                <p className="text-[11px] font-black uppercase tracking-[0.28em] text-primary-500">
-                  Ficha de cliente
-                </p>
-                <h3 className="mt-2 text-3xl font-black tracking-tight text-gray-900">
-                  {detalle.nombre || 'Cliente Modo Sabor'}
+              </span>
+              <div className="min-w-0">
+                <h3 className="truncate text-[19px] font-semibold" style={{ color: nivel.texto }}>
+                  {detalle.nombre || 'Cliente sin nombre'}
                 </h3>
-                <div className="mt-3 flex flex-wrap items-center gap-2">
+                <div className="mt-1.5 flex flex-wrap items-center gap-2">
                   <span
-                    className={`rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-wider ${detalleEstado.className}`}
+                    className="rounded-full bg-white/80 px-2 py-0.5 text-[11px] font-semibold"
+                    style={{ color: nivel.fg }}
                   >
-                    {detalleEstado.label}
+                    {detalle.nivel || 'Bronce'}
                   </span>
-                  <span className="rounded-full border border-primary-100 bg-white px-3 py-1 text-[10px] font-black uppercase tracking-widest text-primary-500">
-                    {detalle.codigo_tarjeta || `MS-${String(detalle.id).padStart(6, '0')}`}
+                  <EstadoPill segmento={getClienteEstado(detalle)} />
+                  <span className="font-mono text-[12px]" style={{ color: nivel.apagado }}>
+                    {codigo}
                   </span>
                 </div>
               </div>
             </div>
-            <div className="flex flex-wrap gap-2 md:justify-end">
+
+            <div className="flex flex-wrap gap-2">
               <button
+                type="button"
+                disabled={sinTelefono}
                 onClick={() =>
                   window.open(
                     getWhatsAppLink(detalle.telefono, getRecoveryMessage(detalle)),
-                    '_blank'
+                    '_blank',
+                    'noopener,noreferrer'
                   )
                 }
-                className="inline-flex h-11 items-center justify-center rounded-2xl border border-emerald-100 bg-white px-4 text-[10px] font-black uppercase tracking-widest text-success-500 shadow-sm hover:bg-success-50"
+                style={sinTelefono ? undefined : { background: nivel.fuerte }}
+                className="inline-flex h-10 items-center gap-1.5 rounded-xl px-4 text-[13px] font-semibold text-white transition hover:brightness-110 disabled:bg-gray-200 disabled:text-gray-400"
               >
-                <MessageCircle size={16} className="mr-2" />
+                <MessageCircle size={14} strokeWidth={STROKE} />
                 WhatsApp
               </button>
               <button
-                onClick={() => copyToClipboard(detalle.telefono || '')}
-                className="inline-flex h-11 items-center justify-center rounded-2xl border border-primary-100 bg-white px-4 text-[10px] font-black uppercase tracking-widest text-primary-500 shadow-sm hover:bg-primary-50"
-              >
-                <Copy size={16} className="mr-2" />
-                Copiar teléfono
-              </button>
-              <button
+                type="button"
                 onClick={() => handleEdit(detalle)}
-                className="inline-flex h-11 items-center justify-center rounded-2xl bg-primary-500 px-5 text-[10px] font-black uppercase tracking-widest text-white shadow-lg shadow-primary-100 hover:bg-primary-600"
+                className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-white/80 px-4 text-[13px] font-semibold text-gray-700 transition hover:bg-white"
               >
-                <Pencil size={16} className="mr-2" />
+                <Pencil size={14} strokeWidth={STROKE} />
                 Editar
               </button>
               <button
+                type="button"
                 onClick={() => deleteCliente(detalle.id)}
-                className="flex h-11 w-11 items-center justify-center rounded-2xl border border-rose-100 bg-danger-50 text-rose-500 hover:bg-danger-100"
+                title="Eliminar cliente"
+                className="flex h-10 w-10 items-center justify-center rounded-xl text-gray-500 transition hover:bg-white hover:text-rose-600"
               >
-                <Trash2 size={18} />
+                <Trash2 size={16} strokeWidth={STROKE} />
+              </button>
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label="Cerrar"
+                className="flex h-10 w-10 items-center justify-center rounded-xl text-gray-500 transition hover:bg-white hover:text-gray-900"
+              >
+                <X size={18} strokeWidth={STROKE} />
               </button>
             </div>
           </div>
         </div>
 
-        <div className="px-6 pb-8 lg:px-8 xl:px-10">
-          <div className="-mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <div className="rounded-[24px] border border-white bg-white p-5 text-center shadow-sm">
-              <Star className="mx-auto mb-2 text-amber-500" size={24} fill="#FFAE1F" />
-              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-400">
-                Puntos
-              </p>
-              <p className="mt-1 text-lg font-black text-gray-900">{detalle.puntos || 0} pts</p>
-            </div>
-            <div className="rounded-[24px] border border-white bg-white p-5 text-center shadow-sm">
-              <CreditCard className="mx-auto mb-2 text-primary-500" size={24} />
-              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-400">
-                Canjes
-              </p>
-              <p className="mt-1 text-lg font-black text-gray-900">{detalle.canjes_premio || 0}</p>
-            </div>
-            <div className="rounded-[24px] border border-white bg-white p-5 text-center shadow-sm">
-              <History className="mx-auto mb-2 text-rose-500" size={24} />
-              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-400">
-                Frecuencia
-              </p>
-              <p className="mt-1 text-lg font-black text-gray-900">
-                ~{detalle.frecuencia_dias || 7} días
-              </p>
-            </div>
-            <div className="rounded-[24px] border border-white bg-white p-5 text-center shadow-sm">
-              <Gift className="mx-auto mb-2 text-success-500" size={24} />
-              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-400">
-                Premios listos
-              </p>
-              <p className="mt-1 text-lg font-black text-gray-900">
-                {detalle.recompensas_pendientes || 0}
-              </p>
-            </div>
-          </div>
+        {/* ── Cuerpo ── */}
+        <div className="min-h-0 flex-1 overflow-y-auto p-4">
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,1.25fr)_minmax(340px,0.75fr)]">
+            <div className="space-y-4">
+              <Card title="Datos de contacto">
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <Dato
+                    icon={Phone}
+                    label="Teléfono"
+                    value={detalle.telefono || 'Sin teléfono cargado'}
+                  >
+                    {!sinTelefono ? (
+                      <div className="mt-1 flex gap-3">
+                        <a
+                          href={getPrimaryPhoneLink(detalle.telefono)}
+                          className="text-[12px] font-semibold text-gray-500 transition hover:text-gray-900"
+                        >
+                          Llamar
+                        </a>
+                        <button
+                          type="button"
+                          onClick={() => copyToClipboard(detalle.telefono)}
+                          className="inline-flex items-center gap-1 text-[12px] font-semibold text-gray-500 transition hover:text-gray-900"
+                        >
+                          <Copy size={11} strokeWidth={STROKE} />
+                          Copiar
+                        </button>
+                      </div>
+                    ) : null}
+                  </Dato>
 
-          <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1.15fr)_minmax(380px,0.85fr)]">
-            <div className="space-y-6">
-              <div className="rounded-[32px] border border-white bg-white p-6 shadow-sm">
-                <div className="mb-5 flex items-center justify-between">
-                  <h4 className="text-[10px] font-black uppercase tracking-[0.3em] text-gray-400">
-                    Ficha 360
-                  </h4>
-                  <span className="text-[10px] font-black uppercase tracking-widest text-primary-500">
-                    Cliente activo
-                  </span>
-                </div>
-                <div className="grid gap-4 lg:grid-cols-2">
-                  <div className="rounded-[24px] bg-background p-4">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">
-                      Contacto principal
-                    </p>
-                    <div className="mt-3 flex items-center gap-3">
-                      <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-success-500 shadow-sm">
-                        <Phone size={18} />
-                      </div>
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-black text-gray-900">
-                          {detalle.telefono || 'Sin teléfono'}
-                        </p>
-                        <div className="mt-1 flex gap-3">
-                          <button
-                            onClick={() =>
-                              window.open(getPrimaryPhoneLink(detalle.telefono), '_blank')
-                            }
-                            className="text-[10px] font-black uppercase tracking-widest text-primary-500 hover:underline"
-                          >
-                            Llamar
-                          </button>
-                          {detalle.telefono && (
-                            <button
-                              onClick={() =>
-                                window.open(getWhatsAppLink(detalle.telefono), '_blank')
-                              }
-                              className="text-[10px] font-black uppercase tracking-widest text-success-500 hover:underline"
-                            >
-                              WhatsApp
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+                  <Dato
+                    icon={Cake}
+                    label="Cumpleaños"
+                    value={detalle.fecha_nacimiento || 'No registrado'}
+                  />
 
-                  <div className="rounded-[24px] bg-background p-4">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">
-                      Cumpleaños
-                    </p>
-                    <div className="mt-3 flex items-center gap-3">
-                      <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-amber-500 shadow-sm">
-                        <Cake size={18} />
-                      </div>
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-black text-gray-900">
-                          {detalle.fecha_nacimiento || 'No registrado'}
+                  <div className="sm:col-span-2">
+                    <Dato
+                      icon={MapPin}
+                      label="Dirección principal"
+                      value={
+                        detalleDireccionPrincipal?.direccion ||
+                        detalle.direccion ||
+                        'Sin dirección cargada'
+                      }
+                    >
+                      {detalleDireccionPrincipal?.referencia ? (
+                        <p className="mt-0.5 text-[11px] text-gray-400">
+                          {detalleDireccionPrincipal.referencia}
                         </p>
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
-                          Campañas y beneficios
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="rounded-[24px] bg-background p-4 lg:col-span-2">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">
-                      Dirección principal
-                    </p>
-                    <div className="mt-3 flex items-start gap-3">
-                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white text-primary-500 shadow-sm">
-                        <MapPin size={18} />
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-sm font-black text-gray-900">
-                          {detalleDireccionPrincipal?.direccion ||
-                            detalle.direccion ||
-                            'Sin dirección cargada'}
-                        </p>
-                        <p className="mt-1 text-[10px] font-bold uppercase tracking-widest text-gray-400">
-                          {detalleDireccionPrincipal?.etiqueta || 'Principal'}
-                          {detalleDireccionPrincipal?.referencia
-                            ? ` · ${detalleDireccionPrincipal.referencia}`
-                            : ''}
-                        </p>
-                      </div>
-                    </div>
+                      ) : null}
+                    </Dato>
                   </div>
                 </div>
 
                 {detalle.notas ? (
-                  <div className="mt-4 rounded-[24px] border border-dashed border-gray-200 bg-gray-50 px-4 py-3">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">
-                      Notas internas
-                    </p>
-                    <p className="mt-2 text-sm font-medium leading-6 text-gray-700">
-                      {detalle.notas}
-                    </p>
+                  <div className="mt-3 rounded-xl border border-dashed border-gray-200 p-3">
+                    <p className="text-[11px] text-gray-400">Notas internas</p>
+                    <p className="mt-1 text-[13px] leading-5 text-gray-700">{detalle.notas}</p>
                   </div>
                 ) : null}
-              </div>
+              </Card>
+
+              <Card title="Resumen">
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  {[
+                    {
+                      label: 'Gastado',
+                      valor: fmtMoney(detalle.total_gastado),
+                      tono: METRICA_TONOS.gastado,
+                    },
+                    {
+                      label: 'Pedidos',
+                      valor: detalle.total_pedidos || 0,
+                      tono: METRICA_TONOS.pedidos,
+                    },
+                    { label: 'Puntos', valor: `${detalle.puntos || 0}` },
+                    { label: 'Premios canjeados', valor: detalle.canjes_premio || 0 },
+                  ].map((item) => (
+                    <div
+                      key={item.label}
+                      className="rounded-xl p-3"
+                      style={{ background: item.tono?.bg || '#F3F4F6' }}
+                    >
+                      <p className="text-[11px]" style={{ color: item.tono?.label || '#6B7280' }}>
+                        {item.label}
+                      </p>
+                      <p
+                        className="mt-1 truncate text-[18px] font-bold tabular-nums"
+                        style={{ color: item.tono?.valor || '#111827' }}
+                      >
+                        {item.valor}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+
               <HistorialPedidosPanel
                 pedidos={detalle.pedidos}
                 formatPedidoDate={formatPedidoDate}
@@ -293,7 +265,7 @@ export default function ClienteDetailModal({
               />
             </div>
 
-            <div className="space-y-6">
+            <div className="space-y-4">
               <FidelizacionPanel
                 detalle={detalle}
                 sellosParaPremio={sellosParaPremio}
@@ -307,46 +279,39 @@ export default function ClienteDetailModal({
                 printLoyaltyCard={printLoyaltyCard}
                 openWhatsAppCardShare={openWhatsAppCardShare}
                 getRecoveryMessage={getRecoveryMessage}
-                fmtMoney={fmtMoney}
-                buildPublicAppUrl={buildPublicAppUrl}
               />
-              <div className="rounded-[32px] border border-white bg-white p-6 shadow-sm">
-                <h4 className="mb-4 text-[10px] font-black uppercase tracking-[0.3em] text-gray-400">
-                  Actividad y retención
-                </h4>
-                <div className="space-y-3">
-                  {detalleTimeline.length > 0 ? (
-                    detalleTimeline.map((item) => (
-                      <div
-                        key={item.id}
-                        className={`rounded-[22px] border px-4 py-4 ${getTimelineTone(item.tone)}`}
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <p className="text-xs font-black uppercase tracking-widest">
-                              {item.title}
-                            </p>
-                            <p className="mt-1 text-sm font-bold leading-relaxed">
-                              {item.subtitle}
-                            </p>
+
+              <Card title="Actividad">
+                {detalleTimeline.length ? (
+                  <div className="space-y-2">
+                    {detalleTimeline.map((item) => (
+                      <div key={item.id} className="flex items-start gap-2.5">
+                        <span
+                          className="mt-1.5 h-2 w-2 shrink-0 rounded-full"
+                          style={{ background: TONOS_TIMELINE[item.tone] || '#9CA3AF' }}
+                          aria-hidden
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-start justify-between gap-2">
+                            <p className="text-[13px] font-medium text-gray-900">{item.title}</p>
+                            {item.fecha ? (
+                              <span className="shrink-0 text-[11px] text-gray-400">
+                                {formatPedidoDate(item.fecha)}
+                              </span>
+                            ) : null}
                           </div>
-                          {item.fecha ? (
-                            <span className="shrink-0 text-[9px] font-black uppercase tracking-widest opacity-70">
-                              {formatPedidoDate(item.fecha)}
-                            </span>
-                          ) : null}
+                          <p className="mt-0.5 text-[12px] leading-4 text-gray-500">
+                            {item.subtitle}
+                          </p>
                         </div>
                       </div>
-                    ))
-                  ) : (
-                    <div className="rounded-[24px] border border-dashed border-gray-200 bg-gray-50 px-4 py-5 text-center">
-                      <p className="text-xs font-black uppercase tracking-widest text-gray-400">
-                        Sin actividad destacada
-                      </p>
-                    </div>
-                  )}
-                </div>
-              </div>
+                    ))}
+                  </div>
+                ) : (
+                  <Empty title="Sin actividad destacada" />
+                )}
+              </Card>
+
               <DireccionesPanel direcciones={detalleDirecciones} />
             </div>
           </div>
