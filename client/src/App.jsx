@@ -5,7 +5,6 @@ import { Toaster } from 'react-hot-toast';
 import { AuthProvider } from './context/AuthContext.jsx';
 import { AppConfigProvider } from './context/AppConfigContext.jsx';
 import PrivateRoute from './components/PrivateRoute.jsx';
-import Layout from './components/Layout.jsx';
 import AppErrorBoundary from './components/AppErrorBoundary.jsx';
 import AppConfigWarning from './components/AppConfigWarning.jsx';
 import { isNativeRiderApp } from './lib/nativeRiderGps.js';
@@ -22,7 +21,19 @@ const PageLoader = () => (
   </div>
 );
 
+/*
+  WebPublica se deja como import directo a propósito: es la carta, la pantalla
+  que abre el cliente con hambre, y un chunk aparte le agregaría un viaje de red
+  antes de ver un plato.
+
+  Lo que sí se difiere es todo lo del panel. `Layout` —la barra lateral, el
+  encabezado, los íconos del menú de administración— viajaba en el paquete
+  principal, así que cada persona que abría la carta se bajaba la interfaz
+  completa del back office sin verla nunca.
+*/
 import WebPublica from './pages/WebPublica.jsx';
+
+const Layout = lazy(() => import('./components/Layout.jsx'));
 const ClubFidelidad = lazy(() => import('./pages/ClubFidelidad.jsx'));
 const TerminosCondiciones = lazy(() => import('./pages/ClubFidelidad/TerminosCondiciones.jsx'));
 const PersonalClock = lazy(() => import('./pages/PersonalClock.jsx'));

@@ -1,5 +1,4 @@
 import { ArrowRight } from 'lucide-react';
-import { motion } from 'framer-motion';
 import { resolveAssetUrl } from '../../lib/assets.js';
 import { DEFAULT_BRAND_LOGO } from '../../lib/webPublicaHelpers.js';
 
@@ -40,8 +39,7 @@ export default function PromoSection({
         </div>
         <div className="grid gap-4 lg:grid-cols-[1.15fr,0.85fr]">
           {promoPrincipal && (
-            <motion.button
-              whileHover={{ y: -2 }}
+            <button
               onClick={() => onAction(promoPrincipal.accion_tipo, promoPrincipal.accion_valor)}
               className="group overflow-hidden rounded-[28px] border text-left text-gray-900 shadow-[0_24px_50px_rgba(20,20,20,0.08)] transition hover:shadow-[0_28px_60px_rgba(20,20,20,0.12)]"
               style={{
@@ -96,15 +94,14 @@ export default function PromoSection({
                   </div>
                 </div>
               </div>
-            </motion.button>
+            </button>
           )}
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-1">
             {promoSecundarias.map((promo) => {
               const promoImage = resolveAssetUrl(promo.imagen || DEFAULT_BRAND_LOGO);
               return (
-                <motion.button
+                <button
                   key={promo.id}
-                  whileHover={{ y: -2 }}
                   onClick={() => onAction(promo.accion_tipo, promo.accion_valor)}
                   className="group grid min-h-[170px] overflow-hidden rounded-[24px] text-left shadow-[0_16px_40px_rgba(20,20,20,0.07)] transition hover:shadow-[0_20px_48px_rgba(20,20,20,0.1)] md:grid-cols-[112px,1fr]"
                   style={{ backgroundColor: theme?.panel || '#fffdfb' }}
@@ -139,7 +136,7 @@ export default function PromoSection({
                       {promo.descripcion}
                     </p>
                   </div>
-                </motion.button>
+                </button>
               );
             })}
           </div>

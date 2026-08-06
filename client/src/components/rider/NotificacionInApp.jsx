@@ -61,7 +61,7 @@ export default function NotificacionInApp({ pedido, onVer, onCerrar }) {
                 <p className="mt-0.5 truncate text-sm font-bold text-white">
                   #{pedido.numero} · {pedido.cliente_nombre || 'Sin nombre'}
                 </p>
-                <p className="mt-1 flex items-start gap-1 text-[11px] font-semibold leading-snug text-white/85">
+                <p className="mt-1 flex items-start gap-1 text-[13px] font-semibold leading-snug text-white/85">
                   <MapPin size={11} className="mt-0.5 shrink-0" />
                   <span className="line-clamp-1">
                     {pedido.cliente_direccion || 'Sin dirección'}

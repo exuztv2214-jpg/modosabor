@@ -607,6 +607,39 @@ router.put('/:id/rider/:codigo/pedido/:pedidoId/estado', (req, res) => {
   res.json(updatedPedido);
 });
 
+/**
+ * Minutos desde que el pedido se marcó entregado.
+ *
+ * Se prefiere el evento de trazabilidad y se cae a `actualizado_en` para los
+ * pedidos viejos. La fecha viene de SQLite en UTC sin declararlo, por eso el
+ * sufijo Z explícito: sin él el cálculo se corre 3 horas.
+ *
+ * @returns {number} Infinito si no se puede determinar, para pecar de cauto.
+ */
+function minutosDesdeEntrega(pedido) {
+  const evento = db
+    .prepare(
+      `SELECT creado_en FROM pedido_eventos
+       WHERE pedido_id = ? AND estado = 'entregado'
+       ORDER BY datetime(creado_en) DESC, id DESC LIMIT 1`
+    )
+    .get(pedido.id);
+  const marcadoEn = evento?.creado_en || pedido.actualizado_en;
+  const ms = new Date(String(marcadoEn).replace(' ', 'T') + 'Z').getTime();
+  return Number.isFinite(ms) ? (Date.now() - ms) / 60000 : Number.POSITIVE_INFINITY;
+}
+
+/** Ventana de corrección configurable, la misma que usa deshacer entrega. */
+function ventanaCorreccionMin() {
+  return (
+    Number(
+      db
+        .prepare("SELECT valor FROM configuracion WHERE clave = 'delivery_ventana_deshacer_min'")
+        .get()?.valor
+    ) || 5
+  );
+}
+
 router.put('/:id/rider/:codigo/pedido/:pedidoId/pago', (req, res) => {
   const repartidor = validateRiderAccess(req, res);
   if (!repartidor) return;
@@ -615,7 +648,34 @@ router.put('/:id/rider/:codigo/pedido/:pedidoId/pago', (req, res) => {
     .prepare('SELECT * FROM pedidos WHERE id = ? AND repartidor_id = ?')
     .get(req.params.pedidoId, repartidor.id);
   if (!pedido) return res.status(404).json({ error: 'Pedido no encontrado' });
-  if (pedido.estado === 'entregado' || isPagoPagado(pedido.pago_estado)) {
+
+  /*
+    ── Por qué se puede corregir después de entregar ──────────────────────
+
+    Antes el cambio se bloqueaba apenas el pedido pasaba a entregado. En la
+    calle el orden real es al revés: el cliente dice "te pago por
+    transferencia" cuando ya tenés la bolsa en la mano, y el rider marca
+    entregado por costumbre antes de acordarse de corregir el medio. A partir
+    de ahí el sistema quedaba con "efectivo" para siempre, y la caja cerraba
+    con un faltante que no existía.
+
+    Se le da la misma ventana de gracia que ya tiene deshacer una entrega
+    (`delivery_ventana_deshacer_min`, 5 minutos por defecto). Pasado ese rato
+    lo corrige el local, que es quien tiene el panel a mano.
+
+    El cambio queda auditado siempre: es plata, y tiene que poder rastrearse
+    quién lo tocó.
+  */
+  if (pedido.estado === 'entregado') {
+    const minutos = minutosDesdeEntrega(pedido);
+    const ventana = ventanaCorreccionMin();
+    if (minutos > ventana) {
+      return res.status(400).json({
+        error: `Pasaron más de ${ventana} minutos desde la entrega. Pedile al local que corrija el medio de pago.`,
+        expirado: true,
+      });
+    }
+  } else if (isPagoPagado(pedido.pago_estado)) {
     return res.status(400).json({ error: 'El cobro ya fue confirmado y no puede modificarse' });
   }
 
@@ -636,13 +696,23 @@ router.put('/:id/rider/:codigo/pedido/:pedidoId/pago', (req, res) => {
   }
 
   const previousMethod = normalizeMetodoPago(pedido.metodo_pago);
+
+  /*
+    Al corregir el medio de un pedido ya entregado no hay que volver el cobro
+    a "pendiente": la plata está cobrada, lo único que cambia es en qué forma.
+    Pasarlo a pendiente le abriría un faltante falso al cierre de caja, que es
+    justamente lo que este cambio viene a evitar.
+  */
+  const nuevoPagoEstado = pedido.estado === 'entregado' ? pedido.pago_estado : 'pendiente';
+
   db.prepare(
     `UPDATE pedidos
-     SET metodo_pago = ?, pago_estado = 'pendiente',
+     SET metodo_pago = ?, pago_estado = ?,
          pago_detalle = ?, actualizado_en = CURRENT_TIMESTAMP
      WHERE id = ?`
   ).run(
     nextMetodo,
+    nuevoPagoEstado,
     JSON.stringify({
       actualizado_por: 'rider',
       repartidor_id: repartidor.id,

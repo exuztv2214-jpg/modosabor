@@ -1,5 +1,4 @@
 import { Minus, Plus, UtensilsCrossed } from 'lucide-react';
-import { motion } from 'framer-motion';
 import { resolveAssetUrl } from '../../lib/assets.js';
 import { fmt, getVariantHint, isVisibleOnPublicMenu } from '../../lib/webPublicaHelpers.js';
 import {
@@ -76,12 +75,9 @@ export default function ProductoCard({
   }
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 12 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.35 }}
+    <div
       id={`producto-${producto.id}`}
-      className={`group relative flex flex-col overflow-hidden rounded-[24px] backdrop-blur-sm border transition-all duration-300 hover:-translate-y-1 hover:scale-[1.01] ${
+      className={`ms-aparecer group relative flex flex-col overflow-hidden rounded-[24px] backdrop-blur-sm border transition-all duration-300 hover:-translate-y-1 hover:scale-[1.01] ${
         !disponible ? 'opacity-60 grayscale' : ''
       }`}
       style={{
@@ -254,6 +250,6 @@ export default function ProductoCard({
           )}
         </div>
       </div>
-    </motion.div>
+    </div>
   );
 }

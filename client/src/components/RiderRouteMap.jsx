@@ -8,17 +8,19 @@ import {
   buildGoogleMapsDirectionsUrl,
   isInsideServiceArea,
 } from '../lib/maps.js';
+import { obtenerRutaPorCalles } from '../lib/rutaCalles.js';
 
-// ── OSRM: ruta real por calles ──
-async function fetchRoute(lat1, lng1, lat2, lng2) {
-  const url = `https://router.project-osrm.org/route/v1/driving/${lng1},${lat1};${lng2},${lat2}?overview=full&geometries=geojson`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error('OSRM error');
-  const data = await res.json();
-  if (!data.routes || data.routes.length === 0) throw new Error('No route');
-  // GeoJSON coordinates son [lng, lat]; Leaflet necesita [lat, lng]
-  return data.routes[0].geometry.coordinates.map(([lng, lat]) => [lat, lng]);
-}
+/*
+  El pedido de ruta vivía acá con un `fetch` sin tiempo límite. Si el servicio
+  de OSRM se quedaba pensando —cosa habitual en el servidor público gratuito, o
+  con la señal floja andando por Monteros— la promesa no se resolvía nunca: el
+  `catch` no llegaba a dispararse y el rider se quedaba sin ruta *y* sin la
+  línea recta de respaldo. El mapa, mudo.
+
+  Ahora usa el helper compartido, que corta a los 6 segundos, permite apuntar a
+  otro servidor por configuración y devuelve `null` en vez de tirar. Ver
+  lib/rutaCalles.js.
+*/
 
 // Dibuja una línea recta como fallback
 function drawStraightLine(L, riderLat, riderLng, clientLat, clientLng) {
@@ -175,8 +177,17 @@ export default function RiderRouteMap({
 
     if (riderLat && riderLng && effectiveClientLat && effectiveClientLng) {
       // Intentar ruta real por OSRM, fallback a línea recta
-      fetchRoute(riderLat, riderLng, effectiveClientLat, effectiveClientLng)
-        .then((coords) => {
+      obtenerRutaPorCalles({
+        desdeLat: riderLat,
+        desdeLng: riderLng,
+        hastaLat: effectiveClientLat,
+        hastaLng: effectiveClientLng,
+        urlBase: mapConfig?.ruteo_url,
+      })
+        .then((ruta) => {
+          // Sin ruta se cae al respaldo de abajo, igual que si fallara.
+          if (!ruta?.puntos?.length) throw new Error('sin ruta');
+          const coords = ruta.puntos;
           cachedRouteRef.current = coords;
           const routeLine = L.polyline(coords, {
             color: '#2563eb',
@@ -273,8 +284,16 @@ export default function RiderRouteMap({
           if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
           debounceTimerRef.current = setTimeout(() => {
             if (!mapInstanceRef.current) return;
-            fetchRoute(riderLat, riderLng, effectiveClientLat, effectiveClientLng)
-              .then((coords) => {
+            obtenerRutaPorCalles({
+              desdeLat: riderLat,
+              desdeLng: riderLng,
+              hastaLat: effectiveClientLat,
+              hastaLng: effectiveClientLng,
+              urlBase: mapConfig?.ruteo_url,
+            })
+              .then((ruta) => {
+                if (!ruta?.puntos?.length) throw new Error('sin ruta');
+                const coords = ruta.puntos;
                 cachedRouteRef.current = coords;
                 if (routeLineRef.current) {
                   routeLineRef.current.setLatLngs(coords);

@@ -328,3 +328,75 @@
 .rider-primary-button:active {
   filter: brightness(0.9);
 }
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Animaciones de entrada de la web pública, en CSS.
+
+   Antes las hacía framer-motion. La librería son unos 30 KB comprimidos que
+   viajaban en la carga inicial de la carta para hacer cuatro fundidos de
+   entrada: un costo alto para algo decorativo, justo en la pantalla que abre
+   un cliente con hambre y datos móviles.
+
+   Los modales (carrito, variantes, detalle) siguen usando framer-motion, pero
+   ahora se cargan aparte y sólo cuando alguien los abre.
+
+   `prefers-reduced-motion` respeta a quien pidió menos movimiento en su
+   sistema: para esa gente el contenido aparece directamente.
+   ────────────────────────────────────────────────────────────────────────── */
+@keyframes ms-aparecer {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.ms-aparecer {
+  animation: ms-aparecer 0.35s ease-out both;
+}
+
+.ms-aparecer-lento {
+  animation: ms-aparecer 0.45s ease-out both;
+}
+
+/* Fundido sin desplazamiento, para bloques que ya están en su lugar. */
+@keyframes ms-fundido {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.ms-fundido {
+  animation: ms-fundido 0.4s ease-out both;
+}
+
+/* Reemplaza el whileHover={{ y: -2 }} de las tarjetas de promo. */
+.ms-levanta {
+  transition: transform 0.18s ease-out;
+}
+
+.ms-levanta:hover {
+  transform: translateY(-2px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ms-aparecer,
+  .ms-aparecer-lento,
+  .ms-fundido {
+    animation: none;
+  }
+
+  .ms-levanta {
+    transition: none;
+  }
+
+  .ms-levanta:hover {
+    transform: none;
+  }
+}

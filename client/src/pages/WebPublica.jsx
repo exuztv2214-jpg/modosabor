@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, lazy, Suspense } from 'react';
 import toast from 'react-hot-toast';
 import {
   ShoppingCart,
@@ -48,13 +48,25 @@ import Footer from '../components/WebPublica/Footer.jsx';
 import FloatingCart from '../components/WebPublica/FloatingCart.jsx';
 import WhatsAppFloat from '../components/WebPublica/WhatsAppFloat.jsx';
 import ScrollTop from '../components/WebPublica/ScrollTop.jsx';
-import PopupModal from '../components/WebPublica/PopupModal.jsx';
-import CartDrawer from '../components/WebPublica/CartDrawer.jsx';
-import VariantModal from '../components/WebPublica/VariantModal.jsx';
-import ProductDetailModal from '../components/WebPublica/ProductDetailModal.jsx';
-import OrderConfirmation from '../components/WebPublica/OrderConfirmation.jsx';
 import LoadingState from '../components/WebPublica/LoadingState.jsx';
 import ErrorState from '../components/WebPublica/ErrorState.jsx';
+
+/*
+  Estos cinco sólo aparecen cuando el cliente toca algo: abrir el carrito,
+  elegir variantes, ver el detalle de un plato o confirmar el pedido. Antes
+  viajaban en la carga inicial, así que quien entraba a mirar la carta y se iba
+  —la mayoría— se bajaba el checkout completo sin usarlo. `CartDrawer` solo son
+  553 líneas.
+
+  Van con `lazy` y además con una guarda afuera: React sólo pide el archivo
+  cuando el componente se renderiza de verdad, y si se renderizara siempre
+  (aunque adentro devuelva null) el chunk se descargaría igual.
+*/
+const PopupModal = lazy(() => import('../components/WebPublica/PopupModal.jsx'));
+const CartDrawer = lazy(() => import('../components/WebPublica/CartDrawer.jsx'));
+const VariantModal = lazy(() => import('../components/WebPublica/VariantModal.jsx'));
+const ProductDetailModal = lazy(() => import('../components/WebPublica/ProductDetailModal.jsx'));
+const OrderConfirmation = lazy(() => import('../components/WebPublica/OrderConfirmation.jsx'));
 
 export default function WebPublica() {
   const [config, setConfig] = useState({});
@@ -868,12 +880,14 @@ export default function WebPublica() {
   if (errorCarga) return <ErrorState onRetry={() => setRetryCount((c) => c + 1)} />;
   if (confirmado) {
     return (
-      <OrderConfirmation
-        confirmado={confirmado}
-        config={config}
-        colorPrimario={colorPrimario}
-        onReset={() => setConfirmado(null)}
-      />
+      <Suspense fallback={null}>
+        <OrderConfirmation
+          confirmado={confirmado}
+          config={config}
+          colorPrimario={colorPrimario}
+          onReset={() => setConfirmado(null)}
+        />
+      </Suspense>
     );
   }
 
@@ -1062,67 +1076,83 @@ export default function WebPublica() {
 
       <ScrollTop show={showScrollTop} config={config} totalItems={totalItems} />
 
-      <PopupModal
-        visible={popupVisible}
-        content={popupContent}
-        colorPrimario={colorPrimario}
-        theme={theme}
-        onClose={() => setPopupVisible(false)}
-        onAction={handleAction}
-      />
+      {popupVisible && (
+        <Suspense fallback={null}>
+          <PopupModal
+            visible={popupVisible}
+            content={popupContent}
+            colorPrimario={colorPrimario}
+            theme={theme}
+            onClose={() => setPopupVisible(false)}
+            onAction={handleAction}
+          />
+        </Suspense>
+      )}
 
-      <CartDrawer
-        carrito={carrito}
-        setCarrito={setCarrito}
-        open={carritoOpen}
-        setOpen={setCarritoOpen}
-        checkout={checkout}
-        setCheckout={setCheckout}
-        form={form}
-        setForm={setForm}
-        cupon={cupon}
-        setCupon={setCupon}
-        deliveryQuote={deliveryQuote}
-        summary={summary}
-        envio={summary.envio}
-        colorPrimario={colorPrimario}
-        config={config}
-        metodosDisponibles={metodosDisponibles}
-        tiposEntregaDisponibles={tiposEntregaDisponibles}
-        deliveryActivo={deliveryActivo}
-        retiroActivo={retiroActivo}
-        zonasCobertura={zonasCobertura}
-        pedidoMinimo={pedidoMinimo}
-        faltaParaMinimo={faltaParaMinimo}
-        tiempoEstimado={tiempoEstimado}
-        loading={loading}
-        hacerPedido={hacerPedido}
-        aplicarCupon={aplicarCupon}
-        quitarCupon={quitarCupon}
-        captureCustomerLocation={captureCustomerLocation}
-        customerGeo={customerGeo}
-        categoriasVisibles={categoriasVisibles}
-        productosPorCategoria={productosPorCategoria}
-        setCatActiva={setCatActiva}
-        setBusqueda={setBusqueda}
-      />
+      {carritoOpen && (
+        <Suspense fallback={null}>
+          <CartDrawer
+            carrito={carrito}
+            setCarrito={setCarrito}
+            open={carritoOpen}
+            setOpen={setCarritoOpen}
+            checkout={checkout}
+            setCheckout={setCheckout}
+            form={form}
+            setForm={setForm}
+            cupon={cupon}
+            setCupon={setCupon}
+            deliveryQuote={deliveryQuote}
+            summary={summary}
+            envio={summary.envio}
+            colorPrimario={colorPrimario}
+            config={config}
+            metodosDisponibles={metodosDisponibles}
+            tiposEntregaDisponibles={tiposEntregaDisponibles}
+            deliveryActivo={deliveryActivo}
+            retiroActivo={retiroActivo}
+            zonasCobertura={zonasCobertura}
+            pedidoMinimo={pedidoMinimo}
+            faltaParaMinimo={faltaParaMinimo}
+            tiempoEstimado={tiempoEstimado}
+            loading={loading}
+            hacerPedido={hacerPedido}
+            aplicarCupon={aplicarCupon}
+            quitarCupon={quitarCupon}
+            captureCustomerLocation={captureCustomerLocation}
+            customerGeo={customerGeo}
+            categoriasVisibles={categoriasVisibles}
+            productosPorCategoria={productosPorCategoria}
+            setCatActiva={setCatActiva}
+            setBusqueda={setBusqueda}
+          />
+        </Suspense>
+      )}
 
-      <VariantModal
-        modal={variantModal}
-        setModal={setVariantModal}
-        colorPrimario={colorPrimario}
-        onClose={() => setVariantModal(null)}
-        onAddToCart={addToCart}
-      />
+      {variantModal && (
+        <Suspense fallback={null}>
+          <VariantModal
+            modal={variantModal}
+            setModal={setVariantModal}
+            colorPrimario={colorPrimario}
+            onClose={() => setVariantModal(null)}
+            onAddToCart={addToCart}
+          />
+        </Suspense>
+      )}
 
-      <ProductDetailModal
-        producto={detalleModal}
-        colorPrimario={colorPrimario}
-        theme={theme}
-        config={config}
-        onClose={() => setDetalleModal(null)}
-        onAdd={agregarAlCarrito}
-      />
+      {detalleModal && (
+        <Suspense fallback={null}>
+          <ProductDetailModal
+            producto={detalleModal}
+            colorPrimario={colorPrimario}
+            theme={theme}
+            config={config}
+            onClose={() => setDetalleModal(null)}
+            onAdd={agregarAlCarrito}
+          />
+        </Suspense>
+      )}
     </div>
   );
 }

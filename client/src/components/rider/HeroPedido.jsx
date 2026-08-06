@@ -108,7 +108,7 @@ export default function HeroPedido({ pedido, riderLat, riderLng, onAbrir, onNave
           </div>
         ) : (
           <div className="mt-4 rounded-2xl bg-white/15 px-3 py-2.5 backdrop-blur">
-            <p className="text-[11px] font-bold leading-snug text-white/90">
+            <p className="text-[13px] font-bold leading-snug text-white/90">
               {tienePunto
                 ? 'Buscando tu ubicación para calcular la distancia…'
                 : 'El cliente no compartió ubicación exacta. Guiate por la dirección.'}

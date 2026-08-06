@@ -1,5 +1,3 @@
-import { motion } from 'framer-motion';
-
 export default function TrustSection({
   trustBadges,
   orderSteps,
@@ -10,11 +8,7 @@ export default function TrustSection({
   return (
     <section className="border-b border-black/5 bg-[#fff6ef] px-4 py-14 md:px-8">
       <div className="mx-auto grid gap-6 md:grid-cols-[1.1fr,0.9fr] max-w-[1400px]">
-        <motion.div
-          initial={{ opacity: 0, y: 16 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          transition={{ duration: 0.5 }}
+        <div
           className="rounded-[28px] border p-7 shadow-[0_18px_44px_rgba(20,20,20,0.05)]"
           style={{
             backgroundColor: theme?.panel || '#fffdfb',
@@ -53,13 +47,9 @@ export default function TrustSection({
               );
             })}
           </div>
-        </motion.div>
+        </div>
 
-        <motion.div
-          initial={{ opacity: 0, y: 16 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          transition={{ duration: 0.5, delay: 0.1 }}
+        <div
           className="rounded-[28px] border p-7 shadow-[0_18px_44px_rgba(20,20,20,0.05)]"
           style={{
             backgroundColor: theme?.panel || '#fffdfb',
@@ -113,7 +103,7 @@ export default function TrustSection({
               );
             })}
           </div>
-        </motion.div>
+        </div>
       </div>
     </section>
   );

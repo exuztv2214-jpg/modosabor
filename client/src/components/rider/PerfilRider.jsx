@@ -113,7 +113,7 @@ export default function PerfilRider({ repartidor, stats, onLogout, onCambiarRide
                   style={{ background: nivel.color }}
                 />
               </div>
-              <p className="mt-2 text-[11px] font-bold text-gray-500">
+              <p className="mt-2 text-[13px] font-bold text-gray-500">
                 Te faltan <b>{faltan}</b> entregas para {siguiente.emoji} {siguiente.label}
               </p>
             </div>
@@ -165,7 +165,7 @@ export default function PerfilRider({ repartidor, stats, onLogout, onCambiarRide
           />
         </div>
         {stats?.mejorDia?.fecha && (
-          <p className="mt-3 text-center text-[10px] font-bold text-gray-400">
+          <p className="mt-3 text-center text-[13px] font-bold text-gray-400">
             Tu mejor jornada fue el {stats.mejorDia.fecha} con {stats.mejorDia.entregas} entregas
           </p>
         )}

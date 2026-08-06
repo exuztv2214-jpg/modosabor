@@ -1,5 +1,4 @@
 import { Search, X, ShoppingBag, ArrowUpRight, Plus } from 'lucide-react';
-import { motion } from 'framer-motion';
 import { fmt, isVisibleOnPublicMenu, getCategoryDescription } from '../../lib/webPublicaHelpers.js';
 import ProductoCard from './ProductoCard.jsx';
 
@@ -315,7 +314,7 @@ export default function MenuSection({
       )}
 
       {productosFiltrados.length === 0 && !browseAll && (
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="py-28 text-center">
+        <div className="ms-fundido py-28 text-center">
           <div className="h-24 w-28 bg-gray-100 rounded-2xl flex items-center justify-center mx-auto mb-6 text-gray-300">
             {busqueda ? (
               <Search size={48} strokeWidth={1.5} />
@@ -337,7 +336,7 @@ export default function MenuSection({
           ) : (
             <p className="text-xl font-bold text-gray-400">Sin productos en esta categoría</p>
           )}
-        </motion.div>
+        </div>
       )}
     </main>
   );

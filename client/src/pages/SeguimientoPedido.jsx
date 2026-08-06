@@ -155,6 +155,9 @@ export default function SeguimientoPedido() {
   const token = searchParams.get('token');
   const [pedido, setPedido] = useState(null);
   const [config, setConfig] = useState({});
+  // Puntos por los que ya pasó el repartidor. Se piden aparte del pedido
+  // porque sólo hacen falta cuando el pedido está en la calle.
+  const [recorrido, setRecorrido] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -200,6 +203,22 @@ export default function SeguimientoPedido() {
         setPedido(pedidoData);
         setConfig(configData);
         setError('');
+
+        /*
+          El recorrido sólo importa mientras el pedido viaja. Pedirlo antes
+          sería un request de más en cada vuelta del refresco, y después de
+          entregado ya no cambia.
+        */
+        if (token && pedidoData?.estado === 'en_camino') {
+          try {
+            const datos = await api.get(
+              `/pedidos/${id}/recorrido?token=${encodeURIComponent(token)}`
+            );
+            if (mounted && Array.isArray(datos?.puntos)) setRecorrido(datos.puntos);
+          } catch {
+            // Sin recorrido el mapa sigue mostrando la posición actual.
+          }
+        }
       } catch (err) {
         if (!mounted) return;
         if (esRefresco) return;
@@ -521,6 +540,7 @@ export default function SeguimientoPedido() {
                         }
                         isStale={riderGpsStale}
                         mapConfig={config}
+                        recorrido={recorrido}
                       />
                     </div>
                     {riderGpsAgeMinutes !== null ? (

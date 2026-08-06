@@ -64,14 +64,14 @@ export default function BottomTabBar({ activo, onChange, badgeHistorial = 0 }) {
                     style={esActivo ? { color: BRAND } : undefined}
                   />
                   {key === 'historial' && badgeHistorial > 0 && (
-                    <span className="absolute -right-2 -top-1.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-emerald-600 px-1 text-[9px] font-semibold tabular-nums text-white">
+                    <span className="absolute -right-2 -top-1.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-emerald-600 px-1 text-[12px] font-semibold tabular-nums text-white">
                       {badgeHistorial > 99 ? '99+' : badgeHistorial}
                     </span>
                   )}
                 </span>
               </span>
               <span
-                className={`text-[11px] font-medium transition-colors ${
+                className={`text-[13px] font-medium transition-colors ${
                   esActivo ? '' : 'text-gray-400'
                 }`}
                 style={esActivo ? { color: BRAND } : undefined}

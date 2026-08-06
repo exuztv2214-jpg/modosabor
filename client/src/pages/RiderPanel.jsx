@@ -43,7 +43,7 @@ import {
   Eye,
   EyeOff,
 } from 'lucide-react';
-import { format, parseISO } from 'date-fns';
+import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 
 import { paymentMethodLabel, paymentStatusLabel, paymentStatusTone } from '../lib/paymentStatus.js';
@@ -74,6 +74,7 @@ import {
 } from '../lib/nativeRiderGps.js';
 import api from '../lib/api.js';
 import { BRAND } from '../lib/theme.js';
+import { parseFechaServidor } from '../lib/fechas.js';
 import { checkForUpdate, dismissUpdate, downloadAndInstall } from '../lib/riderUpdater.js';
 import { socketManager } from '../lib/socket.js';
 import { runDeliveredAlert, runOrderAlert, useOrderAlertPlayback } from '../lib/orderAlerts.js';
@@ -104,7 +105,35 @@ import '../styles/riderDark.css';
 
 // ── Helpers ────────────────────────────────────────────────────────
 const fmt = (n) => `$${Number(n || 0).toLocaleString('es-AR')}`;
-const parseDate = (str) => parseISO(String(str || '').replace(' ', 'T'));
+/*
+  Normalizar el espacio no alcanzaba. Las fechas que vienen del servidor
+  —`entregado_en`, `creado_en`— están en UTC pero sin declararlo, así que el
+  celular las leía como hora local: en Tucumán la app le mostraba al rider las
+  entregas 3 horas más tarde de lo que habían pasado.
+
+  `parseFechaServidor` respeta el sufijo cuando ya viene (es el caso de
+  `lastPositionAt`, que lo genera el propio celular) y lo agrega cuando falta.
+  Ver lib/fechas.js.
+*/
+const parseDate = (str) => parseFechaServidor(str);
+
+/**
+ * ¿Todavía se puede corregir el medio de pago de un pedido entregado?
+ *
+ * El cliente suele avisar que paga por transferencia cuando el rider ya marcó
+ * la entrega. Se le da la misma ventana de gracia que para deshacerla. Es sólo
+ * para mostrar u ocultar el control: quien decide de verdad es el servidor,
+ * que vuelve a validar el plazo.
+ */
+const VENTANA_CORREGIR_PAGO_MIN = 5;
+
+function puedeCorregirPago(pedido) {
+  if (!pedido || pedido.estado !== 'entregado') return false;
+  const marcado = parseFechaServidor(pedido.entregado_en || pedido.actualizado_en).getTime();
+  if (!Number.isFinite(marcado)) return false;
+  return (Date.now() - marcado) / 60000 <= VENTANA_CORREGIR_PAGO_MIN;
+}
+
 const todayStr = () => format(new Date(), 'yyyy-MM-dd');
 const riderHistoryKey = (riderId) => `ms_rider_history_${riderId}_${todayStr()}`;
 const RIDER_APP_NAME = 'Modo Sabor Riders';
@@ -1267,8 +1296,8 @@ export default function RiderPanel() {
       await api.put(url, body);
       toast.success(`Pedido ${nuevoEstado.replace('_', ' ')}`);
       fetchData();
-    } catch {
-      toast.error('No se pudo actualizar el estado');
+    } catch (error) {
+      toast.error(error?.error || 'No se pudo actualizar el estado');
     }
   };
 
@@ -1287,6 +1316,20 @@ export default function RiderPanel() {
         ),
       }));
       setSelectedPedido(updated);
+
+      /*
+        El historial de la sesión es de donde sale el efectivo a rendir en el
+        cierre de turno. Si el rider corrige el medio de un pedido ya
+        entregado y no lo actualizamos acá, el cierre le sigue pidiendo el
+        efectivo de un pedido que en realidad se pagó por transferencia: un
+        faltante inventado, que es justo lo que este cambio viene a evitar.
+      */
+      setHistorialSesion((current) =>
+        (current || []).map((pedido) =>
+          pedido.id === updated.id ? { ...pedido, metodo_pago: updated.metodo_pago } : pedido
+        )
+      );
+
       toast.success(`Cobro cambiado a ${paymentMethodLabel(metodoPago)}`);
     } catch (error) {
       toast.error(error?.error || 'No se pudo cambiar el medio de pago');
@@ -1582,7 +1625,7 @@ export default function RiderPanel() {
                   <Zap size={24} strokeWidth={2.5} />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-[10px] font-semibold opacity-90">
+                  <p className="text-[13px] font-semibold opacity-90">
                     {updateInfo.isForced ? 'Actualización obligatoria' : 'Nueva versión'}
                   </p>
                   <h2 className="text-xl font-semibold leading-tight">
@@ -1591,7 +1634,7 @@ export default function RiderPanel() {
                 </div>
               </div>
               {updateInfo.installedVersionName && (
-                <p className="mt-3 text-[11px] font-semibold text-white/80">
+                <p className="mt-3 text-[13px] font-semibold text-white/80">
                   Tenés instalada la <b>v{updateInfo.installedVersionName}</b>
                   {typeof updateInfo.sizeMB === 'number' && <> · Descarga {updateInfo.sizeMB} MB</>}
                 </p>
@@ -1602,7 +1645,7 @@ export default function RiderPanel() {
             <div className="px-6 py-5 max-h-[40vh] overflow-y-auto">
               {updateInfo.changelog ? (
                 <>
-                  <p className="text-[10px] font-semibold text-gray-500 mb-2">Qué hay de nuevo</p>
+                  <p className="text-[13px] font-semibold text-gray-500 mb-2">Qué hay de nuevo</p>
                   <div className="text-sm font-semibold text-gray-800 whitespace-pre-line leading-relaxed">
                     {updateInfo.changelog}
                   </div>
@@ -1653,7 +1696,7 @@ export default function RiderPanel() {
                   Más tarde
                 </button>
               )}
-              <p className="mt-2 text-center text-[10px] font-bold text-gray-400 leading-relaxed">
+              <p className="mt-2 text-center text-[13px] font-bold text-gray-400 leading-relaxed">
                 Se abrirá el descargador de Android. Tocá "Instalar" cuando termine.
                 <br />
                 La primera vez podés necesitar permitir "instalar apps de esta fuente".
@@ -1731,7 +1774,7 @@ export default function RiderPanel() {
           >
             <img src={RIDER_FLAME_ASSET} alt="Modo Sabor" className="h-full w-full object-cover" />
           </motion.div>
-          <p className="mt-8 text-[11px] font-semibold text-white/70">Modo Sabor</p>
+          <p className="mt-8 text-[13px] font-semibold text-white/70">Modo Sabor</p>
           <h1 className="mt-2 text-4xl font-semibold tracking-tight">Riders</h1>
           <p className="mt-3 text-sm font-bold text-white/70">Preparando tu turno...</p>
         </motion.div>
@@ -1790,7 +1833,7 @@ export default function RiderPanel() {
               </motion.div>
 
               <p
-                className="mt-6 text-[11px] font-semibold text-white/70"
+                className="mt-6 text-[13px] font-semibold text-white/70"
                 style={{ fontFamily: '"Poppins","Inter",sans-serif' }}
               >
                 Modo Sabor
@@ -1816,7 +1859,7 @@ export default function RiderPanel() {
             >
               <div className="space-y-4">
                 <div>
-                  <label className="mb-1.5 flex items-center gap-2 text-[10px] font-semibold text-gray-500">
+                  <label className="mb-1.5 flex items-center gap-2 text-[13px] font-semibold text-gray-500">
                     <User size={12} />
                     ID de repartidor
                   </label>
@@ -1831,7 +1874,7 @@ export default function RiderPanel() {
                   />
                 </div>
                 <div>
-                  <label className="mb-1.5 flex items-center gap-2 text-[10px] font-semibold text-gray-500">
+                  <label className="mb-1.5 flex items-center gap-2 text-[13px] font-semibold text-gray-500">
                     <LocateFixed size={12} />
                     Código de acceso
                   </label>
@@ -1864,7 +1907,7 @@ export default function RiderPanel() {
                 <Zap size={16} strokeWidth={3} />
               </button>
 
-              <p className="mt-4 text-center text-[10px] font-bold text-gray-400">
+              <p className="mt-4 text-center text-[13px] font-bold text-gray-400">
                 ¿No tenés tu código? Pedíselo al encargado del turno.
               </p>
             </motion.form>
@@ -1876,7 +1919,7 @@ export default function RiderPanel() {
                 transition={{ delay: 0.35, duration: 0.4 }}
                 className="mt-5 rounded-2xl border border-white/20 bg-white/10 p-4 backdrop-blur-md text-left"
               >
-                <p className="text-[10px] font-semibold text-white/90">Instalar como app</p>
+                <p className="text-[13px] font-semibold text-white/90">Instalar como app</p>
                 <p className="mt-1 text-xs font-medium text-white/80 leading-relaxed">
                   {installReady
                     ? 'Instalá la app en el celular para tenerla siempre a mano.'
@@ -1886,7 +1929,7 @@ export default function RiderPanel() {
                   <button
                     type="button"
                     onClick={installRiderApp}
-                    className="mt-3 inline-flex h-10 items-center gap-2 rounded-xl bg-white px-4 text-[11px] font-semibold text-[#dc1f2d] shadow-md"
+                    className="mt-3 inline-flex h-10 items-center gap-2 rounded-xl bg-white px-4 text-[13px] font-semibold text-[#dc1f2d] shadow-md"
                   >
                     <Smartphone size={14} /> Instalar
                   </button>
@@ -1894,7 +1937,7 @@ export default function RiderPanel() {
               </motion.div>
             )}
 
-            <p className="mt-8 text-center text-[10px] font-semibold text-white/60">
+            <p className="mt-8 text-center text-[13px] font-semibold text-white/60">
               Hecho con <span className="text-red-300">❤</span> en Monteros
             </p>
           </motion.div>
@@ -1964,7 +2007,7 @@ export default function RiderPanel() {
               {saludoPorHora().saludo},{' '}
               {String(data?.repartidor?.nombre || 'Repartidor').split(' ')[0]}
             </h2>
-            <p className="text-[10px] font-bold text-gray-400 mt-1">{saludoPorHora().turno}</p>
+            <p className="text-[13px] font-bold text-gray-400 mt-1">{saludoPorHora().turno}</p>
           </div>
         </div>
 
@@ -1976,7 +2019,7 @@ export default function RiderPanel() {
           <button
             onClick={() => toggleOnline()}
             aria-label={isOnline ? 'Pasar a no disponible' : 'Pasar a disponible'}
-            className={`flex items-center gap-1.5 h-9 px-3 rounded-xl text-[10px] font-semibold transition-all ${
+            className={`flex items-center gap-1.5 h-9 px-3 rounded-xl text-[13px] font-semibold transition-all ${
               isOnline ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-500'
             }`}
           >
@@ -2052,14 +2095,14 @@ export default function RiderPanel() {
                 <div className="relative">
                   <div className="flex items-center justify-between mb-4">
                     <div>
-                      <p className="text-[10px] font-semibold text-brand-200">Tu turno de hoy</p>
+                      <p className="text-[13px] font-semibold text-brand-200">Tu turno de hoy</p>
                       <p className="text-lg font-semibold text-white leading-tight mt-0.5">
                         {nowTime} · {format(new Date(), "EEE dd 'de' MMM", { locale: es })}
                       </p>
                     </div>
                     <div className="flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1.5 backdrop-blur-sm">
                       <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-                      <span className="text-[10px] font-semibold text-white">Online</span>
+                      <span className="text-[13px] font-semibold text-white">Online</span>
                     </div>
                   </div>
                   {(() => {
@@ -2069,10 +2112,10 @@ export default function RiderPanel() {
                     return (
                       <div className="mb-3">
                         <div className="flex items-center justify-between mb-1">
-                          <span className="text-[9px] font-semibold text-brand-200">
+                          <span className="text-[12px] font-semibold text-brand-200">
                             Meta diaria
                           </span>
-                          <span className="text-[10px] font-semibold tabular-nums text-white">
+                          <span className="text-[13px] font-semibold tabular-nums text-white">
                             {resumenDia.entregados}/{meta}
                           </span>
                         </div>
@@ -2107,7 +2150,7 @@ export default function RiderPanel() {
                         value={resumenDia.entregados}
                         className="text-2xl font-semibold text-white tabular-nums leading-none block"
                       />
-                      <p className="text-[9px] font-semibold text-brand-200 mt-1.5">Entregas</p>
+                      <p className="text-[12px] font-semibold text-brand-200 mt-1.5">Entregas</p>
                     </motion.div>
                     <motion.div
                       initial={{ opacity: 0, y: 10 }}
@@ -2123,7 +2166,7 @@ export default function RiderPanel() {
                         format={(n) => fmt(n)}
                         className="text-lg font-semibold text-white tabular-nums leading-none block"
                       />
-                      <p className="text-[9px] font-semibold text-brand-200 mt-1.5">Efectivo</p>
+                      <p className="text-[12px] font-semibold text-brand-200 mt-1.5">Efectivo</p>
                     </motion.div>
                     <motion.div
                       initial={{ opacity: 0, y: 10 }}
@@ -2139,7 +2182,7 @@ export default function RiderPanel() {
                         format={(n) => fmt(n)}
                         className="text-lg font-semibold text-white tabular-nums leading-none block"
                       />
-                      <p className="text-[9px] font-semibold text-brand-200 mt-1.5">Total</p>
+                      <p className="text-[12px] font-semibold text-brand-200 mt-1.5">Total</p>
                     </motion.div>
                   </div>
                 </div>
@@ -2163,7 +2206,7 @@ export default function RiderPanel() {
                     <div className="h-9 w-9 rounded-xl bg-emerald-50 flex items-center justify-center text-emerald-600">
                       <PhoneCall size={16} />
                     </div>
-                    <span className="text-[10px] font-semibold text-gray-600">Llamar local</span>
+                    <span className="text-[13px] font-semibold text-gray-600">Llamar local</span>
                   </a>
                 ) : (
                   <div />
@@ -2176,7 +2219,7 @@ export default function RiderPanel() {
                   <div className="h-9 w-9 rounded-xl bg-brand-50 flex items-center justify-center text-brand-600">
                     <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
                   </div>
-                  <span className="text-[10px] font-semibold text-gray-600">Actualizar</span>
+                  <span className="text-[13px] font-semibold text-gray-600">Actualizar</span>
                 </button>
                 <button
                   type="button"
@@ -2186,7 +2229,7 @@ export default function RiderPanel() {
                   <div className="h-9 w-9 rounded-xl bg-violet-50 flex items-center justify-center text-violet-600">
                     <History size={16} />
                   </div>
-                  <span className="text-[10px] font-semibold text-gray-600">Historial</span>
+                  <span className="text-[13px] font-semibold text-gray-600">Historial</span>
                 </button>
               </motion.div>
 
@@ -2195,7 +2238,7 @@ export default function RiderPanel() {
                 <div className="rounded-[24px] bg-violet-50 border border-violet-200 px-5 py-4">
                   <div className="flex items-center gap-2 mb-3">
                     <Route size={16} className="text-violet-600" />
-                    <p className="text-[10px] font-semibold text-violet-600">
+                    <p className="text-[13px] font-semibold text-violet-600">
                       Ruta optimizada · {sortedPedidos.length} entregas
                     </p>
                   </div>
@@ -2241,7 +2284,7 @@ export default function RiderPanel() {
                                 {fmtDistancia(pedido._distanciaDesdeAnterior)}
                               </p>
                             )}
-                            <p className="text-[10px] font-bold text-gray-400">
+                            <p className="text-[13px] font-bold text-gray-400">
                               {pedido.estado.replace('_', ' ')}
                             </p>
                           </div>
@@ -2268,12 +2311,12 @@ export default function RiderPanel() {
                       <Truck size={18} color="white" />
                     </div>
                     <div>
-                      <p className="text-[10px] font-semibold text-emerald-600">En reparto</p>
+                      <p className="text-[13px] font-semibold text-emerald-600">En reparto</p>
                       <p className="text-sm font-semibold text-emerald-800">
                         #{inTransitOrder.numero} · {inTransitOrder.cliente_nombre || 'S/N'}
                       </p>
                       {inTransitOrder.hora_entrega ? (
-                        <p className="mt-1 text-[10px] font-semibold text-emerald-600">
+                        <p className="mt-1 text-[13px] font-semibold text-emerald-600">
                           Entrega {inTransitOrder.hora_entrega}
                         </p>
                       ) : null}
@@ -2301,7 +2344,7 @@ export default function RiderPanel() {
                     {trackingActive ? 'GPS activo' : 'Sin reparto activo'}
                   </span>
                   <span
-                    className={`rounded-full px-3 py-1 text-[10px] font-semibold ${
+                    className={`rounded-full px-3 py-1 text-[13px] font-semibold ${
                       locationPermission === 'granted'
                         ? 'bg-emerald-50 text-emerald-600'
                         : locationPermission === 'denied'
@@ -2318,7 +2361,7 @@ export default function RiderPanel() {
                   </span>
                   {trackingActive && lastGpsAgeSeconds !== null && (
                     <span
-                      className={`rounded-full px-3 py-1 text-[10px] font-semibold ${
+                      className={`rounded-full px-3 py-1 text-[13px] font-semibold ${
                         lastGpsAgeSeconds <= 90
                           ? 'bg-emerald-50 text-emerald-700'
                           : 'bg-amber-50 text-amber-700'
@@ -2331,7 +2374,7 @@ export default function RiderPanel() {
                   )}
                 </div>
                 {lastPositionAt && (
-                  <p className="mt-3 text-[11px] font-bold text-gray-400">
+                  <p className="mt-3 text-[13px] font-bold text-gray-400">
                     Último GPS: {format(parseDate(lastPositionAt), 'HH:mm', { locale: es })}
                   </p>
                 )}
@@ -2371,7 +2414,7 @@ export default function RiderPanel() {
                   )}
                 </div>
                 {!isStandaloneApp && (
-                  <p className="mt-4 text-[11px] font-semibold leading-relaxed text-gray-500">
+                  <p className="mt-4 text-[13px] font-semibold leading-relaxed text-gray-500">
                     Instalá esta pantalla en el celular del rider para abrirla como app.{' '}
                     {iosInstall
                       ? 'En iPhone: Compartir -> Agregar a pantalla de inicio.'
@@ -2423,7 +2466,7 @@ export default function RiderPanel() {
                         </p>
                         <div className="mt-4 flex items-center gap-2 rounded-full bg-white/80 px-3 py-1.5 shadow-sm border border-gray-100">
                           <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-                          <span className="text-[10px] font-semibold text-gray-500">
+                          <span className="text-[13px] font-semibold text-gray-500">
                             Modo activo
                           </span>
                         </div>
@@ -2478,7 +2521,7 @@ export default function RiderPanel() {
                               >
                                 {hasMultipleDeliveries && stopNumber ? (
                                   <span
-                                    className={`h-7 w-7 rounded-full ${stopColors[(stopNumber - 1) % stopColors.length]} flex items-center justify-center text-white text-[10px] font-semibold`}
+                                    className={`h-7 w-7 rounded-full ${stopColors[(stopNumber - 1) % stopColors.length]} flex items-center justify-center text-white text-[13px] font-semibold`}
                                   >
                                     {stopNumber}
                                   </span>
@@ -2502,7 +2545,7 @@ export default function RiderPanel() {
                                 </p>
                                 {urgencia.minutos !== null && urgencia.nivel !== 'ok' ? (
                                   <span
-                                    className={`mt-1 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-semibold ${
+                                    className={`mt-1 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[12px] font-semibold ${
                                       urgencia.nivel === 'urgente'
                                         ? 'bg-rose-50 text-rose-700'
                                         : 'bg-amber-50 text-amber-700'
@@ -2513,12 +2556,12 @@ export default function RiderPanel() {
                                   </span>
                                 ) : null}
                                 {pedido.hora_entrega ? (
-                                  <p className="text-[10px] font-semibold text-violet-600 mt-0.5">
+                                  <p className="text-[13px] font-semibold text-violet-600 mt-0.5">
                                     Entrega {pedido.hora_entrega}
                                   </p>
                                 ) : null}
                                 {hasMultipleDeliveries && pedido.distance !== undefined && (
-                                  <p className="text-[10px] font-semibold text-violet-500 mt-0.5">
+                                  <p className="text-[13px] font-semibold text-violet-500 mt-0.5">
                                     {Math.round(pedido.distance)}m de distancia
                                   </p>
                                 )}
@@ -2529,7 +2572,7 @@ export default function RiderPanel() {
                             </div>
                             <div className="flex flex-col items-end gap-2 shrink-0">
                               <span
-                                className={`text-[11px] font-medium px-2 py-1 rounded-lg ${
+                                className={`text-[13px] font-medium px-2 py-1 rounded-lg ${
                                   pedido.estado === 'en_camino'
                                     ? 'bg-emerald-50 text-emerald-600'
                                     : 'bg-brand-50 text-brand-600'
@@ -2571,11 +2614,11 @@ export default function RiderPanel() {
                             </p>
                             <p className="text-xs text-gray-400">{p.cliente_direccion}</p>
                             {p.hora_entrega ? (
-                              <p className="text-[10px] font-semibold text-violet-600 mt-0.5">
+                              <p className="text-[13px] font-semibold text-violet-600 mt-0.5">
                                 Entrega {p.hora_entrega}
                               </p>
                             ) : null}
-                            <p className="text-[10px] text-emerald-600 font-bold mt-0.5">
+                            <p className="text-[13px] text-emerald-600 font-bold mt-0.5">
                               {p.entregado_en ? format(parseDate(p.entregado_en), 'HH:mm') : ''} ·{' '}
                               {paymentMethodLabel(p.metodo_pago)}
                             </p>
@@ -2627,7 +2670,7 @@ export default function RiderPanel() {
                   <div className="relative">
                     <div className="mb-4 flex items-center justify-between gap-3">
                       <div
-                        className="rounded-full px-4 py-1.5 text-[11px] font-semibold text-white shadow-sm"
+                        className="rounded-full px-4 py-1.5 text-[13px] font-semibold text-white shadow-sm"
                         style={{ backgroundColor: primaryColor }}
                       >
                         #{selectedPedido.numero}
@@ -2641,7 +2684,7 @@ export default function RiderPanel() {
                             </span>
                           </div>
                         )}
-                        <span className="rounded-full bg-white/70 px-2.5 py-1 text-[10px] font-semibold text-gray-500 backdrop-blur-sm">
+                        <span className="rounded-full bg-white/70 px-2.5 py-1 text-[13px] font-semibold text-gray-500 backdrop-blur-sm">
                           {format(parseDate(selectedPedido.creado_en), 'HH:mm')} HS
                         </span>
                       </div>
@@ -2661,7 +2704,7 @@ export default function RiderPanel() {
                           .toUpperCase()}
                       </div>
                       <div className="min-w-0 flex-1">
-                        <p className="text-[10px] font-semibold text-gray-400">Cliente</p>
+                        <p className="text-[13px] font-semibold text-gray-400">Cliente</p>
                         <h3 className="mt-0.5 break-words text-xl font-semibold leading-tight text-gray-900 sm:text-2xl">
                           {selectedPedido.cliente_nombre}
                         </h3>
@@ -2675,7 +2718,7 @@ export default function RiderPanel() {
                             <Clock size={16} />
                           </div>
                           <div className="min-w-0 flex-1">
-                            <p className="text-[10px] font-semibold text-violet-500">
+                            <p className="text-[13px] font-semibold text-violet-500">
                               Hora de entrega
                             </p>
                             <p className="text-sm font-semibold text-violet-900 leading-tight">
@@ -2692,7 +2735,7 @@ export default function RiderPanel() {
                           <MapPin size={16} />
                         </div>
                         <div className="min-w-0 flex-1">
-                          <p className="text-[10px] font-semibold text-gray-400">Dirección</p>
+                          <p className="text-[13px] font-semibold text-gray-400">Dirección</p>
                           <p className="break-words text-sm font-semibold leading-snug text-gray-900">
                             {selectedPedido.cliente_direccion}
                           </p>
@@ -2703,7 +2746,7 @@ export default function RiderPanel() {
                           <Phone size={16} />
                         </div>
                         <div className="min-w-0 flex-1">
-                          <p className="text-[10px] font-semibold text-emerald-600">Teléfono</p>
+                          <p className="text-[13px] font-semibold text-emerald-600">Teléfono</p>
                           <p className="text-sm font-semibold text-emerald-900">
                             {selectedPedido.cliente_telefono || 'No disponible'}
                           </p>
@@ -2780,13 +2823,13 @@ export default function RiderPanel() {
                                   className="inline-flex items-center gap-1.5 rounded-xl bg-white border border-gray-200 px-3 py-2 text-xs font-bold text-gray-700 shadow-sm hover:shadow-md transition-all"
                                 >
                                   <span
-                                    className={`h-5 w-5 rounded-full ${stopColors[globalIdx % stopColors.length]} flex items-center justify-center text-white text-[9px] font-semibold`}
+                                    className={`h-5 w-5 rounded-full ${stopColors[globalIdx % stopColors.length]} flex items-center justify-center text-white text-[12px] font-semibold`}
                                   >
                                     {globalIdx + 1}
                                   </span>
                                   <span className="truncate max-w-[120px]">{p.cliente_nombre}</span>
                                   {p.distance !== undefined && (
-                                    <span className="text-[10px] text-violet-500 font-semibold">
+                                    <span className="text-[13px] text-violet-500 font-semibold">
                                       {Math.round(p.distance)}m
                                     </span>
                                   )}
@@ -2804,7 +2847,7 @@ export default function RiderPanel() {
                     <div className="grid grid-cols-2 gap-2 border-t border-gray-100 bg-gray-50/60 p-3 sm:grid-cols-4">
                       <button
                         onClick={() => openNav(selectedPedido)}
-                        className="flex h-14 flex-col items-center justify-center gap-1 rounded-2xl text-[10px] font-semibold text-white shadow-md transition-all active:scale-95"
+                        className="flex h-14 flex-col items-center justify-center gap-1 rounded-2xl text-[13px] font-semibold text-white shadow-md transition-all active:scale-95"
                         style={{
                           background: `linear-gradient(135deg, ${primaryColor}, ${primaryColor}dd)`,
                           boxShadow: `0 4px 12px ${primaryColor}40`,
@@ -2825,7 +2868,7 @@ export default function RiderPanel() {
                         )}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="flex h-14 flex-col items-center justify-center gap-1 rounded-2xl bg-gradient-to-br from-sky-500 to-sky-600 text-[10px] font-semibold text-white shadow-md shadow-sky-200 transition-all active:scale-95"
+                        className="flex h-14 flex-col items-center justify-center gap-1 rounded-2xl bg-gradient-to-br from-sky-500 to-sky-600 text-[13px] font-semibold text-white shadow-md shadow-sky-200 transition-all active:scale-95"
                       >
                         <Route size={18} /> Waze
                       </a>
@@ -2834,7 +2877,7 @@ export default function RiderPanel() {
                           href={`https://wa.me/${String(selectedPedido.cliente_telefono).replace(/\D/g, '')}`}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="flex h-14 flex-col items-center justify-center gap-1 rounded-2xl bg-gradient-to-br from-emerald-500 to-emerald-600 text-[10px] font-semibold text-white shadow-md shadow-emerald-200 transition-all active:scale-95"
+                          className="flex h-14 flex-col items-center justify-center gap-1 rounded-2xl bg-gradient-to-br from-emerald-500 to-emerald-600 text-[13px] font-semibold text-white shadow-md shadow-emerald-200 transition-all active:scale-95"
                         >
                           <Phone size={18} /> WhatsApp
                         </a>
@@ -2848,7 +2891,7 @@ export default function RiderPanel() {
                             .then(() => toast.success('Dirección copiada'))
                             .catch(() => toast.error('No se pudo copiar'))
                         }
-                        className="flex h-14 flex-col items-center justify-center gap-1 rounded-2xl border border-gray-200 bg-white text-[10px] font-semibold text-gray-700 shadow-sm transition-all active:scale-95"
+                        className="flex h-14 flex-col items-center justify-center gap-1 rounded-2xl border border-gray-200 bg-white text-[13px] font-semibold text-gray-700 shadow-sm transition-all active:scale-95"
                       >
                         <Copy size={16} /> Copiar
                       </button>
@@ -2879,11 +2922,11 @@ export default function RiderPanel() {
                     <>
                       <div className="mx-5 mb-4 flex-1 rounded-[22px] bg-gray-50 p-5 sm:mx-6">
                         <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-                          <span className="text-[10px] font-semibold text-gray-400">
+                          <span className="text-[13px] font-semibold text-gray-400">
                             Resumen del pedido
                           </span>
                           <span
-                            className={`rounded-lg px-2.5 py-1 text-[10px] font-semibold ${paymentStatusTone(selectedPedido.pago_estado)}`}
+                            className={`rounded-lg px-2.5 py-1 text-[13px] font-semibold ${paymentStatusTone(selectedPedido.pago_estado)}`}
                           >
                             {paymentMethodLabel(selectedPedido.metodo_pago)} ·{' '}
                             {paymentStatusLabel(selectedPedido.pago_estado)}
@@ -2896,7 +2939,7 @@ export default function RiderPanel() {
                               className="flex justify-between gap-4 text-sm bg-white rounded-xl p-3 border border-gray-100"
                             >
                               <div className="flex items-center gap-2 min-w-0">
-                                <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-brand-50 text-brand-600 text-[10px] font-semibold shrink-0">
+                                <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-brand-50 text-brand-600 text-[13px] font-semibold shrink-0">
                                   {it.cantidad}x
                                 </span>
                                 <p className="min-w-0 break-words font-bold text-gray-700">
@@ -2919,10 +2962,10 @@ export default function RiderPanel() {
                         <div className="pointer-events-none absolute -right-8 -top-8 h-32 w-32 rounded-full bg-white/15 blur-2xl" />
                         <div className="relative flex items-center justify-between">
                           <div>
-                            <p className="text-[10px] font-semibold text-white/80">
+                            <p className="text-[13px] font-semibold text-white/80">
                               {yaCobrado ? '✓ Ya cobrado' : 'Total a cobrar'}
                             </p>
-                            <p className="mt-1 text-[10px] font-bold text-white/70">
+                            <p className="mt-1 text-[13px] font-bold text-white/70">
                               {paymentMethodLabel(selectedPedido.metodo_pago)}
                             </p>
                           </div>
@@ -2935,14 +2978,30 @@ export default function RiderPanel() {
                   );
                 })()}
 
-                {/* Selector de metodo de pago (cuando esta pendiente) */}
-                {paymentStatusLabel(selectedPedido.pago_estado) === 'Pendiente' && (
+                {/*
+                  ── Corregir el medio de pago ───────────────────────────────
+
+                  Antes esto sólo aparecía con el cobro pendiente, así que
+                  desaparecía apenas el rider marcaba entregado. En la calle el
+                  orden real es al revés: el cliente avisa que paga por
+                  transferencia cuando ya tiene la bolsa en la mano, y para
+                  entonces el botón ya no estaba. El pedido quedaba como
+                  efectivo y la caja cerraba con un faltante inventado.
+
+                  Ahora sigue disponible unos minutos después de entregar —la
+                  misma ventana que para deshacer una entrega—. El servidor
+                  vuelve a validar el plazo, así que esto es sólo la puerta.
+                */}
+                {(paymentStatusLabel(selectedPedido.pago_estado) === 'Pendiente' ||
+                  puedeCorregirPago(selectedPedido)) && (
                   <div className="mx-5 mb-5 rounded-[22px] bg-gray-50 p-5 sm:mx-6">
                     <div>
                       <div className="mb-3 flex items-center gap-2">
                         <CreditCard size={15} className="text-gray-500" />
-                        <p className="text-[10px] font-semibold text-gray-500">
-                          Medio que usará el cliente
+                        <p className="text-[13px] font-semibold text-gray-500">
+                          {selectedPedido.estado === 'entregado'
+                            ? 'Corregir cómo pagó'
+                            : 'Medio que usará el cliente'}
                         </p>
                       </div>
                       <div className="grid grid-cols-2 gap-2">
@@ -2975,7 +3034,7 @@ export default function RiderPanel() {
                             ));
                         })()}
                       </div>
-                      <p className="mt-3 text-[11px] font-semibold leading-relaxed text-gray-500">
+                      <p className="mt-3 text-[13px] font-semibold leading-relaxed text-gray-500">
                         Se puede cambiar mientras figure pendiente. Al confirmar la entrega quedará
                         registrado como cobrado.
                       </p>
@@ -3034,7 +3093,7 @@ export default function RiderPanel() {
                   <div className="grid grid-cols-2 gap-3">
                     <button
                       onClick={() => setIncidenciaOpen(true)}
-                      className="flex h-12 items-center justify-center gap-2 rounded-2xl border border-amber-200 bg-amber-50 text-[11px] font-semibold text-amber-700 active:scale-95 transition-transform"
+                      className="flex h-12 items-center justify-center gap-2 rounded-2xl border border-amber-200 bg-amber-50 text-[13px] font-semibold text-amber-700 active:scale-95 transition-transform"
                     >
                       <AlertCircle size={15} /> Reportar problema
                     </button>
@@ -3044,7 +3103,7 @@ export default function RiderPanel() {
                           updateEstado(selectedPedido.id, 'cancelado');
                         }
                       }}
-                      className="flex h-12 items-center justify-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 text-[11px] font-semibold text-rose-700 active:scale-95 transition-transform"
+                      className="flex h-12 items-center justify-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 text-[13px] font-semibold text-rose-700 active:scale-95 transition-transform"
                     >
                       <X size={15} /> Cancelar
                     </button>
@@ -3059,7 +3118,7 @@ export default function RiderPanel() {
                         exit={{ opacity: 0, y: 10 }}
                         className="rounded-2xl border border-amber-200 bg-amber-50 p-4"
                       >
-                        <p className="mb-3 text-[10px] font-semibold text-amber-700">
+                        <p className="mb-3 text-[13px] font-semibold text-amber-700">
                           ¿Qué pasó? Elegí el motivo:
                         </p>
                         <div className="grid grid-cols-2 gap-2">
@@ -3085,7 +3144,7 @@ export default function RiderPanel() {
                                   );
                                 }
                               }}
-                              className="rounded-xl bg-white border border-amber-100 px-3 py-3 text-[11px] font-semibold text-gray-700 active:scale-95 transition-transform hover:border-amber-300"
+                              className="rounded-xl bg-white border border-amber-100 px-3 py-3 text-[13px] font-semibold text-gray-700 active:scale-95 transition-transform hover:border-amber-300"
                             >
                               {label}
                             </button>
@@ -3093,7 +3152,7 @@ export default function RiderPanel() {
                         </div>
                         <button
                           onClick={() => setIncidenciaOpen(false)}
-                          className="mt-3 w-full h-10 rounded-xl bg-white border border-gray-200 text-[10px] font-semibold text-gray-500"
+                          className="mt-3 w-full h-10 rounded-xl bg-white border border-gray-200 text-[13px] font-semibold text-gray-500"
                         >
                           Cerrar
                         </button>
@@ -3119,7 +3178,7 @@ export default function RiderPanel() {
       )}
 
       {/* ── Footer ──────────────────────────────────────────────── */}
-      <footer className="px-6 py-3 bg-white border-t border-gray-100 flex items-center justify-between text-[10px] font-semibold">
+      <footer className="px-6 py-3 bg-white border-t border-gray-100 flex items-center justify-between text-[13px] font-semibold">
         <div className="flex items-center gap-2">
           <div
             className={`h-2 w-2 rounded-full ${
@@ -3153,7 +3212,7 @@ export default function RiderPanel() {
           <button
             type="button"
             onClick={handleLogoutCompleto}
-            className="text-[9px] font-semibold text-gray-300 underline decoration-dotted underline-offset-2 hover:text-rose-500"
+            className="text-[12px] font-semibold text-gray-300 underline decoration-dotted underline-offset-2 hover:text-rose-500"
             title="Borra todos los datos del rider en este celular"
           >
             Cambiar de rider

@@ -8,6 +8,7 @@ import {
   buildGoogleMapsSearchUrl,
   isInsideServiceArea,
 } from '../lib/maps.js';
+import { necesitaRecalcular, obtenerRutaPorCalles } from '../lib/rutaCalles.js';
 
 // ── Haversine distance ──
 function calculateDistance(lat1, lng1, lat2, lng2) {
@@ -104,6 +105,8 @@ export default function LiveTrackingMap({
   isStale,
   clientLocationExact = false,
   mapConfig = {},
+  // Puntos por los que ya pasó el repartidor, del más viejo al más nuevo.
+  recorrido = [],
 }) {
   const mapRef = useRef(null);
   const mapInstanceRef = useRef(null);
@@ -111,6 +114,13 @@ export default function LiveTrackingMap({
   const clientMarkerRef = useRef(null);
   const routeLineRef = useRef(null);
   const deliveryZoneRef = useRef(null);
+  const recorridoRef = useRef(null);
+  // Desde qué posición se calculó la ruta vigente, para no pedirla de nuevo
+  // en cada reporte de GPS.
+  const origenRutaRef = useRef(null);
+  // Si la línea que se ve es una ruta por calles, no hay que pisarla con la
+  // recta cada vez que el rider avanza unos metros.
+  const rutaPorCallesRef = useRef(false);
   const [mapLoaded, setMapLoaded] = useState(false);
   const [loadError, setLoadError] = useState('');
   const [distance, setDistance] = useState(null);
@@ -249,10 +259,100 @@ export default function LiveTrackingMap({
         mapInstanceRef.current.remove();
         mapInstanceRef.current = null;
         deliveryZoneRef.current = null;
+        recorridoRef.current = null;
+        origenRutaRef.current = null;
+        rutaPorCallesRef.current = false;
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mapLoaded, effectiveClientLat, effectiveClientLng, clientAddress, riderName]);
+
+  /*
+    ── El camino que ya hizo el repartidor ──────────────────────────────────
+
+    El servidor venía guardando cada posición del rider en
+    `repartidor_ubicaciones_log`, pero el cliente nunca las veía: el mapa
+    mostraba un marcador que saltaba de un punto a otro y una línea recta hasta
+    su casa. No se entendía si el pedido estaba viniendo o dando vueltas.
+
+    Ahora se dibuja el trayecto real recorrido, en gris y por debajo del resto:
+    la línea punteada sigue marcando lo que falta, y esta muestra por dónde
+    vino. Es la diferencia entre "está a 800 metros" y "ya dobló en tu esquina".
+  */
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+
+    const puntos = (recorrido || [])
+      .map((p) => [Number(p.lat ?? p.latitud), Number(p.lng ?? p.longitud)])
+      .filter(([lat, lng]) => Number.isFinite(lat) && Number.isFinite(lng));
+
+    // Con menos de dos puntos no hay trayecto que mostrar.
+    if (puntos.length < 2) {
+      if (recorridoRef.current) {
+        recorridoRef.current.remove();
+        recorridoRef.current = null;
+      }
+      return;
+    }
+
+    if (recorridoRef.current) {
+      recorridoRef.current.setLatLngs(puntos);
+      return;
+    }
+
+    recorridoRef.current = L.polyline(puntos, {
+      color: '#6B7280',
+      weight: 4,
+      opacity: 0.55,
+      lineJoin: 'round',
+      lineCap: 'round',
+    }).addTo(map);
+
+    // Detrás de los marcadores y de la línea de lo que falta.
+    recorridoRef.current.bringToBack();
+  }, [recorrido, mapLoaded]);
+
+  /*
+    ── Lo que falta, por las calles ─────────────────────────────────────────
+
+    La línea hasta la casa era una recta que cruzaba manzanas. En una ciudad
+    con calles cortadas eso miente: el cliente lee "está a 300 metros" cuando
+    al rider todavía le quedan seis cuadras de rodeo.
+
+    Se le pide el trazado real a un servicio de ruteo. Si no contesta —el
+    servidor público de OSRM puede estar caído, o el cliente sin señal— se
+    deja la recta de antes: el seguimiento nunca depende de que esto funcione.
+
+    Sólo se recalcula cuando la moto se corrió más de 150 metros, para no
+    disparar un pedido en cada reporte de GPS.
+  */
+  useEffect(() => {
+    if (!mapInstanceRef.current || !routeLineRef.current) return;
+    if (!riderLat || !riderLng || !effectiveClientLat || !effectiveClientLng) return;
+    if (!necesitaRecalcular(origenRutaRef.current, riderLat, riderLng)) return;
+
+    let vigente = true;
+    origenRutaRef.current = { lat: riderLat, lng: riderLng };
+
+    obtenerRutaPorCalles({
+      desdeLat: riderLat,
+      desdeLng: riderLng,
+      hastaLat: effectiveClientLat,
+      hastaLng: effectiveClientLng,
+      urlBase: mapConfig?.ruteo_url,
+    }).then((ruta) => {
+      // El rider pudo haberse movido, o el componente desmontado, mientras
+      // esperábamos la respuesta.
+      if (!vigente || !ruta?.puntos?.length || !routeLineRef.current) return;
+      routeLineRef.current.setLatLngs(ruta.puntos);
+      rutaPorCallesRef.current = true;
+    });
+
+    return () => {
+      vigente = false;
+    };
+  }, [riderLat, riderLng, effectiveClientLat, effectiveClientLng, mapConfig?.ruteo_url]);
 
   // Actualizar posición del repartidor + distancia
   useEffect(() => {
@@ -267,7 +367,17 @@ export default function LiveTrackingMap({
       riderMarkerRef.current.setLatLng(newLatLng);
       mapInstanceRef.current.panTo(newLatLng, { animate: true, duration: 1 });
 
-      if (routeLineRef.current && effectiveClientLat && effectiveClientLng) {
+      /*
+        Con ruta por calles vigente no se toca la línea: se redibuja sola en el
+        próximo recálculo. Pisarla acá con la recta haría que parpadeara entre
+        el trazado real y la línea que cruza manzanas en cada reporte de GPS.
+      */
+      if (
+        routeLineRef.current &&
+        !rutaPorCallesRef.current &&
+        effectiveClientLat &&
+        effectiveClientLng
+      ) {
         routeLineRef.current.setLatLngs([newLatLng, [effectiveClientLat, effectiveClientLng]]);
       }
 

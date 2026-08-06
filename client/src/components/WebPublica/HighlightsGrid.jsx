@@ -1,5 +1,3 @@
-import { motion } from 'framer-motion';
-
 export default function HighlightsGrid({ heroHighlights, colorPrimario, theme }) {
   return (
     <section className="px-4 py-6 md:px-6">
@@ -7,11 +5,8 @@ export default function HighlightsGrid({ heroHighlights, colorPrimario, theme })
         {heroHighlights.map((item, index) => {
           const Icon = item.icon;
           return (
-            <motion.div
+            <div
               key={item.title}
-              initial={{ opacity: 0, y: 16 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.4, delay: index * 0.06 }}
               className="rounded-[24px] border px-5 py-5 shadow-[0_16px_40px_rgba(20,20,20,0.06)]"
               style={{
                 backgroundColor: theme?.panel || '#fffdfb',
@@ -32,7 +27,7 @@ export default function HighlightsGrid({ heroHighlights, colorPrimario, theme })
                   <p className="mt-1 text-sm font-medium leading-6 text-gray-500">{item.detail}</p>
                 </div>
               </div>
-            </motion.div>
+            </div>
           );
         })}
       </div>

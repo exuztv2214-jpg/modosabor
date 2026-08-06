@@ -87,7 +87,7 @@ export default function DeshacerEntrega({ pedido, ventanaMin = 5, onDeshacer, on
                   <p className="text-[13px] font-semibold text-white">
                     Pedido #{pedido.numero} entregado
                   </p>
-                  <p className="mt-0.5 text-[10px] font-semibold text-gray-400">
+                  <p className="mt-0.5 text-[13px] font-semibold text-gray-400">
                     ¿Te equivocaste? Podés deshacerlo por {mm}:{ss}
                   </p>
                 </div>
@@ -107,7 +107,7 @@ export default function DeshacerEntrega({ pedido, ventanaMin = 5, onDeshacer, on
               <div className="px-4 py-3">
                 <div className="flex items-start gap-2">
                   <AlertTriangle size={15} className="mt-0.5 shrink-0 text-amber-400" />
-                  <p className="text-[11px] font-bold leading-snug text-white">
+                  <p className="text-[13px] font-bold leading-snug text-white">
                     El pedido vuelve a &quot;en camino&quot; y queda registrado que se marcó por
                     error.
                   </p>

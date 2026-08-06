@@ -652,6 +652,48 @@ router.get('/:id/trazabilidad', auth, (req, res) => {
   });
 });
 
+/**
+ * Recorrido del repartidor para el cliente que sigue su pedido.
+ *
+ * Los puntos ya se venían guardando en `repartidor_ubicaciones_log` desde
+ * siempre —con precisión y velocidad— pero no había forma de que el cliente
+ * los viera: el mapa de seguimiento mostraba un marcador que saltaba de una
+ * posición a otra, sin el camino recorrido.
+ *
+ * Se protege con el mismo token de seguimiento que el resto del tracking, así
+ * que sólo lo ve quien tiene el enlace de su propio pedido.
+ *
+ * Se limita a los últimos 200 puntos: en un viaje de Monteros son de sobra y
+ * evita que un rider que se quedó con el GPS prendido devuelva miles de filas.
+ */
+router.get('/:id/recorrido', (req, res) => {
+  const pedido = db
+    .prepare('SELECT id, repartidor_id, estado FROM pedidos WHERE id = ?')
+    .get(req.params.id);
+  if (!pedido) return res.status(404).json({ error: 'Pedido no encontrado' });
+
+  const { validateTrackingToken } = require('../utils/socketRooms');
+  if (!validateTrackingToken(pedido.id, req.query.token)) {
+    return res.status(403).json({ error: 'Enlace de seguimiento no válido' });
+  }
+
+  if (!pedido.repartidor_id) return res.json({ puntos: [] });
+
+  const puntos = db
+    .prepare(
+      `
+      SELECT latitud, longitud, precision, velocidad, creado_en
+      FROM repartidor_ubicaciones_log
+      WHERE pedido_id = ? AND repartidor_id = ?
+      ORDER BY creado_en ASC
+      LIMIT 200
+    `
+    )
+    .all(pedido.id, pedido.repartidor_id);
+
+  res.json({ puntos });
+});
+
 router.get('/:id', async (req, res) => {
   const pedido = db.prepare('SELECT * FROM pedidos WHERE id = ?').get(req.params.id);
   if (!pedido) return res.status(404).json({ error: 'Pedido no encontrado' });

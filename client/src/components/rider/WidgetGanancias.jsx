@@ -58,7 +58,7 @@ export default function WidgetGanancias({ stats, loading = false }) {
         <div className="flex shrink-0 flex-col items-end gap-2">
           {(subio || bajo) && (
             <span
-              className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold tabular-nums ${
+              className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[13px] font-semibold tabular-nums ${
                 subio ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'
               }`}
             >
@@ -72,7 +72,7 @@ export default function WidgetGanancias({ stats, loading = false }) {
             </span>
           )}
           {racha >= 2 && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-semibold tabular-nums text-amber-700">
+            <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-1 text-[13px] font-semibold tabular-nums text-amber-700">
               <Flame size={11} strokeWidth={3} />
               {racha} días seguidos
             </span>
@@ -113,7 +113,7 @@ export default function WidgetGanancias({ stats, loading = false }) {
               return (
                 <span
                   key={dia.fecha}
-                  className={`flex-1 text-center text-[10px] font-medium ${
+                  className={`flex-1 text-center text-[13px] font-medium ${
                     esHoy ? '' : 'text-gray-300'
                   }`}
                   style={esHoy ? { color: BRAND } : undefined}

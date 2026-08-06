@@ -212,7 +212,7 @@ export default function ModoEnRuta({
                 Marcar entregado
               </button>
               {!cerca && dist !== null && (
-                <p className="mt-2 text-center text-[10px] font-bold text-gray-400">
+                <p className="mt-2 text-center text-[13px] font-bold text-gray-400">
                   Todavía estás a {fmtDistancia(dist)} del destino
                 </p>
               )}

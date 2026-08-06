@@ -49,6 +49,7 @@ const { geocodeClienteDireccion } = require('../utils/geocode');
 const { asegurarCodigoTarjeta } = require('./fidelizacionService');
 const { resolverDireccionEstructurada } = require('./direccionesEstructuradas');
 
+const { recalcularPreciosPublicos } = require('./preciosServidor');
 const ESTADO_LABELS = {
   [PedidoState.NUEVO]: 'recibido',
   [PedidoState.CONFIRMADO]: 'confirmado',
@@ -683,7 +684,18 @@ async function buildPedidoPayload(body, options = {}) {
   // que la web publica: sin esto, un pedido armado fuera de horario por el
   // agente se cargaria igual, sin que nadie en cocina lo espere.
   const isPublicFlow = ['web', 'canal_publico', 'whatsapp'].includes(origen);
-  const parsedItems = scalePedidoItemsToStorage(body.items);
+
+  /*
+    En los canales públicos el precio se arma de cero desde la base.
+
+    Antes el subtotal salía del `precio_unitario` que mandaba el navegador, un
+    dato que el cliente controla entero: alcanzaba con editar el pedido en las
+    herramientas del navegador para llevarse la comida por un peso. El TPV
+    queda afuera a propósito, porque está detrás de login y necesita poder
+    cargar precios a mano. Ver services/preciosServidor.js.
+  */
+  const itemsEscalados = scalePedidoItemsToStorage(body.items);
+  const parsedItems = isPublicFlow ? recalcularPreciosPublicos(itemsEscalados) : itemsEscalados;
   const subtotal = subtotalFromItems(parsedItems);
 
   // Validar cupón si se proporciona

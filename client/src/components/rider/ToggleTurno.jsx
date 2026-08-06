@@ -83,7 +83,7 @@ export default function ToggleTurno({ online, onToggle, disabled = false }) {
         >
           {online ? 'Disponible' : 'No disponible'}
         </p>
-        <p className="mt-0.5 text-[10px] font-bold text-gray-400">
+        <p className="mt-0.5 text-[13px] font-bold text-gray-400">
           {online ? 'Estás recibiendo pedidos' : 'Tocá para empezar a recibir'}
         </p>
       </div>
