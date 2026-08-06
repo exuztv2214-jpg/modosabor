@@ -1,5 +1,7 @@
 import { useEffect, useRef } from 'react';
 
+import { API_BASE_URL } from './runtime.js';
+
 const FALLBACK_ALERT_WAV =
   'data:audio/wav;base64,UklGRlQCAABXQVZFZm10IBAAAAABAAEAIlYAAESsAAACABAAZGF0YTACAACBhYqOkpWTlZaXmpyfoKGio6Sko6GfnJmWk5CPj42MjI2Qk5aZnJ+jo6KgoJ+cmZaTkI+PjYyMjZCTlpmcn6OjoqCgn5yZlpOQj4+NjIyNkJOWmZyfo6OioKCfnJmWk5CPj42MjI2Qk5aZnJ+jo6KgoJ+cmZaTkI+PjYyMjZCTlpmcn6OjoqCgn5yZlpOQj4+NjIyNkJOWmZyfo6OioKCfnJmWk5CPj42MjI2Qk5aZnJ+jo6KgoJ+cmZaTkI+PjYyMjQ==';
 const recentAlertClaims = new Map();
@@ -342,7 +344,13 @@ async function urlDeVozIa(texto) {
   const controlador = new AbortController();
   const corte = setTimeout(() => controlador.abort(), TIMEOUT_VOZ_IA_MS);
   try {
-    const respuesta = await fetch('/api/configuracion/voz', {
+    /*
+      Se usa `API_BASE_URL` y no una ruta pelada: en la app nativa y cuando el
+      panel corre en otro origen que la API, "/api/..." apunta al lugar
+      equivocado y el audio nunca llega. Con `fetch` crudo no hay un axios que
+      lo resuelva por nosotros.
+    */
+    const respuesta = await fetch(`${API_BASE_URL}/configuracion/voz`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ texto }),

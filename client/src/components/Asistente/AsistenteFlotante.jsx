@@ -55,7 +55,7 @@ export default function AsistenteFlotante() {
   useEffect(() => {
     let vigente = true;
     api
-      .get('/api/asistente/estado')
+      .get('/asistente/estado')
       // Un 403 acá es normal: significa que este usuario no tiene permiso de
       // reportes. No es un error que haya que mostrar, simplemente no ve el
       // asistente.
@@ -99,7 +99,7 @@ export default function AsistenteFlotante() {
     setPensando(true);
 
     try {
-      const datos = await api.post('/api/asistente/consulta', {
+      const datos = await api.post('/asistente/consulta', {
         pregunta: pregunta || 'Leé esta foto y decime qué ves.',
         historial,
         imagen,
@@ -134,7 +134,7 @@ export default function AsistenteFlotante() {
     if (aplicando !== null) return;
     setAplicando(indice);
     try {
-      const datos = await api.post('/api/asistente/confirmar', { token });
+      const datos = await api.post('/asistente/confirmar', { token });
       setMensajes((prev) => {
         const copia = [...prev];
         // La tarjeta se reemplaza por el resultado: una propuesta ya aplicada

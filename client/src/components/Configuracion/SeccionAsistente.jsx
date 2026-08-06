@@ -79,9 +79,28 @@ export default function SeccionAsistente({ config, setConfig }) {
     setProbando(true);
     setPrueba(null);
     try {
-      setPrueba(await api.post('/api/asistente/probar'));
+      setPrueba(await api.post('/asistente/probar'));
     } catch (error) {
-      setPrueba({ ok: false, error: error?.error || 'No se pudo probar la conexión.' });
+      /*
+        Acá no llegó a hablarse con el proveedor de IA: falló la llamada a
+        nuestro propio servidor. Decir sólo "no se pudo" manda a revisar la
+        clave, que no tiene nada que ver, y se pierde media hora.
+      */
+      const estado = error?._httpStatus;
+      const detalle = error?.error;
+      let mensaje;
+      if (estado === 404) {
+        mensaje = 'El servidor no conoce esta función (404). Falta desplegar el sistema.';
+      } else if (estado === 401) {
+        mensaje = 'Tu sesión no llegó al servidor (401). Cerrá sesión y volvé a entrar.';
+      } else if (estado === 403) {
+        mensaje = 'Tu usuario no tiene permiso para esto (403).';
+      } else if (estado) {
+        mensaje = `Nuestro servidor respondió ${estado}${detalle ? `: ${detalle}` : ''}.`;
+      } else {
+        mensaje = 'La petición no llegó al servidor. Revisá la conexión.';
+      }
+      setPrueba({ ok: false, error: mensaje });
     } finally {
       setProbando(false);
     }

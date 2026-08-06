@@ -1,4 +1,8 @@
+const fs = require('fs');
+const path = require('path');
+
 const { loadPedidoItems } = require('./pedidoItems');
+const { uploadPublicPathToFile } = require('./storagePaths');
 
 /**
  * Documentos impresos de Modo Sabor: comanda de cocina, ticket del cliente,
@@ -83,10 +87,63 @@ function parseItems(items) {
   return parseJson(items || '[]', []);
 }
 
-function absoluteAssetUrl(assetUrl, publicApiUrl) {
+const TIPOS_IMAGEN = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.svg': 'image/svg+xml',
+};
+
+/*
+  Un logo de más de medio mega convertido a base64 infla el documento en casi
+  700 KB. Para un logo impreso de 45 mm eso no aporta nada, y en cambio hace
+  lenta la vista previa y pesada la impresión.
+*/
+const MAX_LOGO_BYTES = 512 * 1024;
+
+/**
+ * Convierte el logo en un `data:` embebido dentro del documento.
+ *
+ * ── Por qué no alcanza con la URL ──────────────────────────────────────────
+ *
+ * El logo se guarda como una ruta relativa (`/uploads/logo.png`). Eso funciona
+ * sólo si quien abre el documento está en el mismo dominio que la API, y hay
+ * tres situaciones donde no lo está:
+ *
+ *   · La vista previa del panel usa un iframe con `sandbox` cerrado. Adentro no
+ *     hay origen, así que una ruta relativa no resuelve contra nada y el logo
+ *     aparece roto. Esto es lo que se veía mal en Configuración.
+ *   · El panel corriendo en un dominio distinto al de la API.
+ *   · La app nativa, donde la página no vive en un servidor web.
+ *
+ * Incrustándolo, el documento se basta solo: se ve igual en la vista previa, en
+ * la impresora y en un PDF guardado, sin depender de la red.
+ *
+ * Si el archivo no está o es demasiado grande, se cae a la URL de siempre.
+ */
+function embedAsset(assetUrl, publicApiUrl) {
   const raw = String(assetUrl || '').trim();
   if (!raw) return '';
-  if (/^(https?:)?\/\//i.test(raw) || raw.startsWith('data:')) return raw;
+  if (raw.startsWith('data:')) return raw;
+
+  if (!/^(https?:)?\/\//i.test(raw)) {
+    try {
+      const archivo = uploadPublicPathToFile(raw);
+      if (archivo && fs.existsSync(archivo)) {
+        const { size } = fs.statSync(archivo);
+        const tipo = TIPOS_IMAGEN[path.extname(archivo).toLowerCase()];
+        if (tipo && size > 0 && size <= MAX_LOGO_BYTES) {
+          return `data:${tipo};base64,${fs.readFileSync(archivo).toString('base64')}`;
+        }
+      }
+    } catch {
+      // Sin permisos o disco raro: se sigue con la URL, que puede funcionar.
+    }
+  }
+
+  if (/^(https?:)?\/\//i.test(raw)) return raw;
 
   const base = String(publicApiUrl || '')
     .trim()
@@ -325,7 +382,7 @@ function renderBrand(data, { compacto = false } = {}) {
   const showName = isEnabled(config, 'impresion_mostrar_nombre_negocio', true);
   const showAddress = isEnabled(config, 'impresion_mostrar_direccion', true) && !compacto;
   const showPhone = isEnabled(config, 'impresion_mostrar_telefono', true) && !compacto;
-  const logoUrl = showLogo ? absoluteAssetUrl(data.logoUrl, data.publicApiUrl) : '';
+  const logoUrl = showLogo ? embedAsset(data.logoUrl, data.publicApiUrl) : '';
 
   if (!logoUrl && !showName && !showAddress && !showPhone) return '';
 
