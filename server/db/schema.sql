@@ -834,7 +834,6 @@ CREATE INDEX IF NOT EXISTS idx_repartidor_ubicaciones_rep ON repartidor_ubicacio
 CREATE INDEX IF NOT EXISTS idx_repartidor_ubicaciones_pedido ON repartidor_ubicaciones_log(pedido_id, creado_en DESC);
 CREATE INDEX IF NOT EXISTS idx_notificaciones_envios_pedido ON notificaciones_envios(pedido_id, tipo);
 CREATE INDEX IF NOT EXISTS idx_notificaciones_envios_telefono ON notificaciones_envios(cliente_telefono, creado_en DESC);
-CREATE INDEX IF NOT EXISTS idx_repartidor_ubicaciones_pedido ON repartidor_ubicaciones_log(pedido_id, creado_en DESC);
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_whatsapp_mensajes_message_id ON whatsapp_mensajes(whatsapp_message_id) WHERE TRIM(COALESCE(whatsapp_message_id, '')) != '';
 
