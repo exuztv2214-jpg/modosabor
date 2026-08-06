@@ -32,7 +32,18 @@ function testNormalRoutesAreStillSanitized() {
     nombre: '  <script>"x"</script>  ',
   });
 
-  assert.strictEqual(body.nombre, '&lt;script&gt;&quot;x&quot;&lt;/script&gt;');
+  /*
+    Las comillas quedan tal cual a propósito.
+
+    Antes se escapaban acá, y eso rompía datos legítimos: una URL con
+    parámetros, un JSON guardado como texto, una dirección con comillas. El
+    dato quedaba corrupto en la base para siempre.
+
+    Los signos < > & sí se escapan, que es lo que arma una etiqueta HTML. Las
+    comillas solas no pueden inyectar nada; solo importan dentro de un atributo,
+    y eso es responsabilidad de quien lo muestra, no de quien lo guarda.
+  */
+  assert.strictEqual(body.nombre, '&lt;script&gt;"x"&lt;/script&gt;');
   console.log('  OK rutas normales siguen sanitizando HTML');
 }
 

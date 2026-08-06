@@ -2,9 +2,13 @@ import { Banknote, Check, Info, Landmark, Zap } from 'lucide-react';
 
 import { BRAND, STROKE } from '../../lib/theme.js';
 import { paymentBrand } from '../TPV/paymentBrands.jsx';
-import { SectionCard, InputField, ToggleSwitch } from './ConfigComponents.jsx';
-
-const SECRET_PLACEHOLDER = '__CONFIGURED__';
+import {
+  SectionCard,
+  InputField,
+  ToggleSwitch,
+  SECRET_PLACEHOLDER,
+  limpiarSecretoAlEnfocar,
+} from './ConfigComponents.jsx';
 
 /**
  * Métodos que el sistema realmente sabe procesar.
@@ -36,12 +40,6 @@ export default function SeccionPagos({ config, setConfig, f, setToggle }) {
     // de la web queda sin forma de cerrar el pedido.
     if (actualizado.length === 0) return;
     setConfig((prev) => ({ ...prev, metodos_pago: JSON.stringify(actualizado) }));
-  };
-
-  const limpiarSecretoAlEnfocar = (key) => (event) => {
-    if (event.target.value === SECRET_PLACEHOLDER) {
-      setConfig((prev) => ({ ...prev, [key]: '' }));
-    }
   };
 
   const mpHabilitado = metodos.includes('mercadopago');
@@ -112,7 +110,7 @@ export default function SeccionPagos({ config, setConfig, f, setToggle }) {
             onChange={(event) =>
               setConfig((prev) => ({ ...prev, mercadopago_token: event.target.value }))
             }
-            onFocus={limpiarSecretoAlEnfocar('mercadopago_token')}
+            onFocus={limpiarSecretoAlEnfocar(setConfig, 'mercadopago_token')}
             placeholder="APP_USR-..."
             hint={
               tokenGuardado

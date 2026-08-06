@@ -17,6 +17,28 @@ import { BRAND, STROKE } from '../../lib/theme.js';
 
 const TONO_ENCENDIDO = '#111827';
 
+/*
+  Lo que manda el servidor en lugar de una clave guardada (token de Mercado
+  Pago, clave de Gemini). La clave real nunca llega al navegador: solo este
+  cartel, que significa "hay algo cargado, no lo toques".
+
+  Si el usuario guarda la pantalla sin editar el campo, se reenvía este mismo
+  valor y el servidor lo descarta, dejando la clave como estaba.
+*/
+export const SECRET_PLACEHOLDER = '__CONFIGURED__';
+
+/**
+ * Vacía el campo cuando el usuario lo toca, si lo que había era el cartel.
+ * Sin esto tendría que borrar "__CONFIGURED__" a mano antes de pegar la clave.
+ */
+export function limpiarSecretoAlEnfocar(setConfig, clave) {
+  return (evento) => {
+    if (evento.target.value === SECRET_PLACEHOLDER) {
+      setConfig((prev) => ({ ...prev, [clave]: '' }));
+    }
+  };
+}
+
 export function ToggleSwitch({ checked, onChange, label, description, tone }) {
   return (
     <button

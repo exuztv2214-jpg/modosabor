@@ -10,6 +10,7 @@ const { requirePermission } = require('../utils/permissions');
 const { logAudit, actorFromRequest } = require('../utils/audit');
 const { quoteDelivery, serializeZones } = require('../utils/deliveryZones');
 const { buildPrintTestDocument } = require('../utils/printTemplates');
+const { obtenerAudio, vozIaHabilitada } = require('../services/vozIa');
 const { getCurrentShiftInfo } = require('../utils/shifts');
 const { mergeRuntimeConfig } = require('../utils/runtimeConfig');
 const {
@@ -103,7 +104,19 @@ const uploadRestore = multer({
 });
 const bootstrapImportKey = String(process.env.BOOTSTRAP_IMPORT_KEY || '').trim();
 
-const SENSITIVE_KEYS = new Set(['mercadopago_token']);
+/*
+  Claves que nunca salen del servidor.
+
+  Se guardan en la base, pero al pedir la configuración se reemplazan por un
+  cartelito que solo dice "hay algo cargado". La clave real no viaja al
+  navegador nunca, ni siquiera al del dueño: no hay motivo para que ande dando
+  vueltas por la red si el único que la usa es el servidor.
+
+  Y cuando se guarda la configuración, si llega el cartelito en vez de una clave
+  nueva, se ignora ese campo. Sin eso, cada vez que tocaras cualquier otra
+  opción de la pantalla se borraría la clave.
+*/
+const SENSITIVE_KEYS = new Set(['mercadopago_token', 'gemini_api_key']);
 const SENSITIVE_PLACEHOLDER = '__CONFIGURED__';
 
 function rowsToConfig(rows) {
@@ -158,6 +171,7 @@ function getPublicConfig() {
   const full = getFullConfig();
   const config = sanitizeSensitiveConfig(full, { remove: true });
   config.mercadopago_token_configured = Boolean(full.mercadopago_token);
+  config.gemini_api_key_configured = Boolean(full.gemini_api_key);
   return config;
 }
 
@@ -278,6 +292,29 @@ function persistConfigUpdates(rawUpdates, req) {
 
   return getAdminConfig();
 }
+
+/**
+ * Audio de un aviso, hablado con voz de IA.
+ *
+ * Lo consulta el panel y el KDS antes de cantar un pedido. Si devuelve una URL,
+ * la reproducen; si devuelve `null`, usan la voz del navegador de siempre.
+ *
+ * No lleva autenticación a propósito: lo llama el KDS, que muchas veces corre
+ * en una tablet de cocina sin sesión iniciada. Igual no expone nada — sólo
+ * convierte a audio un texto corto que el propio sistema arma.
+ */
+router.post('/voz', (req, res) => {
+  const texto = String(req.body?.texto || '').trim();
+  if (!texto) return res.json({ url: null });
+
+  const url = obtenerAudio(texto);
+  res.json({ url });
+});
+
+/** Para que la interfaz sepa si ofrecer la voz de IA o esconder la opción. */
+router.get('/voz/estado', (req, res) => {
+  res.json({ habilitada: vozIaHabilitada() });
+});
 
 router.get('/', (req, res) => {
   res.json(getPublicConfig());

@@ -319,11 +319,78 @@ function clampSpeechValue(value, fallback, min, max) {
   return Number.isFinite(parsed) ? Math.min(max, Math.max(min, parsed)) : fallback;
 }
 
+/*
+  ── Voz de IA con vuelta atrás a la del navegador ──────────────────────────
+
+  El servidor no genera nada cuando le preguntamos: contesta al toque con el
+  audio si ya lo tenía guardado, o con `null` si no. Cuando contesta `null`,
+  habla el navegador acá mismo y el servidor genera el audio por atrás para la
+  próxima vez que aparezca esa frase.
+
+  Así el aviso nunca se retrasa, y con los días los clientes habituales van
+  quedando todos con voz de IA sin que nadie toque nada.
+
+  El corte de 800 ms es solamente por si el servidor está caído o la red no
+  responde: es una respuesta instantánea, no debería acercarse nunca.
+*/
+const audiosPorTexto = new Map();
+const TIMEOUT_VOZ_IA_MS = 800;
+
+async function urlDeVozIa(texto) {
+  if (audiosPorTexto.has(texto)) return audiosPorTexto.get(texto);
+
+  const controlador = new AbortController();
+  const corte = setTimeout(() => controlador.abort(), TIMEOUT_VOZ_IA_MS);
+  try {
+    const respuesta = await fetch('/api/configuracion/voz', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ texto }),
+      signal: controlador.signal,
+    });
+    if (!respuesta.ok) return null;
+    const { url } = await respuesta.json();
+    /*
+      Solo se guarda cuando hay audio. El `null` no se cachea a propósito: el
+      servidor lo está generando en este momento, así que la próxima vez que
+      entre esta misma frase sí va a estar, y queremos volver a preguntar.
+    */
+    if (url) audiosPorTexto.set(texto, url);
+    return url || null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(corte);
+  }
+}
+
 export function speakOrderAnnouncement(
   text,
-  { voiceRef, enabled = true, voiceName = '', rate = 0.92, pitch = 1 } = {}
+  { voiceRef, enabled = true, voiceName = '', rate = 0.92, pitch = 1, usarVozIa = true } = {}
 ) {
-  if (!enabled || !text || !('speechSynthesis' in window)) return;
+  if (!enabled || !text) return;
+
+  if (usarVozIa) {
+    urlDeVozIa(text).then((url) => {
+      if (!url) {
+        hablarConNavegador(text, { voiceRef, voiceName, rate, pitch });
+        return;
+      }
+      const audio = new Audio(url);
+      audio.volume = 1;
+      // Si el archivo no se puede reproducir, que igual se escuche algo.
+      audio.onerror = () => hablarConNavegador(text, { voiceRef, voiceName, rate, pitch });
+      audio.play().catch(() => hablarConNavegador(text, { voiceRef, voiceName, rate, pitch }));
+    });
+    return;
+  }
+
+  hablarConNavegador(text, { voiceRef, voiceName, rate, pitch });
+}
+
+/** La voz de siempre: la del sistema operativo. */
+function hablarConNavegador(text, { voiceRef, voiceName = '', rate = 0.92, pitch = 1 } = {}) {
+  if (!text || !('speechSynthesis' in window)) return;
 
   const utterance = new SpeechSynthesisUtterance(text);
   const selectedVoice = pickSpanishSpeechVoice(voiceName) || voiceRef?.current;

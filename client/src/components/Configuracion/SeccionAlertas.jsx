@@ -9,7 +9,15 @@ import {
   speakOrderAnnouncement,
 } from '../../lib/orderAlerts.js';
 
-import { SectionCard, SelectField, TextareaField, ToggleSwitch } from './ConfigComponents.jsx';
+import {
+  SectionCard,
+  SelectField,
+  TextareaField,
+  ToggleSwitch,
+  InputField,
+  SECRET_PLACEHOLDER,
+  limpiarSecretoAlEnfocar,
+} from './ConfigComponents.jsx';
 
 function readVoices() {
   return listSpanishSpeechVoices() || [];
@@ -51,6 +59,9 @@ export default function SeccionAlertas({ config, f, setConfig }) {
   };
 
   const vozActiva = String(config.alertas_pedido_voz ?? '1') === '1';
+  const vozIaActiva = String(config.voz_ia_activa ?? '0') === '1';
+  const claveGuardada =
+    config.gemini_api_key_configured && config.gemini_api_key === SECRET_PLACEHOLDER;
 
   const probarVoz = () => {
     if (!hayVozEnElNavegador) {
@@ -90,7 +101,54 @@ export default function SeccionAlertas({ config, f, setConfig }) {
             label="Anunciar en voz alta"
             description="Lee el número del pedido, el cliente y el rider."
           />
+
+          {/*
+            La voz del navegador es la del sistema operativo y en Android suena
+            bastante robótica. Con esto activado, el servidor genera el audio con
+            una voz de IA la primera vez que aparece cada frase y lo deja
+            guardado, así a partir de ahí suena al instante y sin internet.
+
+            Si la API no responde o falta la clave, el aviso igual se escucha con
+            la voz de siempre: nunca se queda la cocina sin avisar.
+          */}
+          {vozActiva ? (
+            <ToggleSwitch
+              checked={vozIaActiva}
+              onChange={(checked) => setToggle('voz_ia_activa', checked)}
+              label="Usar voz de IA (más natural)"
+              description="Necesita una clave de Gemini. Si falla, usa la voz del navegador."
+            />
+          ) : null}
         </div>
+
+        {vozActiva && vozIaActiva ? (
+          <div className="mt-4 rounded-2xl border p-4" style={{ borderColor: STROKE }}>
+            <InputField
+              label="Clave de Gemini"
+              type="password"
+              value={config.gemini_api_key || ''}
+              onChange={(evento) =>
+                setConfig((prev) => ({ ...prev, gemini_api_key: evento.target.value }))
+              }
+              onFocus={limpiarSecretoAlEnfocar(setConfig, 'gemini_api_key')}
+              placeholder="AIza..."
+              hint={
+                claveGuardada
+                  ? 'Ya hay una clave guardada. Hacé clic en el campo y pegá la nueva si querés cambiarla.'
+                  : 'La sacás gratis en aistudio.google.com/apikey.'
+              }
+            />
+            <p className="mt-3 text-[12px] leading-relaxed text-gray-500">
+              La primera vez que aparece una frase nueva suena con la voz del navegador mientras el
+              audio se genera. De ahí en más queda guardado y suena al instante, aunque se corte
+              internet.
+            </p>
+            <p className="mt-2 text-[12px] leading-relaxed text-gray-500">
+              El aviso que se manda a Google incluye el nombre del cliente. Con el plan gratuito,
+              Google usa ese contenido para mejorar sus servicios.
+            </p>
+          </div>
+        ) : null}
 
         <p className="mt-4 rounded-xl bg-gray-50 px-4 py-3 text-[12px] leading-relaxed text-gray-500">
           Los navegadores bloquean el sonido hasta que alguien hace clic en la página. Si abrís el
@@ -124,7 +182,12 @@ export default function SeccionAlertas({ config, f, setConfig }) {
             </p>
           ) : null}
 
-          <div className="grid gap-3 lg:grid-cols-2">
+          {/*
+            `items-end` alinea los campos por abajo. Sin esto, el que tiene
+            descripción queda más abajo que el que no, y los dos desplegables
+            aparecen a distinta altura aunque estén en la misma fila.
+          */}
+          <div className="grid items-end gap-3 lg:grid-cols-3">
             <SelectField
               label="Voz"
               description="Automática elige primero una de Argentina."
@@ -133,12 +196,26 @@ export default function SeccionAlertas({ config, f, setConfig }) {
             />
             <SelectField
               label="Velocidad"
+              description="Qué tan rápido lee el aviso."
               {...f('alertas_voz_velocidad')}
               options={[
                 { value: '0.82', label: 'Pausada' },
-                { value: '0.92', label: 'Natural argentina' },
+                // Antes esta opción se llamaba "Natural argentina", que no es
+                // una velocidad sino un tipo de voz. Bajo el rótulo
+                // "Velocidad" no significaba nada.
+                { value: '0.92', label: 'Natural' },
                 { value: '1', label: 'Normal' },
                 { value: '1.08', label: 'Ágil' },
+              ]}
+            />
+            <SelectField
+              label="Tono"
+              description="Más grave se entiende mejor con ruido."
+              {...f('alertas_voz_tono')}
+              options={[
+                { value: '0.9', label: 'Grave' },
+                { value: '1', label: 'Normal' },
+                { value: '1.1', label: 'Agudo' },
               ]}
             />
           </div>
@@ -175,23 +252,6 @@ export default function SeccionAlertas({ config, f, setConfig }) {
               rows={4}
               {...f('alertas_voz_reemplazos')}
               placeholder={'Wolf=Uolf\nNahuel=Nauel'}
-            />
-          </div>
-
-          {/*
-            El tono se usaba al hablar pero no había ningún campo para
-            ajustarlo: quedaba fijo en el valor que trajera la base, sin forma
-            de cambiarlo desde ningún lado del sistema.
-          */}
-          <div className="mt-3">
-            <SelectField
-              label="Tono"
-              {...f('alertas_voz_tono')}
-              options={[
-                { value: '0.9', label: 'Grave' },
-                { value: '1', label: 'Normal' },
-                { value: '1.1', label: 'Agudo' },
-              ]}
             />
           </div>
         </SectionCard>
