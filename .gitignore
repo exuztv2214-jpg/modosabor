@@ -40,3 +40,5 @@ agente-whatsapp/puente-web/.wwebjs_cache/
 agente-whatsapp/puente-web/data/*.log
 agente-whatsapp/puente-web/data/history.json
 DProyectos*/
+# Archivos de configuración local de Claude Code (contienen credenciales y comandos sensibles)
+.claude/settings.local.json
