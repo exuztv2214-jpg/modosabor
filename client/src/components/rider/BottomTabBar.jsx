@@ -44,10 +44,9 @@ export default function BottomTabBar({ activo, onChange, badgeHistorial = 0 }) {
               className="relative flex flex-1 flex-col items-center gap-1 py-2.5"
             >
               <span className="relative flex h-9 w-16 items-center justify-center">
-                {/* `primary-*` en la config de Tailwind es el azul #5D87FF de
-                    la plantilla original, no la marca. La app del rider tiene
-                    la llama roja de Modo Sabor arriba y la navegación azul
-                    abajo. Va en BRAND como todo el resto del sistema. */}
+                {/* La app del rider tenía la llama roja de Modo Sabor arriba y
+                    la navegación azul abajo, porque `primary-*` era el azul de
+                    la plantilla comprada. Va en BRAND como todo el resto. */}
                 {esActivo && (
                   <motion.span
                     layoutId="tab-pill"

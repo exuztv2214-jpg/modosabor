@@ -66,7 +66,7 @@ export default function ProductoCard({
   if (!disponible) {
     badge = { text: 'Sin stock', style: 'bg-gray-500' };
   } else if (producto.destacado === 1) {
-    badge = { text: 'Recomendado', style: 'bg-primary-500' };
+    badge = { text: 'Recomendado', style: 'bg-brand-500' };
   } else if (
     producto.precio_anterior &&
     Number(producto.precio_anterior) > Number(producto.precio)
@@ -119,7 +119,7 @@ export default function ProductoCard({
           <div className="absolute top-3 left-3">
             <span
               className={`inline-flex items-center px-2.5 py-1 rounded-lg text-white text-[12px] font-semibold shadow-md ${badge.style}`}
-              style={badge.style === 'bg-primary-500' ? { backgroundColor: colorPrimario } : {}}
+              style={badge.style === 'bg-brand-500' ? { backgroundColor: colorPrimario } : {}}
             >
               {badge.text}
             </span>

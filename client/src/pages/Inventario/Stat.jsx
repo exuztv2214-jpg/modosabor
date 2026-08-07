@@ -1,7 +1,7 @@
 import { Boxes, AlertTriangle, TrendingUp, MinusCircle } from 'lucide-react';
 
 const tints = {
-  blue: 'bg-primary-50 text-primary-500',
+  blue: 'bg-info-50 text-info-600',
   rose: 'bg-danger-50 text-danger-500',
   amber: 'bg-warning-50 text-warning-500',
   emerald: 'bg-success-50 text-success-500',

@@ -41,7 +41,7 @@ export default function TpvClientPickerModal({
               value={search}
               onChange={(event) => onSearchChange(event.target.value)}
               placeholder="Buscar cliente o tarjeta..."
-              className="h-11 w-full rounded-xl border border-gray-200 bg-gray-50 py-2 pl-11 pr-4 text-sm font-medium focus:border-orange-300 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/10"
+              className="h-11 w-full rounded-xl border border-gray-200 bg-gray-50 py-2 pl-11 pr-4 text-sm font-medium focus:border-brand-300 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/10"
             />
           </div>
         </div>
@@ -81,7 +81,7 @@ export default function TpvClientPickerModal({
                       </p>
                       <div className="mt-2 flex flex-wrap gap-2">
                         {item.codigo_tarjeta ? (
-                          <span className="rounded-full bg-primary-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-primary-500">
+                          <span className="rounded-full bg-brand-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-brand-600">
                             {item.codigo_tarjeta}
                           </span>
                         ) : null}

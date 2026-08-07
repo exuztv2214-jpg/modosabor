@@ -46,7 +46,7 @@ export default class AppErrorBoundary extends React.Component {
             <button
               type="button"
               onClick={this.handleReload}
-              className="rounded-2xl bg-primary-500 px-5 py-3 text-sm font-black text-white shadow-lg shadow-primary-100"
+              className="rounded-2xl bg-brand-500 px-5 py-3 text-sm font-black text-white shadow-lg shadow-brand-100"
             >
               Recargar sistema
             </button>

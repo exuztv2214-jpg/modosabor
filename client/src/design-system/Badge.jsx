@@ -1,5 +1,5 @@
 const variants = {
-  primary: 'bg-primary-100 text-primary-700',
+  primary: 'bg-brand-100 text-brand-700',
   success: 'bg-success-100 text-success-700',
   warning: 'bg-warning-100 text-warning-700',
   danger: 'bg-danger-100 text-danger-700',

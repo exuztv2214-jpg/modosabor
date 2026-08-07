@@ -4,18 +4,19 @@
  */
 
 export const colors = {
-  // Primario (azul Modo Sabor)
+  // Rojo de marca. Decia "azul Modo Sabor" y listaba los azules que venian
+  // con la plantilla comprada: nunca fue el color del local.
   primary: {
-    50: '#ECF2FF',
-    100: '#E0E7FF',
-    200: '#C7D2FE',
-    300: '#A5B4FC',
-    400: '#818CF8',
-    500: '#5D87FF',
-    600: '#4F46E5',
-    700: '#4338CA',
-    800: '#3730A3',
-    900: '#312E81',
+    50: '#FEF2F2',
+    100: '#FDE3E4',
+    200: '#FBC5C8',
+    300: '#F79197',
+    400: '#F05C65',
+    500: '#DC1F2D',
+    600: '#C11824',
+    700: '#9E141E',
+    800: '#7A0F17',
+    900: '#560A10',
   },
 
   // Acento éxito (verde agua)

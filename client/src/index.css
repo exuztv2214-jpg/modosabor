@@ -6,16 +6,16 @@
 
 :root {
   /* Paleta principal Modo Sabor */
-  --color-primary-50: #ecf2ff;
-  --color-primary-100: #e0e7ff;
-  --color-primary-200: #c7d2fe;
-  --color-primary-300: #a5b4fc;
-  --color-primary-400: #818cf8;
-  --color-primary-500: #5d87ff;
-  --color-primary-600: #4f46e5;
-  --color-primary-700: #4338ca;
-  --color-primary-800: #3730a3;
-  --color-primary-900: #312e81;
+  --color-brand-50: #fef2f2;
+  --color-brand-100: #fde3e4;
+  --color-brand-200: #fbc5c8;
+  --color-brand-300: #f79197;
+  --color-brand-400: #f05c65;
+  --color-brand-500: #dc1f2d;
+  --color-brand-600: #c11824;
+  --color-brand-700: #9e141e;
+  --color-brand-800: #7a0f17;
+  --color-brand-900: #560a10;
 
   /* Acentos */
   --color-success-500: #13deb9;
@@ -88,10 +88,10 @@
   /* Botones */
   .btn-primary {
     @apply inline-flex items-center justify-center px-5 py-2.5
-           bg-primary-600 text-white font-semibold rounded-xl
+           bg-brand-600 text-white font-semibold rounded-xl
            transition-all duration-200
-           hover:bg-primary-700 hover:shadow-lg hover:shadow-primary-500/25
-           focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2
+           hover:bg-brand-700 hover:shadow-lg hover:shadow-brand-500/25
+           focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2
            active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed;
   }
 
@@ -125,7 +125,7 @@
     @apply w-full px-4 py-3 rounded-xl border border-gray-200
            bg-white text-gray-800 placeholder:text-gray-400
            transition-all duration-200
-           focus:outline-none focus:border-primary-500 focus:ring-4 focus:ring-primary-500/10
+           focus:outline-none focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10
            hover:border-gray-300 disabled:bg-gray-50 disabled:text-gray-400;
   }
 
@@ -134,12 +134,12 @@
     @apply flex items-center gap-3 px-4 py-3 rounded-xl
            text-gray-600 font-medium transition-all duration-200
            hover:bg-gray-100 hover:text-gray-900
-           focus:outline-none focus:ring-2 focus:ring-primary-500/20;
+           focus:outline-none focus:ring-2 focus:ring-brand-500/20;
   }
 
   .sidebar-item-active {
-    @apply sidebar-item bg-primary-50 text-primary-600
-           hover:bg-primary-100 hover:text-primary-700;
+    @apply sidebar-item bg-brand-50 text-brand-600
+           hover:bg-brand-100 hover:text-brand-700;
   }
 
   /* Badges */
@@ -148,7 +148,7 @@
   }
 
   .badge-primary {
-    @apply badge bg-primary-100 text-primary-700;
+    @apply badge bg-brand-100 text-brand-700;
   }
 
   .badge-success {
@@ -233,7 +233,7 @@
   background-clip: text;
   -webkit-background-clip: text;
   color: transparent;
-  background-image: linear-gradient(to right, var(--color-primary-600), var(--color-info-500));
+  background-image: linear-gradient(to right, var(--color-brand-600), var(--color-info-500));
 }
 
 /* Gradientes de fondo */
@@ -276,8 +276,8 @@
 }
 
 .dark .sidebar-item-active {
-  background-color: rgba(93, 135, 255, 0.15);
-  color: #5d87ff;
+  background-color: rgba(220, 31, 45, 0.15);
+  color: #f79197;
 }
 
 .dark ::-webkit-scrollbar-thumb {
@@ -318,7 +318,7 @@
 }
 
 .rider-primary-button {
-  background: var(--rider-primary, #5d87ff);
+  background: var(--rider-primary, #dc1f2d);
 }
 
 .rider-primary-button:hover {

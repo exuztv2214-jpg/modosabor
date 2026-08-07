@@ -603,7 +603,7 @@ export default function ConfiguracionPlantillas({ config, setConfig, onSave }) {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-3">
-            <LayoutTemplate className="w-7 h-7 text-primary-600" />
+            <LayoutTemplate className="w-7 h-7 text-brand-600" />
             Editor de Plantillas
           </h2>
           <p className="text-gray-500 mt-1 text-sm">
@@ -622,7 +622,7 @@ export default function ConfiguracionPlantillas({ config, setConfig, onSave }) {
           <button
             onClick={guardarPlantilla}
             disabled={saving}
-            className="flex items-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors font-medium shadow-lg shadow-primary-200"
+            className="flex items-center gap-2 px-6 py-2 bg-brand-500 text-white rounded-xl hover:bg-brand-600 transition-colors font-medium shadow-lg shadow-brand-200"
           >
             <Save size={18} />
             {saving ? 'Guardando...' : 'Guardar Plantilla'}
@@ -659,7 +659,7 @@ export default function ConfiguracionPlantillas({ config, setConfig, onSave }) {
                   key={key}
                   className={`flex items-center justify-between p-3 rounded-xl border-2 cursor-pointer transition-all ${
                     tamanioSeleccionado === key
-                      ? 'border-blue-600 bg-primary-50'
+                      ? 'border-brand-500 bg-brand-50'
                       : 'border-gray-200 hover:border-gray-300'
                   }`}
                 >
@@ -673,11 +673,11 @@ export default function ConfiguracionPlantillas({ config, setConfig, onSave }) {
                         setTamanioSeleccionado(key);
                         handleChange('impresion_formato', key);
                       }}
-                      className="w-4 h-4 text-primary-600"
+                      className="w-4 h-4 text-brand-600"
                     />
                     <div>
                       <div
-                        className={`font-semibold ${tamanioSeleccionado === key ? 'text-blue-900' : 'text-gray-900'}`}
+                        className={`font-semibold ${tamanioSeleccionado === key ? 'text-brand-700' : 'text-gray-900'}`}
                       >
                         {tamanio.nombre}
                       </div>
@@ -960,7 +960,7 @@ export default function ConfiguracionPlantillas({ config, setConfig, onSave }) {
             <div className="flex items-center justify-between mb-4">
               <div>
                 <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
-                  <Eye size={20} className="text-primary-600" />
+                  <Eye size={20} className="text-brand-600" />
                   Vista Previa
                 </h3>
                 <p className="text-xs text-gray-500 mt-1">
@@ -970,7 +970,7 @@ export default function ConfiguracionPlantillas({ config, setConfig, onSave }) {
               <button
                 onClick={probarImpresion}
                 disabled={printingTest}
-                className="flex items-center gap-2 rounded-lg bg-primary-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#4A74EF]"
+                className="flex items-center gap-2 rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-brand-600"
               >
                 <Printer size={16} />
                 Imprimir
@@ -1004,8 +1004,8 @@ export default function ConfiguracionPlantillas({ config, setConfig, onSave }) {
               </div>
             </div>
 
-            <div className="mt-4 flex items-center gap-2 text-xs text-gray-500 bg-primary-50 p-3 rounded-lg">
-              <Ruler size={14} className="text-primary-600" />
+            <div className="mt-4 flex items-center gap-2 text-xs text-gray-500 bg-brand-50 p-3 rounded-lg">
+              <Ruler size={14} className="text-brand-600" />
               <span>
                 Vista escalada al <strong>{Math.round(escalaPreview * 100)}%</strong>. Tamaño real:{' '}
                 {tamanioActual.ancho} x {tamanioActual.alto}.
@@ -1022,7 +1022,7 @@ export default function ConfiguracionPlantillas({ config, setConfig, onSave }) {
 function SectionCard({ title, icon: Icon, tone = 'gray', children }) {
   const tones = {
     gray: 'bg-gray-50 text-gray-600',
-    blue: 'bg-primary-100 text-primary-600',
+    blue: 'bg-info-100 text-info-600',
     indigo: 'bg-indigo-100 text-indigo-600',
     emerald: 'bg-success-100 text-success-600',
     amber: 'bg-warning-100 text-warning-600',
@@ -1056,7 +1056,7 @@ function ToggleOption({ label, checked, onChange, description }) {
         type="button"
         onClick={onChange}
         className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ml-3 flex-shrink-0 ${
-          checked ? 'bg-blue-600' : 'bg-gray-200'
+          checked ? 'bg-brand-500' : 'bg-gray-200'
         }`}
       >
         <span

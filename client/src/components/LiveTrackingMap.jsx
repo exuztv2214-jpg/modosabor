@@ -406,7 +406,7 @@ export default function LiveTrackingMap({
               href={destinationUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex h-10 items-center gap-2 rounded-xl bg-primary-500 px-4 text-xs font-black uppercase tracking-wider text-white"
+              className="inline-flex h-10 items-center gap-2 rounded-xl bg-brand-500 px-4 text-xs font-black uppercase tracking-wider text-white"
             >
               <Route size={15} />
               Abrir destino
@@ -432,7 +432,7 @@ export default function LiveTrackingMap({
     return (
       <div className="flex h-full items-center justify-center rounded-2xl border border-gray-200 bg-gray-50">
         <div className="text-center">
-          <div className="mx-auto h-8 w-8 animate-spin rounded-full border-4 border-primary-500 border-t-transparent" />
+          <div className="mx-auto h-8 w-8 animate-spin rounded-full border-4 border-brand-500 border-t-transparent" />
           <p className="mt-3 text-sm font-bold text-gray-500">Cargando mapa...</p>
         </div>
       </div>
@@ -484,7 +484,7 @@ export default function LiveTrackingMap({
           {dynamicEta !== null && (
             <div className="text-right">
               <p className="text-xs font-medium text-gray-400">Llega en</p>
-              <p className="text-lg font-black text-primary-600">{dynamicEta} min</p>
+              <p className="text-lg font-black text-brand-600">{dynamicEta} min</p>
               {speedKmh !== null && (
                 <p className="text-[10px] font-medium text-gray-400">{speedKmh} km/h promedio</p>
               )}
@@ -507,7 +507,7 @@ export default function LiveTrackingMap({
                 <div>
                   <p className="text-sm font-bold text-gray-900">{riderName}</p>
                   {riderPhone && (
-                    <a href={`tel:${riderPhone}`} className="text-xs font-medium text-primary-600">
+                    <a href={`tel:${riderPhone}`} className="text-xs font-medium text-brand-600">
                       {riderPhone}
                     </a>
                   )}
@@ -517,7 +517,7 @@ export default function LiveTrackingMap({
                 {riderPhone && (
                   <a
                     href={`tel:${riderPhone}`}
-                    className="flex h-9 w-9 items-center justify-center rounded-full bg-primary-500 text-white shadow-md transition hover:bg-primary-600"
+                    className="flex h-9 w-9 items-center justify-center rounded-full bg-brand-500 text-white shadow-md transition hover:bg-brand-600"
                     title="Llamar al repartidor"
                   >
                     <Phone size={16} />

@@ -290,7 +290,7 @@ export function useClientes() {
     if (tone === 'amber') return 'bg-warning-50 text-amber-500 border-amber-100';
     if (tone === 'rose') return 'bg-danger-50 text-rose-500 border-rose-100';
     if (tone === 'sky') return 'bg-sky-50 text-sky-500 border-sky-100';
-    return 'bg-primary-50 text-primary-500 border-primary-100';
+    return 'bg-info-50 text-info-600 border-info-100';
   };
 
   const getRecoveryMessage = (cliente) => {

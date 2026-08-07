@@ -27,8 +27,8 @@ export default function ActionDialog({
       button: 'bg-warning-500 hover:bg-amber-600 text-white',
     },
     primary: {
-      icon: 'bg-primary-100 text-primary-500',
-      button: 'bg-primary-500 hover:bg-primary-600 text-white',
+      icon: 'bg-brand-100 text-brand-500',
+      button: 'bg-brand-500 hover:bg-brand-600 text-white',
     },
   };
 
@@ -67,7 +67,7 @@ export default function ActionDialog({
               value={inputValue}
               onChange={(event) => onInputChange(event.target.value)}
               placeholder={inputPlaceholder}
-              className="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-bold text-slate-800 outline-none transition focus:border-primary-500 focus:ring-4 focus:ring-blue-100"
+              className="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-bold text-slate-800 outline-none transition focus:border-brand-500 focus:ring-4 focus:ring-blue-100"
             />
           </div>
         ) : null}

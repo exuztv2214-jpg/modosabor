@@ -11,7 +11,7 @@ export default function PageHeader({ title, description, breadcrumbs = [], actio
               <li>
                 <Link
                   to="/admin/dashboard"
-                  className="inline-flex items-center gap-1 transition-colors hover:text-primary-500"
+                  className="inline-flex items-center gap-1 transition-colors hover:text-brand-500"
                 >
                   <Home size={12} />
                   Inicio
@@ -21,7 +21,7 @@ export default function PageHeader({ title, description, breadcrumbs = [], actio
                 <li key={index} className="flex items-center gap-1.5">
                   <ChevronRight size={12} />
                   {crumb.to ? (
-                    <Link to={crumb.to} className="transition-colors hover:text-primary-500">
+                    <Link to={crumb.to} className="transition-colors hover:text-brand-500">
                       {crumb.label}
                     </Link>
                   ) : (

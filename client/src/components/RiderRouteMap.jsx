@@ -364,7 +364,7 @@ export default function RiderRouteMap({
             href={googleUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="mt-4 inline-flex h-10 items-center gap-2 rounded-xl bg-primary-500 px-4 text-xs font-black uppercase tracking-wider text-white"
+            className="mt-4 inline-flex h-10 items-center gap-2 rounded-xl bg-brand-500 px-4 text-xs font-black uppercase tracking-wider text-white"
           >
             <Navigation size={15} />
             Abrir ruta
@@ -378,7 +378,7 @@ export default function RiderRouteMap({
     return (
       <div className="flex h-full items-center justify-center rounded-2xl border border-gray-200 bg-gray-50">
         <div className="text-center">
-          <div className="mx-auto h-8 w-8 animate-spin rounded-full border-4 border-primary-500 border-t-transparent" />
+          <div className="mx-auto h-8 w-8 animate-spin rounded-full border-4 border-brand-500 border-t-transparent" />
           <p className="mt-3 text-sm font-bold text-gray-500">Cargando mapa...</p>
         </div>
       </div>
@@ -423,7 +423,7 @@ export default function RiderRouteMap({
       {onNavigate && clientLat && clientLng && (
         <button
           onClick={onNavigate}
-          className="absolute right-4 top-4 z-[400] flex h-12 w-12 items-center justify-center rounded-full bg-primary-500 text-white shadow-lg transition hover:bg-primary-600"
+          className="absolute right-4 top-4 z-[400] flex h-12 w-12 items-center justify-center rounded-full bg-brand-500 text-white shadow-lg transition hover:bg-brand-600"
           title="Navegar al destino"
         >
           <Navigation size={22} />

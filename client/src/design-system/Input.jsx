@@ -35,7 +35,7 @@ const Input = forwardRef(function Input(
           className={`
             w-full rounded-xl border bg-white text-gray-800 placeholder:text-gray-400
             transition-all duration-200
-            focus:outline-none focus:border-primary-500 focus:ring-4 focus:ring-primary-500/10
+            focus:outline-none focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10
             hover:border-gray-300
             disabled:bg-gray-50 disabled:text-gray-400
             ${LeftIcon ? 'pl-10' : 'px-4'}

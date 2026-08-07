@@ -13,7 +13,7 @@ import { isNativeRiderApp } from './lib/nativeRiderGps.js';
 const PageLoader = () => (
   <div className="flex items-center justify-center min-h-screen bg-white">
     <div className="flex flex-col items-center">
-      <div className="w-10 h-10 border-4 border-primary-500 border-t-transparent rounded-full animate-spin shadow-lg"></div>
+      <div className="w-10 h-10 border-4 border-brand-500 border-t-transparent rounded-full animate-spin shadow-lg"></div>
       <p className="mt-6 text-gray-400 font-bold text-[10px] uppercase tracking-[0.2em] animate-pulse">
         Cargando Modo Sabor...
       </p>
@@ -79,7 +79,7 @@ export default function App() {
             <Suspense
               fallback={
                 <div className="flex h-screen items-center justify-center">
-                  <div className="animate-spin h-8 w-8 border-4 border-primary-500 border-t-transparent rounded-full" />
+                  <div className="animate-spin h-8 w-8 border-4 border-brand-500 border-t-transparent rounded-full" />
                 </div>
               }
             >

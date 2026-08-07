@@ -106,8 +106,8 @@
 .dark .rider-shell .bg-info-50 {
   background-color: rgba(56, 189, 248, 0.12) !important;
 }
-.dark .rider-shell .bg-primary-50 {
-  background-color: rgba(93, 135, 255, 0.12) !important;
+.dark .rider-shell .bg-brand-50 {
+  background-color: rgba(220, 31, 45, 0.12) !important;
 }
 
 /* Sombras: en dark quedan mas sutiles porque el fondo oscuro las mata */
