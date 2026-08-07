@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { AlertTriangle, Bot, Camera, Check, Loader2, Send, X } from 'lucide-react';
+import { AlertTriangle, Camera, Check, Loader2, Send, X } from 'lucide-react';
 
 import api from '../../lib/api.js';
 import { BRAND, STROKE, Z } from '../../lib/theme.js';
@@ -174,10 +174,10 @@ export default function AsistenteFlotante() {
           type="button"
           onClick={() => setAbierto(true)}
           aria-label="Abrir el asistente"
-          style={{ background: BRAND, zIndex: Z.modal }}
-          className="fixed bottom-5 right-5 flex h-14 w-14 items-center justify-center rounded-full text-white shadow-lg transition hover:brightness-110 active:scale-95"
+          style={{ zIndex: Z.modal }}
+          className="fixed bottom-5 right-5 flex h-14 w-14 items-center justify-center rounded-full border border-red-100 bg-white shadow-lg shadow-red-900/20 transition hover:-translate-y-0.5 hover:shadow-xl active:scale-95"
         >
-          <Bot size={24} strokeWidth={STROKE} />
+          <img src="/brand-flame.svg" alt="" className="h-8 w-8 object-contain" />
         </button>
       ) : null}
 
@@ -191,11 +191,8 @@ export default function AsistenteFlotante() {
             style={{ borderColor: STROKE }}
           >
             <div className="flex items-center gap-2.5">
-              <span
-                className="flex h-9 w-9 items-center justify-center rounded-xl text-white"
-                style={{ background: BRAND }}
-              >
-                <Bot size={18} strokeWidth={STROKE} />
+              <span className="flex h-9 w-9 items-center justify-center rounded-xl border border-red-100 bg-white">
+                <img src="/brand-flame.svg" alt="" className="h-6 w-6 object-contain" />
               </span>
               <div>
                 <p className="text-[14px] font-semibold text-gray-900">Asistente</p>

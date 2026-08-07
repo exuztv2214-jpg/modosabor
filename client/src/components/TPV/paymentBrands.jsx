@@ -10,9 +10,8 @@ import { Banknote, CreditCard, Landmark, Layers, QrCode, Smartphone } from 'luci
  *
  * Los colores son los de cada marca donde existe (Mercado Pago celeste,
  * MODO violeta, Ualá naranja) y semánticos donde no (efectivo verde
- * billete, transferencia azul banco). No usamos los logos oficiales
- * porque son marcas registradas y habría que licenciarlos y versionarlos;
- * el ícono con el color de marca da el mismo reconocimiento sin ese lío.
+ * billete, transferencia azul banco). Si hay un SVG en `client/public/pagos/`,
+ * se muestra la marca visual; si falta, queda el ícono como fallback.
  *
  * `short` es lo que entra en el botón; `label` es el nombre completo para
  * tooltips, listas y el resumen de pago mixto.
@@ -32,7 +31,7 @@ export const PAYMENT_BRANDS = {
     label: 'Efectivo',
     short: 'Efectivo',
     icon: Banknote,
-    logo: null,
+    logo: '/pagos/efectivo.png',
     color: '#16A34A',
     soft: '#DCFCE7',
   },
@@ -40,15 +39,15 @@ export const PAYMENT_BRANDS = {
     label: 'Mercado Pago',
     short: 'Mercado Pago',
     icon: QrCode,
-    logo: null,
-    color: '#00A9E0',
-    soft: '#E0F5FD',
+    logo: '/pagos/mercadopago.webp',
+    color: '#009EE3',
+    soft: '#FFF7C2',
   },
   transferencia: {
     label: 'Transferencia',
     short: 'Transfer.',
     icon: Landmark,
-    logo: null,
+    logo: '/pagos/transferencia.png',
     color: '#2563EB',
     soft: '#DBEAFE',
   },
@@ -56,23 +55,23 @@ export const PAYMENT_BRANDS = {
     label: 'MODO',
     short: 'MODO',
     icon: Smartphone,
-    logo: null,
-    color: '#6D28D9',
-    soft: '#EDE9FE',
+    logo: '/pagos/modo.png',
+    color: '#00A859',
+    soft: '#E3F8EC',
   },
   uala: {
     label: 'Ualá',
     short: 'Ualá',
     icon: CreditCard,
-    logo: null,
-    color: '#F97316',
-    soft: '#FFEDD5',
+    logo: '/pagos/uala.png',
+    color: '#192A8D',
+    soft: '#E9ECFF',
   },
   mixto: {
     label: 'Pago mixto',
     short: 'Mixto',
     icon: Layers,
-    logo: null,
+    logo: '/pagos/mixto.svg',
     color: '#D97706',
     soft: '#FEF3C7',
   },
@@ -103,12 +102,10 @@ export function paymentBrand(method) {
 
 /**
  * Marca visual de un método: el logo si está cargado, el ícono si no.
- *
- * Cuando el botón está activo el fondo es de color pleno, así que el logo
- * se pinta de blanco con un filtro para que no se pierda sobre el. Las
- * marcas que no soporten inversion pueden marcar logoInvertible: false.
+ * Se mantiene siempre el color original de la marca: la selección se indica
+ * con el fondo del contenedor, nunca alterando el logo.
  */
-export function PaymentMark({ method, size = 34, active = false }) {
+export function PaymentMark({ method, size = 34 }) {
   const brand = paymentBrand(method);
 
   if (brand.logo) {
@@ -118,10 +115,8 @@ export function PaymentMark({ method, size = 34, active = false }) {
         alt={brand.label}
         style={{
           height: size,
-          width: 'auto',
-          maxWidth: '100%',
+          width: size,
           objectFit: 'contain',
-          filter: active && brand.logoInvertible !== false ? 'brightness(0) invert(1)' : 'none',
         }}
       />
     );
@@ -134,9 +129,9 @@ export function PaymentMark({ method, size = 34, active = false }) {
 /**
  * Botón de método de pago: sólo la marca, sin texto.
  *
- * Inactivo, el ícono va en color de marca sobre fondo suave — eso es lo
- * que permite encontrar "el celeste" sin leer. Activo, se invierte a
- * fondo pleno para que no quede ninguna duda de con qué se está cobrando.
+ * La marca se mantiene dentro de un cuadrado amplio, sin borde de tarjeta.
+ * La opción activa se identifica por su fondo suave, conservando el logo
+ * original legible.
  *
  * Al no haber etiqueta, el nombre vive en `title` y en `aria-label`: el
  * mouse lo muestra al pasar por encima y el lector de pantalla lo anuncia.
@@ -153,17 +148,16 @@ export function PaymentButton({ method, active, onClick, className = '' }) {
       title={brand.label}
       aria-label={brand.label}
       aria-pressed={active}
-      className={`flex items-center justify-center rounded-2xl border-2 transition-all active:scale-95 ${className}`}
+      className={`flex items-center justify-center rounded-2xl transition-all active:scale-95 ${className}`}
       style={{
         height: PAYMENT_BUTTON_H,
         ...(active
           ? {
-              background: brand.color,
-              borderColor: brand.color,
-              color: '#FFFFFF',
-              boxShadow: `0 8px 22px ${brand.color}40`,
+              background: brand.soft,
+              color: brand.color,
+              boxShadow: `0 8px 20px ${brand.color}1F`,
             }
-          : { background: brand.soft, borderColor: 'transparent', color: brand.color }),
+          : { background: 'transparent', color: brand.color }),
       }}
     >
       <PaymentMark method={method} active={active} size={34} />

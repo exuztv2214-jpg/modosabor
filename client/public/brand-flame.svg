@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Modo Sabor">
+  <defs>
+    <linearGradient id="flame" x1="135" x2="390" y1="88" y2="440" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ff2738"/>
+      <stop offset="1" stop-color="#c81420"/>
+    </linearGradient>
+  </defs>
+  <path fill="url(#flame)" d="M221 461c-78-26-122-80-122-157 0-67 38-114 78-159 39-43 78-87 72-148 95 49 140 119 132 205 26-19 41-48 43-86 58 56 89 116 89 179 0 78-45 137-122 166 12-47 0-92-38-135-24 43-57 72-98 87 5-42-6-78-34-109-34 45-44 96 0 157Z"/>
+</svg>

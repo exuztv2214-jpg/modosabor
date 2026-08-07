@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Pago mixto">
+  <rect x="9" y="12" width="46" height="16" rx="6" fill="#D97706"/>
+  <rect x="9" y="24" width="46" height="16" rx="6" fill="#F59E0B"/>
+  <rect x="9" y="36" width="46" height="16" rx="6" fill="#FBBF24"/>
+  <path d="M21 20h22M21 32h22M21 44h22" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round"/>
+</svg>

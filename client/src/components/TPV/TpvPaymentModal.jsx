@@ -222,7 +222,7 @@ export default function TpvPaymentModal({
 
           <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
             {/* Métodos */}
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-3 gap-2.5">
               {pagos.map((pago) => {
                 const brand = paymentBrand(pago);
                 const activo = metodoPago === pago;
@@ -232,22 +232,27 @@ export default function TpvPaymentModal({
                     type="button"
                     onClick={() => onMetodoPagoChange(pago)}
                     aria-pressed={activo}
-                    className="flex h-[68px] flex-col items-center justify-center gap-1.5 rounded-2xl border transition-all active:scale-[0.97]"
+                    title={brand.label}
+                    className="flex h-[88px] flex-col items-center justify-center gap-1.5 rounded-2xl transition-all active:scale-[0.97]"
                     style={
                       activo
                         ? {
-                            background: brand.color,
-                            borderColor: brand.color,
-                            color: '#FFFFFF',
+                            background: brand.soft,
+                            color: brand.color,
+                            boxShadow: `0 8px 20px ${brand.color}1C`,
                           }
                         : {
-                            background: '#FFFFFF',
-                            borderColor: '#E9EBEF',
+                            background: 'transparent',
                             color: brand.color,
                           }
                     }
                   >
-                    <PaymentMark method={pago} active={activo} size={24} />
+                    <span
+                      className="flex h-14 w-14 items-center justify-center rounded-2xl"
+                      style={{ background: activo ? '#FFFFFF' : brand.soft }}
+                    >
+                      <PaymentMark method={pago} active={activo} size={42} />
+                    </span>
                     <span
                       className={`max-w-full truncate px-1 text-[11px] leading-none ${activo ? 'font-semibold' : 'font-medium text-gray-600'}`}
                     >
