@@ -42,3 +42,18 @@ agente-whatsapp/puente-web/data/history.json
 DProyectos*/
 # Archivos de configuración local de Claude Code (contienen credenciales y comandos sensibles)
 .claude/settings.local.json
+
+# Temporales de trabajo. Se juntaban en la raiz —previews de tickets, un logo
+# descargado, logs de arranque— y ensuciaban git status hasta tapar lo que uno
+# estaba tocando de verdad.
+.tmp-*/
+logs-arranque.txt
+*.log
+
+# La base local. `server/*.db` no alcanzaba: el archivo vive un nivel mas
+# adentro, en server/db/, y los -journal/-wal/-shm ni figuraban.
+server/db/*.db
+server/db/*.db-journal
+server/db/*.db-shm
+server/db/*.db-wal
+server/uploads/logo-prueba.*

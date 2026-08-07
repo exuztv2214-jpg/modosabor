@@ -1,0 +1,42 @@
+# Fin de línea.
+#
+# Veinticinco archivos aparecían como "modificados" en `git status` sin tener
+# un solo cambio real: alguna herramienta de Windows los reescribió con CRLF y
+# git veía el archivo entero distinto. El ruido tapaba los cambios de verdad —
+# `git status` listaba .gitignore, ci.yml, render.yaml y el schema al lado de
+# lo que uno estaba tocando, y ahí es donde se cuelan los commits accidentales.
+#
+# Con esto el repositorio guarda todo en LF y no vuelve a pasar.
+
+* text=auto eol=lf
+
+# Estos tres sí necesitan CRLF: los ejecuta Windows directamente y con LF el
+# intérprete de comandos parte mal las líneas.
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+*.ps1   text eol=crlf
+
+# El wrapper de Gradle es un script de shell: LF siempre, aunque viva en una
+# carpeta de Windows.
+gradlew text eol=lf
+
+# Binarios: que git ni intente tocarlos.
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.webp  binary
+*.pdf   binary
+*.zip   binary
+*.gz    binary
+*.tar   binary
+*.db    binary
+*.sqlite binary
+*.keystore binary
+*.jar   binary
+*.apk   binary
+*.aab   binary
+*.ttf   binary
+*.woff  binary
+*.woff2 binary
