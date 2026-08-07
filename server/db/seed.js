@@ -11,10 +11,18 @@ function runSeed(db) {
     `
     INSERT OR IGNORE INTO fidelizacion_niveles (id, nombre, orden, gasto_minimo_anual, color, icono, multiplicador_puntos, envio_gratis, envio_gratis_minimo, beneficio_cumpleanos, atencion_prioritaria)
     VALUES 
+      -- Ojo con las unidades: gasto_minimo_anual y envio_gratis_minimo van en
+      -- CENTAVOS, igual que el resto de la plata del sistema. La consulta que
+      -- asigna el nivel los compara contra SUM(pedidos.total), que también está
+      -- en centavos.
+      --
+      -- Antes decían 50000 / 150000 / 300000, que se leen como pesos pero el
+      -- sistema entendía $500 / $1.500 / $3.000. Un cliente con tres pedidos
+      -- llegaba a Platino y se llevaba el multiplicador x3 y el envío gratis.
       (1, 'Bronce', 1, 0, '#CD7F32', '🥉', 1.0, 0, 0, '', 0),
-      (2, 'Plata', 2, 50000, '#C0C0C0', '🥈', 1.5, 1, 8000, '15% OFF', 0),
-      (3, 'Oro', 3, 150000, '#FFD700', '🥇', 2.0, 1, 0, 'Pizza gratis', 1),
-      (4, 'Platino', 4, 300000, '#E5E4E2', '💎', 3.0, 1, 0, 'Combo gratis + delivery gratis', 1)
+      (2, 'Plata', 2, 5000000, '#C0C0C0', '🥈', 1.5, 1, 800000, '15% OFF', 0),
+      (3, 'Oro', 3, 15000000, '#FFD700', '🥇', 2.0, 1, 0, 'Pizza gratis', 1),
+      (4, 'Platino', 4, 30000000, '#E5E4E2', '💎', 3.0, 1, 0, 'Combo gratis + delivery gratis', 1)
   `
   ).run();
 

@@ -493,6 +493,39 @@ router.get('/puntos/historial/:clienteId', auth, (req, res) => {
   }
 });
 
+/**
+ * Lo que el TPV necesita saber para ofrecer el canje de un cliente.
+ *
+ * Va todo junto en una llamada —saldo, mínimo y cuánto vale cada punto— para
+ * que la pantalla de cobro no tenga que hacer tres pedidos ni repetir las
+ * reglas del programa. Quien cobra no puede quedarse esperando.
+ *
+ * El valor sale del servidor a propósito: el navegador dice cuántos puntos
+ * usar, nunca cuánta plata son.
+ */
+router.get('/canje/:clienteId', auth, requirePermission('pedidos.edit'), (req, res) => {
+  try {
+    const config = getConfig();
+    if (!Number(config.activo || 0)) {
+      return res.json({ disponible: false, motivo: 'El programa de puntos está desactivado.' });
+    }
+
+    const saldo = getSaldoPuntos(req.params.clienteId);
+    const minimo = Number(config.minimo_canje || 0);
+
+    res.json({
+      disponible: saldo >= minimo && saldo > 0,
+      saldo,
+      minimo_canje: minimo,
+      // En centavos, como toda la plata que sale del servidor.
+      valor_punto: calcularValorPuntos(1),
+      valor_saldo: calcularValorPuntos(saldo),
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // POST /api/fidelizacion/puntos/canjear
 router.post('/puntos/canjear', auth, requirePermission('pedidos.edit'), (req, res) => {
   try {

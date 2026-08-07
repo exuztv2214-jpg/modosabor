@@ -46,7 +46,13 @@ const {
   replacePedidoItems,
 } = require('../utils/pedidoItems');
 const { geocodeClienteDireccion } = require('../utils/geocode');
-const { asegurarCodigoTarjeta } = require('./fidelizacionService');
+const {
+  asegurarCodigoTarjeta,
+  getConfig: getFidelizacionConfig,
+  getSaldoPuntos,
+  calcularValorPuntos,
+  canjearPuntos,
+} = require('./fidelizacionService');
 const { resolverDireccionEstructurada } = require('./direccionesEstructuradas');
 
 const { recalcularPreciosPublicos } = require('./preciosServidor');
@@ -564,6 +570,25 @@ function createPedidoWithInventory(payload) {
     const safePayload = sanitizePedidoReferences(payload);
     let pedido = createPedidoRecord(safePayload);
 
+    /*
+      El canje de puntos va acá, después de crear el pedido y dentro de la
+      misma transacción.
+
+      Si se hiciera antes y el pedido fallara —sin stock, sin caja abierta— el
+      cliente se quedaría sin puntos y sin comida. Y si se hiciera después de
+      confirmar la transacción, un error al descontar dejaría el pedido con el
+      descuento aplicado y los puntos intactos: comida regalada.
+
+      Yendo adentro, o pasan las dos cosas o no pasa ninguna.
+    */
+    if (safePayload.cliente_id && Number(safePayload.puntos_a_canjear || 0) > 0) {
+      canjearPuntos(
+        safePayload.cliente_id,
+        Number(safePayload.puntos_a_canjear),
+        `Canje en el pedido #${pedido.numero}`
+      );
+    }
+
     // Aplicar descuento de stock (basado en recetas o stock directo)
     applyInventoryToPedido(db, pedido);
 
@@ -675,6 +700,51 @@ function validateAndApplyCupon(codigo, subtotal, clienteId, clienteTelefono) {
   };
 }
 
+/**
+ * Valida un canje de puntos y devuelve cuánto descuento representa.
+ *
+ * @returns {{puntos: number, descuento: number}} Todo en centavos y puntos
+ *          enteros. Si no hay canje, ceros.
+ * @throws  Si los puntos no alcanzan o no llegan al mínimo. Ese error lo ve
+ *          quien está cobrando, así que el mensaje tiene que ser claro.
+ */
+function validarCanjeDePuntos({ clienteId, puntos, subtotal }) {
+  const pedidos = Math.trunc(Number(puntos || 0));
+  if (!clienteId || pedidos <= 0) return { puntos: 0, descuento: 0 };
+
+  const config = getFidelizacionConfig();
+  if (!config.activo) throw new Error('El programa de puntos está desactivado.');
+
+  if (pedidos < Number(config.minimo_canje || 0)) {
+    throw new Error(`Hacen falta al menos ${config.minimo_canje} puntos para canjear.`);
+  }
+
+  const saldo = getSaldoPuntos(clienteId);
+  if (saldo < pedidos) {
+    throw new Error(`El cliente tiene ${saldo} puntos y se quieren usar ${pedidos}.`);
+  }
+
+  /*
+    El descuento no puede pasar el subtotal. Sin este tope, un cliente con
+    muchos puntos dejaría el total en negativo y el pedido quedaría con una
+    cifra imposible que después rompe la caja.
+
+    Se cobra sólo lo que se usa: si los puntos valen más que el pedido, se
+    descuentan únicamente los que hacían falta.
+  */
+  const valorTotal = calcularValorPuntos(pedidos);
+  if (valorTotal <= subtotal) {
+    return { puntos: pedidos, descuento: valorTotal };
+  }
+
+  const valorPorPunto = calcularValorPuntos(1);
+  const puntosNecesarios = valorPorPunto > 0 ? Math.ceil(subtotal / valorPorPunto) : pedidos;
+  return {
+    puntos: puntosNecesarios,
+    descuento: Math.min(subtotal, calcularValorPuntos(puntosNecesarios)),
+  };
+}
+
 async function buildPedidoPayload(body, options = {}) {
   const config = options.config || getConfigMap(db);
   const tipoEntrega = body.tipo_entrega || 'delivery';
@@ -703,9 +773,28 @@ async function buildPedidoPayload(body, options = {}) {
     ? validateAndApplyCupon(body.cupon_codigo, subtotal, body.cliente_id, body.cliente_telefono)
     : { valido: false, descuento: 0, cupon: null };
 
+  /*
+    ── Puntos de fidelidad como descuento ─────────────────────────────────
+
+    El navegador manda cuántos puntos quiere usar el cliente, nunca cuánta
+    plata valen. La conversión la hace el servidor con el `valor_punto_real`
+    configurado, igual que con los precios de los productos: si el importe
+    viniera del navegador, alcanzaría con editarlo para llevarse el pedido
+    gratis.
+
+    Acá sólo se valida y se calcula. El descuento de los puntos del saldo del
+    cliente se hace al crear el pedido, dentro de la misma transacción: si el
+    pedido falla, los puntos no se pierden.
+  */
+  const canjePuntos = validarCanjeDePuntos({
+    clienteId: body.cliente_id,
+    puntos: body.puntos_a_canjear,
+    subtotal,
+  });
+
   const descuentoSolicitado = cuponData.valido
     ? cuponData.descuento
-    : roundAmount(body.descuento || 0);
+    : roundAmount(body.descuento || 0) + canjePuntos.descuento;
 
   let costoEnvio = 0;
   let deliveryZona = '';
@@ -849,6 +938,9 @@ async function buildPedidoPayload(body, options = {}) {
     cupon_id: cuponData.cupon?.id || null,
     cupon_codigo: cuponData.cupon?.codigo || null,
     cupon_validacion: cuponData,
+    // Viaja hasta la creación del pedido: el descuento de los puntos del saldo
+    // del cliente se hace ahí, en la misma transacción que el pedido.
+    puntos_a_canjear: canjePuntos.puntos,
     repartidor_id: optionalNumber(body.repartidor_id),
     marketing_campana_id: marketingCampanaId,
     marketing_promo_id: marketingPromoId,

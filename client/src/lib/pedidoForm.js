@@ -189,6 +189,7 @@ export function calculatePedidoSummary({
   descuento = 0,
   descuentoTipo = 'monto',
   descuentoFijo = null,
+  descuentoPuntos = 0,
   metodoPago = 'efectivo',
   efectivoRecibido = '',
   cashTarget = null,
@@ -208,7 +209,23 @@ export function calculatePedidoSummary({
         ? Math.min(subtotal + envio, ((subtotal + envio) * Math.min(descuentoNumero, 100)) / 100)
         : Math.min(descuentoNumero, subtotal + envio);
 
-  const total = Math.max(0, subtotal + envio - descuentoAplicado);
+  /*
+    Los puntos van aparte del descuento manual.
+
+    Si se sumaran antes, con un descuento por porcentaje la cuenta saldría mal:
+    el 10% se aplicaría también sobre el valor de los puntos, que ya es plata
+    descontada.
+
+    El tope es lo que queda por pagar: aunque el cliente tenga puntos de sobra,
+    el total nunca baja de cero. El servidor hace el mismo tope y sólo descuenta
+    los puntos que hicieron falta.
+  */
+  const descuentoDePuntos = Math.min(
+    Math.max(0, Number(descuentoPuntos || 0)),
+    Math.max(0, subtotal + envio - descuentoAplicado)
+  );
+
+  const total = Math.max(0, subtotal + envio - descuentoAplicado - descuentoDePuntos);
   const efectivoRecibidoNumero = Number(efectivoRecibido || 0);
   const vueltoTarget =
     cashTarget !== null && cashTarget !== undefined
@@ -222,6 +239,7 @@ export function calculatePedidoSummary({
     subtotal,
     envio,
     totalItems,
+    descuentoDePuntos,
     descuentoNumero,
     descuentoAplicado,
     total,

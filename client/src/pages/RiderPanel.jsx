@@ -9,6 +9,8 @@ import {
   enqueueRiderAction,
   processRiderQueue,
   readQueue as readRiderQueue,
+  readFailedActions,
+  clearFailedActions,
   clearRiderQueue,
 } from '../lib/riderOfflineQueue.js';
 import {
@@ -1555,6 +1557,29 @@ export default function RiderPanel() {
       if (processed > 0) {
         toast.success(`Recuperada la conexión — sincronizamos ${processed} acción(es).`);
       }
+
+      /*
+        Acciones que se dieron por perdidas.
+
+        Antes se borraban en silencio: el rider marcaba una entrega, nunca
+        llegaba al servidor, y nadie se enteraba hasta que faltaba plata en la
+        caja. Ahora se avisa acá mismo para que pueda decirlo en el local.
+
+        El aviso no se cierra solo. Es lo único de la app que interrumpe: una
+        entrega perdida es plata.
+      */
+      const perdidas = await readFailedActions();
+      if (perdidas.length) {
+        const entregas = perdidas.filter((accion) => accion.kind === 'mark_delivered');
+        toast.error(
+          entregas.length
+            ? `No se pudo registrar ${entregas.length === 1 ? 'una entrega' : `${entregas.length} entregas`}. Avisá en el local antes de cerrar el turno.`
+            : `Quedaron ${perdidas.length} acciones sin enviar. Avisá en el local.`,
+          { duration: Infinity, id: 'acciones-perdidas' }
+        );
+        await clearFailedActions();
+      }
+
       await bumpBadge();
     };
     bumpBadge();

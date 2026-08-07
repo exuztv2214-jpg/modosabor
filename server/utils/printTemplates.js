@@ -291,10 +291,69 @@ function baseStyles(data) {
       }
 
       /* ── Cabecera de marca ── */
-      .brand { display: flex; align-items: center; gap: ${(geo.chico ? 2.5 : 4) * gap}mm; padding-bottom: ${(geo.chico ? 2 : 3) * gap}mm; border-bottom: 1px solid #e5e7eb; }
-      .brand-logo { max-height: ${geo.chico ? '12mm' : '18mm'}; max-width: ${geo.chico ? '30mm' : '45mm'}; object-fit: contain; }
-      .brand-name { font-size: ${base * 1.5}px; font-weight: 700; letter-spacing: -0.01em; }
-      .brand-meta { font-size: ${base * 0.85}px; color: #6b7280; margin-top: 1mm; }
+      /*
+        El encabezado va centrado y con el logo grande.
+
+        Antes era una fila: logo chico a la izquierda y el nombre al lado. En una
+        hoja A6 de 105 mm eso dejaba el logo del tamaño de una estampilla y el
+        papel se veía como un remito de imprenta, no como algo del local.
+
+        Centrado y a 26 mm de alto, el logo es lo primero que se ve al levantar
+        el papel. Es la única parte del documento que existe para que se
+        reconozca la marca; el resto es información.
+      */
+      .brand {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        gap: ${(geo.chico ? 1.5 : 2) * gap}mm;
+        padding-bottom: ${(geo.chico ? 2.5 : 3) * gap}mm;
+        border-bottom: 1px solid #e5e7eb;
+      }
+      .brand-logo {
+        max-height: ${geo.chico ? '26mm' : '34mm'};
+        max-width: ${geo.chico ? '70mm' : '90mm'};
+        object-fit: contain;
+      }
+      .brand-name { font-size: ${base * 1.6}px; font-weight: 700; letter-spacing: -0.01em; }
+
+      /*
+        Línea de datos secundarios. Tipografía chica y color apagado: está para
+        consultarse, no para leerse de corrido.
+      */
+      .meta-line {
+        font-size: ${base * 0.82}px;
+        color: #6b7280;
+        padding: ${1.5 * gap}mm 0;
+        border-bottom: 1px solid #e5e7eb;
+        line-height: 1.5;
+      }
+
+      /*
+        El destinatario va en un bloque propio con fondo, para que se separe
+        del resto de un vistazo. El nombre manda; la dirección y el teléfono
+        acompañan.
+      */
+      .destinatario {
+        margin-top: ${(geo.chico ? 2.5 : 3) * gap}mm;
+        padding: ${(geo.chico ? 2 : 3) * gap}mm ${(geo.chico ? 2.5 : 3.5) * gap}mm;
+        background: #f9fafb;
+        border-radius: 2mm;
+        border-left: ${geo.chico ? 2 : 3}mm solid #111827;
+      }
+      .destinatario-nombre {
+        font-size: ${base * 1.15}px;
+        font-weight: 700;
+        margin-top: 0.5mm;
+      }
+      .destinatario-linea {
+        font-size: ${base * 0.9}px;
+        color: #4b5563;
+        margin-top: 0.8mm;
+        line-height: 1.4;
+      }
+      .brand-meta { font-size: ${base * 0.85}px; color: #6b7280; margin-top: 0.5mm; }
       .brand-right { margin-left: auto; text-align: right; }
 
       /* ── Banda de identificación del documento ── */
@@ -439,6 +498,45 @@ function renderFacts(entries) {
   `;
 }
 
+/**
+ * Datos operativos en una sola línea, separados por puntos.
+ *
+ * ── Por qué no todo va en tarjetas ─────────────────────────────────────────
+ *
+ * `renderFacts` pinta cada dato en su propio bloque con etiqueta arriba. Está
+ * bien para tres o cuatro cosas importantes; con ocho, en una hoja de 105 mm,
+ * se arma una grilla apretada donde todo pesa igual y no se distingue el
+ * número de pedido del teléfono.
+ *
+ * Esto es para lo que hay que tener pero se consulta poco: fecha, turno, hora
+ * de carga. Ocupa un renglón en vez de ocho bloques, y deja el espacio para lo
+ * que sí importa.
+ */
+function renderMetaLine(partes) {
+  const visibles = partes.filter(Boolean);
+  if (!visibles.length) return '';
+  return `<div class="meta-line">${visibles.map((t) => escapeHtml(t)).join(' · ')}</div>`;
+}
+
+/**
+ * Bloque del destinatario: a quién va y a dónde.
+ *
+ * Va separado del resto porque responde una pregunta distinta. En el ticket es
+ * lo que el cliente mira para confirmar que su dirección está bien; en la hoja
+ * de reparto es lo primero que necesita el rider.
+ */
+function renderDestinatario({ nombre, telefono, direccion, titulo = 'Para' }) {
+  if (!nombre && !telefono && !direccion) return '';
+  return `
+    <div class="destinatario">
+      <div class="fact-label">${escapeHtml(titulo)}</div>
+      ${nombre ? `<div class="destinatario-nombre">${escapeHtml(nombre)}</div>` : ''}
+      ${direccion ? `<div class="destinatario-linea">${escapeHtml(direccion)}</div>` : ''}
+      ${telefono ? `<div class="destinatario-linea">Tel. ${escapeHtml(telefono)}</div>` : ''}
+    </div>
+  `;
+}
+
 function renderItemsTable(items, { symbol = '$', withPrice = false, showDetails = true } = {}) {
   const filas = items
     .map((item) => {
@@ -551,6 +649,7 @@ function renderKitchenBody(data) {
 
   return `
     <div class="sheet kitchen">
+      ${renderBrand(data, { compacto: true })}
       ${renderBand({
         kind: 'Comanda de cocina',
         numero: pedido.numero,
@@ -562,17 +661,24 @@ function renderKitchenBody(data) {
             : '',
       })}
 
+      <!--
+        La mesa sí va en tarjeta grande: el mozo la busca de lejos y equivocarse
+        de mesa es un plato que vuelve.
+
+        Cliente, turno y hora de carga van en una línea. Son datos que el
+        cocinero mira una vez, y cada bloque que ocupan arriba es un producto
+        menos que entra abajo antes de que se corte la hoja.
+      -->
       ${renderFacts([
         pedido.tipo_entrega === 'mesa' && pedido.mesa
           ? { label: 'Mesa', value: String(pedido.mesa), big: true }
           : null,
-        showClient && pedido.cliente_nombre
-          ? { label: 'Cliente', value: pedido.cliente_nombre }
-          : null,
-        pedido.turno_operativo ? { label: 'Turno', value: pedido.turno_operativo } : null,
-        showDate
-          ? { label: 'Tomado', value: formatBusinessDateTime(pedido.creado_en, 'time') }
-          : null,
+      ])}
+
+      ${renderMetaLine([
+        showClient && pedido.cliente_nombre ? pedido.cliente_nombre : '',
+        pedido.turno_operativo ? `Turno ${pedido.turno_operativo}` : '',
+        showDate ? `Tomado ${formatBusinessDateTime(pedido.creado_en, 'time')}` : '',
       ])}
 
       ${renderItemsTable(items, { withPrice: false, showDetails })}
@@ -599,18 +705,34 @@ function renderTicketBody(data) {
     <div class="sheet">
       ${renderBrand(data)}
 
-      ${renderFacts([
-        { label: 'Pedido', value: `#${pedido.numero}`, big: true },
-        showDate ? { label: 'Fecha', value: formatBusinessDateTime(pedido.creado_en) } : null,
-        { label: 'Entrega', value: entrega },
-        pedido.hora_entrega ? { label: 'Horario', value: pedido.hora_entrega } : null,
-        { label: 'Pago', value: paymentLabel },
-        pedido.cliente_nombre ? { label: 'Cliente', value: pedido.cliente_nombre } : null,
-        pedido.cliente_telefono ? { label: 'Teléfono', value: pedido.cliente_telefono } : null,
-        pedido.tipo_entrega === 'delivery' && pedido.cliente_direccion
-          ? { label: 'Dirección', value: pedido.cliente_direccion }
-          : null,
+      <!--
+        Tres niveles en vez de ocho datos iguales:
+
+          1. La banda con el número de pedido, que es lo que se busca primero.
+          2. Una línea con lo operativo: fecha, entrega, horario, pago.
+          3. El bloque del destinatario, separado, porque responde otra pregunta.
+
+        No se sacó ningún dato. Sólo dejaron de pesar todos lo mismo, que era
+        lo que hacía que el ticket se leyera como una lista apretada.
+      -->
+      ${renderBand({
+        kind: 'Pedido',
+        numero: pedido.numero,
+        rightLabel: pedido.hora_entrega ? 'Entregar' : '',
+        right: pedido.hora_entrega || '',
+      })}
+
+      ${renderMetaLine([
+        showDate ? formatBusinessDateTime(pedido.creado_en) : '',
+        entrega,
+        `Pago: ${paymentLabel}`,
       ])}
+
+      ${renderDestinatario({
+        nombre: pedido.cliente_nombre,
+        telefono: pedido.cliente_telefono,
+        direccion: pedido.tipo_entrega === 'delivery' ? pedido.cliente_direccion : '',
+      })}
 
       ${renderItemsTable(items, { symbol: moneda, withPrice: showPrices, showDetails })}
 
@@ -648,6 +770,17 @@ function renderDeliveryTicketBody(data) {
 
   return `
     <div class="sheet">
+      <!--
+        Esta hoja también lleva el encabezado con el logo. Era la única sin él,
+        y es justamente la que el cliente tiene en la mano cuando firma que
+        recibió el pedido.
+
+        Va compacto —sin dirección ni teléfono del local— porque acá abajo la
+        dirección que importa es la del cliente, y dos direcciones seguidas en
+        el mismo papel se confunden.
+      -->
+      ${renderBrand(data, { compacto: true })}
+
       ${renderBand({
         kind: 'Hoja de reparto',
         numero: pedido.numero,
@@ -660,16 +793,24 @@ function renderDeliveryTicketBody(data) {
         <div class="address-value">${escapeHtml(pedido.cliente_direccion || 'Sin dirección cargada')}</div>
       </div>
 
+      <!--
+        En tarjeta grande sólo lo que el rider necesita leer de golpe en la
+        calle: a quién llama y qué PIN pedir. Zona y rider van en la línea de
+        abajo: son para el control posterior, no para el momento de la entrega.
+      -->
       ${renderFacts([
         pedido.cliente_nombre ? { label: 'Cliente', value: pedido.cliente_nombre } : null,
         pedido.cliente_telefono
           ? { label: 'Teléfono', value: pedido.cliente_telefono, big: true }
           : null,
-        pedido.delivery_zona ? { label: 'Zona', value: pedido.delivery_zona } : null,
         pedido.entrega_pin
           ? { label: 'PIN de entrega', value: pedido.entrega_pin, big: true }
           : null,
-        pedido.repartidor_nombre ? { label: 'Rider', value: pedido.repartidor_nombre } : null,
+      ])}
+
+      ${renderMetaLine([
+        pedido.delivery_zona ? `Zona ${pedido.delivery_zona}` : '',
+        pedido.repartidor_nombre ? `Reparte ${pedido.repartidor_nombre}` : '',
       ])}
 
       <!-- Lo que el rider cobra va en grande y con el estado bien claro. -->

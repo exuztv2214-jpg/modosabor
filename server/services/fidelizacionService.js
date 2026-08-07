@@ -1,4 +1,5 @@
 const db = require('../db');
+const logger = require('../utils/logger');
 
 // ============================================
 // CONFIGURACIÓN
@@ -7,8 +8,10 @@ const db = require('../db');
 function getConfig() {
   return (
     db.prepare('SELECT * FROM fidelizacion_config WHERE id = 1').get() || {
+      // 1 punto cada $100 y cada punto vale $5 → el cliente recupera el 5% de
+      // lo que gasta. `valor_punto_real` va en centavos, como toda la plata.
       pesos_por_punto: 100,
-      valor_punto_real: 10,
+      valor_punto_real: 500,
       dias_expiracion: 180,
       minimo_canje: 50,
       monto_minimo_sello: 10000,
@@ -37,7 +40,7 @@ function updateConfig(config) {
   `);
   stmt.run(
     config.pesos_por_punto || 100,
-    config.valor_punto_real || 10,
+    config.valor_punto_real || 500,
     config.dias_expiracion || 180,
     config.minimo_canje || 50,
     config.monto_minimo_sello || 10000,
@@ -53,17 +56,46 @@ function updateConfig(config) {
 // CÁLCULO DE PUNTOS Y SELLOS
 // ============================================
 
+const CENTAVOS_POR_PESO = 100;
+
+/**
+ * Cuántos puntos genera una compra.
+ *
+ * ── La unidad, que estaba mal ──────────────────────────────────────────────
+ *
+ * `total` viene en centavos, como toda la plata del sistema. `pesos_por_punto`
+ * se configura en pesos: "hace falta gastar $100 para ganar un punto".
+ *
+ * La cuenta anterior era `total / pesos_por_punto`, mezclando las dos unidades.
+ * Con los valores por defecto —$100 por punto— un pedido de $10.000 daba 10.000
+ * puntos en vez de 100: cien veces de más.
+ *
+ * Como cada punto vale plata al canjearlo, eso significaba que una compra de
+ * $10.000 generaba $100.000 en puntos. Nadie lo notó porque los puntos sólo se
+ * canjeaban a mano y casi nunca se hacía.
+ *
+ * @param {number} total  En centavos.
+ * @param {number} nivelMultiplicador  Bonus del nivel del cliente.
+ */
 function calcularPuntos(total, nivelMultiplicador = 1) {
   const config = getConfig();
   if (!config.activo) return 0;
 
-  const puntosBase = Math.floor(total / config.pesos_por_punto);
+  const pesosPorPunto = Number(config.pesos_por_punto) || 100;
+  // Sin este `* CENTAVOS_POR_PESO` se dividen centavos por pesos.
+  const puntosBase = Math.floor(Number(total || 0) / (pesosPorPunto * CENTAVOS_POR_PESO));
   return Math.floor(puntosBase * nivelMultiplicador);
 }
 
+/**
+ * Cuánta plata valen esos puntos, en centavos.
+ *
+ * `valor_punto_real` ya está en centavos: pasa por el conversor de plata del
+ * sistema, así que cuando en Configuración se escribe 5 se guarda 500.
+ */
 function calcularValorPuntos(puntos) {
   const config = getConfig();
-  return puntos * config.valor_punto_real;
+  return Math.floor(Number(puntos || 0) * Number(config.valor_punto_real || 0));
 }
 
 /**
@@ -83,9 +115,36 @@ function procesarFidelidadPedido(clienteId, pedidoId, total) {
   const resultPuntos = acumularPuntos(clienteId, pedidoId, total);
   const resultSellos = acumularSellos(clienteId, pedidoId, total, cliente);
 
+  /*
+    El nivel se recalcula acá, con el pedido ya entregado.
+
+    Antes sólo se recalculaba apretando un botón en el panel, así que en la
+    práctica nunca subía nadie: los clientes se quedaban en el nivel que les
+    hubiera asignado el sistema viejo. La tabla de niveles —con sus
+    multiplicadores, el envío gratis y el beneficio de cumpleaños— estaba
+    configurada pero no decidía nada.
+
+    Va después de acumular puntos y no antes: el multiplicador que se aplica es
+    el del nivel que el cliente tenía al momento de comprar, no el que gana con
+    esa misma compra.
+
+    Si falla, no se corta la entrega del pedido. El nivel se corrige en la
+    próxima compra o desde el panel.
+  */
+  let resultNivel = null;
+  try {
+    resultNivel = recalcularNivelCliente(clienteId);
+  } catch (error) {
+    logger.error('[Fidelizacion] No se pudo recalcular el nivel', {
+      clienteId,
+      mensaje: error?.message,
+    });
+  }
+
   return {
     puntos: resultPuntos,
     sellos: resultSellos,
+    nivel: resultNivel,
   };
 }
 

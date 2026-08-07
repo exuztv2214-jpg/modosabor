@@ -893,35 +893,51 @@ export default function Fidelizacion() {
                       <p className="text-[14px] font-semibold" style={{ color: colors.texto }}>
                         {nivel.nombre}
                       </p>
-                      {(nivel.puntos_minimos != null || nivel.puntos_maximos != null) && (
-                        <p
-                          className="mt-0.5 text-[12px] tabular-nums"
-                          style={{ color: colors.apagado }}
-                        >
-                          {nivel.puntos_minimos != null ? fmtNumber(nivel.puntos_minimos) : '0'}
-                          {nivel.puntos_maximos != null
-                            ? ` – ${fmtNumber(nivel.puntos_maximos)}`
-                            : '+'}{' '}
-                          pts
-                        </p>
-                      )}
-                      {nivel.descripcion && (
-                        <p
-                          className="mt-0.5 truncate text-[12px]"
-                          style={{ color: colors.apagado }}
-                        >
-                          {nivel.descripcion}
-                        </p>
-                      )}
-                    </div>
-                    {nivel.beneficio && (
-                      <span
-                        className="shrink-0 rounded-full bg-white/80 px-2.5 py-1 text-[12px] font-semibold"
-                        style={{ color: colors.fg }}
+                      {/*
+                        Estos campos antes eran `puntos_minimos`, `puntos_maximos`,
+                        `descripcion` y `beneficio`: ninguno existe en la tabla
+                        `fidelizacion_niveles`. La pantalla mostraba los nombres y
+                        los colores, y nada más, porque todo lo demás venía
+                        indefinido.
+
+                        Los nombres reales son los de abajo. El umbral es gasto
+                        anual en centavos, no puntos.
+                      */}
+                      <p
+                        className="mt-0.5 text-[12px] tabular-nums"
+                        style={{ color: colors.apagado }}
                       >
-                        {nivel.beneficio}
-                      </span>
-                    )}
+                        {Number(nivel.gasto_minimo_anual || 0) > 0
+                          ? `Desde ${fmtMoney(nivel.gasto_minimo_anual / 100)} al año`
+                          : 'Nivel de entrada'}
+                      </p>
+                      <div className="mt-1 flex flex-wrap gap-1.5">
+                        {Number(nivel.multiplicador_puntos || 1) !== 1 && (
+                          <span
+                            className="rounded-full bg-white/80 px-2 py-0.5 text-[11px] font-semibold"
+                            style={{ color: colors.fg }}
+                          >
+                            ×{nivel.multiplicador_puntos} puntos
+                          </span>
+                        )}
+                        {nivel.beneficio_cumpleanos && (
+                          <span
+                            className="rounded-full bg-white/80 px-2 py-0.5 text-[11px] font-semibold"
+                            style={{ color: colors.fg }}
+                          >
+                            🎂 {nivel.beneficio_cumpleanos}
+                          </span>
+                        )}
+                        {Number(nivel.atencion_prioritaria || 0) === 1 && (
+                          <span
+                            className="rounded-full bg-white/80 px-2 py-0.5 text-[11px] font-semibold"
+                            style={{ color: colors.fg }}
+                          >
+                            Atención prioritaria
+                          </span>
+                        )}
+                      </div>
+                    </div>
                     <ChevronRight size={14} strokeWidth={STROKE} style={{ color: colors.fuerte }} />
                   </div>
                 );
@@ -929,8 +945,24 @@ export default function Fidelizacion() {
             </div>
           )}
           <p className="mt-4 text-xs text-gray-400">
-            Recalcula para asignar el nivel correcto a todos los clientes según sus puntos
-            acumulados.
+            El nivel se recalcula solo cada vez que un cliente recibe un pedido. El botón sirve para
+            aplicar los cambios a todos de una, después de tocar los umbrales.
+          </p>
+          {/*
+            El único beneficio que el sistema aplica solo es el multiplicador de
+            puntos.
+
+            El envío gratis no se muestra a propósito: en Modo Sabor el delivery
+            ya es gratis para todos, así que como beneficio de nivel no
+            distingue a nadie. Ofrecerlo sería prometer algo que el cliente ya
+            tiene.
+
+            El cumpleaños y la atención prioritaria son texto libre: sirven de
+            recordatorio para quien atiende, no los aplica el sistema.
+          */}
+          <p className="mt-1 text-xs text-gray-400">
+            El multiplicador lo aplica el sistema. El cumpleaños y la atención prioritaria son
+            recordatorios para el mostrador.
           </p>
         </SectionCard>
       </div>

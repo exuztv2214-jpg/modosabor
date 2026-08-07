@@ -872,6 +872,116 @@ function runMigrations(db) {
   } catch {}
 
   migrateMoneyColumns(db);
+  migrarUmbralesDeNivel(db);
+  migrarPuntosInflados(db);
+}
+
+/**
+ * Divide por 100 los puntos acumulados con la regla vieja.
+ *
+ * ── Qué había pasado ───────────────────────────────────────────────────────
+ *
+ * `calcularPuntos` dividía el total del pedido —en centavos— por
+ * `pesos_por_punto`, que se configura en pesos. Con $100 por punto, una compra
+ * de $10.000 daba 10.000 puntos en vez de 100.
+ *
+ * Como cada punto vale plata al canjearlo, esos saldos representan cien veces
+ * lo que corresponde. Corregir la cuenta sin tocar los saldos dejaría a los
+ * clientes viejos con una fortuna en puntos.
+ *
+ * ── Por qué una marca en configuración y no una comprobación de los datos ──
+ *
+ * No hay forma de mirar un saldo y saber si se generó con la regla vieja o la
+ * nueva: 5.000 puntos puede ser un cliente viejo con $50 de compras o uno nuevo
+ * con $500.000. Por eso se deja una marca de que esto ya corrió. Sin ella, cada
+ * reinicio del servidor volvería a dividir y en una semana no quedarían puntos.
+ */
+function migrarPuntosInflados(db) {
+  const MARCA = 'migracion_puntos_100x';
+  try {
+    const yaCorrio = db.prepare('SELECT valor FROM configuracion WHERE clave = ?').get(MARCA);
+    if (yaCorrio) return;
+
+    const totales = db.prepare('SELECT COALESCE(SUM(puntos), 0) AS total FROM clientes').get();
+
+    db.prepare('UPDATE clientes SET puntos = CAST(puntos / 100 AS INTEGER) WHERE puntos > 0').run();
+
+    /*
+      El libro de transacciones también se reescala. Si sólo se ajustara el
+      saldo del cliente, la próxima vez que se recalcule desde el historial
+      volvería el número inflado.
+    */
+    try {
+      db.prepare(
+        'UPDATE puntos_transacciones SET puntos = CAST(puntos / 100 AS INTEGER) WHERE ABS(puntos) >= 100'
+      ).run();
+    } catch {
+      // La tabla puede no existir en instalaciones viejas.
+    }
+
+    db.prepare('INSERT OR REPLACE INTO configuracion (clave, valor) VALUES (?, ?)').run(
+      MARCA,
+      new Date().toISOString()
+    );
+    logger.info(
+      `Puntos de fidelidad reescalados: habia ${totales.total} puntos con la regla vieja`
+    );
+  } catch (error) {
+    logger.error('Error reescalando los puntos de fidelidad', { message: error.message });
+  }
+}
+
+/**
+ * Corrige los umbrales de los niveles de fidelidad, que estaban en pesos
+ * cuando el sistema los compara contra centavos.
+ *
+ * ── Qué pasaba ─────────────────────────────────────────────────────────────
+ *
+ * `recalcularNivelCliente` compara `gasto_minimo_anual` contra la suma de
+ * `pedidos.total`, que está en centavos. Los valores originales eran 50000,
+ * 150000 y 300000, escritos pensando en pesos. El sistema los leía como $500,
+ * $1.500 y $3.000 de gasto anual.
+ *
+ * Resultado: un cliente con tres pedidos llegaba a Platino y se llevaba el
+ * multiplicador x3 de puntos, envío gratis siempre y el beneficio de
+ * cumpleaños. Plata se alcanzaba con un solo pedido.
+ *
+ * ── Por qué así y no con un factor ─────────────────────────────────────────
+ *
+ * Se corrigen sólo los valores exactos que dejó el seed viejo. Multiplicar por
+ * 100 todo lo que haya sería peligroso: si alguien ya los corrigió a mano desde
+ * el panel, quedarían cien veces más altos y nadie alcanzaría ningún nivel.
+ *
+ * Al tocar los umbrales cambian los niveles de los clientes existentes. El
+ * recálculo no se hace acá: se dispara solo la próxima vez que cada cliente
+ * recibe un pedido, o desde el botón de recalcular en el panel.
+ */
+function migrarUmbralesDeNivel(db) {
+  const correcciones = [
+    { nombre: 'Plata', viejo: 50000, nuevo: 5000000, envioViejo: 8000, envioNuevo: 800000 },
+    { nombre: 'Oro', viejo: 150000, nuevo: 15000000 },
+    { nombre: 'Platino', viejo: 300000, nuevo: 30000000 },
+  ];
+
+  try {
+    correcciones.forEach(({ nombre, viejo, nuevo, envioViejo, envioNuevo }) => {
+      const cambio = db
+        .prepare(
+          'UPDATE fidelizacion_niveles SET gasto_minimo_anual = ? WHERE nombre = ? AND gasto_minimo_anual = ?'
+        )
+        .run(nuevo, nombre, viejo);
+      if (cambio.changes > 0) {
+        logger.info(`Umbral de ${nombre} corregido a centavos`);
+      }
+      if (envioViejo !== undefined) {
+        db.prepare(
+          'UPDATE fidelizacion_niveles SET envio_gratis_minimo = ? WHERE nombre = ? AND envio_gratis_minimo = ?'
+        ).run(envioNuevo, nombre, envioViejo);
+      }
+    });
+  } catch (error) {
+    logger.error('Error corrigiendo los umbrales de nivel', { message: error.message });
+  }
 }
 
 function migrateMoneyColumns(db) {

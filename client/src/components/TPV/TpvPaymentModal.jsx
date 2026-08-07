@@ -33,6 +33,10 @@ export default function TpvPaymentModal({
   subtotal,
   envio,
   descuentoAplicado,
+  descuentoDePuntos,
+  canje,
+  puntosACanjear,
+  onPuntosChange,
   deliveryQuote,
   pagos,
   metodoPago,
@@ -131,8 +135,62 @@ export default function TpvPaymentModal({
                   <span className="tabular-nums">-{fmt(descuentoAplicado)}</span>
                 </div>
               ) : null}
+              {descuentoDePuntos > 0 ? (
+                <div className="flex justify-between font-medium text-brand-600">
+                  <span>Puntos ({puntosACanjear})</span>
+                  <span className="tabular-nums">-{fmt(descuentoDePuntos)}</span>
+                </div>
+              ) : null}
             </div>
           </div>
+
+          {/*
+            ── Puntos del cliente ──────────────────────────────────────────
+
+            Sólo aparece si hay un cliente elegido y le alcanza para canjear.
+            Antes los puntos se acumulaban y nunca se usaban: había que entrar
+            a la ficha del cliente, en otra pantalla, mientras el cliente
+            esperaba en el mostrador. Nadie lo hacía.
+
+            El botón usa todos los puntos que se puedan, que es lo que la gente
+            pide el 95% de las veces. Para usar menos está el campo al lado.
+          */}
+          {canje ? (
+            <div className="rounded-2xl border border-brand-200 bg-brand-50/60 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-[13px] font-semibold text-gray-900">
+                    Tiene {canje.saldo} puntos
+                  </p>
+                  <p className="mt-0.5 text-[12px] text-gray-500">
+                    Valen {fmt(canje.valor_saldo)} en total
+                  </p>
+                </div>
+                {puntosACanjear > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => onPuntosChange(0)}
+                    className="shrink-0 rounded-xl border border-gray-200 bg-white px-3 py-2 text-[12px] font-medium text-gray-600 transition hover:bg-gray-50"
+                  >
+                    Quitar
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => onPuntosChange(canje.saldo)}
+                    className="shrink-0 rounded-xl bg-brand-600 px-3.5 py-2 text-[12px] font-semibold text-white transition hover:brightness-110"
+                  >
+                    Usar puntos
+                  </button>
+                )}
+              </div>
+              {puntosACanjear > 0 ? (
+                <p className="mt-2 text-[12px] text-gray-500">
+                  Se usan {puntosACanjear} puntos. Le quedan {canje.saldo - puntosACanjear}.
+                </p>
+              ) : null}
+            </div>
+          ) : null}
 
           {vuelto > 0 ? (
             <motion.div

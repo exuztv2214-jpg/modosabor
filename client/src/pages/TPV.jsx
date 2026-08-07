@@ -165,6 +165,16 @@ export default function TPV() {
   const [metodoPago, setMetodoPago] = useState('efectivo');
   const [descuentoTipo, setDescuentoTipo] = useState('monto');
   const [cliente, setCliente] = useState(createEmptyCustomer);
+  /*
+    Puntos de fidelidad del cliente elegido.
+
+    `canje` guarda lo que contestó el servidor —saldo, mínimo y cuánto vale
+    cada punto— y `puntosACanjear` cuántos se van a usar en este pedido. El
+    valor en plata lo vuelve a calcular el servidor al crear el pedido: acá
+    sólo se muestra.
+  */
+  const [canje, setCanje] = useState(null);
+  const [puntosACanjear, setPuntosACanjear] = useState(0);
   const [clientePickerOpen, setClientePickerOpen] = useState(false);
   const [clientePickerSearch, setClientePickerSearch] = useState('');
   const [clientesCatalogo, setClientesCatalogo] = useState([]);
@@ -606,6 +616,32 @@ export default function TPV() {
   );
   const splitCashTarget = Number(splitPayments.efectivo || 0);
 
+  /*
+    Al cambiar de cliente se pregunta por sus puntos y se limpia lo que hubiera
+    quedado del anterior. Sin ese reinicio, el descuento del cliente de antes
+    se aplicaría al pedido del siguiente.
+  */
+  useEffect(() => {
+    setPuntosACanjear(0);
+    setCanje(null);
+    if (!cliente?.id) return undefined;
+
+    let vigente = true;
+    api
+      .get(`/fidelizacion/canje/${cliente.id}`)
+      .then((datos) => vigente && setCanje(datos?.disponible ? datos : null))
+      // Si falla, simplemente no se ofrece el canje. Cobrar es más importante.
+      .catch(() => vigente && setCanje(null));
+    return () => {
+      vigente = false;
+    };
+  }, [cliente?.id]);
+
+  const descuentoPorPuntos = useMemo(() => {
+    if (!canje || puntosACanjear <= 0) return 0;
+    return Math.round(puntosACanjear * Number(canje.valor_punto || 0));
+  }, [canje, puntosACanjear]);
+
   const summary = useMemo(
     () =>
       calculatePedidoSummary({
@@ -614,6 +650,15 @@ export default function TPV() {
         deliveryQuote,
         descuento,
         descuentoTipo,
+        /*
+          Va aparte del descuento manual: si se sumaran, un descuento por
+          porcentaje se aplicaría también sobre el valor de los puntos.
+
+          Este número es sólo para mostrar en pantalla. El servidor lo vuelve a
+          calcular al crear el pedido con el valor del punto configurado, así
+          que aunque acá hubiera un error, se cobra lo correcto.
+        */
+        descuentoPuntos: descuentoPorPuntos,
         metodoPago,
         efectivoRecibido,
         cashTarget: metodoPago === 'mixto' ? splitCashTarget : null,
@@ -624,13 +669,22 @@ export default function TPV() {
       deliveryQuote,
       descuento,
       descuentoTipo,
+      descuentoPorPuntos,
       metodoPago,
       efectivoRecibido,
       splitCashTarget,
     ]
   );
-  const { subtotal, envio, descuentoAplicado, total, totalItems, efectivoRecibidoNumero, vuelto } =
-    summary;
+  const {
+    subtotal,
+    envio,
+    descuentoAplicado,
+    descuentoDePuntos,
+    total,
+    totalItems,
+    efectivoRecibidoNumero,
+    vuelto,
+  } = summary;
   const splitRemaining = Number((total - splitAssignedTotal).toFixed(2));
   const primaryMixedMethod = useMemo(() => {
     if (metodoPago !== 'mixto') return metodoPago;
@@ -829,6 +883,13 @@ export default function TPV() {
     setClientePickerSearch('');
     setClientesCatalogo([]);
     setDescuento(0);
+    /*
+      Explícito aunque el efecto que escucha el cambio de cliente también los
+      limpie: si mañana ese efecto cambia, el pedido siguiente no puede
+      arrastrar los puntos del cliente anterior.
+    */
+    setPuntosACanjear(0);
+    setCanje(null);
     setEfectivoRecibido('');
     setSplitPayments({
       efectivo: '',
@@ -1420,8 +1481,14 @@ export default function TPV() {
           origen: 'tpv',
           repartidorId:
             tipoEntrega === 'delivery' && selectedRiderId ? Number(selectedRiderId) : undefined,
-          extra:
-            metodoPago === 'mixto'
+          /*
+            Se manda cuántos puntos usar, nunca cuánta plata valen. El importe
+            lo calcula el servidor con el valor configurado: si viniera de acá,
+            alcanzaría con editarlo para llevarse el pedido gratis.
+          */
+          extra: {
+            ...(puntosACanjear > 0 ? { puntos_a_canjear: puntosACanjear } : {}),
+            ...(metodoPago === 'mixto'
               ? {
                   pago_detalle: JSON.stringify({
                     tipo: 'mixto',
@@ -1432,7 +1499,8 @@ export default function TPV() {
                     principal: primaryMixedMethod,
                   }),
                 }
-              : {},
+              : {}),
+          },
         })
       );
 
@@ -1795,6 +1863,10 @@ export default function TPV() {
         subtotal={subtotal}
         envio={envio}
         descuentoAplicado={descuentoAplicado}
+        descuentoDePuntos={descuentoDePuntos}
+        canje={canje}
+        puntosACanjear={puntosACanjear}
+        onPuntosChange={setPuntosACanjear}
         deliveryQuote={deliveryQuote}
         pagos={TPV_PAYMENT_OPTIONS}
         metodoPago={metodoPago}
