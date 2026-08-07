@@ -3,10 +3,27 @@
  * Previene exposicion global de datos sensibles
  */
 
+/**
+ * ── Sobre la plata que sale por el socket ──────────────────────────────────
+ *
+ * La base guarda centavos y el middleware de `index.js` los pasa a pesos, pero
+ * **sólo en las respuestas JSON de Express**. Un mensaje de Socket.IO no pasa
+ * por ahí: sale con el número crudo.
+ *
+ * Eso hacía que el tablero de Pedidos mostrara bien los pedidos al recargar la
+ * página —esos vienen por HTTP— y cien veces más grandes los que entraban en
+ * vivo. Un pedido de $13.000 aparecía como "$1.300.000" hasta que alguien
+ * recargaba, y ahí se acomodaba solo. Justamente por eso era difícil de ver:
+ * el error se borraba al ir a mirarlo.
+ *
+ * `paraElCliente` es la única puerta por la que un pedido entra al socket, así
+ * que la conversión se hace acá una vez y no en cada `emit`.
+ */
 const jwt = require('jsonwebtoken');
 const { getJwtSecret } = require('./authConfig');
 const db = require('../db');
 const { parsePedidoItems } = require('./pedidoItems');
+const { centsToPesos } = require('./moneyConversion');
 const logger = require('./logger');
 
 // Almacenamiento en memoria de tokens de seguimiento (podria moverse a Redis en el futuro)
@@ -168,13 +185,24 @@ function initSocketSecurity(io) {
 }
 
 /**
+ * Deja un pedido listo para mandarlo por socket.
+ *
+ * Dos cosas: los ítems pasan de texto JSON a lista, y toda la plata de
+ * centavos a pesos. Sin lo segundo, el panel muestra los importes cien veces
+ * más grandes hasta que se recarga la página.
+ */
+function paraElCliente(pedido) {
+  return centsToPesos({
+    ...pedido,
+    items: parsePedidoItems(pedido?.items),
+  });
+}
+
+/**
  * Emitir actualizacion de pedido SOLO a interesados autorizados
  */
 function emitPedidoActualizado(io, pedido, options = {}) {
-  const normalizedPedido = {
-    ...pedido,
-    items: parsePedidoItems(pedido?.items),
-  };
+  const normalizedPedido = paraElCliente(pedido);
   const pedidoId = normalizedPedido.id;
   const includeRepartidor = options.includeRepartidor !== false;
 
@@ -264,10 +292,7 @@ function emitDeliveryAssignment(
 
 function emitPedidoAsignado(io, pedido) {
   if (!pedido?.repartidor_id) return;
-  const payload = {
-    ...pedido,
-    items: parsePedidoItems(pedido?.items),
-  };
+  const payload = paraElCliente(pedido);
   io.to(`repartidor_${pedido.repartidor_id}`).emit('pedido_asignado', payload);
 }
 
@@ -297,10 +322,7 @@ function emitRepartidorUbicacion(io, repartidor, pedidoId) {
  */
 function emitNuevoPedido(io, pedido) {
   const room = io.to('authenticated');
-  const payload = {
-    ...pedido,
-    items: parsePedidoItems(pedido?.items),
-  };
+  const payload = paraElCliente(pedido);
   room.emit('nuevo_pedido', payload);
   room.emit('system_nuevo_pedido', payload);
   emitPedidoAsignado(io, payload);
