@@ -30,6 +30,35 @@ const MONEY_PATTERNS = [
  * o `publicaciones_pendientes`, que son cantidades y no plata.
  */
 const MONEY_KEYS = new Set([
+  /*
+    El margen es plata, pero ningún patrón de arriba lo agarra: no contiene
+    "total" ni "precio" ni "monto". El tablero mostraba "Margen de hoy
+    $5.700.000" arriba de "Ventas del día $57.000", y encima disparaba el
+    aviso de "margen casi 100%, revisá los costos" porque la cuenta se hacía
+    entre un número en centavos y otro en pesos.
+  */
+  'margen',
+  'margenBruto',
+  'margenBrutoHoy',
+  'margenBrutoAyer',
+  'margenAyer',
+  'ganancia',
+  'gananciaBruta',
+  'gananciaNeta',
+  'costoHoy',
+  'costoTotal',
+  'recaudado',
+  'facturacion',
+  'ingreso',
+  'ingresos',
+  'egreso',
+  'egresos',
+  /*
+    Los dos son `SUM(pedidos.total)` con otro nombre, así que viajan en
+    centavos igual que la columna.
+  */
+  'ingreso_generado',
+  'ventas_atribuidas',
   'digitales',
   'ticketPromedio',
   'pendiente',
