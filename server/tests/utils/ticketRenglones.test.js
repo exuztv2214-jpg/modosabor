@@ -80,37 +80,106 @@ function testLaFilaCrudaSigueSinServir() {
   console.log('  OK queda documentado que la fila cruda no sirve para imprimir');
 }
 
-function testLasRutasDeImpresionUsanElHidratado() {
-  const fuente = fs.readFileSync(path.resolve(__dirname, '../../routes/pedidos.js'), 'utf8');
+function testElHtmlImprimeLoMismoQueElTotal() {
+  /*
+    ── Por qué este test reemplaza al anterior ──────────────────────────────
+
+    El test que había antes verificaba que la ruta llamara a
+    `getPedidoHydratedById`. Pasaba, y el ticket seguía saliendo mal.
+
+    El error estaba una capa más abajo: la ruta convertía bien, pero
+    `buildPrintDocument` volvía a leer los ítems de la base con
+    `loadPedidoItems` y pisaba lo convertido. La plantilla terminaba usando
+    los renglones en centavos y los totales en pesos, en el mismo papel.
+
+    Verificar qué función se llama no sirve cuando el error está en lo que
+    pasa después. Así que ahora se genera el HTML de verdad y se mira lo que
+    dice el papel.
+  */
+  /*
+    El doble tiene que devolver las filas de `pedido_items` en CENTAVOS, que
+    es de dónde salían los importes crudos. Un doble que sólo contesta la
+    configuración no reproduce el error: lo comprobé, el test pasaba igual
+    con el código roto.
+  */
+  const db = {
+    prepare: (sql) => ({
+      all: () =>
+        /pedido_items/.test(sql)
+          ? [
+              {
+                id: 1,
+                pedido_id: 185,
+                nombre: 'Ñoquis de Espinaca',
+                cantidad: 1,
+                precio_unitario: 500000,
+                subtotal: 500000,
+                variantes_json: '{}',
+                extras_json: '[]',
+              },
+            ]
+          : [{ clave: 'negocio_nombre', valor: 'Modo Sabor' }],
+      get: () => null,
+      run: () => ({}),
+    }),
+  };
+
+  const { buildPrintDocument } = require('../../utils/printTemplates');
+
+  // El pedido #185, ya convertido a pesos por la ruta.
+  const pedidoEnPesos = {
+    id: 185,
+    numero: 185,
+    tipo_entrega: 'delivery',
+    metodo_pago: 'transferencia',
+    total: 5000,
+    subtotal: 5000,
+    items: [{ nombre: 'Ñoquis de Espinaca', cantidad: 1, precio_unitario: 5000, subtotal: 5000 }],
+  };
+
+  const { html } = buildPrintDocument(db, pedidoEnPesos, 'ticket_cliente');
 
   /*
-    El chequeo mira el código porque el error no es de cálculo sino de qué
-    dato se le pasa a la plantilla, y eso no se ve en el resultado de ninguna
-    función: se ve en la línea que elige la fuente.
+    Lo que se busca es el número que sale impreso. "$500.000" en el renglón
+    arriba de "$5.000" en el total es exactamente lo que el dueño vio en el
+    papel del #185.
   */
-  const rutaTicket = fuente.slice(fuente.indexOf("router.get('/:id/impresion/:tipo'"));
-  const cuerpoTicket = rutaTicket.slice(0, rutaTicket.indexOf('});'));
   assert.ok(
-    /getPedidoHydratedById/.test(cuerpoTicket),
-    'la ruta del ticket volvió a imprimir desde la fila cruda: los renglones salen en centavos'
+    !/\$500\.000/.test(html),
+    'el renglón volvió a imprimirse en centavos: dice $500.000 donde son $5.000'
   );
-  assert.ok(!/getPedidoOr404/.test(cuerpoTicket), 'quedó un getPedidoOr404 en la ruta del ticket');
+  assert.ok(html.includes('$5.000'), 'el ticket tiene que mostrar $5.000');
 
-  const rutaPrecuenta = fuente.slice(fuente.indexOf("router.post('/mesa/:mesa/precuenta'"));
-  const cuerpoPrecuenta = rutaPrecuenta.slice(0, rutaPrecuenta.indexOf('registerPrintJob'));
+  const importes = html.match(/\$[\d.]+/g) || [];
+  const distintos = [...new Set(importes)];
+  assert.deepStrictEqual(
+    distintos,
+    ['$5.000'],
+    `el ticket mezcla unidades: ${distintos.join(', ')}. Renglón y total tienen que dar lo mismo.`
+  );
+
+  console.log('  OK el HTML del ticket imprime el renglón y el total en la misma unidad');
+}
+
+function testSiNoVienenItemsSeVanABuscar() {
+  /*
+    El arreglo no puede romper a quien llame sin ítems: en ese caso hay que
+    seguir yendo a la base, como antes.
+  */
+  const fuente = fs.readFileSync(path.resolve(__dirname, '../../utils/printTemplates.js'), 'utf8');
   assert.ok(
-    /getPedidoHydratedById/.test(cuerpoPrecuenta),
-    'la precuenta de mesa volvió a imprimir desde filas crudas'
+    /Array\.isArray\(pedido\?\.items\) \? pedido\.items : loadPedidoItems/.test(fuente),
+    'buildPrintDocument volvió a releer los ítems siempre: pisa la conversión del llamador'
   );
-
-  console.log('  OK las dos rutas de impresión parten del pedido hidratado');
+  console.log('  OK si el pedido llega sin ítems, se siguen buscando en la base');
 }
 
 function run() {
   console.log('\nTests de los importes del ticket');
   testElRenglonYElTotalCoinciden();
   testLaFilaCrudaSigueSinServir();
-  testLasRutasDeImpresionUsanElHidratado();
+  testElHtmlImprimeLoMismoQueElTotal();
+  testSiNoVienenItemsSeVanABuscar();
   console.log('Todos los tests de los importes del ticket pasaron\n');
 }
 

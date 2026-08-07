@@ -1130,7 +1130,23 @@ function renderCajaCierreHtml(data) {
 
 function buildPrintDocument(db, pedido, tipo) {
   const config = configMap(db);
-  const items = loadPedidoItems(db, pedido);
+  /*
+    ── Por qué NO se releen los ítems de la base ────────────────────────────
+
+    Antes acá había `loadPedidoItems(db, pedido)`, y eso era el error que hacía
+    salir el ticket #185 con el renglón en "$500.000" arriba de un total de
+    "$5.000".
+
+    Quien llama ya convirtió el pedido de centavos a pesos. Volver a leer los
+    ítems de la base los traía crudos otra vez, así que la plantilla terminaba
+    mezclando dos unidades en el mismo papel: los renglones en centavos y los
+    totales en pesos. La conversión del llamador se descartaba una línea
+    después de hacerla.
+
+    Si el pedido llega sin ítems —por ejemplo desde un flujo viejo— recién ahí
+    se van a buscar, y en ese caso vienen en centavos igual que antes.
+  */
+  const items = Array.isArray(pedido?.items) ? pedido.items : loadPedidoItems(db, pedido);
   const paymentLabel = pedido.metodo_pago === 'mercadopago' ? 'Mercado Pago' : pedido.metodo_pago;
 
   const data = {
@@ -1165,9 +1181,12 @@ function buildPrintDocument(db, pedido, tipo) {
 
 function buildMesaPrecuentaDocument(db, mesa, pedidos) {
   const config = configMap(db);
+  /* Igual que en buildPrintDocument: si el pedido ya trae los ítems, se usan
+     los que trae. Releerlos de la base descartaba la conversión a pesos del
+     llamador y la precuenta salía con los renglones en centavos. */
   const pedidosConItems = (pedidos || []).map((pedido) => ({
     ...pedido,
-    items: loadPedidoItems(db, pedido),
+    items: Array.isArray(pedido?.items) ? pedido.items : loadPedidoItems(db, pedido),
   }));
   const totalMesa = pedidos.reduce((acc, pedido) => acc + Number(pedido.total || 0), 0);
   const data = {
