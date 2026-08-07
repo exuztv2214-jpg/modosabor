@@ -5,7 +5,7 @@ import { X } from 'lucide-react';
 import api from '../../lib/api.js';
 import { BRAND, STROKE } from '../../lib/theme.js';
 import { fondoModal, useCerrarConEscape } from '../../hooks/useCerrarConEscape.js';
-import { fmt, NumberField, Switch } from './ui.jsx';
+import { fmt, NumberField, precioSugeridoMenuDia, Switch } from './ui.jsx';
 
 /**
  * Alta de un plato eventual.
@@ -23,7 +23,7 @@ export default function NuevoPlatoModal({ menuDia, onClose, onCreado }) {
   const [form, setForm] = useState({
     nombre: '',
     descripcion: '',
-    precio: menuDia.precioSugerido?.economico ?? 5000,
+    precio: menuDia.precioSugeridoEconomico ?? 5000,
     stock_directo: 20,
     tiempo_preparacion: 15,
     tipo: 'economico',
@@ -42,7 +42,7 @@ export default function NuevoPlatoModal({ menuDia, onClose, onCreado }) {
   }, [onClose]);
 
   const cambiarTipo = (tipo) => {
-    const sugerido = menuDia.precioSugerido?.[tipo];
+    const sugerido = precioSugeridoMenuDia(menuDia, tipo);
     setForm((prev) => ({
       ...prev,
       tipo,

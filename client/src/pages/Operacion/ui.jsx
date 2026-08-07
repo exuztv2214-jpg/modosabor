@@ -191,3 +191,16 @@ export function Switch({ checked, onChange, label, hint, tone }) {
     </button>
   );
 }
+
+/**
+ * Precio sugerido del menú del día según el tipo.
+ *
+ * El servidor mandaba `precioSugerido: { economico, ejecutivo }`, pero esas
+ * dos claves internas no las reconoce el conversor de plata, así que los
+ * importes llegaban en centavos y el modal de plato nuevo prellenaba
+ * $500.000. Ahora vienen aplanadas en dos claves que contienen "precio" y se
+ * convierten solas.
+ */
+export function precioSugeridoMenuDia(menuDia, tipo) {
+  return tipo === 'ejecutivo' ? menuDia?.precioSugeridoEjecutivo : menuDia?.precioSugeridoEconomico;
+}

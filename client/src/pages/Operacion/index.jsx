@@ -18,7 +18,7 @@ import {
 
 import api from '../../lib/api.js';
 import { APP_BG, BRAND, STROKE } from '../../lib/theme.js';
-import { Card, CardHeader, fmt, Stat } from './ui.jsx';
+import { Card, CardHeader, fmt, precioSugeridoMenuDia, Stat } from './ui.jsx';
 import ChecklistPanel from './ChecklistPanel.jsx';
 import StockDiarioPanel from './StockDiarioPanel.jsx';
 import MenuDiaPanel from './MenuDiaPanel.jsx';
@@ -151,7 +151,7 @@ export default function Operacion() {
   };
 
   const cambiarTipoItem = (id, tipo) => {
-    const sugerido = menuDia.precioSugerido?.[tipo];
+    const sugerido = precioSugeridoMenuDia(menuDia, tipo);
     setMenuSucio(true);
     setMenuDia((prev) => ({
       ...prev,
@@ -628,8 +628,8 @@ export default function Operacion() {
       {configAbierta ? (
         <ConfigMenuDiaModal
           config={{
-            precioEconomico: menuDia.precioSugerido?.economico ?? 5000,
-            precioEjecutivo: menuDia.precioSugerido?.ejecutivo ?? 7000,
+            precioEconomico: menuDia.precioSugeridoEconomico ?? 5000,
+            precioEjecutivo: menuDia.precioSugeridoEjecutivo ?? 7000,
             extraPostrePrecio: menuDia.extraPostrePrecio ?? 1000,
             extraBebidaPostrePrecio: menuDia.extraBebidaPostrePrecio ?? 1000,
             guarnicionesLista: menuDia.guarnicionesLista || [],

@@ -83,6 +83,51 @@ const EXCLUDED_KEYS = new Set([
   'descuento_ratio_pct',
 ]);
 
+/**
+ * Columnas que guardan JSON como TEXTO y llevan plata adentro.
+ *
+ * `productos.variantes` es `[{ nombre, opciones: [{ nombre, precio_extra }] }]`
+ * y `productos.extras` es `[{ nombre, precio }]`, pero los dos viven en la base
+ * como un string. Para el conversor un string no es plata, asi que esos numeros
+ * quedaban afuera del sistema de unidades mientras `productos.precio` —en la
+ * misma fila— si se convertia.
+ *
+ * El resultado eran dos verdades distintas segun quien escribiera la fila:
+ *
+ *   - El panel de Productos manda multipart, y en el schema `extras` esta
+ *     declarado `z.string()`. Nunca se convertia: un extra de $1.200 se
+ *     guardaba como 1200. Se veia bien en pantalla, pero `preciosServidor`
+ *     suma ese numero a un precio en centavos, asi que en los pedidos de la
+ *     web el bacon de $1.200 cobraba $12.
+ *
+ *   - Operacion → Menu del dia manda JSON, y ahi el precio del postre si se
+ *     convertia a centavos antes de copiarse dentro del extra. Se cobraba
+ *     bien, pero el TPV lo mostraba como "+$100.000".
+ *
+ * Los dos rotos, en direcciones opuestas. La unidad canonica es el centavo,
+ * igual que `productos.precio` y que lo que ya asume `preciosServidor`; estas
+ * dos columnas entran al conversor como cualquier otro campo.
+ */
+const JSON_MONEY_COLUMNS = new Set(['variantes', 'extras']);
+
+/**
+ * Aplica `convert` adentro de una columna JSON y la devuelve como texto.
+ *
+ * Si el valor no es JSON valido se devuelve intacto: una columna corrupta no
+ * puede hacer fallar una respuesta entera.
+ */
+function convertJsonColumn(raw, convert) {
+  if (typeof raw !== 'string' || raw.trim() === '') return raw;
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return raw;
+  }
+  if (parsed === null || typeof parsed !== 'object') return raw;
+  return JSON.stringify(convert(parsed));
+}
+
 function isMoneyKey(key) {
   if (EXCLUDED_KEYS.has(key)) return false;
   if (MONEY_KEYS.has(key)) return true;
@@ -101,6 +146,10 @@ function pesosToCents(obj, parentIsMoneyKey = false) {
   if (typeof obj === 'object') {
     const result = {};
     for (const [k, v] of Object.entries(obj)) {
+      if (JSON_MONEY_COLUMNS.has(k) && typeof v === 'string') {
+        result[k] = convertJsonColumn(v, (parsed) => pesosToCents(parsed, false));
+        continue;
+      }
       result[k] = pesosToCents(v, isMoneyKey(k));
     }
     return result;
@@ -116,7 +165,9 @@ function centsToPesos(obj) {
   if (typeof obj === 'object') {
     const result = {};
     for (const [k, v] of Object.entries(obj)) {
-      if (isMoneyKey(k) && typeof v === 'number' && Number.isInteger(v)) {
+      if (JSON_MONEY_COLUMNS.has(k) && typeof v === 'string') {
+        result[k] = convertJsonColumn(v, centsToPesos);
+      } else if (isMoneyKey(k) && typeof v === 'number' && Number.isInteger(v)) {
         result[k] = v / 100;
       } else {
         result[k] = centsToPesos(v);
@@ -134,4 +185,5 @@ module.exports = {
   MONEY_PATTERNS,
   MONEY_KEYS,
   EXCLUDED_KEYS,
+  JSON_MONEY_COLUMNS,
 };

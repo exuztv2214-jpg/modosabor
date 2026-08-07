@@ -29,8 +29,21 @@ const { pesosToCents } = require('../utils/moneyConversion');
 // Multer populates req.body AFTER the global money middleware has already run,
 // so multipart requests skip pesos→centavos conversion.  This route-level
 // middleware applies the conversion after multer.
+/**
+ * Convierte la plata del cuerpo cuando llega como multipart.
+ *
+ * El middleware global de `index.js` corre antes que multer, asi que con
+ * FormData `req.body` todavia esta vacio y no convierte nada: por eso hace
+ * falta repetirlo aca, despues de multer.
+ *
+ * El chequeo de `multipart` no es decorativo. Si la peticion viene en JSON el
+ * middleware global ya la convirtio, y volver a convertirla aca multiplicaba
+ * por cien dos veces. Antes pasaba desapercibido porque `extras` y `variantes`
+ * viajaban como texto y quedaban afuera del conversor; ahora que entran, un
+ * POST en JSON guardaria el extra diez mil veces mas caro.
+ */
 function convertMultipartMoney(req, _res, next) {
-  if (req.body && typeof req.body === 'object') {
+  if (req.is('multipart/form-data') && req.body && typeof req.body === 'object') {
     req.body = pesosToCents(req.body);
   }
   next();

@@ -78,7 +78,10 @@ const EXTRA_POSTRE_NOMBRE = 'Postre';
 const EXTRA_BEBIDA_POSTRE_NOMBRE = 'Bebida + Postre';
 const VARIANTE_GUARNICION_NOMBRE = 'Guarnición';
 const LEGACY_PROMO_NOMBRE = 'Jugo + Postre'; // se ignora al leer, para retrocompat.
-const MENU_DIA_PRECIO_SUGERIDO_FALLBACK = { economico: 5000, ejecutivo: 7000 };
+/* En centavos, igual que lo que guarda `configuracion`. Estaba en pesos, asi
+   que si la clave faltaba el menu economico salia a $50. */
+const MENU_DIA_PRECIO_SUGERIDO_FALLBACK = { economico: 500000, ejecutivo: 700000 };
+const MENU_DIA_EXTRA_PRECIO_FALLBACK = 100000; // $1.000
 
 function parseJsonList(raw, fallback = []) {
   try {
@@ -106,8 +109,11 @@ function loadMenuDiaSettings() {
   return {
     precioEconomico: num('menu_dia_precio_economico', MENU_DIA_PRECIO_SUGERIDO_FALLBACK.economico),
     precioEjecutivo: num('menu_dia_precio_ejecutivo', MENU_DIA_PRECIO_SUGERIDO_FALLBACK.ejecutivo),
-    extraPostrePrecio: num('menu_dia_extra_postre_precio', 1000),
-    extraBebidaPostrePrecio: num('menu_dia_extra_bebida_postre_precio', 1000),
+    extraPostrePrecio: num('menu_dia_extra_postre_precio', MENU_DIA_EXTRA_PRECIO_FALLBACK),
+    extraBebidaPostrePrecio: num(
+      'menu_dia_extra_bebida_postre_precio',
+      MENU_DIA_EXTRA_PRECIO_FALLBACK
+    ),
     guarnicionesLista: parseJsonList(map.get('menu_dia_guarniciones_lista'), []),
   };
 }
@@ -288,10 +294,18 @@ function buildMenuDiaManagerPayload() {
     fecha,
     categoria: findMenuDiaCategory(),
     ultimaFechaDisponible: ultimaFecha,
-    precioSugerido: {
-      economico: settings.precioEconomico,
-      ejecutivo: settings.precioEjecutivo,
-    },
+    /*
+      Antes esto era `precioSugerido: { economico, ejecutivo }`. El middleware
+      de plata reconoce "precioSugerido" como plata, pero el valor es un objeto
+      y adentro las claves se llaman "economico" y "ejecutivo", que no las
+      reconoce nadie: los dos importes viajaban en centavos y el modal de plato
+      nuevo prellenaba $500.000.
+
+      Aplanarlo en dos claves que contienen "precio" hace que el conversor las
+      agarre solo, sin dividir a mano en ningun lado.
+    */
+    precioSugeridoEconomico: settings.precioEconomico,
+    precioSugeridoEjecutivo: settings.precioEjecutivo,
     // Config global para que la UI arme los selectors sin hardcodear.
     guarnicionesLista: settings.guarnicionesLista,
     extraPostrePrecio: settings.extraPostrePrecio,
