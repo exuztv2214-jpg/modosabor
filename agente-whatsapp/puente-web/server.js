@@ -9,6 +9,30 @@ require('dotenv').config({ path: path.join(__dirname, '..', '..', 'server', '.en
 require('dotenv').config({ path: path.join(__dirname, '.env'), override: true });
 
 const PORT = Number(process.env.PORT || 3035);
+
+/*
+  ── Por qué el puente escucha sólo en la máquina donde corre ───────────────
+
+  `app.listen(PORT)` sin host escucha en TODAS las interfaces. Este puente
+  expone `/api/qr` —el código para vincular WhatsApp—, `/api/chats` con las
+  conversaciones de los clientes y `/api/test-disparo` para mandar mensajes.
+  Sin autenticación.
+
+  Con eso, cualquiera en la misma red del local —el WiFi que también usan los
+  clientes— podía pedir el QR y vincular su propio celular al WhatsApp del
+  negocio. Leer todas las conversaciones y escribir en nombre del local.
+
+  Ahora escucha sólo en 127.0.0.1. Si algún día hace falta llegarle desde
+  otra máquina, se pone BRIDGE_HOST y se le agrega la clave de abajo, pero
+  el valor por defecto tiene que ser el seguro.
+*/
+const HOST = String(process.env.BRIDGE_HOST || '127.0.0.1').trim();
+
+/*
+  Clave de acceso. Es la segunda barrera, para el caso en que alguien cambie
+  el host: sin ella, abrir el puente a la red lo deja abierto del todo.
+*/
+const BRIDGE_API_KEY = String(process.env.BRIDGE_API_KEY || '').trim();
 const OPERATOR_KEY = String(process.env.BRIDGE_OPERATOR_KEY || 'dale')
   .trim()
   .toLowerCase();
@@ -32,9 +56,41 @@ const logFile = path.join(dataDir, 'bridge.log');
 fs.mkdirSync(dataDir, { recursive: true });
 
 const app = express();
-app.use(cors());
+/*
+  CORS cerrado. Antes era `cors()` a secas, que responde a cualquier origen:
+  una página abierta en la computadora del local podía leer las
+  conversaciones desde el navegador. Se permite el panel y nada más.
+*/
+const ORIGENES = new Set(
+  [
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+    `http://localhost:${PORT}`,
+    `http://127.0.0.1:${PORT}`,
+    ...String(process.env.BRIDGE_ALLOWED_ORIGINS || '')
+      .split(',')
+      .map((x) => x.trim()),
+  ].filter(Boolean)
+);
+app.use(
+  cors({
+    origin: (origen, cb) => cb(null, !origen || ORIGENES.has(origen)),
+  })
+);
 app.use(express.json({ limit: '2mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
+
+/*
+  Sólo se pide la clave si está configurada. Así el uso normal —el puente en
+  la máquina del local, escuchando en 127.0.0.1— sigue funcionando sin
+  cambiar nada, y quien lo abra a la red está obligado a ponerla.
+*/
+app.use('/api', (req, res, next) => {
+  if (!BRIDGE_API_KEY) return next();
+  const enviada = req.get('x-bridge-key') || req.query.key || '';
+  if (enviada === BRIDGE_API_KEY) return next();
+  return res.status(401).json({ error: 'Falta la clave del puente' });
+});
 
 let currentQr = '';
 let currentQrDataUrl = '';
@@ -590,8 +646,16 @@ app.post('/api/test-pedido-json', async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  rememberEvent('server', { url: `http://localhost:${PORT}` });
+app.listen(PORT, HOST, () => {
+  rememberEvent('server', { url: `http://${HOST}:${PORT}`, host: HOST });
+  if (HOST !== '127.0.0.1' && !BRIDGE_API_KEY) {
+    /* Un puente abierto a la red sin clave regala el WhatsApp del local.
+       Se avisa fuerte en vez de arrancar en silencio. */
+    console.error(
+      `\n  ATENCION: el puente esta escuchando en ${HOST} sin BRIDGE_API_KEY.\n` +
+        '  Cualquiera en la red puede pedir el QR y vincular el WhatsApp del local.\n'
+    );
+  }
 });
 
 client.initialize().catch((error) => {
