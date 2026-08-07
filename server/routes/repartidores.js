@@ -6,6 +6,16 @@ const crypto = require('crypto');
 const multer = require('multer');
 const path = require('path');
 const { requirePermission, hasPermission } = require('../utils/permissions');
+const { fechaLocal, hoyLocal } = require('../utils/fechaLocal');
+
+/*
+  Argentina es UTC-3 fijo: no tiene horario de verano desde 2009.
+
+  Se usa para calcular "hoy" desde el lado de Node. El servidor corre en UTC,
+  así que sin este desfase después de las 21:00 hora local ya estaría contando
+  el día siguiente.
+*/
+const OFFSET_ARGENTINA_MS = -3 * 60 * 60 * 1000;
 const {
   assignPedidoToRepartidor,
   autoAssignPedido,
@@ -835,9 +845,20 @@ router.get('/:id/rider/:codigo/stats', (req, res) => {
   const repartidor = validateRiderAccess(req, res);
   if (!repartidor) return;
 
-  const hoy = new Date();
-  const iso = (d) =>
-    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  /*
+    ── Por qué no se usa `new Date()` a secas ────────────────────────────────
+
+    El servidor corre en UTC (Railway). A las 22:41 de Argentina son las 01:41
+    UTC del día siguiente, así que `new Date().getDate()` devolvía mañana: el
+    gráfico de la semana marcaba viernes un jueves a la noche, y todas las
+    entregas de después de las 21:00 se le contaban al rider en el día
+    equivocado.
+
+    Restando el desfase argentino, "hoy" es el mismo día que ve el rider en su
+    celular.
+  */
+  const hoy = new Date(Date.now() + OFFSET_ARGENTINA_MS);
+  const iso = (d) => d.toISOString().slice(0, 10);
 
   try {
     // Serie de los ultimos 7 dias (incluye hoy). Rellenamos los dias sin
@@ -845,14 +866,17 @@ router.get('/:id/rider/:codigo/stats', (req, res) => {
     const desde = new Date(hoy.getTime() - 6 * 24 * 60 * 60 * 1000);
     const filas = db
       .prepare(
-        `SELECT DATE(actualizado_en) AS fecha,
+        // `fechaLocal` aplica el desfase argentino dentro de SQLite, igual que en
+        // los reportes y en la caja. Sin esto, un pedido entregado a las 22:00 se
+        // agrupa en el día siguiente.
+        `SELECT ${fechaLocal('actualizado_en')} AS fecha,
                 COUNT(*) AS entregas,
                 COALESCE(SUM(total), 0) AS facturado
          FROM pedidos
          WHERE repartidor_id = ?
            AND estado = 'entregado'
-           AND DATE(actualizado_en) BETWEEN ? AND ?
-         GROUP BY DATE(actualizado_en)`
+           AND ${fechaLocal('actualizado_en')} BETWEEN ? AND ?
+         GROUP BY fecha`
       )
       .all(repartidor.id, iso(desde), iso(hoy));
 
@@ -884,7 +908,7 @@ router.get('/:id/rider/:codigo/stats', (req, res) => {
     // no romperle la racha a media mañana.
     const diasConEntregas = db
       .prepare(
-        `SELECT DISTINCT DATE(actualizado_en) AS fecha
+        `SELECT DISTINCT ${fechaLocal('actualizado_en')} AS fecha
          FROM pedidos
          WHERE repartidor_id = ? AND estado = 'entregado'
          ORDER BY fecha DESC
@@ -917,17 +941,18 @@ router.get('/:id/rider/:codigo/stats', (req, res) => {
         `SELECT COUNT(*) AS entregas, COALESCE(SUM(total), 0) AS facturado
          FROM pedidos
          WHERE repartidor_id = ? AND estado = 'entregado'
-           AND strftime('%Y-%m', actualizado_en) = strftime('%Y-%m', 'now', 'localtime')`
+           AND strftime('%Y-%m', ${fechaLocal('actualizado_en')}) =
+               strftime('%Y-%m', ${hoyLocal()})`
       )
       .get(repartidor.id);
 
     // Mejor dia historico: es el record real de entregas en una jornada.
     const mejorDia = db
       .prepare(
-        `SELECT DATE(actualizado_en) AS fecha, COUNT(*) AS entregas
+        `SELECT ${fechaLocal('actualizado_en')} AS fecha, COUNT(*) AS entregas
          FROM pedidos
          WHERE repartidor_id = ? AND estado = 'entregado'
-         GROUP BY DATE(actualizado_en)
+         GROUP BY fecha
          ORDER BY entregas DESC
          LIMIT 1`
       )

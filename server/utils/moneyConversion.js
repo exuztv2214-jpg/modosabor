@@ -37,6 +37,18 @@ const MONEY_KEYS = new Set([
   'ingresosExtra',
   'deliveryDiario',
   'gananciaOperativa',
+  /*
+    ── Repartidores ──
+
+    `facturado` es la suma de `pedidos.total` de un rider: plata pura, en
+    centavos como todo lo demás. No lo reconocía ninguno de los patrones, así
+    que llegaba sin dividir y la app del rider mostraba "Cobrado hoy
+    $1.900.000" cuando en realidad eran $19.000.
+
+    Lo devuelven dos endpoints —las estadísticas del rider y los reportes de
+    delivery— y en ninguno de los dos el cliente lo dividía a mano.
+  */
+  'facturado',
   // ── Personal ──
   // `neto_sugerido_base` sale de `monto_base - pendiente_total`. Los dos
   // sumandos si estaban reconocidos y se dividian por 100, pero el resultado
