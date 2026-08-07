@@ -123,6 +123,21 @@ const MAX_LOGO_BYTES = 512 * 1024;
  *
  * Si el archivo no está o es demasiado grande, se cae a la URL de siempre.
  */
+/**
+ * Caché del logo ya codificado.
+ *
+ * ── Por qué hace falta ─────────────────────────────────────────────────────
+ *
+ * `embedAsset` lee el archivo del disco y lo pasa a base64 en CADA impresión.
+ * Con el logo actual —un SVG de 161 KB que adentro trae un bitmap ya en
+ * base64— eso son 216 KB de texto generados por cada ticket y cada comanda,
+ * y en el mostrador se imprimen los dos por pedido.
+ *
+ * La clave incluye la fecha de modificación: si cambiás el logo desde
+ * Configuración, la entrada vieja deja de valer sola y no hay que reiniciar.
+ */
+const cacheAssets = new Map();
+
 function embedAsset(assetUrl, publicApiUrl) {
   const raw = String(assetUrl || '').trim();
   if (!raw) return '';
@@ -132,10 +147,20 @@ function embedAsset(assetUrl, publicApiUrl) {
     try {
       const archivo = uploadPublicPathToFile(raw);
       if (archivo && fs.existsSync(archivo)) {
-        const { size } = fs.statSync(archivo);
+        const { size, mtimeMs } = fs.statSync(archivo);
         const tipo = TIPOS_IMAGEN[path.extname(archivo).toLowerCase()];
         if (tipo && size > 0 && size <= MAX_LOGO_BYTES) {
-          return `data:${tipo};base64,${fs.readFileSync(archivo).toString('base64')}`;
+          const clave = `${archivo}:${mtimeMs}:${size}`;
+          const guardado = cacheAssets.get(clave);
+          if (guardado) return guardado;
+
+          const dataUri = `data:${tipo};base64,${fs.readFileSync(archivo).toString('base64')}`;
+          /* Una sola entrada: sólo se cachea el logo, y si cambia el archivo
+             la clave cambia. Sin este límite, cada logo viejo quedaría en
+             memoria para siempre. */
+          cacheAssets.clear();
+          cacheAssets.set(clave, dataUri);
+          return dataUri;
         }
       }
     } catch {
