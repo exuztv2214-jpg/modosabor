@@ -262,7 +262,14 @@ router.post('/mesa/:mesa/precuenta', auth, requirePermission('pedidos.print'), (
 
   // Igual que en /:id/imprimir: convertir de centavos a pesos antes de
   // renderizar el HTML, porque el middleware global solo actua sobre JSON.
-  const pedidosEnPesos = pedidosMesa.map((pedido) => centsToPesos(pedido));
+  /*
+    Se hidrata cada pedido antes de convertir: `items` viene como texto JSON
+    desde la base y el conversor no entra a un string, así que los renglones
+    de la precuenta salían en centavos igual que en el ticket.
+  */
+  const pedidosEnPesos = pedidosMesa.map((pedido) =>
+    centsToPesos(getPedidoHydratedById(pedido.id) || pedido)
+  );
   const document = buildMesaPrecuentaDocument(db, mesa, pedidosEnPesos);
   const copias = Math.max(1, Number(req.body?.copias || configuredCopies('ticket_cliente')));
   const impresion = registerPrintJob(
@@ -751,8 +758,18 @@ router.get('/:id/impresiones', auth, requirePermission('pedidos.print'), (req, r
 
 router.get('/:id/impresion/:tipo', auth, requirePermission('pedidos.print'), (req, res) => {
   const { buildPrintDocument } = require('../utils/printTemplates');
-  const pedido = getPedidoOr404(req.params.id, res);
-  if (!pedido) return;
+  /*
+    Hidratado y no la fila cruda. `pedidos.items` es una columna de TEXTO con
+    JSON adentro, y el conversor de centavos no puede ver adentro de un
+    string: el total salía bien —es una columna numérica— pero cada renglón
+    del ticket se imprimía en centavos. Dos milanesas de $7.000 figuraban
+    como "$1.400.000" arriba de un total de "$14.000".
+
+    `getPedidoHydratedById` devuelve los ítems como lista, y ahí sí el
+    conversor entra y los pasa a pesos.
+  */
+  const pedido = getPedidoHydratedById(req.params.id);
+  if (!pedido) return res.status(404).json({ error: 'Pedido no encontrado' });
 
   const tipo =
     req.params.tipo === 'comanda'
@@ -1129,8 +1146,18 @@ router.post('/', publicOrderRateLimit, validateBody(createPedidoSchema), async (
 
 router.post('/:id/imprimir', auth, requirePermission('pedidos.print'), (req, res) => {
   const { buildPrintDocument } = require('../utils/printTemplates');
-  const pedido = getPedidoOr404(req.params.id, res);
-  if (!pedido) return;
+  /*
+    Hidratado y no la fila cruda. `pedidos.items` es una columna de TEXTO con
+    JSON adentro, y el conversor de centavos no puede ver adentro de un
+    string: el total salía bien —es una columna numérica— pero cada renglón
+    del ticket se imprimía en centavos. Dos milanesas de $7.000 figuraban
+    como "$1.400.000" arriba de un total de "$14.000".
+
+    `getPedidoHydratedById` devuelve los ítems como lista, y ahí sí el
+    conversor entra y los pasa a pesos.
+  */
+  const pedido = getPedidoHydratedById(req.params.id);
+  if (!pedido) return res.status(404).json({ error: 'Pedido no encontrado' });
 
   const tipo = req.body.tipo || 'ticket_cliente';
   const copias = Math.max(1, Number(req.body.copias || configuredCopies(tipo)));
