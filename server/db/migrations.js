@@ -871,6 +871,7 @@ function runMigrations(db) {
     }
   } catch {}
 
+  crearTablasWhatsapp(db);
   migrateMoneyColumns(db);
   migrarUmbralesDeNivel(db);
   migrarPuntosInflados(db);
@@ -1070,6 +1071,76 @@ function migrateMoneyColumns(db) {
       logger.error(`Error migrando ${table}.${column}`, { message: e.message });
     }
   }
+}
+
+/**
+ * Tablas del envío masivo de WhatsApp.
+ *
+ * Van acá y no en schema.sql porque schema.sql tiene los saltos de línea de
+ * Windows y tocarlo ensucia el diff con 850 líneas que no cambiaron.
+ *
+ * ── Por qué los contactos NO tienen tabla propia ───────────────────────────
+ *
+ * La lista sale de `clientes`, que son los que compraron de verdad. La app
+ * anterior armaba la lista escrapeando los chats de WhatsApp, y por eso
+ * terminaba mandándole la promo del menú del día a Personal, a +Pagos y a un
+ * catering: cualquiera que alguna vez hubiera escrito al número.
+ *
+ * Acá sólo se guarda lo que `clientes` no sabe: quién pidió la baja y qué se
+ * le mandó a cada uno.
+ */
+function crearTablasWhatsapp(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS wa_excluidos (
+      telefono TEXT PRIMARY KEY,
+      motivo TEXT DEFAULT '',
+      creado_en DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS wa_campanas (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      nombre TEXT DEFAULT '',
+      mensaje TEXT NOT NULL,
+      imagen TEXT DEFAULT '',
+      -- borrador | enviando | pausada | terminada | cancelada
+      estado TEXT DEFAULT 'borrador',
+      simulacro INTEGER DEFAULT 0,
+      total INTEGER DEFAULT 0,
+      enviados INTEGER DEFAULT 0,
+      fallidos INTEGER DEFAULT 0,
+      creado_en DATETIME DEFAULT CURRENT_TIMESTAMP,
+      iniciado_en DATETIME,
+      terminado_en DATETIME
+    );
+
+    CREATE TABLE IF NOT EXISTS wa_envios (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      campana_id INTEGER REFERENCES wa_campanas(id) ON DELETE CASCADE,
+      cliente_id INTEGER,
+      telefono TEXT NOT NULL,
+      nombre TEXT DEFAULT '',
+      -- pendiente | enviado | fallido | salteado
+      estado TEXT DEFAULT 'pendiente',
+      error TEXT DEFAULT '',
+      enviado_en DATETIME,
+      UNIQUE(campana_id, telefono)
+    );
+
+    CREATE TABLE IF NOT EXISTS wa_respuestas (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      telefono TEXT NOT NULL,
+      texto TEXT DEFAULT '',
+      es_baja INTEGER DEFAULT 0,
+      recibido_en DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- El cupo por ventana pregunta "cuántos salieron en los últimos 60
+    -- minutos" antes de cada mensaje. Sin índice eso recorre la tabla entera
+    -- ciento cincuenta veces por corrida.
+    CREATE INDEX IF NOT EXISTS idx_wa_envios_fecha ON wa_envios(enviado_en);
+    CREATE INDEX IF NOT EXISTS idx_wa_envios_campana ON wa_envios(campana_id);
+    CREATE INDEX IF NOT EXISTS idx_wa_respuestas_fecha ON wa_respuestas(recibido_en);
+  `);
 }
 
 module.exports = { runMigrations };

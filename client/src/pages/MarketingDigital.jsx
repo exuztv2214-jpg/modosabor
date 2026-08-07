@@ -1,6 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
-import { BarChart3, CalendarDays, Library, Megaphone, Plus, RefreshCw, X } from 'lucide-react';
+import {
+  ArrowLeft,
+  BarChart3,
+  CalendarDays,
+  LayoutGrid,
+  Library,
+  Megaphone,
+  MessageCircle,
+  Plus,
+  RefreshCw,
+  X,
+} from 'lucide-react';
 
 import api from '../lib/api.js';
 import ActionDialog from '../components/ActionDialog.jsx';
@@ -10,6 +21,8 @@ import MarketingResumen from './Marketing/MarketingResumen.jsx';
 import MarketingCampanas from './Marketing/MarketingCampanas.jsx';
 import MarketingBiblioteca from './Marketing/MarketingBiblioteca.jsx';
 import MarketingAgenda from './Marketing/MarketingAgenda.jsx';
+import MarketingHub from './Marketing/MarketingHub.jsx';
+import MarketingWhatsapp from './Marketing/MarketingWhatsapp.jsx';
 import {
   CALENDAR_STATES,
   CHANNELS,
@@ -33,11 +46,18 @@ import {
  *  · Biblioteca — promos y contenido, que son insumos de una campaña.
  *  · Agenda — qué publicar y cuándo, con el publicador de Facebook al lado.
  */
+/*
+  `inicio` es la portada con los cuadros grandes y es adonde se entra. Las
+  demás quedan como navegación de vuelta: una vez adentro de Campañas hay que
+  poder saltar a Agenda sin volver a la portada cada vez.
+*/
 const TABS = [
+  { id: 'inicio', label: 'Inicio', icon: LayoutGrid },
   { id: 'resumen', label: 'Resumen', icon: BarChart3 },
+  { id: 'whatsapp', label: 'WhatsApp', icon: MessageCircle },
+  { id: 'agenda', label: 'Agenda', icon: CalendarDays },
   { id: 'campanas', label: 'Campañas', icon: Megaphone },
   { id: 'biblioteca', label: 'Biblioteca', icon: Library },
-  { id: 'agenda', label: 'Agenda', icon: CalendarDays },
 ];
 
 const CONTROL =
@@ -153,7 +173,15 @@ function Modal({ open, title, subtitle, onClose, onSubmit, saving, children }) {
 }
 
 export default function MarketingDigital() {
-  const [tab, setTab] = useState('resumen');
+  const [tab, setTab] = useState('inicio');
+  /*
+    El resumen de WhatsApp para la portada. Se pide sólo cuando se está en el
+    inicio: en Campañas o Biblioteca no aporta nada y sería pegarle al
+    servidor de gusto. Si falla —por ejemplo porque el usuario no tiene el
+    permiso de marketing— la portada muestra el cuadro sin número en vez de
+    romperse entera.
+  */
+  const [whatsapp, setWhatsapp] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [dashboard, setDashboard] = useState(null);
@@ -339,6 +367,22 @@ export default function MarketingDigital() {
 
   const pedirBorrar = (recurso, item, label) => setDeleteDialog({ recurso, id: item.id, label });
 
+  useEffect(() => {
+    if (tab !== 'inicio') return undefined;
+    let vivo = true;
+    const traer = () =>
+      api
+        .get('/whatsapp/estado')
+        .then((d) => vivo && setWhatsapp(d))
+        .catch(() => vivo && setWhatsapp(null));
+    traer();
+    const timer = setInterval(traer, 15000);
+    return () => {
+      vivo = false;
+      clearInterval(timer);
+    };
+  }, [tab]);
+
   const accionPrincipal = {
     campanas: { label: 'Nueva campaña', onClick: () => openModal('campana') },
     biblioteca: { label: 'Nueva promo', onClick: () => openModal('promo') },
@@ -350,9 +394,25 @@ export default function MarketingDigital() {
       <div className="mx-auto max-w-7xl space-y-4 pb-10">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight text-gray-900">Marketing</h1>
+            <div className="flex items-center gap-2">
+              {tab !== 'inicio' ? (
+                <button
+                  type="button"
+                  onClick={() => setTab('inicio')}
+                  aria-label="Volver a Marketing"
+                  className="-ml-1 flex h-8 w-8 items-center justify-center rounded-xl text-gray-400 transition hover:bg-white hover:text-gray-700"
+                >
+                  <ArrowLeft size={18} strokeWidth={STROKE} />
+                </button>
+              ) : null}
+              <h1 className="text-2xl font-semibold tracking-tight text-gray-900">
+                {tab === 'inicio' ? 'Marketing' : TABS.find((x) => x.id === tab)?.label}
+              </h1>
+            </div>
             <p className="mt-0.5 text-[13px] text-gray-500">
-              Campañas con código de seguimiento, para saber qué trajo cada peso
+              {tab === 'whatsapp'
+                ? 'Promos a tus clientes, con el ritmo cuidado para no perder el número'
+                : 'Campañas con código de seguimiento, para saber qué trajo cada peso'}
             </p>
           </div>
 
@@ -405,6 +465,20 @@ export default function MarketingDigital() {
           </div>
         ) : (
           <>
+            {tab === 'inicio' && (
+              <MarketingHub
+                dashboard={dashboard}
+                campanas={campanas}
+                contenidos={contenidos}
+                promos={promos}
+                calendario={calendario}
+                whatsapp={whatsapp}
+                onIr={setTab}
+              />
+            )}
+
+            {tab === 'whatsapp' && <MarketingWhatsapp />}
+
             {tab === 'resumen' && (
               <MarketingResumen
                 dashboard={dashboard}

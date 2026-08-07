@@ -244,6 +244,12 @@ app.use('/api/personal', require('./routes/personal'));
 app.use('/api/caja', require('./routes/caja'));
 app.use('/api/cupones', require('./routes/cupones'));
 app.use('/api/marketing', require('./routes/marketing'));
+/*
+  Envío masivo de WhatsApp. Vive adentro del sistema y no en una PC del local:
+  usa Baileys, que habla el protocolo directo sin navegador, y guarda la
+  sesión en el volumen para que un deploy no obligue a escanear el QR de nuevo.
+*/
+app.use('/api/whatsapp', require('./routes/whatsappMasivo'));
 app.use('/api/compras', require('./routes/compras'));
 app.use('/api/fidelizacion', require('./routes/fidelizacion'));
 app.use('/api/operacion', require('./routes/operacion'));
