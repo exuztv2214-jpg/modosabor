@@ -353,6 +353,7 @@ function createPedidoRecord(payload) {
   const pagoEstado = resolveInitialPagoEstado({
     metodoPago,
     origen,
+    tipoEntrega: tipo_entrega,
     pagoEstado: pago_estado,
   });
 

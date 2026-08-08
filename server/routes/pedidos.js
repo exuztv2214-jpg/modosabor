@@ -864,9 +864,37 @@ router.put('/:id/pago', auth, requirePermission('pedidos.edit'), (req, res) => {
   const nextPagoEstado = normalizePagoEstado(req.body?.pago_estado, {
     metodoPago,
     origen: pedido.origen,
+    tipoEntrega: pedido.tipo_entrega,
   });
   if (!['pendiente', 'pagado', 'rechazado', 'devuelto'].includes(nextPagoEstado)) {
     return res.status(400).json({ error: 'Estado de pago invalido' });
+  }
+
+  /*
+    Cobrar y decir con qué se cobró son el mismo gesto.
+
+    Esta ruta sólo aceptaba el estado, así que una mesa se marcaba cobrada
+    arrastrando el método que se había elegido al cargar el pedido —una
+    suposición hecha una hora antes, cuando el cliente todavía estaba mirando
+    la carta—. Si pagaban distinto, el cierre de caja repartía mal entre
+    efectivo y digital: el mismo problema que en el delivery, donde el
+    repartidor sí puede corregirlo desde la app.
+
+    Ahora se puede mandar el método junto con el cobro. Es opcional: si no
+    viene, se conserva el que estaba, y las llamadas viejas siguen andando.
+  */
+  const metodoPedido = String(req.body?.metodo_pago || '').trim();
+  let nextMetodoPago = metodoPago;
+  if (metodoPedido) {
+    const normalizado = normalizeMetodoPago(metodoPedido);
+    if (normalizado === 'mercadopago') {
+      return res.status(400).json({ error: 'No se puede pasar un cobro a MercadoPago a mano' });
+    }
+    nextMetodoPago = normalizado;
+    db.prepare(
+      'UPDATE pedidos SET metodo_pago = ?, actualizado_en = CURRENT_TIMESTAMP WHERE id = ?'
+    ).run(nextMetodoPago, pedido.id);
+    pedido.metodo_pago = nextMetodoPago;
   }
 
   const detalle = String(req.body?.detalle || '').trim();
@@ -958,6 +986,7 @@ router.post('/checkout/mercadopago', publicOrderRateLimit, async (req, res) => {
       pago_estado: resolveInitialPagoEstado({
         metodoPago: normalized.metodo_pago,
         origen: normalized.origen,
+        tipoEntrega: normalized.tipo_entrega,
       }),
     });
 
@@ -1036,6 +1065,7 @@ router.post(
         pago_estado: resolveInitialPagoEstado({
           metodoPago: normalized.metodo_pago,
           origen: normalized.origen,
+          tipoEntrega: normalized.tipo_entrega,
         }),
       });
       const actor = actorFromRequest(req, 'Caja');
@@ -1089,6 +1119,7 @@ router.post('/', publicOrderRateLimit, validateBody(createPedidoSchema), async (
       pago_estado: resolveInitialPagoEstado({
         metodoPago: normalized.metodo_pago,
         origen: normalized.origen,
+        tipoEntrega: normalized.tipo_entrega,
       }),
     });
     const actor = actorFromRequest(req, origen === 'web' ? 'Web publica' : 'Canal publico');

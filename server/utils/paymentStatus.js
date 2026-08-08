@@ -19,6 +19,31 @@ const REFUNDED_STATUSES = new Set(['devuelto', 'refund', 'refunded', 'charged_ba
 const INTERNAL_ORIGINS = new Set(['tpv', 'interno', 'mesa', 'caja']);
 const CASH_METHODS = new Set(['efectivo']);
 
+/**
+ * Tipos de entrega donde el pedido se despacha antes de que entre la plata.
+ *
+ * Es la distinción que hacen todos los sistemas del rubro. Fudo la resuelve
+ * con dos modos separados: "cuentas abiertas por mesa" para el salón y
+ * "Mostrador Express" para cobrar sin usar mesas. Toast usa tres estados de
+ * comanda, y define la abierta como "check activo, sin pagos aplicados, con
+ * saldo pendiente" — un pedido puede estar hecho, servido y comido sin tener
+ * un solo peso aplicado encima.
+ *
+ * Acá pasa lo mismo por dos motivos distintos:
+ *
+ *   - `delivery`: la plata la cobra el repartidor en la puerta, cuarenta
+ *     minutos después. El método que se eligió en el TPV es una suposición.
+ *
+ *   - `mesa`: el cliente pide, come y paga al final. La precuenta que imprime
+ *     este mismo sistema es la prueba: se imprime justamente porque todavía
+ *     no pagó.
+ *
+ * `retiro` no está acá a propósito. En Modo Sabor "retiro" es el mostrador:
+ * el cliente compra, paga y se lo lleva. Ahí el cobro es simultáneo y marcarlo
+ * pendiente obligaría a cerrar a mano cada venta del día.
+ */
+const COBRO_DIFERIDO = new Set(['delivery', 'mesa']);
+
 function safeJsonParse(value, fallback = null) {
   try {
     return JSON.parse(value || '');
@@ -43,9 +68,38 @@ function isMetodoDigital(method) {
   return !isMetodoEfectivo(method);
 }
 
+/**
+ * Estado con el que nace el pago de un pedido.
+ *
+ * La regla vieja era "si lo cargó alguien del local, ya está cobrado". Para el
+ * mostrador es cierto: se cobra y recién ahí se entrega el pedido.
+ *
+ * Para un delivery no. Esa plata está en el bolsillo del cliente, a cuarenta
+ * minutos de ahí, y el método que se eligió en el TPV es una suposición: el
+ * cliente muchas veces no dice cómo va a pagar hasta que el repartidor llega a
+ * la puerta.
+ *
+ * Marcarlo cobrado desde el vamos tenía dos consecuencias, las dos molestas:
+ *
+ *   - El cierre de caja reparte efectivo contra digital según el método de
+ *     cada pedido cobrado. Si la suposición salió mal, el reparto sale mal, y
+ *     el efectivo que se le pide rendir al repartidor también.
+ *
+ *   - En la app del repartidor el selector de forma de pago aparece cuando el
+ *     cobro figura pendiente. Como nunca lo estaba, el repartidor veía "Ya
+ *     cobrado · Efectivo" y ningún botón para corregirlo. Sólo se le abría una
+ *     ventana de cinco minutos después de marcar entregado, que en la práctica
+ *     no llegaba a usar.
+ *
+ * Ahora un delivery interno nace pendiente, que es la verdad, y se salda solo
+ * al entregarse con el método que el repartidor haya dejado puesto —eso ya lo
+ * hacía `shouldAutoSettleOnEntrega`, no hubo que agregarlo—. Mostrador, mesa y
+ * retiro siguen naciendo cobrados como antes.
+ */
 function resolveInitialPagoEstado({
   metodoPago = 'efectivo',
   origen = 'web',
+  tipoEntrega = '',
   pagoEstado = undefined,
 } = {}) {
   if (pagoEstado !== undefined && String(pagoEstado || '').trim() !== '') {
@@ -56,20 +110,27 @@ function resolveInitialPagoEstado({
   const normalizedOrigin = String(origen || 'web')
     .trim()
     .toLowerCase();
+  const normalizedDelivery = String(tipoEntrega || '')
+    .trim()
+    .toLowerCase();
 
   if (normalizedMethod === 'mercadopago') return 'pendiente';
+  if (COBRO_DIFERIDO.has(normalizedDelivery)) return 'pendiente';
   if (INTERNAL_ORIGINS.has(normalizedOrigin)) return 'pagado';
   return 'pendiente';
 }
 
-function normalizePagoEstado(value, { metodoPago = 'efectivo', origen = 'web' } = {}) {
+function normalizePagoEstado(
+  value,
+  { metodoPago = 'efectivo', origen = 'web', tipoEntrega = '' } = {}
+) {
   const normalizedValue = String(value || '')
     .trim()
     .toLowerCase();
   const normalizedMethod = normalizeMetodoPago(metodoPago);
 
   if (MISSING_STATUSES.has(normalizedValue)) {
-    return resolveInitialPagoEstado({ metodoPago: normalizedMethod, origen });
+    return resolveInitialPagoEstado({ metodoPago: normalizedMethod, origen, tipoEntrega });
   }
   if (PAID_STATUSES.has(normalizedValue)) return 'pagado';
   if (REJECTED_STATUSES.has(normalizedValue)) return 'rechazado';
@@ -92,9 +153,41 @@ function shouldAutoSettleOnEntrega(pedido) {
   if (!pedido) return false;
   const metodoPago = normalizeMetodoPago(pedido.metodo_pago);
   if (metodoPago === 'mercadopago') return false;
+  /*
+    Las mesas no se saldan al cerrarse.
+
+    Para un delivery "entregado" y "cobrado" pasan en el mismo momento: el
+    repartidor tiene la plata en la mano. Para una mesa no. Cerrar la mesa es
+    una acción de servicio —se fueron, hay que liberarla— y el mozo la aprieta
+    aunque el cobro lo haya hecho otro, o todavía no lo haya hecho nadie.
+
+    Si se saldaba sola acá, el arreglo de más arriba no servía de nada: la
+    mesa nacía pendiente, el mozo tocaba "Cerrar", y volvía a quedar cobrada
+    con el método que se había adivinado en el TPV. El mismo error entrando
+    por la puerta de atrás.
+
+    El cobro de una mesa es explícito, con el botón de la pantalla de Mesas.
+    Si nadie lo aprieta, la mesa queda pendiente y el cierre de caja la
+    muestra: "hay $X en pedidos sin cobrar". Un pendiente visible es mejor
+    que un cobrado inventado.
+  */
+  if (
+    String(pedido.tipo_entrega || '')
+      .trim()
+      .toLowerCase() === 'mesa'
+  )
+    return false;
+  /*
+    Se pasa el tipo de entrega porque un pedido viejo puede tener la columna
+    `pago_estado` vacía, y en ese caso el estado se deduce. Sin este dato un
+    delivery del TPV se deducía como "ya cobrado" y no se saldaba al entregar:
+    el cobro quedaba colgado justo en los pedidos que este cambio viene a
+    arreglar.
+  */
   return isPagoPendiente(pedido.pago_estado, {
     metodoPago,
     origen: pedido.origen,
+    tipoEntrega: pedido.tipo_entrega,
   });
 }
 

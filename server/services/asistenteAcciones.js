@@ -499,6 +499,7 @@ async function ejecutarPedido(argumentos, contexto = {}) {
     pago_estado: resolveInitialPagoEstado({
       metodoPago: normalizado.metodo_pago,
       origen: normalizado.origen,
+      tipoEntrega: normalizado.tipo_entrega,
     }),
   });
 

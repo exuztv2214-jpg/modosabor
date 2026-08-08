@@ -13,6 +13,7 @@ import {
   X,
   Users,
   CalendarDays,
+  Wallet,
 } from 'lucide-react';
 
 import api from '../lib/api.js';
@@ -22,8 +23,40 @@ import ActionDialog from '../components/ActionDialog.jsx';
 import tableImg from '../image/table/table.jpg';
 import { BRAND, STROKE, Z, estadoTono } from '../lib/theme.js';
 import { minutosDesde as minutosDesdeServidor, parseFechaServidor } from '../lib/fechas.js';
+import { isPagoPagado } from '../lib/paymentStatus.js';
 
 const fmt = (n) => `$${Number(n || 0).toLocaleString('es-AR')}`;
+
+const METODO_LABELS = {
+  efectivo: 'Efectivo',
+  transferencia: 'Transferencia',
+  modo: 'MODO',
+  uala: 'Ualá',
+  tarjeta: 'Tarjeta',
+  mercadopago: 'Mercado Pago',
+};
+
+const metodoLabel = (valor) => METODO_LABELS[String(valor || '').toLowerCase()] || 'Efectivo';
+
+/**
+ * Medios de cobro que se le ofrecen al mozo.
+ *
+ * Salen de la configuración del negocio, igual que en el TPV y en la app del
+ * repartidor, para que las tres pantallas ofrezcan lo mismo. Mercado Pago se
+ * saca: ese cobro lo confirma el proveedor y no se puede marcar a mano.
+ */
+function metodosDeCobro(config) {
+  let habilitados = [];
+  try {
+    habilitados = JSON.parse(config?.metodos_pago || '[]');
+  } catch {
+    habilitados = [];
+  }
+  if (!Array.isArray(habilitados) || habilitados.length === 0) {
+    habilitados = ['efectivo', 'transferencia', 'modo', 'uala'];
+  }
+  return habilitados.filter((m) => m !== 'mercadopago');
+}
 
 // La base guarda `creado_en` en UTC pero sin marcarlo. Normalizar sólo el
 // espacio no alcanzaba: el navegador lo leía como hora local y en Tucumán la
@@ -110,6 +143,9 @@ export default function Mesas() {
   const [loading, setLoading] = useState(true);
   const [updatingKey, setUpdatingKey] = useState('');
   const [printingMesa, setPrintingMesa] = useState('');
+  const [cobrandoId, setCobrandoId] = useState(null);
+  // Pedido cuyo cobro se está por registrar. Abre el selector de método.
+  const [cobroTarget, setCobroTarget] = useState(null);
 
   // Estados para modales y flujos
   const [moveState, setMoveState] = useState(null); // mesa de origen del pedido a mover
@@ -161,6 +197,20 @@ export default function Mesas() {
       socketManager.disconnect();
     };
   }, []);
+
+  /*
+    Escape cierra el cobro. Se escucha en el documento y no en el contenedor
+    del modal porque el foco está en los botones de medio de pago: un
+    onKeyDown colgado del div nunca se dispararía.
+  */
+  useEffect(() => {
+    if (!cobroTarget) return undefined;
+    const alPresionar = (evento) => {
+      if (evento.key === 'Escape') setCobroTarget(null);
+    };
+    document.addEventListener('keydown', alPresionar);
+    return () => document.removeEventListener('keydown', alPresionar);
+  }, [cobroTarget]);
 
   const mesas = useMemo(() => {
     const configuradas = parseMesaNames(config);
@@ -241,6 +291,38 @@ export default function Mesas() {
       toast.error(error?.error || 'No se pudo generar la precuenta');
     } finally {
       setPrintingMesa('');
+    }
+  };
+
+  /*
+    Cobrar la mesa.
+
+    Un pedido de mesa nace pendiente de cobro, porque el cliente pide, come y
+    paga al final —para eso está la precuenta de acá al lado—. Alguien tiene
+    que decir "ya pagó", y ese alguien está parado en esta pantalla, no en
+    Pedidos: obligar a ir hasta el listado para cerrar cada mesa era cambiar
+    un número mal por un paso de más en el peor momento del servicio.
+  */
+  const handleCobrar = async (pedido, metodoPago) => {
+    setCobrandoId(pedido.id);
+    try {
+      /*
+        Se manda el método junto con el cobro. Sin esto la mesa quedaba cobrada
+        con lo que se había elegido al cargar el pedido —una suposición hecha
+        cuando el cliente todavía miraba la carta— y el cierre de caja repartía
+        mal entre efectivo y digital.
+      */
+      await api.put(`/pedidos/${pedido.id}/pago`, {
+        pago_estado: 'pagado',
+        metodo_pago: metodoPago,
+      });
+      toast.success(`Cobrado ${fmt(pedido.total)} en ${metodoLabel(metodoPago)}`);
+      setCobroTarget(null);
+      await cargar();
+    } catch (error) {
+      toast.error(error?.error || 'No se pudo registrar el cobro');
+    } finally {
+      setCobrandoId(null);
     }
   };
 
@@ -463,6 +545,39 @@ export default function Mesas() {
                               <Printer size={13} strokeWidth={STROKE} />
                             </button>
                           </div>
+
+                          {/*
+                            El cobro va acá abajo y ocupa todo el ancho a
+                            propósito: es lo último que pasa en la mesa y lo
+                            único que mueve plata. Si ya se cobró queda el
+                            cartel en verde, sin botón, para que nadie lo
+                            toque dos veces.
+                          */}
+                          {isPagoPagado(p.pago_estado) ? (
+                            <div className="mt-2 rounded-lg bg-success-50 px-3 py-1.5 text-[11px] font-semibold text-success-700">
+                              Cobrado · {fmt(p.total)}
+                            </div>
+                          ) : !canEdit ? (
+                            /*
+                              Sin permiso para tocar pedidos no se muestra el
+                              botón: el servidor lo rechazaría igual y el mozo
+                              se comería un error sin entender por qué. Se deja
+                              el aviso para que sepa que falta cobrar y avise a
+                              quien sí puede.
+                            */
+                            <div className="mt-2 rounded-lg bg-warning-50 px-3 py-1.5 text-[11px] font-semibold text-warning-700">
+                              Sin cobrar · {fmt(p.total)}
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => setCobroTarget(p)}
+                              disabled={cobrandoId === p.id}
+                              className="mt-2 flex h-9 w-full items-center justify-center gap-1.5 rounded-lg bg-success-600 px-3 text-[11px] font-semibold text-white transition-colors hover:bg-success-700 disabled:opacity-60"
+                            >
+                              <Wallet size={13} strokeWidth={STROKE} />
+                              {cobrandoId === p.id ? 'Cobrando…' : `Cobrar ${fmt(p.total)}`}
+                            </button>
+                          )}
                         </div>
                       );
                     })}
@@ -696,6 +811,66 @@ export default function Mesas() {
                 {movingLoading ? 'Moviendo...' : 'Confirmar movimiento'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/*
+        Cobro de la mesa.
+
+        El método es la pregunta, no un detalle: por eso cada medio es un botón
+        que cobra directo, sin un "confirmar" después. Un toque, una decisión.
+        El total va grande arriba porque es lo que el mozo está por cantar.
+      */}
+      {cobroTarget && (
+        <div
+          className="fixed inset-0 z-[20000] flex items-center justify-center bg-slate-950/55 p-4 backdrop-blur-sm"
+          /*
+            Sólo cierra si el clic cae en el fondo, no en la tarjeta. Se mira
+            el destino del evento en vez de frenar la propagación adentro:
+            así el contenedor del diálogo queda sin manejadores y no promete
+            un comportamiento de teclado que no tiene.
+          */
+          onClick={(evento) => {
+            if (evento.target === evento.currentTarget) setCobroTarget(null);
+          }}
+          role="presentation"
+        >
+          <div
+            className="w-full max-w-sm rounded-[32px] bg-white p-7 shadow-2xl"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Registrar el cobro de la mesa"
+          >
+            <p className="text-[13px] font-medium text-gray-400">
+              Mesa {cobroTarget.mesa} · Orden #{cobroTarget.numero}
+            </p>
+            <p className="mb-1 mt-1 text-3xl font-semibold text-gray-900">
+              {fmt(cobroTarget.total)}
+            </p>
+            <p className="mb-5 text-[13px] font-medium text-gray-500">¿Con qué pagó?</p>
+
+            <div className="grid grid-cols-2 gap-2">
+              {metodosDeCobro(config).map((metodo) => (
+                <button
+                  key={metodo}
+                  type="button"
+                  disabled={cobrandoId === cobroTarget.id}
+                  onClick={() => handleCobrar(cobroTarget, metodo)}
+                  className="min-h-12 rounded-xl border border-gray-200 bg-white px-3 text-[13px] font-semibold text-gray-700 transition-colors hover:border-success-600 hover:bg-success-50 hover:text-success-700 disabled:opacity-60"
+                >
+                  {metodoLabel(metodo)}
+                </button>
+              ))}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setCobroTarget(null)}
+              className="mt-4 h-10 w-full rounded-xl text-[13px] font-semibold text-gray-400 hover:text-gray-700"
+            >
+              Volver
+            </button>
           </div>
         </div>
       )}
