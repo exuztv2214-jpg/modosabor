@@ -25,6 +25,7 @@ const db = require('../db');
 const { parsePedidoItems } = require('./pedidoItems');
 const { centsToPesos } = require('./moneyConversion');
 const logger = require('./logger');
+const { sendRiderAssignmentPush } = require('./firebasePush');
 
 // Almacenamiento en memoria de tokens de seguimiento (podria moverse a Redis en el futuro)
 const trackingTokens = new Map();
@@ -279,6 +280,9 @@ function emitDeliveryAssignment(
 
   if (pedido?.repartidor_id) {
     emitPedidoAsignado(io, pedido);
+    // FCM complementa al socket cuando la Rider está cerrada. No se espera ni
+    // se propaga un error: la asignación ya quedó confirmada en la base.
+    void sendRiderAssignmentPush(db, pedido);
   }
 
   if (repartidor) {

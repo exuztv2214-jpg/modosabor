@@ -13,6 +13,7 @@ deploy/*.key
 *.key
 *.jks
 *.keystore
+server/firebase-service-account*.json
 template_base/
 .launcher/
 .codex-logs/

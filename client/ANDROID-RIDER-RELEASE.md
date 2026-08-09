@@ -48,8 +48,16 @@ de sesión y actualización desde el panel.
 
 ## Notificaciones push
 
-La interfaz de Rider ya contempla FCM, pero para activarlo falta autoridad del
-proyecto Firebase: `client/android/app/google-services.json` y la cuenta de
-servicio del backend para enviar notificaciones. Sin esa configuración la app
-sigue operativa por socket, refresco y notificaciones locales; no se debe
-declarar push en segundo plano como activo hasta completar esa integración.
+La Rider está registrada en Firebase como `modosabor-rider`, con el paquete
+`com.modosabor.rider`. Su `google-services.json` queda sólo en la máquina de
+build porque Android lo ignora deliberadamente; se puede recuperar con:
+
+```powershell
+firebase apps:sdkconfig ANDROID 1:474654393154:android:93105c1d570d2f2f1b7edb --project modosabor-rider
+```
+
+Para habilitar el envío desde Railway, crear una cuenta de servicio del mismo
+proyecto y cargar su JSON completo en la variable protegida
+`FIREBASE_SERVICE_ACCOUNT_JSON`. Ese archivo no se versiona. Con la variable
+cargada, cada asignación de pedido envía una notificación FCM de prioridad alta
+al dispositivo del rider; los tokens vencidos se invalidan automáticamente.

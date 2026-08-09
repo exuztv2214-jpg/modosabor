@@ -78,6 +78,7 @@ import api from '../lib/api.js';
 import { BRAND } from '../lib/theme.js';
 import { parseFechaServidor } from '../lib/fechas.js';
 import { checkForUpdate, dismissUpdate, downloadAndInstall } from '../lib/riderUpdater.js';
+import { registerRiderPushToken, subscribeRiderPush } from '../lib/riderPush.js';
 import { socketManager } from '../lib/socket.js';
 import { runDeliveredAlert, runOrderAlert, useOrderAlertPlayback } from '../lib/orderAlerts.js';
 import RiderRouteMap from '../components/RiderRouteMap.jsx';
@@ -987,7 +988,6 @@ export default function RiderPanel() {
     // esto es no-op silencioso: la app sigue igual.
     (async () => {
       try {
-        const { registerRiderPushToken } = await import('../lib/riderPush.js');
         await registerRiderPushToken(riderAuth.id, riderAuth.code);
       } catch {}
     })();
@@ -1077,6 +1077,23 @@ export default function RiderPanel() {
       fetchData({ silent: true });
     });
 
+    // FCM cubre el caso donde Android cerró el socket. En foreground el
+    // listener vuelve a consultar el pedido para aplicar la misma alerta,
+    // estado y cola offline que una asignación por Socket.IO.
+    let disposedPush = false;
+    let unsubscribePush = () => {};
+    subscribeRiderPush((notification) => {
+      if (String(notification?.data?.type || '') === 'pedido_asignado') {
+        fetchData({ silent: true });
+      }
+    }).then((unsubscribe) => {
+      if (disposedPush) {
+        unsubscribe();
+      } else {
+        unsubscribePush = unsubscribe;
+      }
+    });
+
     const syncSilently = () => {
       socketManager.connect();
       socketManager.joinRider(riderAuth.id, riderAuth.code).catch(() => {});
@@ -1093,6 +1110,8 @@ export default function RiderPanel() {
     return () => {
       unsub();
       unsubAsignado();
+      disposedPush = true;
+      unsubscribePush();
       window.clearInterval(intervalId);
       window.removeEventListener('online', syncSilently);
       window.removeEventListener('focus', syncSilently);
