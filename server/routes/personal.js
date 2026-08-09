@@ -12,12 +12,7 @@ const {
   roundStock,
   applyInventoryToItems,
 } = require('../utils/inventory');
-const {
-  parseLocalizedNumber,
-  roundLocalizedNumber,
-  pesosACentavos,
-} = require('../utils/numberInput');
-
+const { parseLocalizedNumber, roundLocalizedNumber } = require('../utils/numberInput');
 const { syncDeliveryRepartidor } = require('../utils/deliveryPersonnelSync');
 const { getOperationalShiftContext } = require('../utils/operationalCaja');
 const { uploadsDir, uploadPathFromFilename } = require('../utils/storagePaths');
@@ -1088,12 +1083,7 @@ function createLiquidacion(person, payload, actor) {
   const frecuenciaPago = normalizeFrequency(person.frecuencia_pago);
   const metodoPago = normalizePaymentMethod(payload?.metodo_pago ?? person.medio_pago_preferido);
   const unidades = roundStock(parseLocalizedNumber(payload?.unidades || 1));
-  // Si viene del formulario está en pesos y hay que convertirlo; si cae de
-  // vuelta al sueldo guardado, ese ya está en centavos.
-  const montoBase =
-    payload?.monto_base === undefined || payload?.monto_base === null
-      ? Number(person.monto_base || 0)
-      : pesosACentavos(payload.monto_base);
+  const montoBase = roundLocalizedNumber(payload?.monto_base ?? person.monto_base);
   const periodoDesde = cleanText(payload?.periodo_desde);
   const periodoHasta = cleanText(payload?.periodo_hasta);
   const notas = cleanText(payload?.notas);
@@ -1983,7 +1973,7 @@ router.post('/:id/objetivos', auth, requirePermission('config.manage'), (req, re
   const objetivo = roundStock(parseLocalizedNumber(req.body?.objetivo || 0));
   const progreso = roundStock(parseLocalizedNumber(req.body?.progreso || 0));
   const premioPuntos = Math.max(0, Number(req.body?.premio_puntos || 0));
-  const premioMonto = pesosACentavos(req.body?.premio_monto || 0);
+  const premioMonto = roundStock(parseLocalizedNumber(req.body?.premio_monto || 0));
   const notas = cleanText(req.body?.notas);
   const cumplido = req.body?.cumplido === true || Number(req.body?.cumplido) === 1 ? 1 : 0;
 
@@ -2246,7 +2236,7 @@ router.post('/', auth, requirePermission('config.manage'), (req, res) => {
   const turnoPreferido = cleanText(req.body?.turno_preferido);
   const usuarioId = req.body?.usuario_id || null;
   const frecuenciaPago = normalizeFrequency(req.body?.frecuencia_pago);
-  const montoBase = pesosACentavos(req.body?.monto_base || 0);
+  const montoBase = roundLocalizedNumber(req.body?.monto_base || 0);
   const medioPagoPreferido = normalizePaymentMethod(req.body?.medio_pago_preferido);
   const activo = Number(req.body?.activo) === 0 ? 0 : 1;
   const notas = cleanText(req.body?.notas);
@@ -2315,10 +2305,7 @@ router.put('/:id', auth, requirePermission('config.manage'), (req, res) => {
   const turnoPreferido = cleanText(req.body?.turno_preferido ?? existing.turno_preferido);
   const usuarioId = req.body?.usuario_id ?? existing.usuario_id;
   const frecuenciaPago = normalizeFrequency(req.body?.frecuencia_pago ?? existing.frecuencia_pago);
-  const montoBase =
-    req.body?.monto_base === undefined || req.body?.monto_base === null
-      ? Number(existing.monto_base || 0)
-      : pesosACentavos(req.body.monto_base);
+  const montoBase = roundLocalizedNumber(req.body?.monto_base ?? existing.monto_base);
   const medioPagoPreferido = normalizePaymentMethod(
     req.body?.medio_pago_preferido ?? existing.medio_pago_preferido
   );
@@ -2549,7 +2536,7 @@ router.post('/:id/movimientos', auth, requirePermission('config.manage'), (req, 
 
   const tipo = cleanText(req.body?.tipo).toLowerCase();
   const descripcion = cleanText(req.body?.descripcion);
-  let monto = pesosACentavos(req.body?.monto || 0);
+  let monto = roundLocalizedNumber(req.body?.monto || 0);
   const impactaCaja =
     Number(req.body?.impacta_caja) === 1 ||
     (req.body?.impacta_caja === undefined && tipo === 'adelanto');
