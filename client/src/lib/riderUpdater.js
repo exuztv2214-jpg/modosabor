@@ -87,7 +87,10 @@ export async function checkForUpdate(httpClient, options = {}) {
       timeout: 8000,
       // No mandamos auth: el endpoint es público.
     });
-    manifest = res?.data;
+    // `api` ya devuelve `response.data` por su interceptor. Antes buscábamos
+    // otra vez `.data`, quedaba undefined y Rider ignoraba toda actualización
+    // aunque el servidor respondiera con una versión más nueva.
+    manifest = res?.data || res;
   } catch (error) {
     // Silent: sin red o server caído, seguimos como si no hubiera update.
     return null;

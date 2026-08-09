@@ -1,9 +1,9 @@
 {
-  "versionCode": 10305,
-  "versionName": "1.3.5",
-  "apkFile": "modosabor-rider-1.3.5.apk",
-  "changelog": "• Centro operativo para ayuda e incidencias del Rider\n• Cola offline reforzada para ayuda, evidencia y sincronización\n• Diagnóstico de notificaciones y dispositivo vinculado\n• Seguridad: revocación remota de acceso desde Delivery",
+  "versionCode": 10306,
+  "versionName": "1.3.6",
+  "apkFile": "modosabor-rider-1.3.6.apk",
+  "changelog": "• Corregido el detector interno de actualizaciones\n• La app ahora muestra la actualización disponible al abrirse\n• Registro Firebase reintenta el aviso pendiente",
   "forceUpdate": false,
   "minVersionCode": 10000,
-  "releasedAt": "2026-08-09T21:30:00Z"
+  "releasedAt": "2026-08-09T22:15:00Z"
 }
