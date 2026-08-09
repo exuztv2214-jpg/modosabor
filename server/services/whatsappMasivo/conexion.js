@@ -1,3 +1,4 @@
+const fs = require('fs');
 const path = require('path');
 const { EventEmitter } = require('events');
 
@@ -40,8 +41,9 @@ const CARPETA_SESION = path.join(dataDir, 'whatsapp-sesion');
 const ESPERAS_RECONEXION = [3000, 8000, 20000, 60000, 120000];
 
 class ConexionWhatsapp extends EventEmitter {
-  constructor() {
+  constructor({ carpetaSesion = CARPETA_SESION } = {}) {
     super();
+    this.carpetaSesion = carpetaSesion;
     this.socket = null;
     /** apagado | conectando | qr | conectado | error */
     this.estado = 'apagado';
@@ -71,12 +73,22 @@ class ConexionWhatsapp extends EventEmitter {
     this.emit('estado', this.resumen());
   }
 
+  /**
+   * Sólo se invoca cuando WhatsApp confirmó `loggedOut`. Esas credenciales ya
+   * no pueden producir otro QR: conservarlas deja al botón reconectando una
+   * sesión muerta para siempre. El directorio es exclusivamente de Baileys;
+   * no contiene campañas, clientes ni datos operativos.
+   */
+  limpiarSesionInvalida() {
+    fs.rmSync(this.carpetaSesion, { recursive: true, force: true });
+  }
+
   async conectar() {
     if (this.socket || this.estado === 'conectando') return this.resumen();
 
     this.cerradoAProposito = false;
     this.cambiarEstado('conectando');
-    ensureDir(CARPETA_SESION);
+    ensureDir(this.carpetaSesion);
 
     /*
       Baileys se carga acá adentro y no arriba del archivo a propósito. Es una
@@ -97,7 +109,7 @@ class ConexionWhatsapp extends EventEmitter {
     const { useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = baileys;
 
     try {
-      const { state, saveCreds } = await useMultiFileAuthState(CARPETA_SESION);
+      const { state, saveCreds } = await useMultiFileAuthState(this.carpetaSesion);
       let version;
       try {
         ({ version } = await fetchLatestBaileysVersion());
@@ -151,13 +163,24 @@ class ConexionWhatsapp extends EventEmitter {
               El celular cerró la sesión. Reintentar no la recupera y sólo
               suma intentos fallidos contra el número: hay que escanear.
             */
+            try {
+              this.limpiarSesionInvalida();
+            } catch (error) {
+              this.cambiarEstado('error', 'No se pudo preparar la nueva vinculación');
+              logger.error('WhatsApp: no se pudo limpiar la sesión inválida', {
+                message: error.message,
+              });
+              return;
+            }
+
             this.qr = null;
             this.numero = null;
-            this.cambiarEstado(
-              'error',
-              'La sesión se cerró desde el celular. Hay que escanear de nuevo.'
-            );
-            logger.warn('WhatsApp: sesión cerrada desde el celular');
+            this.intentos = 0;
+            logger.warn('WhatsApp: sesión cerrada desde el celular; generando nuevo QR');
+            // La sesión inválida ya no existe: una conexión nueva emite QR sin
+            // que el operador tenga que reiniciar Railway ni presionar dos veces.
+            this.cambiarEstado('apagado', 'Preparando un código nuevo…');
+            this.conectar();
             return;
           }
 
@@ -232,4 +255,4 @@ class ConexionWhatsapp extends EventEmitter {
 
 const conexion = new ConexionWhatsapp();
 
-module.exports = { conexion, CARPETA_SESION };
+module.exports = { conexion, ConexionWhatsapp, CARPETA_SESION };
