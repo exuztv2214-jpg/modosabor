@@ -60,20 +60,15 @@ async function sendRiderAssignmentPush(db, pedido) {
   try {
     const messageId = await messaging.send({
       token,
-      notification: {
-        title: 'Nuevo pedido asignado',
-        body: `Pedido #${pedido.numero || pedidoId} listo para revisar`,
-      },
       data: {
         type: 'pedido_asignado',
         pedidoId: String(pedidoId),
+        title: 'Nuevo pedido asignado',
+        // No exponer nombre, dirección ni importe en la pantalla bloqueada.
+        body: `Pedido #${pedido.numero || pedidoId} listo para revisar`,
       },
       android: {
         priority: 'high',
-        notification: {
-          channelId: 'rider-orders',
-          sound: 'rider_alert',
-        },
       },
     });
     logger.info('FCM enviado a Rider', { pedidoId, riderId, messageId });

@@ -13,14 +13,16 @@ import { riderStorageGet, riderStorageSet } from './nativeRiderGps.js';
  * nada. Un repartidor que trabaja con casco quiere la voz; uno que reparte de
  * noche en un barrio tranquilo capaz prefiere sólo vibración.
  *
- * Los valores por defecto son los que menos molestan: suena y vibra, no habla.
+ * Para un rider la voz es una medida de seguridad: permite enterarse sin mirar
+ * el teléfono. Puede apagarla desde su perfil si trabaja en un contexto donde
+ * no corresponde.
  */
 
 const CLAVE = 'ms_rider_preferencias';
 
 export const PREFERENCIAS_POR_DEFECTO = {
   sonido: true,
-  voz: false,
+  voz: true,
   vibracion: true,
   letraGrande: false,
 };

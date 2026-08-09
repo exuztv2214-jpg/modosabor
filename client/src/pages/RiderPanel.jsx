@@ -63,6 +63,7 @@ import { filterRiderGpsPosition } from '../lib/riderGps.js';
 import { resolveAssetUrl } from '../lib/assets.js';
 import {
   isNativeRiderApp,
+  announceRiderOrder,
   clearNativeRiderAuth,
   getRiderLocationPermission,
   loadNativeRiderAuth,
@@ -931,17 +932,19 @@ export default function RiderPanel() {
         await notifyRiderNewOrder(pedido);
       } catch {}
 
-      // Anuncio por voz (TTS) para "ojos en el camino": si el rider esta
-      // manejando puede escuchar el pedido sin sacar el celular. Silent-fail
-      // si el WebView no soporta Web Speech API.
-      try {
-        const cliente = String(pedido?.cliente_nombre || 'sin nombre').split(' ')[0];
-        const direccion = String(pedido?.cliente_direccion || '').split(',')[0];
-        const total = Number(pedido?.total || 0);
-        speakRider(
-          `Nuevo pedido para ${cliente}${direccion ? ` en ${direccion}` : ''}. Monto ${Math.round(total)} pesos.`
-        );
-      } catch {}
+      // Anuncio por voz para "ojos en el camino". En Android se usa TTS
+      // nativo: el WebView puede tener su motor de voz suspendido.
+      const vozActiva = preferenciasRef.current?.voz !== false;
+      const cliente = String(pedido?.cliente_nombre || 'sin nombre').split(' ')[0];
+      const direccion = String(pedido?.cliente_direccion || '').split(',')[0];
+      const total = Number(pedido?.total || 0);
+      const textoVoz = `Nuevo pedido para ${cliente}${direccion ? ` en ${direccion}` : ''}. Monto ${Math.round(total)} pesos.`;
+      if (vozActiva) {
+        try {
+          if (isNativeRiderApp()) await announceRiderOrder(textoVoz);
+          else speakRider(textoVoz);
+        } catch {}
+      }
 
       try {
         await runOrderAlert({
@@ -950,7 +953,12 @@ export default function RiderPanel() {
             ...(configRef.current || {}),
             // Antes estaban clavadas acá: sonido siempre, voz nunca. Ahora
             // manda lo que el rider eligió en su perfil.
-            ...preferenciasParaAlerta(preferenciasRef.current),
+            ...preferenciasParaAlerta({
+              ...preferenciasRef.current,
+              // La voz ya salió por TTS nativo arriba: no repetirla por el
+              // motor del WebView.
+              voz: isNativeRiderApp() ? false : preferenciasRef.current?.voz,
+            }),
           },
           audioContextRef,
           voiceRef,

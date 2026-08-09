@@ -8,11 +8,26 @@ import { API_BASE_URL } from './runtime.js';
 
 const BackgroundGeolocation = registerPlugin('BackgroundGeolocation');
 const RiderSecureStore = registerPlugin('RiderSecureStore');
+const RiderAlert = registerPlugin('RiderAlert');
 const RIDER_AUTH_KEY = 'ms_rider_auth_v1';
 const RIDER_STORAGE_PREFIX = 'ms_rider_';
 
 export function isNativeRiderApp() {
   return Capacitor.isNativePlatform?.() === true;
+}
+
+/**
+ * Voz nativa, no la del WebView. Funciona aunque Android haya suspendido el
+ * motor de voz del navegador y mantiene el anuncio al nivel del sistema.
+ */
+export async function announceRiderOrder(text) {
+  if (!isNativeRiderApp() || !String(text || '').trim()) return false;
+  try {
+    await RiderAlert.speak({ text: String(text).trim() });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function toBrowserLikePosition(location) {
@@ -259,16 +274,14 @@ export async function prepareRiderNotifications() {
   if (Capacitor.getPlatform?.() === 'android') {
     try {
       await LocalNotifications.createChannel({
-        id: 'rider-orders',
+        // Canal nuevo: Android no permite corregir el sonido de un canal ya
+        // creado. La v2 fuerza el sonido del sistema en APKs actualizadas.
+        id: 'rider-orders-v2',
         name: 'Pedidos del rider',
         description: 'Avisos de nuevos pedidos asignados',
         importance: 5,
         visibility: 1,
         vibration: true,
-        // Si existe client/android/app/src/main/res/raw/rider_alert.mp3
-        // se usa ese sonido custom fuerte; si no, Android cae al default
-        // del sistema automatico (no rompe la notificacion).
-        sound: 'rider_alert',
       });
     } catch {}
   }
@@ -312,11 +325,7 @@ export async function notifyRiderNewOrder(pedido = {}) {
         id: numericId,
         title: 'Nuevo pedido asignado',
         body,
-        channelId: 'rider-orders',
-        // Si existe client/android/app/src/main/res/raw/rider_alert.mp3
-        // se usa ese sonido custom fuerte; si no, Android cae al default
-        // del sistema automatico (no rompe la notificacion).
-        sound: 'rider_alert',
+        channelId: 'rider-orders-v2',
         extra: {
           pedidoId: pedido?.id,
           numero,
