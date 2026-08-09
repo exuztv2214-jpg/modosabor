@@ -1,5 +1,7 @@
 const db = require('../db');
 
+const RECOGNITION_TYPES = new Set(['puntualidad', 'calidad', 'venta', 'equipo', 'extra', 'bonus']);
+
 // ============================================
 // NORMALIZACIÓN
 // ============================================
@@ -504,6 +506,14 @@ function getReconocimientos(personalId, limit = 50) {
 function agregarReconocimiento(personalId, data, registradoPor) {
   const config = getReconocimientosConfig();
   if (!config.activo) throw new Error('Sistema de reconocimientos inactivo');
+  const tipo = String(data?.tipo || '')
+    .trim()
+    .toLowerCase();
+  const puntos = Number(data?.puntos);
+  if (!RECOGNITION_TYPES.has(tipo)) throw new Error('Tipo de reconocimiento inválido');
+  if (!Number.isInteger(puntos) || puntos <= 0 || puntos > 1000) {
+    throw new Error('Los puntos deben ser un entero entre 1 y 1000');
+  }
 
   db.exec('BEGIN');
   try {
@@ -516,8 +526,8 @@ function agregarReconocimiento(personalId, data, registradoPor) {
 
     const result = stmt.run(
       personalId,
-      data.tipo,
-      data.puntos,
+      tipo,
+      puntos,
       data.descripcion || '',
       data.relacionado_pedido_id || null,
       registradoPor
@@ -526,13 +536,13 @@ function agregarReconocimiento(personalId, data, registradoPor) {
     // Actualizar puntos del personal
     db.prepare(
       'UPDATE personal SET puntos_reconocimiento = puntos_reconocimiento + ? WHERE id = ?'
-    ).run(data.puntos, personalId);
+    ).run(puntos, personalId);
 
     db.exec('COMMIT');
 
     return {
       reconocimiento_id: result.lastInsertRowid,
-      puntos_agregados: data.puntos,
+      puntos_agregados: puntos,
       total_puntos: db
         .prepare('SELECT puntos_reconocimiento FROM personal WHERE id = ?')
         .get(personalId).puntos_reconocimiento,

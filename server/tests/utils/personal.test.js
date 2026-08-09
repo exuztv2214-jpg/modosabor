@@ -59,6 +59,18 @@ function testIsoDateSinArgUsaHoyArgentina() {
   console.log('  OK la fecha argentina nunca se adelanta a UTC');
 }
 
+function testHorarioArgentinaNoSeInterpretaComoUtc() {
+  const { parseFechaHoraArgentina, esFechaIso } = require('../../utils/fechaLocal');
+
+  const turno = parseFechaHoraArgentina('2026-08-09T09:00:00');
+  const fichada = parseFechaHoraArgentina('2026-08-09T12:00:00Z');
+  assert.strictEqual(turno.toISOString(), '2026-08-09T12:00:00.000Z');
+  assert.strictEqual(fichada.toISOString(), '2026-08-09T12:00:00.000Z');
+  assert.strictEqual(esFechaIso('2026-02-28'), true);
+  assert.strictEqual(esFechaIso('2026-02-30'), false);
+  console.log('  OK el horario argentino no suma tres horas de tardanza');
+}
+
 // ───────────────────────────────────────────────────────────────────────
 // 2. sueldo_nuevo se reconoce como plata → el ascenso convierte bien
 // ───────────────────────────────────────────────────────────────────────
@@ -153,6 +165,7 @@ function run() {
   console.log('\nTests del módulo de personal');
   testHoyArgentinaDaElDiaDelNegocio();
   testIsoDateSinArgUsaHoyArgentina();
+  testHorarioArgentinaNoSeInterpretaComoUtc();
   testAscensoConvierteSueldo();
   testSueldoAnteriorYNuevoEnMismaUnidad();
   testTotalLiquidacionesNoEsPlata();

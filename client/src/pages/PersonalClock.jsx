@@ -1,9 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import {
   CheckCircle2,
-  Clock3,
   KeyRound,
   LogIn,
   LogOut,
@@ -23,7 +22,6 @@ const PIN_ACTIONS = [
     tone: 'bg-emerald-500 hover:bg-emerald-600',
   },
   { id: 'salida', label: 'Marcar salida', icon: LogOut, tone: 'bg-rose-500 hover:bg-rose-600' },
-  { id: 'tarde', label: 'Llegó tarde', icon: Clock3, tone: 'bg-amber-500 hover:bg-amber-600' },
 ];
 
 /*
@@ -72,27 +70,30 @@ export default function PersonalClock() {
     return selected;
   }, [selected, roster]);
 
-  const loadRoster = async (keepSelected = false) => {
-    setLoading(true);
-    try {
-      const query = token ? `?token=${encodeURIComponent(token)}` : '';
-      const data = await api.get(`/personal/clock/board${query}`);
-      setRoster(data || { items: [] });
-      if (!keepSelected) {
-        const initial =
-          data?.items?.find((item) => Number(item.id) === Number(data?.token_match)) || null;
-        setSelected(initial);
+  const loadRoster = useCallback(
+    async (keepSelected = false) => {
+      setLoading(true);
+      try {
+        const query = token ? `?token=${encodeURIComponent(token)}` : '';
+        const data = await api.get(`/personal/clock/board${query}`);
+        setRoster(data || { items: [] });
+        if (!keepSelected) {
+          const initial =
+            data?.items?.find((item) => Number(item.id) === Number(data?.token_match)) || null;
+          setSelected(initial);
+        }
+      } catch (error) {
+        toast.error(error?.error || 'No se pudo cargar el reloj del personal');
+      } finally {
+        setLoading(false);
       }
-    } catch (error) {
-      toast.error(error?.error || 'No se pudo cargar el reloj del personal');
-    } finally {
-      setLoading(false);
-    }
-  };
+    },
+    [token]
+  );
 
   useEffect(() => {
     loadRoster();
-  }, [token]);
+  }, [loadRoster]);
 
   const currentEmployee = preselected;
 

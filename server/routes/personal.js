@@ -1,7 +1,7 @@
-const express = require('express');
-const router = express.Router();
-const multer = require('multer');
 const crypto = require('crypto');
+const express = require('express');
+const multer = require('multer');
+const router = express.Router();
 const db = require('../db');
 const auth = require('../middleware/auth');
 const { requirePermission } = require('../utils/permissions');
@@ -16,7 +16,8 @@ const { parseLocalizedNumber, roundLocalizedNumber } = require('../utils/numberI
 const { syncDeliveryRepartidor } = require('../utils/deliveryPersonnelSync');
 const { getOperationalShiftContext } = require('../utils/operationalCaja');
 const { uploadsDir, uploadPathFromFilename } = require('../utils/storagePaths');
-const { hoyArgentina } = require('../utils/fechaLocal');
+const { hoyArgentina, parseFechaHoraArgentina, esFechaIso } = require('../utils/fechaLocal');
+const { createRateLimiter, createSqliteRateLimitStore } = require('../utils/rateLimit');
 const {
   createFileFilter,
   IMAGE_EXTENSIONS,
@@ -47,6 +48,16 @@ const PAYMENT_FREQUENCIES = ['diario', 'semanal', 'quincenal', 'mensual'];
 const PAYMENT_METHODS = ['efectivo', 'transferencia', 'mercadopago', 'modo', 'uala'];
 const MOVEMENT_TYPES = ['adelanto', 'descuento', 'consumo'];
 const ATTENDANCE_STATES = ['presente', 'tarde', 'ausente', 'franco', 'justificado'];
+const CLOCK_ACTIONS = ['ingreso', 'salida'];
+
+// El reloj es público para poder usar una tablet compartida. El PIN no debe
+// poder probarse sin límite desde internet.
+const clockMarkRateLimit = createRateLimiter({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  message: 'Demasiados intentos de fichada. Esperá unos minutos.',
+  store: createSqliteRateLimitStore(db, 'personal-clock-mark'),
+});
 
 function getConfigMap() {
   return db
@@ -162,11 +173,7 @@ function resolveAttendanceTurnMeta({ turnoId = '', turnoNombre = '', turnoPrefer
   };
 }
 
-function parseDateTimeValue(value) {
-  if (!value) return null;
-  const parsed = new Date(String(value).replace(' ', 'T'));
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
-}
+const parseDateTimeValue = parseFechaHoraArgentina;
 
 function diffMinutesBetween(start, end) {
   if (!start || !end) return 0;
@@ -555,7 +562,7 @@ function normalizePersonalRow(row, pendingMap) {
   };
 }
 
-function serializeClockPerson(row, attendance = null) {
+function serializeClockPerson(row, attendance = null, includeAttendance = false) {
   return {
     id: row.id,
     nombre: row.nombre,
@@ -563,19 +570,18 @@ function serializeClockPerson(row, attendance = null) {
     turno_preferido: row.turno_preferido,
     avatar_url: row.avatar_url || '',
     activo: Number(row.activo || 0) === 1,
-    clock_token: cleanText(row.clock_token),
-    clock_url: cleanText(row.clock_token) ? `/personal/reloj/${cleanText(row.clock_token)}` : '',
-    attendance: attendance
-      ? {
-          id: attendance.id,
-          estado: attendance.estado,
-          ingreso_en: attendance.ingreso_en,
-          salida_en: attendance.salida_en,
-          minutos_tarde: Number(attendance.minutos_tarde || 0),
-          minutos_trabajados: Number(attendance.minutos_trabajados || 0),
-          notas: attendance.notas || '',
-        }
-      : null,
+    attendance:
+      includeAttendance && attendance
+        ? {
+            id: attendance.id,
+            estado: attendance.estado,
+            ingreso_en: attendance.ingreso_en,
+            salida_en: attendance.salida_en,
+            minutos_tarde: Number(attendance.minutos_tarde || 0),
+            minutos_trabajados: Number(attendance.minutos_trabajados || 0),
+            notas: attendance.notas || '',
+          }
+        : null,
   };
 }
 
@@ -591,12 +597,6 @@ function getClockRoster({ token = '' } = {}) {
   `
     )
     .all();
-  rows.forEach((row) => {
-    const credentials = ensureClockCredentials(row.id);
-    row.clock_pin = credentials?.clock_pin || row.clock_pin || '';
-    row.clock_token = credentials?.clock_token || row.clock_token || '';
-  });
-
   const attendanceRows = ctx.fechaOperativa
     ? db
         .prepare(
@@ -610,15 +610,17 @@ function getClockRoster({ token = '' } = {}) {
     : [];
   const attendanceMap = new Map(attendanceRows.map((item) => [Number(item.personal_id), item]));
 
+  const tokenPerson = token
+    ? rows.find((row) => cleanText(row.clock_token) === token) || null
+    : null;
   const filtered = rows.filter((row) => {
-    if (token && cleanText(row.clock_token) === token) return true;
+    // Un QR individual solo puede ver a su titular; nunca al resto del equipo.
+    if (token) return Number(row.id) === Number(tokenPerson?.id);
     if (!ctx.shiftId) return true;
     return matchesPreferredShift(row.turno_preferido, ctx.shiftId);
   });
 
-  const preselected = token
-    ? filtered.find((row) => cleanText(row.clock_token) === token) || null
-    : null;
+  const preselected = tokenPerson && filtered.length ? tokenPerson : null;
 
   return {
     fecha_operativa: ctx.fechaOperativa,
@@ -626,7 +628,7 @@ function getClockRoster({ token = '' } = {}) {
     turno_actual_nombre: ctx.shiftName,
     token_match: preselected ? preselected.id : null,
     items: filtered.map((row) =>
-      serializeClockPerson(row, attendanceMap.get(Number(row.id)) || null)
+      serializeClockPerson(row, attendanceMap.get(Number(row.id)) || null, Boolean(token))
     ),
   };
 }
@@ -908,15 +910,16 @@ function buildLiquidationExecutiveSummary(person) {
       : 0;
 
   let recommendation = 'Liquidación lista para confirmar.';
-  if (suggestion.requiere_revision)
+  if (suggestion.requiere_revision) {
     recommendation =
       'No hay jornadas suficientes registradas; conviene revisar asistencia antes de liquidar.';
-  else if (pendingRatioPct >= 40)
+  } else if (pendingRatioPct >= 40) {
     recommendation =
       'El descuento pendiente es alto respecto al bruto; conviene revisar adelantos y consumos.';
-  else if (suggestion.tardanzas >= 3 || suggestion.ausencias >= 2)
+  } else if (suggestion.tardanzas >= 3 || suggestion.ausencias >= 2) {
     recommendation =
       'Hay incidencias de asistencia que conviene revisar antes de cerrar la liquidación.';
+  }
 
   return {
     ...suggestion,
@@ -1090,6 +1093,32 @@ function createLiquidacion(person, payload, actor) {
 
   if (unidades <= 0) throw new Error('Las unidades a liquidar deben ser mayores a 0');
   if (montoBase < 0) throw new Error('El monto base debe ser 0 o mayor');
+  if (!esFechaIso(periodoDesde) || !esFechaIso(periodoHasta)) {
+    throw new Error('El período de liquidación debe tener fecha de inicio y fin válidas');
+  }
+  if (periodoDesde > periodoHasta) {
+    throw new Error('La fecha de inicio no puede ser posterior a la fecha de cierre');
+  }
+
+  const liquidacionExistente = db
+    .prepare(
+      `
+      SELECT id, periodo_desde, periodo_hasta
+      FROM personal_liquidaciones
+      WHERE personal_id = ?
+        AND TRIM(COALESCE(periodo_desde, '')) != ''
+        AND TRIM(COALESCE(periodo_hasta, '')) != ''
+        AND periodo_desde <= ?
+        AND periodo_hasta >= ?
+      LIMIT 1
+    `
+    )
+    .get(person.id, periodoHasta, periodoDesde);
+  if (liquidacionExistente) {
+    throw new Error(
+      `Ya existe una liquidación (#${liquidacionExistente.id}) que cubre ese período`
+    );
+  }
 
   const montoBruto = roundStock(montoBase * unidades);
   const pendientes = db
@@ -1149,10 +1178,15 @@ function createLiquidacion(person, payload, actor) {
 
       remainingGross = roundStock(remainingGross - aplicado);
       const saldoRestante = roundStock(pendiente - aplicado);
-      if (movement.tipo === 'adelanto') totals.adelantos = roundStock(totals.adelantos + aplicado);
-      if (movement.tipo === 'descuento')
+      if (movement.tipo === 'adelanto') {
+        totals.adelantos = roundStock(totals.adelantos + aplicado);
+      }
+      if (movement.tipo === 'descuento') {
         totals.descuentos = roundStock(totals.descuentos + aplicado);
-      if (movement.tipo === 'consumo') totals.consumos = roundStock(totals.consumos + aplicado);
+      }
+      if (movement.tipo === 'consumo') {
+        totals.consumos = roundStock(totals.consumos + aplicado);
+      }
 
       db.prepare(
         `
@@ -1362,7 +1396,7 @@ router.get('/', auth, requirePermission('config.manage'), (req, res) => {
   }
 
   // Listado tradicional
-  let q = `
+  const q = `
     SELECT p.*, u.nombre AS usuario_nombre, u.email AS usuario_email,
            pc.nombre as categoria_nombre, pc.color as categoria_color, pc.icono as categoria_icono
     FROM personal p
@@ -1570,13 +1604,19 @@ router.get('/asistencia/planilla-semanal', auth, requirePermission('config.manag
 router.get('/clock/board', (req, res) => {
   try {
     const token = cleanText(req.query?.token);
+    if (
+      token &&
+      !db.prepare('SELECT 1 FROM personal WHERE clock_token = ? AND activo = 1').get(token)
+    ) {
+      return res.status(404).json({ error: 'Credencial de reloj inválida' });
+    }
     res.json(getClockRoster({ token }));
   } catch (error) {
     res.status(500).json({ error: error.message || 'No se pudo cargar el reloj de personal' });
   }
 });
 
-router.post('/clock/mark', (req, res) => {
+router.post('/clock/mark', clockMarkRateLimit, (req, res) => {
   try {
     const token = cleanText(req.body?.token);
     const pin = normalizeClockPin(req.body?.pin);
@@ -1592,7 +1632,6 @@ router.post('/clock/mark', (req, res) => {
       return res.status(401).json({ error: 'PIN inválido' });
     }
 
-    const existing = ensureClockCredentials(person.id);
     const ctx = currentAttendanceContext();
     if (!ctx.shiftId) {
       return res.status(400).json({ error: 'No hay turno operativo activo para fichar' });
@@ -1608,16 +1647,10 @@ router.post('/clock/mark', (req, res) => {
       )
       .get(person.id, ctx.fechaOperativa, ctx.shiftId);
 
-    const incomingAction = [
-      'ingreso',
-      'salida',
-      'tarde',
-      'ausente',
-      'franco',
-      'justificado',
-    ].includes(action)
-      ? action
-      : 'ingreso';
+    if (!CLOCK_ACTIONS.includes(action)) {
+      return res.status(400).json({ error: 'El reloj solo permite marcar ingreso o salida' });
+    }
+    const incomingAction = action;
     const markState =
       incomingAction === 'ingreso'
         ? 'presente'
@@ -1717,7 +1750,6 @@ router.post('/clock/mark', (req, res) => {
     res.json({
       ok: true,
       action: incomingAction,
-      credentials: existing,
       attendance: item,
       roster: getClockRoster({ token }),
     });
@@ -2140,7 +2172,9 @@ router.post('/:id/consumo-producto', auth, requirePermission('config.manage'), (
   } catch (error) {
     try {
       db.exec('ROLLBACK');
-    } catch {}
+    } catch {
+      // Si no había transacción abierta, el error original es el relevante.
+    }
     res.status(400).json({ error: error.message || 'No se pudo registrar el consumo de producto' });
   }
 });
@@ -2344,8 +2378,19 @@ router.delete('/:id', auth, requirePermission('config.manage'), (req, res) => {
     return res.status(404).json({ error: 'Personal no encontrado' });
   }
   syncDeliveryRepartidor(db, { ...existing, rol_operativo: 'inactivo', activo: 0 });
-  db.prepare('DELETE FROM personal WHERE id = ?').run(req.params.id);
-  res.json({ ok: true });
+  db.prepare('UPDATE personal SET activo = 0, actualizado_en = CURRENT_TIMESTAMP WHERE id = ?').run(
+    req.params.id
+  );
+  logAudit(db, {
+    modulo: 'personal',
+    accion: 'baja_personal',
+    entidad: 'personal',
+    entidad_id: existing.id,
+    actor_id: req.user?.id || null,
+    actor_nombre: req.user?.nombre || '',
+    detalle: { nombre: existing.nombre, motivo: 'Baja lógica desde el panel' },
+  });
+  res.json({ ok: true, archivado: true });
 });
 
 // ============================================

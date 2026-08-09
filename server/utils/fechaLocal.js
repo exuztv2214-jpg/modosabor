@@ -77,4 +77,31 @@ function hoyArgentina() {
   return formatter.format(new Date());
 }
 
-module.exports = { fechaLocal, fechaHoraLocal, hoyLocal, hoyArgentina, OFFSET_ARGENTINA };
+/**
+ * Convierte una fecha/hora del negocio en un instante. Los valores sin zona
+ * (por ejemplo el inicio de turno `2026-08-09T09:00:00`) son de Argentina,
+ * no de la zona UTC del proceso en Railway.
+ */
+function parseFechaHoraArgentina(value) {
+  if (!value) return null;
+  const normalized = String(value).trim().replace(' ', 'T');
+  const hasTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(normalized);
+  const parsed = new Date(hasTimezone ? normalized : `${normalized}-03:00`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function esFechaIso(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
+module.exports = {
+  fechaLocal,
+  fechaHoraLocal,
+  hoyLocal,
+  hoyArgentina,
+  parseFechaHoraArgentina,
+  esFechaIso,
+  OFFSET_ARGENTINA,
+};

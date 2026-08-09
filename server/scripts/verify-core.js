@@ -145,6 +145,30 @@ async function run() {
       throw new Error(`Crear personal de prueba fallo con status ${createPersonal.status}`);
     }
     const personalId = createPersonal.body.id;
+    const clockToken = createPersonal.body.clock_token;
+
+    const publicBoard = await request('/personal/clock/board');
+    if (
+      publicBoard.status !== 200 ||
+      !Array.isArray(publicBoard.body?.items) ||
+      publicBoard.body.items.some(
+        (item) => item.clock_token || item.clock_url || item.attendance !== null
+      )
+    ) {
+      throw new Error('El reloj público expone credenciales o asistencia del equipo');
+    }
+    const personalBoard = await request(
+      `/personal/clock/board?token=${encodeURIComponent(clockToken)}`
+    );
+    if (
+      personalBoard.status !== 200 ||
+      personalBoard.body?.items?.length !== 1 ||
+      Number(personalBoard.body.items[0]?.id) !== Number(personalId) ||
+      personalBoard.body.items[0]?.clock_token
+    ) {
+      throw new Error('El QR de personal no quedó aislado a su titular');
+    }
+    console.log('OK: reloj público sin credenciales ni datos de terceros');
 
     const manualAttendance = await request(`/personal/${personalId}/asistencia/manual`, {
       method: 'PUT',
@@ -171,6 +195,55 @@ async function run() {
       throw new Error('La asistencia manual no aparece en la ficha del personal');
     }
     console.log('OK: personal / asistencia manual');
+
+    const firstSettlement = await request(`/personal/${personalId}/liquidaciones`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: {
+        unidades: 1,
+        monto_base: 10000,
+        periodo_desde: '2026-06-24',
+        periodo_hasta: '2026-06-24',
+        metodo_pago: 'transferencia',
+        impacta_caja: 0,
+      },
+    });
+    if (firstSettlement.status !== 200) {
+      throw new Error(`Liquidación de prueba falló con status ${firstSettlement.status}`);
+    }
+    const duplicatedSettlement = await request(`/personal/${personalId}/liquidaciones`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: {
+        unidades: 1,
+        monto_base: 10000,
+        periodo_desde: '2026-06-24',
+        periodo_hasta: '2026-06-24',
+        metodo_pago: 'transferencia',
+        impacta_caja: 0,
+      },
+    });
+    if (duplicatedSettlement.status !== 400) {
+      throw new Error('Una liquidación duplicada no fue bloqueada');
+    }
+    console.log('OK: liquidación duplicada bloqueada');
+
+    const archivePersonal = await request(`/personal/${personalId}`, {
+      method: 'DELETE',
+      headers: authHeaders,
+    });
+    const archivedDetail = await request(`/personal/${personalId}/detalle`, {
+      headers: authHeaders,
+    });
+    if (
+      archivePersonal.status !== 200 ||
+      !archivePersonal.body?.archivado ||
+      archivedDetail.status !== 200 ||
+      Number(archivedDetail.body?.item?.activo) !== 0
+    ) {
+      throw new Error('La baja de personal no preservó el historial como inactivo');
+    }
+    console.log('OK: baja lógica conserva el historial de personal');
 
     console.log('Verificacion core completada.');
   } finally {
