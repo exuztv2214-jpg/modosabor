@@ -3,6 +3,7 @@ const router = express.Router();
 const db = require('../db');
 const auth = require('../middleware/auth');
 const crypto = require('crypto');
+const fs = require('fs');
 const multer = require('multer');
 const path = require('path');
 const { requirePermission, hasPermission } = require('../utils/permissions');
@@ -60,6 +61,39 @@ const upload = multer({
     message: 'La foto de entrega debe ser JPG, PNG, WEBP, GIF o HEIC',
   }),
 });
+
+const DELIVERY_PHOTO_MIME_EXTENSIONS = {
+  'image/jpeg': '.jpg',
+  'image/jpg': '.jpg',
+  'image/png': '.png',
+  'image/webp': '.webp',
+  'image/gif': '.gif',
+};
+
+/**
+ * La app nativa captura la foto como data URL. No podemos depender de
+ * multipart para esa ruta: una entrega encolada offline se persiste como JSON
+ * y debe poder sincronizarse igual cuando vuelve la señal.
+ */
+function saveDeliveryPhotoDataUrl(dataUrl) {
+  const raw = String(dataUrl || '').trim();
+  if (!raw) return '';
+  const match = /^data:([a-zA-Z0-9/+.-]+);base64,([A-Za-z0-9+/=\s]+)$/.exec(raw);
+  if (!match) throw new Error('La foto de entrega no tiene un formato válido');
+
+  const mime = String(match[1] || '').toLowerCase();
+  const extension = DELIVERY_PHOTO_MIME_EXTENSIONS[mime];
+  if (!extension) throw new Error('La foto de entrega debe ser JPG, PNG, WEBP o GIF');
+
+  const content = Buffer.from(match[2].replace(/\s/g, ''), 'base64');
+  if (!content.length || content.length > 5 * 1024 * 1024) {
+    throw new Error('La foto de entrega supera el tamaño permitido');
+  }
+
+  const filename = `entrega-${Date.now()}-${crypto.randomBytes(5).toString('hex')}${extension}`;
+  fs.writeFileSync(path.join(uploadsDir, filename), content, { flag: 'wx' });
+  return uploadPathFromFilename(filename);
+}
 
 function generateAccessCode() {
   return crypto.randomBytes(4).toString('hex');
@@ -1086,6 +1120,16 @@ router.post('/:id/rider/:codigo/entregar/:pedidoId', upload.single('foto'), (req
     db
       .prepare("SELECT valor FROM configuracion WHERE clave = 'delivery_requiere_foto_entrega'")
       .get()?.valor === '1';
+  let entregaFoto = '';
+  try {
+    entregaFoto = req.file
+      ? uploadPathFromFilename(req.file.filename)
+      : saveDeliveryPhotoDataUrl(req.body?.entrega_foto);
+  } catch (error) {
+    return res
+      .status(400)
+      .json({ error: error.message || 'No se pudo guardar la foto de entrega' });
+  }
   if (
     validacionActiva &&
     pedido.entrega_pin &&
@@ -1093,7 +1137,7 @@ router.post('/:id/rider/:codigo/entregar/:pedidoId', upload.single('foto'), (req
   ) {
     return res.status(400).json({ error: 'PIN de entrega invalido' });
   }
-  if (requiereFoto && !req.file) {
+  if (requiereFoto && !entregaFoto) {
     return res.status(400).json({ error: 'Debes adjuntar una foto de entrega' });
   }
 
@@ -1113,12 +1157,7 @@ router.post('/:id/rider/:codigo/entregar/:pedidoId', upload.single('foto'), (req
         actualizado_en = CURRENT_TIMESTAMP
     WHERE id = ?
   `
-  ).run(
-    pagoEstadoEntrega,
-    uploadPathFromFilename(req.file?.filename),
-    uploadPathFromFilename(req.file?.filename),
-    pedido.id
-  );
+  ).run(pagoEstadoEntrega, entregaFoto, entregaFoto, pedido.id);
   db.prepare('UPDATE repartidores SET disponible = 1 WHERE id = ?').run(repartidor.id);
   if (pagoEstadoEntrega !== normalizePagoEstado(pedido.pago_estado)) {
     logAudit(db, {
@@ -1146,7 +1185,7 @@ router.post('/:id/rider/:codigo/entregar/:pedidoId', upload.single('foto'), (req
     actorId: repartidor.id,
     actorNombre: repartidor.nombre || '',
     metadata: {
-      con_foto: Boolean(req.file),
+      con_foto: Boolean(entregaFoto),
       pin_validado: Boolean(validacionActiva && pedido.entrega_pin),
       pago_estado: pagoEstadoEntrega,
     },
