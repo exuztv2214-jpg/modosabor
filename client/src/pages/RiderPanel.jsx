@@ -63,10 +63,12 @@ import { filterRiderGpsPosition } from '../lib/riderGps.js';
 import { resolveAssetUrl } from '../lib/assets.js';
 import {
   isNativeRiderApp,
+  isRiderBiometricAvailable,
   announceRiderOrder,
   clearNativeRiderAuth,
   getRiderLocationPermission,
   loadNativeRiderAuth,
+  unlockRiderWithBiometrics,
   notifyRiderNewOrder,
   openNativeLocationSettings,
   prepareRiderNotifications,
@@ -490,6 +492,8 @@ export default function RiderPanel() {
   // Preferences (async). En web/PWA es instantaneo, en app nativa Android
   // tarda ~50ms pero es la unica forma de sobrevivir cierres de la app.
   const [riderAuth, setRiderAuth] = useState(null);
+  const [savedRiderAuth, setSavedRiderAuth] = useState(null);
+  const [unlockingRider, setUnlockingRider] = useState(false);
   const [loginForm, setLoginForm] = useState({ id: '', code: '' });
   const [showAccessCode, setShowAccessCode] = useState(false);
   const [showRiderSplash, setShowRiderSplash] = useState(true);
@@ -681,7 +685,13 @@ export default function RiderPanel() {
         }
         if (!cancelled && saved) {
           setLoginForm(saved);
-          setRiderAuth(saved);
+          // La sesión sigue guardada; al abrir se pide huella/PIN del propio
+          // teléfono, sin volver a pedir el ID y código del local.
+          if (await isRiderBiometricAvailable()) {
+            setSavedRiderAuth(saved);
+          } else {
+            setRiderAuth(saved);
+          }
           return;
         }
         // Fallback: helpers universales
@@ -1247,8 +1257,30 @@ export default function RiderPanel() {
     if (!loginForm.id || !loginForm.code) return toast.error('Completá los datos');
     riderStorageSet('ms_rider_id', loginForm.id).catch(() => {});
     riderStorageSet('ms_rider_code', loginForm.code).catch(() => {});
-    saveNativeRiderAuth(loginForm).catch(() => {});
-    setRiderAuth({ id: loginForm.id, code: loginForm.code });
+    const next = { id: loginForm.id, code: loginForm.code };
+    saveNativeRiderAuth(next)
+      .then(() => setRiderAuth(next))
+      .catch(() =>
+        toast.error(
+          'No pudimos guardar la sesión protegida. Revisá el bloqueo de pantalla del teléfono.'
+        )
+      );
+  };
+
+  const handleBiometricUnlock = async () => {
+    if (!savedRiderAuth || unlockingRider) return;
+    setUnlockingRider(true);
+    try {
+      const authenticated = await unlockRiderWithBiometrics();
+      if (authenticated) {
+        setRiderAuth(savedRiderAuth);
+        setSavedRiderAuth(null);
+      } else {
+        toast.error('No se pudo validar la huella o el PIN del teléfono.');
+      }
+    } finally {
+      setUnlockingRider(false);
+    }
   };
 
   const resetLocalState = () => {
@@ -1270,6 +1302,7 @@ export default function RiderPanel() {
     riderStorageRemove(KEY_TURNO_INICIO).catch(() => {});
     clearNativeRiderAuth().catch(() => {});
     resetLocalState();
+    setSavedRiderAuth(null);
   };
 
   /**
@@ -1918,6 +1951,41 @@ export default function RiderPanel() {
   // ─────────────────────────────────────────────────────────────────
   // RENDER: pantalla de login
   // ─────────────────────────────────────────────────────────────────
+  if (!riderAuth && savedRiderAuth) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#dc1f2d] px-6 text-white">
+        <div className="w-full max-w-sm rounded-[30px] border border-white/20 bg-white/10 p-7 text-center shadow-2xl backdrop-blur">
+          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-3xl bg-white/15">
+            <LockKeyhole size={31} />
+          </div>
+          <h1 className="mt-5 text-2xl font-bold">Hola, repartidor</h1>
+          <p className="mt-2 text-sm text-white/80">
+            Tu sesión está guardada. Desbloqueá con la huella o PIN de este teléfono.
+          </p>
+          <button
+            type="button"
+            onClick={handleBiometricUnlock}
+            disabled={unlockingRider}
+            className="mt-7 flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-white text-sm font-bold text-[#bd1a27] shadow-lg transition active:scale-[0.98] disabled:opacity-60"
+          >
+            <ShieldCheck size={19} />
+            {unlockingRider ? 'Validando...' : 'Entrar con huella o PIN'}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setLoginForm({ id: savedRiderAuth.id, code: '' });
+              setSavedRiderAuth(null);
+            }}
+            className="mt-4 text-sm font-semibold text-white/85 underline underline-offset-4"
+          >
+            Usar código del rider
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (!riderAuth) {
     return (
       <div className="relative min-h-screen overflow-hidden bg-[#dc1f2d] text-white font-sans">

@@ -83,6 +83,7 @@ dependencies {
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
     implementation project(':capacitor-cordova-android-plugins')
     implementation "androidx.security:security-crypto:1.1.0"
+    implementation "androidx.biometric:biometric:1.1.0"
     // RiderFirebaseMessagingService recibe los data-push en segundo plano
     // para poder hablar y sonar aunque Capacitor/WebView esté cerrada.
     implementation "com.google.firebase:firebase-messaging:25.0.1"

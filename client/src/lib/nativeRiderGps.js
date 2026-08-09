@@ -9,6 +9,7 @@ import { API_BASE_URL } from './runtime.js';
 const BackgroundGeolocation = registerPlugin('BackgroundGeolocation');
 const RiderSecureStore = registerPlugin('RiderSecureStore');
 const RiderAlert = registerPlugin('RiderAlert');
+const RiderBiometric = registerPlugin('RiderBiometric');
 const RIDER_AUTH_KEY = 'ms_rider_auth_v1';
 const RIDER_STORAGE_PREFIX = 'ms_rider_';
 
@@ -77,8 +78,21 @@ export async function getRiderLocationPermission() {
 export async function saveNativeRiderAuth(auth) {
   const id = String(auth?.id || '').trim();
   const code = String(auth?.code || '').trim();
-  if (!id || !code) return;
-  await riderStorageSet(RIDER_AUTH_KEY, JSON.stringify({ id, code }));
+  if (!id || !code) throw new Error('Credenciales incompletas');
+  const value = JSON.stringify({ id, code });
+
+  // No alcanza con pedir el guardado y seguir: antes cualquier error del
+  // Keystore se silenciaba y al reabrir parecía que "se había borrado" la
+  // sesión. La verificamos antes de considerar el ingreso exitoso.
+  if (isNativeRiderApp()) {
+    const result = await RiderSecureStore.setAndVerify({ key: RIDER_AUTH_KEY, value });
+    if (String(result?.value || '') !== value) {
+      throw new Error('No se pudo guardar la sesión protegida');
+    }
+    return true;
+  }
+  await riderStorageSet(RIDER_AUTH_KEY, value);
+  return true;
 }
 
 export async function loadNativeRiderAuth() {
@@ -96,6 +110,29 @@ export async function loadNativeRiderAuth() {
 
 export async function clearNativeRiderAuth() {
   await riderStorageRemove(RIDER_AUTH_KEY);
+}
+
+export async function isRiderBiometricAvailable() {
+  if (!isNativeRiderApp()) return false;
+  try {
+    const result = await RiderBiometric.isAvailable();
+    return result?.available === true;
+  } catch {
+    return false;
+  }
+}
+
+export async function unlockRiderWithBiometrics() {
+  if (!isNativeRiderApp()) return false;
+  try {
+    const result = await RiderBiometric.authenticate({
+      title: 'Desbloquear Modo Sabor Rider',
+      subtitle: 'Confirmá tu identidad para abrir tu turno',
+    });
+    return result?.authenticated === true;
+  } catch {
+    return false;
+  }
 }
 
 // Helpers universales de storage persistente. Usan @capacitor/preferences

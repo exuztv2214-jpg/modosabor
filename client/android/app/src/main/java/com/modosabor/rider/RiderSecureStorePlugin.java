@@ -69,6 +69,30 @@ public class RiderSecureStorePlugin extends Plugin {
         }
     }
 
+    /** Guarda y vuelve a leer en la misma operación para no aceptar una
+     * sesión que Android no haya podido persistir realmente. */
+    @PluginMethod
+    public void setAndVerify(PluginCall call) {
+        String key = requireKey(call);
+        String value = call.getString("value", "");
+        if (key == null) {
+            call.reject("Clave no permitida");
+            return;
+        }
+        try {
+            SharedPreferences prefs = store();
+            boolean written = prefs.edit().putString(key, value).commit();
+            String saved = prefs.getString(key, null);
+            if (!written || !value.equals(saved)) {
+                call.reject("No se pudo verificar el guardado seguro");
+                return;
+            }
+            call.resolve(new com.getcapacitor.JSObject().put("value", saved));
+        } catch (Exception error) {
+            call.reject("No se pudo guardar la sesión protegida", error);
+        }
+    }
+
     @PluginMethod
     public void remove(PluginCall call) {
         String key = requireKey(call);

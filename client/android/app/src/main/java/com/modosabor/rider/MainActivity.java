@@ -10,6 +10,7 @@ public class MainActivity extends BridgeActivity {
         super.onCreate(savedInstanceState);
         registerPlugin(RiderSecureStorePlugin.class);
         registerPlugin(RiderAlertPlugin.class);
+        registerPlugin(RiderBiometricPlugin.class);
     }
 
     @Override
