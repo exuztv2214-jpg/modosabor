@@ -1,6 +1,8 @@
 const express = require('express');
+const QRCode = require('qrcode');
 
 const db = require('../db');
+const logger = require('../utils/logger');
 const auth = require('../middleware/auth');
 const { requirePermission } = require('../utils/permissions');
 const { conexion } = require('../services/whatsappMasivo/conexion');
@@ -21,11 +23,46 @@ const router = express.Router();
  */
 router.use(auth, requirePermission('marketing.edit'));
 
+/**
+ * El código QR, ya dibujado, como imagen embebida en la respuesta.
+ *
+ * ── Por qué se dibuja acá y no se manda el texto ───────────────────────────
+ *
+ * La pantalla lo resolvía pidiéndole la imagen a api.qrserver.com, un servicio
+ * ajeno: `<img src="...qrserver.com/...?data=EL_CODIGO">`.
+ *
+ * Ese código no es un dato cualquiera. Es la credencial de vinculación: quien
+ * lo tenga, mientras está vigente, puede vincular su propio teléfono al
+ * WhatsApp del local y quedarse adentro —leer todas las conversaciones con los
+ * clientes y escribir en nombre del negocio—. Mandárselo a un tercero para que
+ * lo dibuje es entregarle la llave a cambio de una imagen de 240 píxeles.
+ *
+ * Dibujarlo acá cuesta una dependencia chica y sin compilación (`qrcode`, JS
+ * puro), y el código no sale nunca del sistema.
+ *
+ * Si el dibujo falla se devuelve null en vez de romper la pantalla entera: el
+ * resto del estado —si está conectado, cuánto queda de cupo— sigue sirviendo.
+ */
+async function qrDibujado(resumen) {
+  if (!resumen?.qr) return null;
+  try {
+    return await QRCode.toDataURL(resumen.qr, {
+      width: 260,
+      margin: 1,
+      errorCorrectionLevel: 'M',
+    });
+  } catch (error) {
+    logger.error('No se pudo dibujar el QR de WhatsApp', { message: error.message });
+    return null;
+  }
+}
+
 /** Todo junto: sesión, motor y números del día. Es lo que la pantalla pide. */
-router.get('/estado', (_req, res) => {
+router.get('/estado', async (_req, res) => {
   const config = motor.leerConfig();
+  const whatsapp = conexion.resumen();
   res.json({
-    whatsapp: conexion.resumen(),
+    whatsapp: { ...whatsapp, qr: undefined, qrImagen: await qrDibujado(whatsapp) },
     motor: motor.resumen(),
     hoy: {
       enviados: motor.enviadosHoy(),
@@ -42,7 +79,9 @@ router.get('/estado', (_req, res) => {
 // ── Sesión ────────────────────────────────────────────────────────────────
 
 router.post('/conectar', async (_req, res) => {
-  res.json(await conexion.conectar());
+  const resumen = await conexion.conectar();
+  // Mismo criterio que en /estado: el código sale dibujado, nunca en crudo.
+  res.json({ ...resumen, qr: undefined, qrImagen: await qrDibujado(resumen) });
 });
 
 router.post('/desconectar', async (_req, res) => {

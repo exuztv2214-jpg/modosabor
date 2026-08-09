@@ -82,7 +82,7 @@ const ESTADOS = {
  * escanee el código desde el celular del local. Se hace una sola vez — la
  * sesión queda guardada en el disco del servidor y sobrevive a los deploys.
  */
-function Vincular({ qr, estado, detalle, conectando, onConectar }) {
+function Vincular({ qrImagen, estado, detalle, conectando, onConectar }) {
   return (
     <Tarjeta>
       <div className="flex flex-col items-center gap-4 py-2 text-center">
@@ -102,11 +102,20 @@ function Vincular({ qr, estado, detalle, conectando, onConectar }) {
           </p>
         </div>
 
-        {qr ? (
+        {/*
+          El código viene dibujado desde el servidor, como imagen embebida.
+
+          Antes se armaba acá con `api.qrserver.com`, pasándole el código por
+          la URL. Ese código es la credencial de vinculación: quien lo tenga,
+          mientras está vigente, puede vincular su propio teléfono al WhatsApp
+          del local. Mandárselo a un servicio ajeno para que dibuje un cuadrado
+          era regalar la llave del negocio.
+        */}
+        {qrImagen ? (
           <img
-            src={`https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(qr)}`}
+            src={qrImagen}
             alt="Código QR para vincular WhatsApp"
-            className="h-[240px] w-[240px] rounded-2xl bg-white"
+            className="h-[260px] w-[260px] rounded-2xl bg-white"
           />
         ) : (
           <button
@@ -308,7 +317,7 @@ export default function MarketingWhatsapp() {
     return (
       <div className="space-y-3">
         <Vincular
-          qr={wa.qr}
+          qrImagen={wa.qrImagen}
           estado={wa.estado}
           detalle={wa.detalle}
           conectando={ocupado || wa.estado === 'conectando'}
