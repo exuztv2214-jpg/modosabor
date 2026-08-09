@@ -15,9 +15,9 @@
  * cuando arranca la app; y además la info que devuelve no es sensible
  * (número de versión + link de descarga público).
  */
-const express = require('express');
 const fs = require('fs');
 const path = require('path');
+const express = require('express');
 const router = express.Router();
 const { uploadsDir } = require('../utils/storagePaths');
 const db = require('../db');
@@ -40,9 +40,10 @@ function readPublishedManifest() {
   if (!fs.existsSync(MANIFEST_PATH)) return null;
   try {
     const manifest = JSON.parse(fs.readFileSync(MANIFEST_PATH, 'utf8'));
-    const apkPath = path.join(RIDER_APP_DIR, String(manifest?.apkFile || ''));
-    if (!manifest?.apkFile || !fs.existsSync(apkPath)) return null;
-    return manifest;
+    const apkFile = path.basename(String(manifest?.apkFile || '').trim());
+    const apkPath = path.join(RIDER_APP_DIR, apkFile);
+    if (!apkFile || !apkFile.toLowerCase().endsWith('.apk') || !fs.existsSync(apkPath)) return null;
+    return { ...manifest, apkFile };
   } catch {
     return null;
   }
@@ -122,6 +123,34 @@ function absoluteUrl(req, relativePath) {
   return `${proto}://${host}${relativePath}`;
 }
 
+/**
+ * Entrega el instalador como archivo adjunto. Algunos navegadores Android
+ * intentan abrir un APK servido como estático y no muestran la descarga; el
+ * encabezado attachment hace que Chrome/Android lo guarde e inicie el flujo
+ * de instalación de forma consistente.
+ */
+router.get('/download', (req, res) => {
+  const manifest = readPublishedManifest();
+  if (!manifest) {
+    return res.status(404).json({ error: 'No hay un APK Rider publicado para descargar.' });
+  }
+
+  const apkPath = path.join(RIDER_APP_DIR, manifest.apkFile);
+  res.set('Cache-Control', 'no-store');
+  return res.download(
+    apkPath,
+    manifest.apkFile,
+    { headers: { 'Content-Type': 'application/vnd.android.package-archive' } },
+    (error) => {
+      if (!error) return;
+      logger.warn('No se pudo descargar APK Rider', { error: error.message });
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'No se pudo preparar la descarga del APK Rider.' });
+      }
+    }
+  );
+});
+
 router.get('/version', (req, res) => {
   ensureRiderAppDir();
 
@@ -138,7 +167,7 @@ router.get('/version', (req, res) => {
   const fallback = readFallbackFromPackageJson();
   const versionCode = Number(manifest?.versionCode) || fallback.versionCode;
   const versionName = String(manifest?.versionName || fallback.versionName);
-  const apkFile = String(manifest?.apkFile || '').trim();
+  const apkFile = path.basename(String(manifest?.apkFile || '').trim());
 
   // Verificar que el archivo APK existe físicamente. Si no, no ofrecemos
   // update (mejor no update que uno roto).
@@ -147,10 +176,9 @@ router.get('/version', (req, res) => {
   if (apkFile) {
     const apkPath = path.join(RIDER_APP_DIR, apkFile);
     if (fs.existsSync(apkPath)) {
-      // El nombre del APK cambia por release, pero una CDN puede haber
-      // cacheado un 404 mientras Railway todavía lo estaba copiando. El
-      // versionCode hace única la URL de cada publicación.
-      const relative = `/uploads/rider-app/${encodeURIComponent(apkFile)}?v=${encodeURIComponent(String(versionCode))}`;
+      // Usar el endpoint de descarga y no el archivo estático: fuerza el
+      // guardado del APK en Android en lugar de intentar abrirlo en pantalla.
+      const relative = `/api/rider-app/download?v=${encodeURIComponent(String(versionCode))}`;
       downloadUrl = absoluteUrl(req, relative);
       try {
         sizeBytes = fs.statSync(apkPath).size;
