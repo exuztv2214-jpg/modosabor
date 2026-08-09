@@ -1445,6 +1445,36 @@ export default function RiderPanel() {
     }
   };
 
+  const pedirAyuda = async (pedido = null) => {
+    const mensaje = window.prompt('Contale al local qué necesitás:');
+    if (!mensaje?.trim()) return;
+    const url = `/repartidores/${riderAuth.id}/rider/${riderAuth.code}/soporte`;
+    const body = {
+      mensaje: mensaje.trim(),
+      tipo: 'ayuda',
+      pedido_id: pedido?.id || null,
+      latitud: riderLocation.lat,
+      longitud: riderLocation.lng,
+    };
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      await enqueueRiderAction({
+        kind: 'report_issue',
+        url,
+        method: 'POST',
+        body,
+        meta: { pedidoId: pedido?.id },
+      });
+      toast.success('Pedido de ayuda guardado; se envía al recuperar señal.');
+      return;
+    }
+    try {
+      await api.post(url, body);
+      toast.success('Avisamos al local. Te van a responder enseguida.');
+    } catch (error) {
+      toast.error(error?.error || 'No pudimos avisar al local');
+    }
+  };
+
   const changePaymentMethod = async (pedidoId, metodoPago) => {
     if (!riderAuth || changingPayment) return;
     setChangingPayment(true);
@@ -3433,6 +3463,13 @@ export default function RiderPanel() {
                       <X size={15} /> Cancelar
                     </button>
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => pedirAyuda(selectedPedido)}
+                    className="flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-sky-200 bg-sky-50 text-[13px] font-semibold text-sky-700 transition active:scale-95"
+                  >
+                    <PhoneCall size={15} /> Necesito ayuda del local
+                  </button>
 
                   {/* Popover animado con motivos preseteados */}
                   <AnimatePresence>

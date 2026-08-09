@@ -244,6 +244,24 @@ function runMigrations(db) {
     ON pedido_eventos(estado, creado_en DESC)
   `);
 
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS rider_solicitudes_soporte (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      repartidor_id INTEGER NOT NULL,
+      pedido_id INTEGER,
+      tipo TEXT NOT NULL DEFAULT 'ayuda',
+      mensaje TEXT NOT NULL DEFAULT '',
+      latitud REAL,
+      longitud REAL,
+      estado TEXT NOT NULL DEFAULT 'abierta',
+      creado_en DATETIME DEFAULT CURRENT_TIMESTAMP,
+      resuelto_en DATETIME
+    )
+  `);
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_rider_soporte_estado ON rider_solicitudes_soporte(estado, creado_en DESC)`
+  );
+
   // ── Cache de geocoding ──────────────────────────────────────────
   // Convertir "Urquiza 58" en lat/lng cuesta una llamada de red con
   // rate limit de 1/seg. Como las direcciones se repiten muchísimo

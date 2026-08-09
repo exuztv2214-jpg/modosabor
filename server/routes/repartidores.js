@@ -650,6 +650,61 @@ router.post('/:id/rider/:codigo/fcm-token', (req, res) => {
   }
 });
 
+router.post('/:id/rider/:codigo/soporte', (req, res) => {
+  const repartidor = validateRiderAccess(req, res);
+  if (!repartidor) return;
+  const mensaje = String(req.body?.mensaje || '')
+    .trim()
+    .slice(0, 1000);
+  const tipo = String(req.body?.tipo || 'ayuda')
+    .trim()
+    .slice(0, 40);
+  if (!mensaje) return res.status(400).json({ error: 'Contanos qué necesitás' });
+  const pedidoId = Number(req.body?.pedido_id) || null;
+  const latitud = Number.isFinite(Number(req.body?.latitud)) ? Number(req.body.latitud) : null;
+  const longitud = Number.isFinite(Number(req.body?.longitud)) ? Number(req.body.longitud) : null;
+  const result = db
+    .prepare(
+      `INSERT INTO rider_solicitudes_soporte (repartidor_id, pedido_id, tipo, mensaje, latitud, longitud)
+     VALUES (?, ?, ?, ?, ?, ?)`
+    )
+    .run(repartidor.id, pedidoId, tipo, mensaje, latitud, longitud);
+  logAudit(db, {
+    modulo: 'delivery',
+    accion: 'solicitud_soporte_rider',
+    entidad: 'repartidor',
+    entidad_id: repartidor.id,
+    actor_nombre: repartidor.nombre || '',
+    detalle: { pedido_id: pedidoId, tipo },
+  });
+  res.status(201).json({ success: true, id: result.lastInsertRowid });
+});
+
+router.get('/soporte/pendientes', auth, requirePermission('delivery.manage'), (_req, res) => {
+  res.json(
+    db
+      .prepare(
+        `SELECT s.*, r.nombre AS repartidor_nombre, p.numero AS pedido_numero
+     FROM rider_solicitudes_soporte s
+     JOIN repartidores r ON r.id = s.repartidor_id
+     LEFT JOIN pedidos p ON p.id = s.pedido_id
+     WHERE s.estado = 'abierta' ORDER BY datetime(s.creado_en) DESC`
+      )
+      .all()
+  );
+});
+
+router.post('/soporte/:id/resolver', auth, requirePermission('delivery.manage'), (req, res) => {
+  const result = db
+    .prepare(
+      "UPDATE rider_solicitudes_soporte SET estado = 'resuelta', resuelto_en = CURRENT_TIMESTAMP WHERE id = ? AND estado = 'abierta'"
+    )
+    .run(req.params.id);
+  if (!result.changes)
+    return res.status(404).json({ error: 'Solicitud no encontrada o ya resuelta' });
+  res.json({ success: true });
+});
+
 router.put('/:id/rider/:codigo/pedido/:pedidoId/estado', (req, res) => {
   const repartidor = validateRiderAccess(req, res);
   if (!repartidor) return;
