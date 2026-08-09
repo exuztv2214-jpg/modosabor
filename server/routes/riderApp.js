@@ -147,7 +147,10 @@ router.get('/version', (req, res) => {
   if (apkFile) {
     const apkPath = path.join(RIDER_APP_DIR, apkFile);
     if (fs.existsSync(apkPath)) {
-      const relative = `/uploads/rider-app/${encodeURIComponent(apkFile)}`;
+      // El nombre del APK cambia por release, pero una CDN puede haber
+      // cacheado un 404 mientras Railway todavía lo estaba copiando. El
+      // versionCode hace única la URL de cada publicación.
+      const relative = `/uploads/rider-app/${encodeURIComponent(apkFile)}?v=${encodeURIComponent(String(versionCode))}`;
       downloadUrl = absoluteUrl(req, relative);
       try {
         sizeBytes = fs.statSync(apkPath).size;
