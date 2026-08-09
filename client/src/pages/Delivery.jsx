@@ -389,6 +389,8 @@ export default function Delivery() {
   const canManage = hasPermission('delivery.manage');
   const [repartidores, setRepartidores] = useState([]);
   const [pedidos, setPedidos] = useState([]);
+  const [riderDiagnostics, setRiderDiagnostics] = useState([]);
+  const [supportRequests, setSupportRequests] = useState([]);
   const [tab, setTab] = useState('activos');
   const [modal, setModal] = useState(null);
   const [asignarModal, setAsignarModal] = useState(null);
@@ -406,18 +408,45 @@ export default function Delivery() {
 
   const cargar = async () => {
     try {
-      const [reps, peds] = await Promise.all([
+      const requests = [
         api.get('/repartidores'),
         // Solo delivery: antes se pedian 100 pedidos de cualquier tipo y se
         // filtraban aca, asi que un dia con mucho mostrador dejaba el panel
         // vacio o con el historial cortado.
         api.get('/pedidos?tipo_entrega=delivery&limit=100'),
-      ]);
+      ];
+      if (canManage) {
+        requests.push(
+          api.get('/repartidores/rider-diagnostics'),
+          api.get('/repartidores/soporte/pendientes')
+        );
+      }
+      const [reps, peds, diagnostics = [], support = []] = await Promise.all(requests);
       setRepartidores(reps || []);
       setPedidos(peds || []);
+      setRiderDiagnostics(diagnostics || []);
+      setSupportRequests(support || []);
     } catch (error) {
       toast.error(error?.error || 'No se pudo cargar el panel de delivery');
     }
+  };
+
+  const resolverSoporte = async (id) => {
+    await api.post(`/repartidores/soporte/${id}/resolver`);
+    toast.success('Solicitud resuelta');
+    cargar();
+  };
+
+  const revocarAccesoRider = async (rider) => {
+    if (
+      !window.confirm(
+        `¿Revocar el acceso de ${rider.nombre}? Tendrá que ingresar con un código nuevo.`
+      )
+    )
+      return;
+    const result = await api.post(`/repartidores/${rider.id}/revocar-acceso-rider`);
+    toast.success(`Acceso revocado. Nuevo PIN: ${result.codigo_acceso}`);
+    cargar();
   };
 
   /**
@@ -1108,6 +1137,54 @@ export default function Delivery() {
             </div>
           )}
         </div>
+
+        {canManage && (supportRequests.length > 0 || riderDiagnostics.length > 0) ? (
+          <div className="order-6 rounded-2xl bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.06)]">
+            <h3 className="text-[15px] font-semibold text-gray-900">Centro operativo Rider</h3>
+            <p className="mt-0.5 text-[12px] text-gray-500">
+              Ayuda en calle, notificaciones y seguridad de dispositivos.
+            </p>
+            {supportRequests.length > 0 ? (
+              <div className="mt-4 space-y-2">
+                {supportRequests.map((item) => (
+                  <div
+                    key={item.id}
+                    className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-100 bg-amber-50 p-3"
+                  >
+                    <p className="text-[13px] text-amber-900">
+                      <b>{item.repartidor_nombre}</b>
+                      {item.pedido_numero ? ` · Pedido #${item.pedido_numero}` : ''}: {item.mensaje}
+                    </p>
+                    <button
+                      onClick={() => resolverSoporte(item.id)}
+                      className="h-9 rounded-lg bg-white px-3 text-[12px] font-semibold text-amber-700"
+                    >
+                      Resolver
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+            <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+              {riderDiagnostics.map((item) => (
+                <div key={item.id} className="rounded-xl border border-gray-100 p-3 text-[12px]">
+                  <p className="font-semibold text-gray-900">{item.nombre}</p>
+                  <p className="mt-1 text-gray-500">
+                    {item.push_registrado
+                      ? `Push activo · ${item.fcm_device_label || 'Android'}`
+                      : 'Sin dispositivo registrado'}
+                  </p>
+                  <button
+                    onClick={() => revocarAccesoRider(item)}
+                    className="mt-3 text-rose-600 underline"
+                  >
+                    Revocar acceso
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
 
         {/* ── Mesa de despacho ── */}
         <div className="order-3 rounded-2xl bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.06)]">
