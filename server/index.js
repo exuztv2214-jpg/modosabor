@@ -447,4 +447,14 @@ startAutomaticBackups(db);
 const PORT = Number(process.env.PORT || 3001);
 server.listen(PORT, () => {
   logger.info(`Modo Sabor API corriendo en http://localhost:${PORT}`);
+  // FCM no puede ejecutarse antes de que el servidor tenga configurada la
+  // aplicación y la base lista. Pequeña demora y sin bloquear el arranque.
+  const riderUpdateTimer = setTimeout(() => {
+    require('./routes/riderApp')
+      .notifyPublishedUpdateOnce()
+      .catch((error) =>
+        logger.warn('No se pudo avisar la actualización Rider', { message: error.message })
+      );
+  }, 1500);
+  riderUpdateTimer.unref?.();
 });

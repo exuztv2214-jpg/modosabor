@@ -24,6 +24,7 @@ const db = require('../db');
 const auth = require('../middleware/auth');
 const { requirePermission } = require('../utils/permissions');
 const { sendRiderUpdatePush } = require('../utils/firebasePush');
+const logger = require('../utils/logger');
 
 const RIDER_APP_DIR = path.join(uploadsDir, 'rider-app');
 const MANIFEST_PATH = path.join(RIDER_APP_DIR, 'manifest.json');
@@ -32,6 +33,53 @@ function ensureRiderAppDir() {
   if (!fs.existsSync(RIDER_APP_DIR)) {
     fs.mkdirSync(RIDER_APP_DIR, { recursive: true });
   }
+}
+
+function readPublishedManifest() {
+  ensureRiderAppDir();
+  if (!fs.existsSync(MANIFEST_PATH)) return null;
+  try {
+    const manifest = JSON.parse(fs.readFileSync(MANIFEST_PATH, 'utf8'));
+    const apkPath = path.join(RIDER_APP_DIR, String(manifest?.apkFile || ''));
+    if (!manifest?.apkFile || !fs.existsSync(apkPath)) return null;
+    return manifest;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Cada release publicada dispara un único aviso automático al arrancar el
+ * servidor. El valor se guarda en DB para que reinicios posteriores no
+ * molesten a los riders con el mismo aviso.
+ */
+async function notifyPublishedUpdateOnce() {
+  const manifest = readPublishedManifest();
+  const versionCode = Number(manifest?.versionCode || 0);
+  if (!manifest || !versionCode) return { sent: 0, reason: 'no_published_update' };
+
+  const key = 'rider_update_notified_version';
+  const previous = Number(
+    db.prepare('SELECT valor FROM configuracion WHERE clave = ?').get(key)?.valor || 0
+  );
+  if (previous >= versionCode) return { sent: 0, reason: 'already_notified' };
+
+  const result = await sendRiderUpdatePush(db, manifest);
+  // Sin tokens no marcamos la versión como avisada: si un rider instala la
+  // APK inicial y registra FCM, el próximo reinicio podrá alcanzarlo.
+  if (Number(result?.sent || 0) > 0) {
+    db.prepare('INSERT OR REPLACE INTO configuracion (clave, valor) VALUES (?, ?)').run(
+      key,
+      String(versionCode)
+    );
+  }
+  logger.info('Aviso automático de actualización Rider', {
+    versionCode,
+    sent: Number(result?.sent || 0),
+    total: Number(result?.total || 0),
+    reason: result?.reason || '',
+  });
+  return result;
 }
 
 /**
@@ -168,3 +216,4 @@ router.post(
 );
 
 module.exports = router;
+module.exports.notifyPublishedUpdateOnce = notifyPublishedUpdateOnce;

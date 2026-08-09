@@ -110,7 +110,7 @@ async function sendRiderUpdatePush(db, update = {}) {
           body: `Ya está disponible la versión ${update.versionName || 'nueva'}`,
         },
         data: { type: 'rider_update', versionCode: String(update.versionCode || '') },
-        android: { priority: 'high', notification: { channelId: 'rider-orders' } },
+        android: { priority: 'high', notification: { channelId: 'rider-orders-v2' } },
       });
       sent += 1;
     } catch (error) {
