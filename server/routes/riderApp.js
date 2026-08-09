@@ -20,6 +20,10 @@ const fs = require('fs');
 const path = require('path');
 const router = express.Router();
 const { uploadsDir } = require('../utils/storagePaths');
+const db = require('../db');
+const auth = require('../middleware/auth');
+const { requirePermission } = require('../utils/permissions');
+const { sendRiderUpdatePush } = require('../utils/firebasePush');
 
 const RIDER_APP_DIR = path.join(uploadsDir, 'rider-app');
 const MANIFEST_PATH = path.join(RIDER_APP_DIR, 'manifest.json');
@@ -137,5 +141,30 @@ router.get('/manifest', (_req, res) => {
     return res.status(500).json({ error: 'Manifest corrupto', message: error.message });
   }
 });
+
+router.post(
+  '/notificar-actualizacion',
+  auth,
+  requirePermission('delivery.manage'),
+  async (_req, res) => {
+    ensureRiderAppDir();
+    if (!fs.existsSync(MANIFEST_PATH)) {
+      return res.status(400).json({ error: 'Primero publicá un APK y su manifest.' });
+    }
+    try {
+      const manifest = JSON.parse(fs.readFileSync(MANIFEST_PATH, 'utf8'));
+      const apkPath = path.join(RIDER_APP_DIR, String(manifest.apkFile || ''));
+      if (!manifest.apkFile || !fs.existsSync(apkPath)) {
+        return res
+          .status(400)
+          .json({ error: 'El APK indicado en el manifest no está disponible.' });
+      }
+      const result = await sendRiderUpdatePush(db, manifest);
+      return res.json({ success: true, ...result });
+    } catch (error) {
+      return res.status(500).json({ error: 'No se pudo enviar el aviso de actualización.' });
+    }
+  }
+);
 
 module.exports = router;

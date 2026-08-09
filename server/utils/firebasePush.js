@@ -96,7 +96,47 @@ async function sendRiderAssignmentPush(db, pedido) {
   }
 }
 
+async function sendRiderUpdatePush(db, update = {}) {
+  const messaging = getMessaging();
+  if (!messaging) return { sent: 0, reason: 'not_configured' };
+
+  const riders = db
+    .prepare("SELECT id, fcm_token FROM repartidores WHERE TRIM(COALESCE(fcm_token, '')) <> ''")
+    .all();
+  let sent = 0;
+
+  for (const rider of riders) {
+    const token = String(rider.fcm_token || '').trim();
+    try {
+      await messaging.send({
+        token,
+        notification: {
+          title: 'Actualizá Modo Sabor Rider',
+          body: `Ya está disponible la versión ${update.versionName || 'nueva'}`,
+        },
+        data: { type: 'rider_update', versionCode: String(update.versionCode || '') },
+        android: { priority: 'high', notification: { channelId: 'rider-orders' } },
+      });
+      sent += 1;
+    } catch (error) {
+      if (isInvalidRegistrationToken(error)) {
+        db.prepare('UPDATE repartidores SET fcm_token = ?, fcm_platform = ? WHERE id = ?').run(
+          '',
+          '',
+          rider.id
+        );
+      }
+      logger.warn('No se pudo enviar aviso de actualización Rider', {
+        riderId: rider.id,
+        code: error?.code || '',
+      });
+    }
+  }
+  return { sent, total: riders.length };
+}
+
 module.exports = {
   getMessaging,
   sendRiderAssignmentPush,
+  sendRiderUpdatePush,
 };

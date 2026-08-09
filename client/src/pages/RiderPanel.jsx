@@ -44,6 +44,10 @@ import {
   TrendingUp,
   Eye,
   EyeOff,
+  ShieldCheck,
+  Wifi,
+  Navigation2,
+  LockKeyhole,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -1953,8 +1957,12 @@ export default function RiderPanel() {
                 </div>
               </motion.div>
 
+              <div className="mt-6 inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1.5 text-[11px] font-bold tracking-[0.16em] text-white/80 backdrop-blur">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-300 shadow-[0_0_10px_#86efac]" />
+                APP PARA RIDERS
+              </div>
               <p
-                className="mt-6 text-[13px] font-semibold text-white/70"
+                className="mt-4 text-[13px] font-semibold text-white/70"
                 style={{ fontFamily: '"Poppins","Inter",sans-serif' }}
               >
                 Modo Sabor
@@ -1966,8 +1974,22 @@ export default function RiderPanel() {
                 Riders
               </h1>
               <p className="mt-3 text-center text-sm font-semibold text-white/80 max-w-xs">
-                Ingresá tu código para arrancar tu turno y empezar a recibir pedidos.
+                Tu ruta, pedidos y ganancias. Todo listo para empezar el turno.
               </p>
+              <div className="mt-5 grid w-full max-w-sm grid-cols-3 gap-2 text-center text-[10px] font-bold text-white/85">
+                <span className="rounded-2xl border border-white/15 bg-black/10 px-2 py-2.5">
+                  <Wifi size={15} className="mx-auto mb-1" />
+                  Pedidos al instante
+                </span>
+                <span className="rounded-2xl border border-white/15 bg-black/10 px-2 py-2.5">
+                  <Navigation2 size={15} className="mx-auto mb-1" />
+                  Ruta en vivo
+                </span>
+                <span className="rounded-2xl border border-white/15 bg-black/10 px-2 py-2.5">
+                  <ShieldCheck size={15} className="mx-auto mb-1" />
+                  Datos protegidos
+                </span>
+              </div>
             </div>
 
             {/* Card blanca con inputs */}
@@ -1976,8 +1998,21 @@ export default function RiderPanel() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.15, duration: 0.5 }}
               onSubmit={handleLogin}
-              className="mt-8 rounded-[28px] bg-white p-6 shadow-2xl shadow-black/20"
+              className="mt-8 rounded-[30px] border border-white/70 bg-white p-6 shadow-2xl shadow-black/25"
             >
+              <div className="mb-5 flex items-center justify-between">
+                <div>
+                  <p className="text-base font-black tracking-tight text-slate-900">
+                    Abrí tu turno
+                  </p>
+                  <p className="mt-0.5 text-xs font-medium text-slate-400">
+                    Usá las credenciales del local
+                  </p>
+                </div>
+                <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-red-50 text-[#dc1f2d]">
+                  <LockKeyhole size={18} />
+                </div>
+              </div>
               <div className="space-y-4">
                 <div>
                   <label className="mb-1.5 flex items-center gap-2 text-[13px] font-semibold text-gray-500">
@@ -2024,12 +2059,14 @@ export default function RiderPanel() {
                 type="submit"
                 className="mt-6 flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-[#dc1f2d] to-[#b91c1c] text-sm font-semibold text-white shadow-lg shadow-red-200 transition-all active:scale-[0.98] hover:brightness-110"
               >
-                Ingresar
+                Abrir mi turno
                 <Zap size={16} strokeWidth={3} />
               </button>
 
-              <p className="mt-4 text-center text-[13px] font-bold text-gray-400">
-                ¿No tenés tu código? Pedíselo al encargado del turno.
+              <p className="mt-4 text-center text-[12px] font-semibold leading-relaxed text-gray-400">
+                Tus datos quedan protegidos en este celular.
+                <br />
+                ¿No tenés tu código? Pedíselo al encargado.
               </p>
             </motion.form>
 

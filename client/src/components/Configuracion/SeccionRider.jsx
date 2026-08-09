@@ -1,4 +1,13 @@
-import { Copy, ExternalLink, Image as ImageIcon, Palette, Smartphone, Type, X } from 'lucide-react';
+import {
+  BellRing,
+  Copy,
+  ExternalLink,
+  Image as ImageIcon,
+  Palette,
+  Smartphone,
+  Type,
+  X,
+} from 'lucide-react';
 import toast from 'react-hot-toast';
 
 import api from '../../lib/api.js';
@@ -33,6 +42,19 @@ export default function SeccionRider({ config, f, setConfig }) {
       toast.error('No se pudo subir el logo');
     }
     event.target.value = '';
+  };
+
+  const notifyRiderUpdate = async () => {
+    try {
+      const result = await api.post('/rider-app/notificar-actualizacion');
+      toast.success(
+        result?.sent
+          ? `Aviso enviado a ${result.sent} rider${result.sent === 1 ? '' : 's'}`
+          : 'No hay riders con la app registrada todavía.'
+      );
+    } catch (error) {
+      toast.error(error?.error || 'Primero publicá el APK nuevo para poder avisar.');
+    }
   };
 
   return (
@@ -74,6 +96,14 @@ export default function SeccionRider({ config, f, setConfig }) {
                 <ExternalLink size={15} strokeWidth={STROKE} />
                 Abrir
               </a>
+              <button
+                type="button"
+                onClick={notifyRiderUpdate}
+                className="inline-flex h-10 items-center gap-2 rounded-xl bg-[#dc1f2d] px-4 text-[13px] font-semibold text-white transition hover:bg-[#b91c1c]"
+              >
+                <BellRing size={15} strokeWidth={STROKE} />
+                Avisar actualización
+              </button>
             </div>
 
             {/*
