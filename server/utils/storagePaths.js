@@ -53,6 +53,35 @@ function copyMissingEntries(sourceDir, targetDir) {
   return copied;
 }
 
+/**
+ * Los uploads viven en un volumen persistente en producción. Eso es correcto
+ * para fotos y comprobantes, pero dejaba congelado `rider-app/manifest.json`:
+ * el bundle traía una versión nueva y la copia "solo si falta" conservaba el
+ * manifiesto anterior para siempre. Para Rider el manifiesto de mayor
+ * versionCode es la fuente de verdad y puede actualizarse sin tocar APKs
+ * viejos ni otros uploads del negocio.
+ */
+function syncBundledRiderManifest(sourceUploadsDir, targetUploadsDir) {
+  const relative = path.join('rider-app', 'manifest.json');
+  const source = path.join(sourceUploadsDir, relative);
+  const target = path.join(targetUploadsDir, relative);
+  if (!fs.existsSync(source)) return false;
+
+  try {
+    const bundled = JSON.parse(fs.readFileSync(source, 'utf8'));
+    const persisted = fs.existsSync(target) ? JSON.parse(fs.readFileSync(target, 'utf8')) : null;
+    const bundledVersion = Number(bundled?.versionCode || 0);
+    const persistedVersion = Number(persisted?.versionCode || 0);
+    if (bundledVersion <= persistedVersion) return false;
+    ensureDir(path.dirname(target));
+    fs.copyFileSync(source, target);
+    return true;
+  } catch {
+    // Un manifest corrupto nunca debe impedir el inicio de la API.
+    return false;
+  }
+}
+
 function bootstrapUploadsFromBundle() {
   if (path.resolve(defaultUploadsDir) === path.resolve(uploadsDir)) {
     return { copied: false, filesCopied: 0 };
@@ -62,9 +91,11 @@ function bootstrapUploadsFromBundle() {
   }
 
   const filesCopied = copyMissingEntries(defaultUploadsDir, uploadsDir);
+  const manifestUpdated = syncBundledRiderManifest(defaultUploadsDir, uploadsDir);
   return {
-    copied: filesCopied > 0,
+    copied: filesCopied > 0 || manifestUpdated,
     filesCopied,
+    manifestUpdated,
   };
 }
 
