@@ -20,7 +20,10 @@ function getMessaging() {
       throw new Error('La credencial de Firebase no contiene los campos requeridos');
     }
 
-    if (admin.apps.length === 0) {
+    // Firebase Admin v14 reemplazó `admin.apps` por `getApps()`.
+    // Usar la API actual evita que FCM falle al iniciar antes de intentar
+    // enviar cualquier aviso.
+    if (admin.getApps().length === 0) {
       admin.initializeApp({ credential: admin.credential.cert(credential) });
     }
     firebaseMessaging = admin.messaging();
