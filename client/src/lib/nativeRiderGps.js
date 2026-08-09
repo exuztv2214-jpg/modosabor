@@ -7,7 +7,9 @@ import { RIDER_GPS_OPTIONS } from './riderGps.js';
 import { API_BASE_URL } from './runtime.js';
 
 const BackgroundGeolocation = registerPlugin('BackgroundGeolocation');
+const RiderSecureStore = registerPlugin('RiderSecureStore');
 const RIDER_AUTH_KEY = 'ms_rider_auth_v1';
+const RIDER_STORAGE_PREFIX = 'ms_rider_';
 
 export function isNativeRiderApp() {
   return Capacitor.isNativePlatform?.() === true;
@@ -61,12 +63,12 @@ export async function saveNativeRiderAuth(auth) {
   const id = String(auth?.id || '').trim();
   const code = String(auth?.code || '').trim();
   if (!id || !code) return;
-  await Preferences.set({ key: RIDER_AUTH_KEY, value: JSON.stringify({ id, code }) });
+  await riderStorageSet(RIDER_AUTH_KEY, JSON.stringify({ id, code }));
 }
 
 export async function loadNativeRiderAuth() {
   try {
-    const { value } = await Preferences.get({ key: RIDER_AUTH_KEY });
+    const value = await riderStorageGet(RIDER_AUTH_KEY);
     if (!value) return null;
     const parsed = JSON.parse(value);
     const id = String(parsed?.id || '').trim();
@@ -78,7 +80,7 @@ export async function loadNativeRiderAuth() {
 }
 
 export async function clearNativeRiderAuth() {
-  await Preferences.remove({ key: RIDER_AUTH_KEY });
+  await riderStorageRemove(RIDER_AUTH_KEY);
 }
 
 // Helpers universales de storage persistente. Usan @capacitor/preferences
@@ -90,8 +92,17 @@ export async function clearNativeRiderAuth() {
 export async function riderStorageGet(key) {
   if (isNativeRiderApp()) {
     try {
-      const { value } = await Preferences.get({ key });
-      return value ?? null;
+      const secure = await RiderSecureStore.get({ key });
+      if (secure?.value != null) return secure.value;
+
+      // Migración de APKs anteriores: se lee una vez del Preferences plano,
+      // se cifra y se elimina inmediatamente la copia heredada.
+      const legacy = await Preferences.get({ key });
+      if (legacy?.value != null && String(key).startsWith(RIDER_STORAGE_PREFIX)) {
+        await RiderSecureStore.set({ key, value: legacy.value });
+        await Preferences.remove({ key });
+      }
+      return legacy?.value ?? null;
     } catch {
       return null;
     }
@@ -107,9 +118,10 @@ export async function riderStorageSet(key, value) {
   const v = value == null ? '' : String(value);
   if (isNativeRiderApp()) {
     try {
-      await Preferences.set({ key, value: v });
+      await RiderSecureStore.set({ key, value: v });
     } catch {
-      // silent
+      // En nativo no se degrada a texto plano: si Keystore falla, es más
+      // seguro pedir login otra vez que dejar credenciales legibles.
     }
     return;
   }
@@ -123,9 +135,14 @@ export async function riderStorageSet(key, value) {
 export async function riderStorageRemove(key) {
   if (isNativeRiderApp()) {
     try {
+      await RiderSecureStore.remove({ key });
+    } catch {
+      // La copia antigua se intenta limpiar igual debajo.
+    }
+    try {
       await Preferences.remove({ key });
     } catch {
-      // silent
+      // Puede no existir una instalación anterior.
     }
     return;
   }
@@ -181,6 +198,15 @@ export async function wipeRiderDevice() {
     } catch {
       // Fallback: al menos las exactas.
       await Promise.all(exactas.map((k) => Preferences.remove({ key: k }).catch(() => {})));
+    }
+    try {
+      const secure = await RiderSecureStore.keys();
+      const objetivo = (secure?.keys || []).filter((k) =>
+        RIDER_KEY_PREFIXES.some((p) => String(k).startsWith(p))
+      );
+      await Promise.all(objetivo.map((k) => RiderSecureStore.remove({ key: k }).catch(() => {})));
+    } catch {
+      await Promise.all(exactas.map((k) => RiderSecureStore.remove({ key: k }).catch(() => {})));
     }
     return true;
   }

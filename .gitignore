@@ -11,6 +11,8 @@ deploy/modosabor-deploy.zip
 deploy/modosabor-donweb.tgz
 deploy/*.key
 *.key
+*.jks
+*.keystore
 template_base/
 .launcher/
 .codex-logs/

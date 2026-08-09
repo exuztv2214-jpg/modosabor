@@ -35,9 +35,8 @@ android {
     }
 
     // Firma release desde variables de entorno (MODOSABOR_KEYSTORE_*).
-    // Si no estan cargadas, cae a la firma debug para no romper el build
-    // en dev; pero el APK release apto para distribucion requiere las 4
-    // variables seteadas + el keystore .jks en la ruta indicada.
+    // Un release sin firma queda bloqueado: nunca se distribuye un APK
+    // firmado como debug. El build debug sigue disponible para desarrollo.
     signingConfigs {
         release {
             def ksPath = System.getenv('MODOSABOR_KEYSTORE_PATH')
@@ -58,6 +57,10 @@ android {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
             def hasKs = System.getenv('MODOSABOR_KEYSTORE_PATH') && System.getenv('MODOSABOR_KEYSTORE_PASSWORD') && System.getenv('MODOSABOR_KEY_ALIAS')
+            def releaseRequested = gradle.startParameter.taskNames.any { it.toLowerCase().contains('release') }
+            if (releaseRequested && !hasKs) {
+                throw new GradleException('Release Rider bloqueado: faltan MODOSABOR_KEYSTORE_PATH, MODOSABOR_KEYSTORE_PASSWORD o MODOSABOR_KEY_ALIAS.')
+            }
             signingConfig hasKs ? signingConfigs.release : signingConfigs.debug
         }
     }
@@ -79,6 +82,7 @@ dependencies {
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
     implementation project(':capacitor-cordova-android-plugins')
+    implementation "androidx.security:security-crypto:1.1.0"
 }
 
 apply from: 'capacitor.build.gradle'
