@@ -60,7 +60,7 @@ Si no lo tenés instalado: la forma más simple gratis es self-hosted con Docker
 El workflow espera estas variables configuradas en n8n (Settings → Variables, o como env vars del proceso):
 
 - `MODO_SABOR_API_URL` — la URL pública de tu API (hoy tenés `PUBLIC_API_URL=http://192.168.1.92:3001` en `server/.env`, que es una IP de LAN — **para que n8n en la nube le pueda pegar, esa URL tiene que ser accesible desde internet**, no solo desde tu red local. Si tu sistema corre en tu PC del local sin IP pública, vamos a necesitar resolver esto — dímelo cuando lleguemos a esta parte y lo vemos, hay varias formas (túnel, VPS intermedio, etc).
-- Para DonWeb usar: `https://modosabor.com.ar`
+- Para Railway usar la URL pública configurada en `PUBLIC_API_URL`.
 - `AGENT_API_KEY` — el mismo valor que pusiste en `server/.env`.
 - `WHATSAPP_PHONE_NUMBER_ID` — el que te da Meta.
 
@@ -89,19 +89,7 @@ El modo `#dale` quedó probado contra el backend local:
 - Con `producto_id` real (`Smash Simple`, id `40`) creó un borrador en `/admin/whatsapp-copiloto`: OK.
 - El borrador de prueba se descartó desde la pantalla para dejar la base limpia.
 
-## Activar la clave del agente en DonWeb
+## Activar la clave del agente en Railway
 
-El deploy conserva el `.env` remoto, así que hay que cargar la misma `AGENT_API_KEY` en el VPS una vez.
-
-Desde PowerShell, en la carpeta del proyecto:
-
-```powershell
-cd D:\Proyectos\modosabor1
-$env:MODOSABOR_VPS_HOST='149.50.133.118'
-$env:MODOSABOR_VPS_PORT='5942'
-$env:MODOSABOR_VPS_USER='root'
-$env:MODOSABOR_VPS_PATH='/opt/modosabor'
-powershell -ExecutionPolicy Bypass -File .\deploy\configure-donweb-agent.ps1
-```
-
-Ese comando pide la contraseña SSH del VPS y reinicia `pm2` para tomar la clave.
+Cargar `AGENT_API_KEY` en las variables del servicio Railway y reiniciar o
+redeployar el servicio para que la tome.

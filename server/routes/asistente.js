@@ -3,7 +3,7 @@ const express = require('express');
 const router = express.Router();
 const auth = require('../middleware/auth');
 const { requirePermission, hasPermission } = require('../utils/permissions');
-const { createRateLimiter } = require('../utils/rateLimit');
+const { createRateLimiter, createSqliteRateLimitStore } = require('../utils/rateLimit');
 const db = require('../db');
 const { logAudit } = require('../utils/audit');
 const logger = require('../utils/logger');
@@ -47,6 +47,7 @@ const limitePorUsuario = createRateLimiter({
   max: 15,
   message: 'Demasiadas consultas seguidas. Esperá un momento.',
   keyGenerator: (req) => `asistente:${req.user?.id || req.ip}`,
+  store: createSqliteRateLimitStore(db, 'asistente'),
 });
 
 /*

@@ -14,7 +14,7 @@ const {
   getConfig: getFidelizacionConfig,
 } = require('../services/fidelizacionService');
 const { restoreInventoryForPedido } = require('../utils/inventory');
-const { createRateLimiter } = require('../utils/rateLimit');
+const { createRateLimiter, createSqliteRateLimitStore } = require('../utils/rateLimit');
 const logger = require('../utils/logger');
 const { validateBody } = require('../middleware/validate');
 const { createPedidoSchema, updatePedidoSchema } = require('../schemas');
@@ -66,6 +66,7 @@ const publicOrderRateLimit = createRateLimiter({
   windowMs: 10 * 60 * 1000,
   max: 30,
   message: 'Demasiados pedidos desde este origen. Proba de nuevo en unos minutos.',
+  store: createSqliteRateLimitStore(db, 'pedido-publico'),
 });
 
 function buildTrackingPayload(pedido) {

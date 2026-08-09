@@ -94,6 +94,12 @@ const MONEY_KEYS = new Set([
   // liquidacion. Hoy no se muestran en pantalla, pero viajan en centavos.
   'saldo_pendiente',
   'saldo_restante',
+  // ── Ascensos ──
+  // `sueldo_nuevo` y `sueldo_anterior` viajan en el historial de carrera.
+  // Sin esto, POST /:id/ascenso guarda el sueldo en pesos en una columna en
+  // centavos y lo divide por 100: un ascenso a $450.000 queda en $4.500.
+  'sueldo_nuevo',
+  'sueldo_anterior',
 ]);
 
 const EXCLUDED_KEYS = new Set([
@@ -110,6 +116,10 @@ const EXCLUDED_KEYS = new Set([
   'condicion_valor',
   'descuento_empleado_pct',
   'descuento_ratio_pct',
+  // `total_liquidaciones` es un contador (cantidad de liquidaciones hechas),
+  // no plata. El nombre contiene "total" y el conversor lo agarra por patron.
+  // Sin excluirlo, alguien con 3 liquidaciones sale como 0,03.
+  'total_liquidaciones',
 ]);
 
 /**

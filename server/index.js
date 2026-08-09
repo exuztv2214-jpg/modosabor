@@ -28,7 +28,7 @@ const {
   formatUploadValidationError,
 } = require('./utils/uploadValidation');
 const { syncAllDeliveryPersonnel } = require('./utils/deliveryPersonnelSync');
-const { createRateLimiter } = require('./utils/rateLimit');
+const { createRateLimiter, createSqliteRateLimitStore } = require('./utils/rateLimit');
 const logger = require('./utils/logger');
 const sanitizeMiddleware = require('./middleware/sanitize');
 
@@ -150,6 +150,22 @@ function isMercadoPagoConfigured(tokenValue) {
 }
 
 const isProduction = process.env.NODE_ENV === 'production';
+const configuredTrustProxy = String(process.env.TRUST_PROXY || '').trim();
+// En producción la API está detrás del proxy de Railway/Render. Express usa
+// entonces la IP que el proxy validado entrega en `req.ip`; nunca leemos el
+// header x-forwarded-for directamente desde el limiter.
+const trustProxy = configuredTrustProxy
+  ? configuredTrustProxy === 'true'
+    ? 1
+    : configuredTrustProxy === 'false'
+      ? false
+      : Number.isFinite(Number(configuredTrustProxy))
+        ? Number(configuredTrustProxy)
+        : configuredTrustProxy
+  : isProduction
+    ? 1
+    : false;
+app.set('trust proxy', trustProxy);
 const allowedOrigins = buildAllowedOrigins();
 const validateOrigin = createOriginValidator(allowedOrigins, { allowLocalDev: !isProduction });
 
@@ -185,6 +201,7 @@ const apiRateLimit = createRateLimiter({
   windowMs: 60 * 1000,
   max: 180,
   message: 'Demasiadas solicitudes. Proba de nuevo en unos minutos.',
+  store: createSqliteRateLimitStore(db, 'api'),
 });
 app.use((req, res, next) => {
   const isReadOnly = req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS';
@@ -259,12 +276,40 @@ app.use('/api/asistente', require('./routes/asistente'));
 app.use('/api/whatsapp-copiloto', require('./routes/whatsappCopiloto'));
 
 if (process.env.NODE_ENV === 'production' && fs.existsSync(clientIndexFile)) {
-  app.use(express.static(clientDistDir));
+  /*
+    Dos políticas de caché distintas, porque son dos clases de archivo.
+
+    Todo lo de `/assets` lleva un hash del contenido en el nombre
+    (`Operacion-UyuekIOu.js`). Si el archivo cambia, cambia el nombre. Eso
+    significa que ese nombre nunca va a apuntar a otra cosa, y el navegador lo
+    puede guardar para siempre sin volver a preguntar. Antes se servían con
+    `max-age=0`, así que en cada carga el navegador revalidaba cada pedazo del
+    sistema contra el servidor: decenas de viajes de red para recibir "no
+    cambió nada".
+
+    El `index.html` es lo contrario: el nombre es siempre el mismo y el
+    contenido cambia en cada deploy, porque adentro tiene la lista de nombres
+    con hash. Ese no se guarda nunca; es el que le avisa al navegador que hay
+    una versión nueva.
+  */
+  app.use(
+    express.static(clientDistDir, {
+      index: false,
+      setHeaders: (res, filePath) => {
+        if (filePath.includes(`${path.sep}assets${path.sep}`)) {
+          res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        } else {
+          res.setHeader('Cache-Control', 'no-cache');
+        }
+      },
+    })
+  );
   app.get('*', (req, res, next) => {
     if (req.path.startsWith('/api') || req.path.startsWith('/uploads')) {
       return next();
     }
 
+    res.setHeader('Cache-Control', 'no-cache');
     return res.sendFile(clientIndexFile);
   });
 }

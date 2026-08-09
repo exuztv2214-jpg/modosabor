@@ -16,6 +16,7 @@ const { parseLocalizedNumber, roundLocalizedNumber } = require('../utils/numberI
 const { syncDeliveryRepartidor } = require('../utils/deliveryPersonnelSync');
 const { getOperationalShiftContext } = require('../utils/operationalCaja');
 const { uploadsDir, uploadPathFromFilename } = require('../utils/storagePaths');
+const { hoyArgentina } = require('../utils/fechaLocal');
 const {
   createFileFilter,
   IMAGE_EXTENSIONS,
@@ -70,6 +71,9 @@ function cleanText(value) {
 }
 
 function isoDate(date = new Date()) {
+  // Sin argumento: usar la fecha del negocio (Argentina), no UTC.
+  // Con argumento: formatear esa fecha concreta (no depende de zona).
+  if (arguments.length === 0) return hoyArgentina();
   return new Date(date).toISOString().split('T')[0];
 }
 
@@ -503,18 +507,22 @@ function normalizePersonalRow(row, pendingMap) {
   let dias_para_cumpleanos = null;
   let es_cumpleanos_hoy = false;
   if (row.fecha_nacimiento) {
-    const hoy = new Date();
+    const hoyStr = hoyArgentina();
+    const [anioHoy, mesHoy, diaHoy] = hoyStr.split('-').map(Number);
     const nacimiento = new Date(row.fecha_nacimiento);
-    const esteAnio = hoy.getFullYear();
-    let proximo = new Date(esteAnio, nacimiento.getMonth(), nacimiento.getDate());
+    const mesNac = nacimiento.getUTCMonth() + 1;
+    const diaNac = nacimiento.getUTCDate();
 
-    if (proximo < hoy) {
-      proximo = new Date(esteAnio + 1, nacimiento.getMonth(), nacimiento.getDate());
+    // Armar la próxima fecha de cumpleaños comparando mes/día
+    let anioProximo = anioHoy;
+    if (mesNac < mesHoy || (mesNac === mesHoy && diaNac < diaHoy)) {
+      anioProximo = anioHoy + 1;
     }
+    proximo_cumpleanos = `${anioProximo}-${String(mesNac).padStart(2, '0')}-${String(diaNac).padStart(2, '0')}`;
 
-    const diffTime = proximo - hoy;
-    dias_para_cumpleanos = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    proximo_cumpleanos = proximo.toISOString().split('T')[0];
+    const hoyDate = new Date(`${hoyStr}T00:00:00Z`);
+    const proxDate = new Date(`${proximo_cumpleanos}T00:00:00Z`);
+    dias_para_cumpleanos = Math.round((proxDate - hoyDate) / (1000 * 60 * 60 * 24));
     es_cumpleanos_hoy = dias_para_cumpleanos === 0;
   }
 
@@ -1539,7 +1547,7 @@ router.get('/asistencia/resumen', auth, requirePermission('config.manage'), (req
 
 router.get('/asistencia/analitica', auth, requirePermission('config.manage'), (req, res) => {
   try {
-    const hoy = new Date().toISOString().split('T')[0];
+    const hoy = hoyArgentina();
     const desde = cleanText(req.query?.desde) || hoy;
     const hasta = cleanText(req.query?.hasta) || hoy;
     res.json(buildAttendanceAnalytics({ desde, hasta }));
@@ -1925,7 +1933,7 @@ router.post('/:id/objetivos', auth, requirePermission('config.manage'), (req, re
   if (!person) return res.status(404).json({ error: 'Personal no encontrado' });
 
   const actor = actorFromRequest(req);
-  const fechaDesde = cleanText(req.body?.fecha_desde) || new Date().toISOString().split('T')[0];
+  const fechaDesde = cleanText(req.body?.fecha_desde) || hoyArgentina();
   const fechaHasta = cleanText(req.body?.fecha_hasta) || fechaDesde;
   const turnoId = cleanText(req.body?.turno_id);
   const tipo = cleanText(req.body?.tipo) || 'general';
@@ -2200,7 +2208,7 @@ router.post('/', auth, requirePermission('config.manage'), (req, res) => {
   const notas = cleanText(req.body?.notas);
   const avatarUrl = cleanText(req.body?.avatar_url);
   const fechaNacimiento = cleanText(req.body?.fecha_nacimiento);
-  const fechaIngreso = cleanText(req.body?.fecha_ingreso) || new Date().toISOString().split('T')[0];
+  const fechaIngreso = cleanText(req.body?.fecha_ingreso) || hoyArgentina();
   const direccion = cleanText(req.body?.direccion);
   const categoriaId = req.body?.categoria_id || 1;
   const clockPin = normalizeClockPin(req.body?.clock_pin) || generateClockPin();

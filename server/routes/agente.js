@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
-const { createRateLimiter } = require('../utils/rateLimit');
+const { createRateLimiter, createSqliteRateLimitStore } = require('../utils/rateLimit');
 const { getConfigMap } = require('../utils/mercadoPago');
 const { getCurrentShiftInfo } = require('../utils/shifts');
 const { logAudit } = require('../utils/audit');
@@ -48,6 +48,7 @@ const agentRateLimit = createRateLimiter({
   windowMs: 5 * 60 * 1000,
   max: 120,
   message: 'Demasiadas solicitudes del agente. Intenta de nuevo en unos minutos.',
+  store: createSqliteRateLimitStore(db, 'agente'),
 });
 
 router.use(requireAgentKey, agentRateLimit);

@@ -47,6 +47,8 @@ function testLosCamposDePlata() {
     'margen',
     'ingreso_generado',
     'ventas_atribuidas',
+    'sueldo_nuevo',
+    'sueldo_anterior',
   ];
 
   plata.forEach((clave) => {
@@ -81,6 +83,7 @@ function testLoQueNoEsPlata() {
     // Identificadores y banderas
     ['cajaMovimientoId', 'un id'],
     ['caja_registrada', 'un sí o no'],
+    ['total_liquidaciones', 'cantidad de liquidaciones, no plata'],
     // Ya convertido en el origen
     ['ventas_pesos', 'ya viene en pesos: convertirlo lo dividiría dos veces'],
   ];

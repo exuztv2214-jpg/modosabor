@@ -30,4 +30,12 @@ module.exports = [
       'no-empty': 'warn',
     },
   },
+  {
+    // Las pruebas y scripts de mantenimiento informan su avance por consola.
+    // No deben contaminar el indicador de calidad del código que atiende pedidos.
+    files: ['tests/**/*.js', 'scripts/**/*.js'],
+    rules: {
+      'no-console': 'off',
+    },
+  },
 ];

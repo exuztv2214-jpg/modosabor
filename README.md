@@ -87,20 +87,21 @@ El frontend estará en `http://localhost:5173` y el backend en `http://localhost
 
 Copiar `server/.env.example` a `server/.env` y completar:
 
-| Variable                 | Descripción                      | Ejemplo                       |
-| ------------------------ | -------------------------------- | ----------------------------- |
-| `PORT`                   | Puerto del servidor              | `3001`                        |
-| `NODE_ENV`               | Entorno                          | `development` / `production`  |
-| `JWT_SECRET`             | Clave secreta para JWT           | `una-clave-larga-y-aleatoria` |
-| `INITIAL_ADMIN_EMAIL`    | Email del admin inicial          | `admin@tudominio.com`         |
-| `INITIAL_ADMIN_PASSWORD` | Contraseña del admin inicial     | `una-clave-segura`            |
-| `CORS_ORIGINS`           | Orígenes permitidos              | `http://localhost:5173`       |
-| `PUBLIC_APP_URL`         | URL pública de la app            | `https://tudominio.com`       |
-| `PUBLIC_API_URL`         | URL pública de la API            | `https://tudominio.com`       |
-| `DATA_DIR`               | Directorio de datos persistentes | `/data`                       |
-| `UPLOADS_DIR`            | Directorio de uploads            | `/data/uploads`               |
-| `BACKUPS_DIR`            | Directorio de backups            | `/data/backups`               |
-| `DB_FILE`                | Ruta de la base SQLite           | `/data/modosabor.db`          |
+| Variable                 | Descripción                          | Ejemplo                       |
+| ------------------------ | ------------------------------------ | ----------------------------- |
+| `PORT`                   | Puerto del servidor                  | `3001`                        |
+| `NODE_ENV`               | Entorno                              | `development` / `production`  |
+| `TRUST_PROXY`            | Proxies confiables delante de la API | `1`                           |
+| `JWT_SECRET`             | Clave secreta para JWT               | `una-clave-larga-y-aleatoria` |
+| `INITIAL_ADMIN_EMAIL`    | Email del admin inicial              | `admin@tudominio.com`         |
+| `INITIAL_ADMIN_PASSWORD` | Contraseña del admin inicial         | `una-clave-segura`            |
+| `CORS_ORIGINS`           | Orígenes permitidos                  | `http://localhost:5173`       |
+| `PUBLIC_APP_URL`         | URL pública de la app                | `https://tudominio.com`       |
+| `PUBLIC_API_URL`         | URL pública de la API                | `https://tudominio.com`       |
+| `DATA_DIR`               | Directorio de datos persistentes     | `/data`                       |
+| `UPLOADS_DIR`            | Directorio de uploads                | `/data/uploads`               |
+| `BACKUPS_DIR`            | Directorio de backups                | `/data/backups`               |
+| `DB_FILE`                | Ruta de la base SQLite               | `/data/modosabor.db`          |
 
 > **Importante:** en producción siempre usar `JWT_SECRET` largo y único. El sistema se niega a iniciar si usa el valor por defecto en producción.
 
@@ -130,9 +131,8 @@ npm run verify:operacion
 npm run lint
 npm run format
 
-# Deploy DonWeb
-npm run package:donweb
-npm run deploy:donweb
+# Deploy Railway
+git push origin main
 ```
 
 ---
@@ -174,23 +174,8 @@ El repositorio incluye `railway.json` y `Dockerfile`. Conectar el repo a Railway
 
 Usar `render.yaml` como blueprint. Crea el servicio web `modosabor-api` y el sitio estático `modosabor-app`.
 
-### DonWeb
-
-Usar los scripts de PowerShell en `deploy/`:
-
-```powershell
-npm run package:donweb   # Empaqueta la aplicación
-npm run deploy:donweb    # Despliega al VPS
-```
-
-Ver `docs/DEPLOY-DONWEB-RAPIDO.md` para instrucciones detalladas.
-
----
-
 ## 📚 Documentación adicional
 
-- `docs/ESTADO-ACTUAL-2026-06-23.md` — Últimos cambios y estado del sistema.
-- `docs/DEPLOY-DONWEB-RAPIDO.md` — Guía rápida de deploy en DonWeb.
 - `docs/RAILWAY-DEPLOY.md` — Deploy en Railway.
 - `docs/BITACORA-TURNOS-Y-PERSONAL-2026-06-23.md` — Cambios en módulo de personal.
 

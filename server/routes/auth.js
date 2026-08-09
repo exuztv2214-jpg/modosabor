@@ -6,7 +6,7 @@ const db = require('../db');
 const auth = require('../middleware/auth');
 const { getPermissionsForRole, requirePermission } = require('../utils/permissions');
 const { getJwtSecret } = require('../utils/authConfig');
-const { createRateLimiter } = require('../utils/rateLimit');
+const { createRateLimiter, createSqliteRateLimitStore } = require('../utils/rateLimit');
 
 const { validateBody } = require('../middleware/validate');
 const { loginSchema, createUserSchema } = require('../schemas');
@@ -16,6 +16,7 @@ const loginRateLimit = createRateLimiter({
   windowMs: 15 * 60 * 1000,
   max: 20,
   message: 'Demasiados intentos de login. Proba de nuevo en 15 minutos.',
+  store: createSqliteRateLimitStore(db, 'auth-login'),
 });
 
 const COOKIE_OPTIONS = {

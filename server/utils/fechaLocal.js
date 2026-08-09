@@ -60,4 +60,21 @@ function hoyLocal() {
   return `DATE('now', '${OFFSET_ARGENTINA}')`;
 }
 
-module.exports = { fechaLocal, fechaHoraLocal, hoyLocal, OFFSET_ARGENTINA };
+/**
+ * Día de hoy en Argentina como string 'YYYY-MM-DD', para usar en JS.
+ *
+ * `new Date().toISOString().split('T')[0]` devuelve el día en UTC. El servidor
+ * corre en UTC en Railway y Tucumán es UTC−3, así que de las 21:00 en adelante
+ * da el día siguiente. Esta función da el día que ve el reloj del local.
+ */
+function hoyArgentina() {
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Argentina/Buenos_Aires',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  return formatter.format(new Date());
+}
+
+module.exports = { fechaLocal, fechaHoraLocal, hoyLocal, hoyArgentina, OFFSET_ARGENTINA };

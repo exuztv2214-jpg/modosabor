@@ -11,6 +11,7 @@ module.exports = {
       max_memory_restart: '512M',
       env_production: {
         NODE_ENV: 'production',
+        TRUST_PROXY: '1',
       },
       error_file: '/opt/modosabor/data/logs/server-err.log',
       out_file: '/opt/modosabor/data/logs/server-out.log',

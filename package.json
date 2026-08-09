@@ -21,11 +21,6 @@
     "lint:fix": "npm run lint:client -- --fix && npm run lint:server -- --fix",
     "format": "prettier --write \"**/*.{js,jsx,json,md,css}\"",
     "format:check": "prettier --check \"**/*.{js,jsx,json,md,css}\"",
-    "package:donweb": "powershell -ExecutionPolicy Bypass -File ./deploy/package-donweb.ps1",
-    "deploy:donweb": "powershell -ExecutionPolicy Bypass -File ./deploy/deploy-donweb.ps1",
-    "deploy:donweb:check": "powershell -ExecutionPolicy Bypass -File ./deploy/validate-donweb.ps1",
-    "deploy:donweb:reset-admin": "powershell -ExecutionPolicy Bypass -File ./deploy/reset-donweb-admin.ps1",
-    "deploy:donweb:sync-catalog": "powershell -ExecutionPolicy Bypass -File ./deploy/sync-donweb-catalog.ps1",
     "whatsapp:bridge:install": "npm --prefix agente-whatsapp/puente-web install",
     "whatsapp:bridge": "npm --prefix agente-whatsapp/puente-web start",
     "prepare": "husky"

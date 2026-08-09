@@ -31,6 +31,7 @@ Configurar estas variables en Railway:
 ```txt
 NODE_ENV=production
 PORT=3001
+TRUST_PROXY=1
 JWT_SECRET=una-clave-larga-y-segura
 INITIAL_ADMIN_NAME=Administrador
 INITIAL_ADMIN_EMAIL=admin@tudominio.com

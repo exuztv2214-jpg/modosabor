@@ -7,8 +7,8 @@
     "start": "node index.js",
     "seed:menu": "node scripts/seedMenuModoSabor.js",
     "smoke": "node scripts/smoke-test.js",
-    "verify:core": "node scripts/verify-core.js",
-    "verify:operacion": "node scripts/verify-operacion.js",
+    "verify:core": "node scripts/verify-isolated.js scripts/verify-core.js",
+    "verify:operacion": "node scripts/verify-isolated.js scripts/verify-operacion.js",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "test": "node tests/run.js"
@@ -31,5 +31,10 @@
   },
   "devDependencies": {
     "nodemon": "^3.0.3"
+  },
+  "overrides": {
+    "body-parser": "1.20.6",
+    "brace-expansion": "5.0.9",
+    "socket.io-parser": "4.2.7"
   }
 }

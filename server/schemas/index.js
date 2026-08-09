@@ -91,6 +91,10 @@ const createProductoSchema = z.object({
   activo: coerceNum(z.number().int().min(0).max(1).default(1)),
   destacado: coerceNum(z.number().int().min(0).max(1).default(0)),
   tiempo_preparacion: coerceNum(z.number().int().positive().default(15)),
+  // El formulario de Productos carga stock directo con FormData. Zod elimina
+  // las claves que no declara, por lo que sin este campo `req.body.stock`
+  // desaparecía antes de que la ruta pudiera registrar el ajuste.
+  stock: coerceNum(z.number().nonnegative().default(0)),
 });
 
 const updateProductoSchema = z.object({
@@ -105,6 +109,7 @@ const updateProductoSchema = z.object({
   activo: coerceNum(z.number().int().min(0).max(1).optional()),
   destacado: coerceNum(z.number().int().min(0).max(1).optional()),
   tiempo_preparacion: coerceNum(z.number().int().positive().optional()),
+  stock: coerceNum(z.number().nonnegative().optional()),
 });
 
 module.exports = {
