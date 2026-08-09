@@ -1,9 +1,9 @@
 {
-  "versionCode": 10100,
-  "versionName": "1.1.0",
-  "apkFile": "modosabor-rider-1.1.0.apk",
-  "changelog": "• Splash screen + login premium\n• Persistencia sesión rider\n• Detalle pedido con botones colores\n• Meta diaria + confetti + voz\n• Foto de entrega + cola offline\n• Chat con local + reporte incidencia\n• Dark mode + auto-update",
+  "versionCode": 10303,
+  "versionName": "1.3.3",
+  "apkFile": "modosabor-rider-1.3.3.apk",
+  "changelog": "• Voz nativa y sonido al asignar pedidos, incluso con la app cerrada\n• Sesión cifrada que se conserva entre aperturas\n• Desbloqueo con huella o PIN del teléfono\n• Notificaciones sin datos sensibles en pantalla bloqueada\n• Firebase y actualizaciones de Rider reforzadas",
   "forceUpdate": false,
   "minVersionCode": 10000,
-  "releasedAt": "2026-08-01T05:00:00Z"
+  "releasedAt": "2026-08-09T20:55:00Z"
 }
