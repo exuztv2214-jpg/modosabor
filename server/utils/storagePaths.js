@@ -82,6 +82,39 @@ function syncBundledRiderManifest(sourceUploadsDir, targetUploadsDir) {
   }
 }
 
+/**
+ * El manifiesto y su APK son una publicación atómica desde el punto de vista
+ * del Rider: nunca se debe anunciar una versión si el archivo todavía no está
+ * en el volumen persistente. `copyMissingEntries` cubre los uploads comunes,
+ * pero una versión de Rider puede llegar mientras el directorio ya existe.
+ * Por eso verificamos explícitamente el APK al que apunta el manifest.
+ */
+function syncBundledRiderRelease(sourceUploadsDir, targetUploadsDir) {
+  const sourceManifest = path.join(sourceUploadsDir, 'rider-app', 'manifest.json');
+  if (!fs.existsSync(sourceManifest)) return false;
+
+  try {
+    const manifest = JSON.parse(fs.readFileSync(sourceManifest, 'utf8'));
+    const apkFile = path.basename(String(manifest?.apkFile || '').trim());
+    if (!apkFile || !apkFile.toLowerCase().endsWith('.apk')) return false;
+
+    const sourceApk = path.join(sourceUploadsDir, 'rider-app', apkFile);
+    const targetApk = path.join(targetUploadsDir, 'rider-app', apkFile);
+    if (!fs.existsSync(sourceApk)) return false;
+
+    const sourceSize = fs.statSync(sourceApk).size;
+    const targetSize = fs.existsSync(targetApk) ? fs.statSync(targetApk).size : -1;
+    if (sourceSize === targetSize) return false;
+
+    ensureDir(path.dirname(targetApk));
+    fs.copyFileSync(sourceApk, targetApk);
+    return true;
+  } catch {
+    // La sincronización de una actualización nunca puede impedir el inicio.
+    return false;
+  }
+}
+
 function bootstrapUploadsFromBundle() {
   if (path.resolve(defaultUploadsDir) === path.resolve(uploadsDir)) {
     return { copied: false, filesCopied: 0 };
@@ -91,10 +124,11 @@ function bootstrapUploadsFromBundle() {
   }
 
   const filesCopied = copyMissingEntries(defaultUploadsDir, uploadsDir);
+  const riderReleaseCopied = syncBundledRiderRelease(defaultUploadsDir, uploadsDir);
   const manifestUpdated = syncBundledRiderManifest(defaultUploadsDir, uploadsDir);
   return {
-    copied: filesCopied > 0 || manifestUpdated,
-    filesCopied,
+    copied: filesCopied > 0 || riderReleaseCopied || manifestUpdated,
+    filesCopied: filesCopied + (riderReleaseCopied ? 1 : 0),
     manifestUpdated,
   };
 }
