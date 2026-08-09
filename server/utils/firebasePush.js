@@ -24,7 +24,7 @@ function getMessaging() {
     // Usar la API actual evita que FCM falle al iniciar antes de intentar
     // enviar cualquier aviso.
     if (admin.getApps().length === 0) {
-      admin.initializeApp({ credential: admin.credential.cert(credential) });
+      admin.initializeApp({ credential: admin.cert(credential) });
     }
     firebaseMessaging = admin.messaging();
   } catch (error) {
