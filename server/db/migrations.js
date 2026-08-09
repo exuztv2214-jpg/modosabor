@@ -53,6 +53,9 @@ function runMigrations(db) {
   ensureColumn(db, 'repartidores', 'fcm_token', "TEXT DEFAULT ''");
   ensureColumn(db, 'repartidores', 'fcm_platform', "TEXT DEFAULT ''");
   ensureColumn(db, 'repartidores', 'fcm_actualizado_en', 'DATETIME');
+  ensureColumn(db, 'repartidores', 'fcm_device_id', "TEXT DEFAULT ''");
+  ensureColumn(db, 'repartidores', 'fcm_device_label', "TEXT DEFAULT ''");
+  ensureColumn(db, 'repartidores', 'fcm_permission', "TEXT DEFAULT ''");
   ensureColumn(db, 'clientes', 'recompensas_pendientes', 'INTEGER DEFAULT 0');
   ensureColumn(db, 'clientes', 'fidelizacion_activa', 'INTEGER DEFAULT 1');
   ensureColumn(db, 'clientes', 'codigo_tarjeta', 'TEXT');

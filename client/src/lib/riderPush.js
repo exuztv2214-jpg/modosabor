@@ -21,8 +21,18 @@
  * (kill del SO por RAM/ahorro de batería).
  */
 import api from './api.js';
+import { riderStorageGet, riderStorageSet } from './nativeRiderGps.js';
 
 let alreadyRegistered = false;
+const DEVICE_ID_KEY = 'ms_rider_push_device_id_v1';
+
+async function getDeviceId() {
+  const existing = String((await riderStorageGet(DEVICE_ID_KEY)) || '').trim();
+  if (existing) return existing;
+  const next = globalThis.crypto?.randomUUID?.() || `rider-${Date.now()}-${Math.random()}`;
+  await riderStorageSet(DEVICE_ID_KEY, next);
+  return next;
+}
 
 async function loadPushPlugin() {
   try {
@@ -78,9 +88,13 @@ export async function registerRiderPushToken(riderId, riderCode) {
         if (!token) return resolve(null);
 
         try {
+          const deviceId = await getDeviceId();
           await api.post(`/repartidores/${riderId}/rider/${riderCode}/fcm-token`, {
             token,
             platform: 'android',
+            device_id: deviceId,
+            device_label: 'App Rider Android',
+            permission: 'granted',
           });
           alreadyRegistered = true;
           resolve(token);

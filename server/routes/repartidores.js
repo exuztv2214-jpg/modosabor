@@ -589,6 +589,15 @@ router.post('/:id/rider/:codigo/fcm-token', (req, res) => {
   const platform = String(req.body?.platform || 'android')
     .trim()
     .toLowerCase();
+  const deviceId = String(req.body?.device_id || '')
+    .trim()
+    .slice(0, 120);
+  const deviceLabel = String(req.body?.device_label || '')
+    .trim()
+    .slice(0, 120);
+  const permission = String(req.body?.permission || 'granted')
+    .trim()
+    .slice(0, 30);
 
   if (!token || token.length < 20) {
     return res.status(400).json({ success: false, error: 'Token FCM invalido' });
@@ -597,9 +606,10 @@ router.post('/:id/rider/:codigo/fcm-token', (req, res) => {
   try {
     db.prepare(
       `UPDATE repartidores
-       SET fcm_token = ?, fcm_platform = ?, fcm_actualizado_en = CURRENT_TIMESTAMP
+       SET fcm_token = ?, fcm_platform = ?, fcm_device_id = ?, fcm_device_label = ?,
+           fcm_permission = ?, fcm_actualizado_en = CURRENT_TIMESTAMP
        WHERE id = ?`
-    ).run(token, platform, repartidor.id);
+    ).run(token, platform, deviceId, deviceLabel, permission, repartidor.id);
     return res.json({ success: true });
   } catch (error) {
     return res.status(500).json({ success: false, error: error.message });
