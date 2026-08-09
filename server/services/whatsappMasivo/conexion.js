@@ -83,6 +83,21 @@ class ConexionWhatsapp extends EventEmitter {
     fs.rmSync(this.carpetaSesion, { recursive: true, force: true });
   }
 
+  programarReconexion(espera) {
+    clearTimeout(this.reintento);
+    this.reintento = setTimeout(() => {
+      this.reintento = null;
+      if (this.cerradoAProposito || this.socket) return;
+
+      // `conectar` evita dos aperturas simultáneas cuando el estado dice
+      // "conectando". El intento anterior ya terminó al recibir `close`, por
+      // lo que hay que liberarlo antes de abrir el socket nuevo. Sin esto el
+      // callback volvía de inmediato y el QR quedaba en "Reconectando".
+      this.estado = 'apagado';
+      this.conectar();
+    }, espera);
+  }
+
   async conectar() {
     if (this.socket || this.estado === 'conectando') return this.resumen();
 
@@ -187,8 +202,7 @@ class ConexionWhatsapp extends EventEmitter {
           const espera = ESPERAS_RECONEXION[Math.min(this.intentos, ESPERAS_RECONEXION.length - 1)];
           this.intentos += 1;
           this.cambiarEstado('conectando', `Reconectando en ${Math.round(espera / 1000)}s`);
-          clearTimeout(this.reintento);
-          this.reintento = setTimeout(() => this.conectar(), espera);
+          this.programarReconexion(espera);
         }
       });
 

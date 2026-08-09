@@ -21,6 +21,28 @@ function run() {
   } finally {
     fs.rmSync(raiz, { recursive: true, force: true });
   }
+
+  const conexion = new ConexionWhatsapp();
+  const setTimeoutOriginal = global.setTimeout;
+  let ejecutarReintento;
+  let aperturas = 0;
+  global.setTimeout = (callback) => {
+    ejecutarReintento = callback;
+    return {};
+  };
+  try {
+    conexion.estado = 'conectando';
+    conexion.conectar = () => {
+      aperturas += 1;
+    };
+    conexion.programarReconexion(3000);
+    ejecutarReintento();
+    assert.strictEqual(aperturas, 1, 'el reintento debe abrir un socket nuevo');
+    assert.strictEqual(conexion.estado, 'apagado', 'debe liberar el estado antes de reconectar');
+    console.log('  ✓ el reinicio pedido por WhatsApp no queda bloqueado en conectando');
+  } finally {
+    global.setTimeout = setTimeoutOriginal;
+  }
   console.log('✅ Recuperación de sesión de WhatsApp verificada\n');
 }
 
