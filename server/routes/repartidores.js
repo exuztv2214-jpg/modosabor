@@ -222,6 +222,40 @@ router.get('/', auth, (req, res) => {
   res.json(rows.map((row) => hydrateRepartidor(row.id)));
 });
 
+router.get('/rider-diagnostics', auth, requirePermission('delivery.manage'), (_req, res) => {
+  const riders = db
+    .prepare(
+      `SELECT id, nombre, activo, fcm_platform, fcm_device_id, fcm_device_label,
+              fcm_permission, fcm_actualizado_en,
+              CASE WHEN TRIM(COALESCE(fcm_token, '')) <> '' THEN 1 ELSE 0 END AS push_registrado
+       FROM repartidores ORDER BY nombre COLLATE NOCASE ASC`
+    )
+    .all();
+  res.json(riders);
+});
+
+router.post('/:id/revocar-acceso-rider', auth, requirePermission('delivery.manage'), (req, res) => {
+  const repartidor = hydrateRepartidor(req.params.id);
+  if (!repartidor) return res.status(404).json({ error: 'Repartidor no encontrado' });
+  const nuevoCodigo = generateAccessCode();
+  db.prepare(
+    `UPDATE repartidores
+     SET codigo_acceso = ?, fcm_token = '', fcm_platform = '', fcm_device_id = '',
+         fcm_device_label = '', fcm_permission = '', fcm_actualizado_en = NULL
+     WHERE id = ?`
+  ).run(nuevoCodigo, repartidor.id);
+  logAudit(db, {
+    modulo: 'delivery',
+    accion: 'revocar_acceso_rider',
+    entidad: 'repartidor',
+    entidad_id: repartidor.id,
+    actor_id: req.user?.id,
+    actor_nombre: req.user?.nombre || '',
+    detalle: { nombre: repartidor.nombre },
+  });
+  res.json({ success: true, codigo_acceso: nuevoCodigo });
+});
+
 router.post('/', auth, requirePermission('delivery.manage'), (req, res) => {
   const {
     nombre,
