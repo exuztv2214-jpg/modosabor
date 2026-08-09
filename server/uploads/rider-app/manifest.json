@@ -1,9 +1,9 @@
 {
-  "versionCode": 10303,
-  "versionName": "1.3.3",
-  "apkFile": "modosabor-rider-1.3.3.apk",
-  "changelog": "• Voz nativa y sonido al asignar pedidos, incluso con la app cerrada\n• Sesión cifrada que se conserva entre aperturas\n• Desbloqueo con huella o PIN del teléfono\n• Notificaciones sin datos sensibles en pantalla bloqueada\n• Firebase y actualizaciones de Rider reforzadas",
+  "versionCode": 10304,
+  "versionName": "1.3.4",
+  "apkFile": "modosabor-rider-1.3.4.apk",
+  "changelog": "• Corregido el ingreso en teléfonos que no tienen PIN o huella configurados\n• La sesión ahora se conserva aunque el Keystore del teléfono no esté disponible\n• Al activar PIN o huella, la sesión se protege con cifrado del teléfono automáticamente",
   "forceUpdate": false,
   "minVersionCode": 10000,
-  "releasedAt": "2026-08-09T20:55:00Z"
+  "releasedAt": "2026-08-09T21:15:00Z"
 }

@@ -1259,12 +1259,13 @@ export default function RiderPanel() {
     riderStorageSet('ms_rider_code', loginForm.code).catch(() => {});
     const next = { id: loginForm.id, code: loginForm.code };
     saveNativeRiderAuth(next)
-      .then(() => setRiderAuth(next))
-      .catch(() =>
-        toast.error(
-          'No pudimos guardar la sesión protegida. Revisá el bloqueo de pantalla del teléfono.'
-        )
-      );
+      .then((saved) => {
+        setRiderAuth(next);
+        if (saved?.secure === false) {
+          toast('Sesión guardada. Activá PIN o huella para protegerla con cifrado del teléfono.');
+        }
+      })
+      .catch(() => toast.error('No pudimos guardar la sesión en este teléfono.'));
   };
 
   const handleBiometricUnlock = async () => {

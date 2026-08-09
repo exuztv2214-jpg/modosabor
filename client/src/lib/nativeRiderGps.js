@@ -85,14 +85,23 @@ export async function saveNativeRiderAuth(auth) {
   // Keystore se silenciaba y al reabrir parecía que "se había borrado" la
   // sesión. La verificamos antes de considerar el ingreso exitoso.
   if (isNativeRiderApp()) {
-    const result = await RiderSecureStore.setAndVerify({ key: RIDER_AUTH_KEY, value });
-    if (String(result?.value || '') !== value) {
-      throw new Error('No se pudo guardar la sesión protegida');
+    try {
+      const result = await RiderSecureStore.setAndVerify({ key: RIDER_AUTH_KEY, value });
+      if (String(result?.value || '') !== value) {
+        throw new Error('No se pudo verificar el guardado seguro');
+      }
+      return { secure: true };
+    } catch {
+      // Algunos teléfonos sin bloqueo seguro o con Keystore limitado no
+      // pueden crear la llave cifrada. No dejamos al Rider sin poder entrar:
+      // el código sigue siendo revocable desde Personal y se migra a cifrado
+      // automáticamente en cuanto el teléfono lo soporte.
+      await Preferences.set({ key: RIDER_AUTH_KEY, value });
+      return { secure: false };
     }
-    return true;
   }
   await riderStorageSet(RIDER_AUTH_KEY, value);
-  return true;
+  return { secure: false };
 }
 
 export async function loadNativeRiderAuth() {
@@ -146,13 +155,19 @@ export async function riderStorageGet(key) {
     try {
       const secure = await RiderSecureStore.get({ key });
       if (secure?.value != null) return secure.value;
-
-      // Migración de APKs anteriores: se lee una vez del Preferences plano,
-      // se cifra y se elimina inmediatamente la copia heredada.
+    } catch {
+      // Continúa con el respaldo de Preferences: hay equipos donde el
+      // Keystore requiere un bloqueo de pantalla que todavía no está activo.
+    }
+    try {
       const legacy = await Preferences.get({ key });
       if (legacy?.value != null && String(key).startsWith(RIDER_STORAGE_PREFIX)) {
-        await RiderSecureStore.set({ key, value: legacy.value });
-        await Preferences.remove({ key });
+        try {
+          await RiderSecureStore.set({ key, value: legacy.value });
+          await Preferences.remove({ key });
+        } catch {
+          // Conservamos el respaldo hasta que Android permita cifrarlo.
+        }
       }
       return legacy?.value ?? null;
     } catch {
@@ -172,8 +187,13 @@ export async function riderStorageSet(key, value) {
     try {
       await RiderSecureStore.set({ key, value: v });
     } catch {
-      // En nativo no se degrada a texto plano: si Keystore falla, es más
-      // seguro pedir login otra vez que dejar credenciales legibles.
+      // Respaldo para dispositivos que no habilitan Keystore todavía. Evita
+      // que el Rider deba identificarse en cada apertura; se cifra al migrar.
+      try {
+        await Preferences.set({ key, value: v });
+      } catch {
+        // No hay persistencia disponible en este dispositivo.
+      }
     }
     return;
   }
