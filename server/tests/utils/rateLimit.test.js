@@ -78,11 +78,37 @@ function testPersistentRateLimiter() {
   console.log('  ✓ Rate limiter persiste entre procesos');
 }
 
+function testPersistentRateLimiterReusesExpiredEntry() {
+  const db = new Database(':memory:');
+  const store = createSqliteRateLimitStore(db, 'test-expired');
+  const key = '1.2.3.4';
+  const now = Date.now();
+  db.prepare('INSERT INTO rate_limit_hits (scope, key, count, reset_at) VALUES (?, ?, ?, ?)').run(
+    'test-expired',
+    key,
+    9,
+    now - 1
+  );
+
+  const hit = store.consume(key, now, 1000);
+  assert.deepStrictEqual(hit, { count: 1, resetAt: now + 1000 });
+  assert.deepStrictEqual(
+    db
+      .prepare('SELECT count, reset_at FROM rate_limit_hits WHERE scope = ? AND key = ?')
+      .get('test-expired', key),
+    { count: 1, reset_at: now + 1000 },
+    'Una ventana vencida debe reiniciarse sin intentar un INSERT duplicado'
+  );
+  db.close();
+  console.log('  ✓ Rate limiter reinicia una ventana vencida sin UNIQUE');
+}
+
 function run() {
   console.log('\n🧪 Tests de rateLimit.js');
   testClientKey();
   testRateLimiter();
   testPersistentRateLimiter();
+  testPersistentRateLimiterReusesExpiredEntry();
   console.log('✅ Todos los tests de rateLimit pasaron\n');
 }
 

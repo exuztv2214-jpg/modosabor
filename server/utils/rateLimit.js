@@ -21,13 +21,17 @@ function createSqliteRateLimitStore(db, scope) {
     CREATE INDEX IF NOT EXISTS idx_rate_limit_hits_reset_at ON rate_limit_hits(reset_at);
   `);
 
-  const get = db.prepare('SELECT count, reset_at FROM rate_limit_hits WHERE scope = ? AND key = ?');
-  const insert = db.prepare(
-    'INSERT INTO rate_limit_hits (scope, key, count, reset_at) VALUES (?, ?, ?, ?)'
-  );
-  const update = db.prepare(
-    'UPDATE rate_limit_hits SET count = ?, reset_at = ?, updated_at = CURRENT_TIMESTAMP WHERE scope = ? AND key = ?'
-  );
+  // Un UPSERT único es esencial: una ventana vencida todavía tiene fila. Antes
+  // se intentaba INSERT sobre ella y SQLite detenía la request con UNIQUE.
+  const consumeHit = db.prepare(`
+    INSERT INTO rate_limit_hits (scope, key, count, reset_at)
+    VALUES (?, ?, 1, ?)
+    ON CONFLICT(scope, key) DO UPDATE SET
+      count = CASE WHEN rate_limit_hits.reset_at <= ? THEN 1 ELSE rate_limit_hits.count + 1 END,
+      reset_at = CASE WHEN rate_limit_hits.reset_at <= ? THEN excluded.reset_at ELSE rate_limit_hits.reset_at END,
+      updated_at = CURRENT_TIMESTAMP
+    RETURNING count, reset_at
+  `);
   const cleanup = db.prepare('DELETE FROM rate_limit_hits WHERE reset_at <= ?');
 
   return {
@@ -35,16 +39,9 @@ function createSqliteRateLimitStore(db, scope) {
       // El borrado es probabilístico para no sumar una escritura extra en cada
       // request, pero mantiene chica la tabla aun con clientes efímeros.
       if (Math.random() < 0.01) cleanup.run(now);
-      const current = get.get(normalizedScope, key);
-      if (!current || Number(current.reset_at) <= now) {
-        insert.run(normalizedScope, key, 1, now + windowMs);
-        return { count: 1, resetAt: now + windowMs };
-      }
-
-      const count = Number(current.count || 0) + 1;
-      const resetAt = Number(current.reset_at);
-      update.run(count, resetAt, normalizedScope, key);
-      return { count, resetAt };
+      const nextResetAt = now + windowMs;
+      const hit = consumeHit.get(normalizedScope, key, nextResetAt, now, now);
+      return { count: Number(hit.count), resetAt: Number(hit.reset_at) };
     },
     cleanup(now) {
       cleanup.run(now);
