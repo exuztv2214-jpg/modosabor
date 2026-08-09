@@ -40,6 +40,7 @@ const { syncPersonalFromDeliveryRepartidor } = require('../utils/deliveryPersonn
 const { checkAndNotifyLlegando } = require('../utils/deliveryNotifications');
 const { getConfigMap } = require('../utils/mercadoPago');
 const { logAudit } = require('../utils/audit');
+const { sendRiderUpdatePushToRider } = require('../utils/firebasePush');
 const {
   isPagoPagado,
   normalizeMetodoPago,
@@ -615,7 +616,7 @@ router.put('/:id/rider/:codigo/ubicacion', (req, res) => {
  * simplemente guarda el token. Cuando actives Firebase Admin SDK y
  * agregues el sender, el token estara ahi listo para usar.
  */
-router.post('/:id/rider/:codigo/fcm-token', (req, res) => {
+router.post('/:id/rider/:codigo/fcm-token', async (req, res) => {
   const repartidor = validateRiderAccess(req, res);
   if (!repartidor) return;
 
@@ -644,7 +645,20 @@ router.post('/:id/rider/:codigo/fcm-token', (req, res) => {
            fcm_permission = ?, fcm_actualizado_en = CURRENT_TIMESTAMP
        WHERE id = ?`
     ).run(token, platform, deviceId, deviceLabel, permission, repartidor.id);
-    return res.json({ success: true });
+
+    // Si el teléfono consiguió FCM después de publicada una versión, no tiene
+    // que esperar al próximo reinicio de Railway para enterarse.
+    let updateSent = false;
+    try {
+      const manifestPath = path.join(uploadsDir, 'rider-app', 'manifest.json');
+      if (fs.existsSync(manifestPath)) {
+        const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+        updateSent = Boolean((await sendRiderUpdatePushToRider(db, repartidor.id, manifest)).sent);
+      }
+    } catch {
+      // El registro del teléfono nunca falla por no poder avisar una update.
+    }
+    return res.json({ success: true, update_sent: updateSent });
   } catch (error) {
     return res.status(500).json({ success: false, error: error.message });
   }

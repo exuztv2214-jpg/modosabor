@@ -134,8 +134,35 @@ async function sendRiderUpdatePush(db, update = {}) {
   return { sent, total: riders.length };
 }
 
+async function sendRiderUpdatePushToRider(db, riderId, update = {}) {
+  const messaging = getMessaging();
+  if (!messaging) return { sent: false, reason: 'not_configured' };
+  const rider = db.prepare('SELECT id, fcm_token FROM repartidores WHERE id = ?').get(riderId);
+  const token = String(rider?.fcm_token || '').trim();
+  if (!token) return { sent: false, reason: 'missing_token' };
+  try {
+    await messaging.send({
+      token,
+      notification: {
+        title: 'Actualizá Modo Sabor Rider',
+        body: `Ya está disponible la versión ${update.versionName || 'nueva'}`,
+      },
+      data: { type: 'rider_update', versionCode: String(update.versionCode || '') },
+      android: { priority: 'high', notification: { channelId: 'rider-orders-v2' } },
+    });
+    return { sent: true };
+  } catch (error) {
+    logger.warn('No se pudo enviar actualización Rider al registrar dispositivo', {
+      riderId,
+      code: error?.code || '',
+    });
+    return { sent: false, reason: 'send_failed' };
+  }
+}
+
 module.exports = {
   getMessaging,
   sendRiderAssignmentPush,
   sendRiderUpdatePush,
+  sendRiderUpdatePushToRider,
 };
