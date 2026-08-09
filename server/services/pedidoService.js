@@ -801,7 +801,13 @@ async function buildPedidoPayload(body, options = {}) {
   let deliveryZona = '';
   let tiempoEstimadoMin = 0;
 
-  if (isPublicFlow && !shift) {
+  // Por defecto el canal público nunca acepta pedidos fuera de turno. La
+  // excepción queda deliberadamente detrás de una variable de entorno: sirve
+  // para una prueba operativa puntual sin abrir caja ni inventar un turno, y
+  // vuelve a estar bloqueado apenas se retira la variable en producción.
+  const permitirPedidosFueraDeTurno =
+    String(process.env.ALLOW_AFTER_HOURS_PUBLIC_ORDERS || '').trim() === '1';
+  if (isPublicFlow && !shift && !permitirPedidosFueraDeTurno) {
     throw new Error(
       'Ahora mismo estamos fuera de turno. Podes dejar el pedido para el siguiente horario o pedir por el local.'
     );
