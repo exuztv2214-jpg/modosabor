@@ -174,6 +174,52 @@ CREATE TABLE IF NOT EXISTS productos (
   creado_en DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+-- ═══════════════════════════════════════════════════════════════════════════
+-- Listas de opciones compartidas
+-- ═══════════════════════════════════════════════════════════════════════════
+--
+-- Guarniciones, salsas, agregados y postres se cargaban adentro del JSON de
+-- cada producto, y eso se despegó solo: los cuatro agregados de hamburguesa
+-- están repetidos en dieciséis platos, y de los tres menús ejecutivos que
+-- llevan la misma guarnición, uno terminó con siete opciones y los otros dos
+-- con seis.
+--
+-- Estas tres tablas guardan la lista una sola vez y dicen qué plato la lleva.
+-- El JSON de cada producto sigue existiendo y sigue mandando: lo que se carga
+-- a mano en un plato no lo pisa ninguna lista. Las listas se agregan al lado.
+
+CREATE TABLE IF NOT EXISTS opcion_listas (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  nombre TEXT NOT NULL,
+  -- 'variante': se elige una sola (guarnición, salsa, tamaño).
+  -- 'extra':    se marcan las que se quieran (agregados, postre).
+  tipo TEXT NOT NULL DEFAULT 'variante',
+  -- Sólo aplica a las de tipo variante: si no se elige, no se puede cobrar.
+  obligatorio INTEGER DEFAULT 0,
+  descripcion TEXT DEFAULT '',
+  orden INTEGER DEFAULT 0,
+  activo INTEGER DEFAULT 1,
+  creado_en DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS opcion_items (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  lista_id INTEGER NOT NULL REFERENCES opcion_listas(id) ON DELETE CASCADE,
+  nombre TEXT NOT NULL,
+  -- Centavos, igual que productos.precio. Es un recargo sobre el plato: 0 en
+  -- una guarnición incluida, 100000 en el postre de $1.000.
+  precio INTEGER NOT NULL DEFAULT 0,
+  orden INTEGER DEFAULT 0,
+  activo INTEGER DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS producto_opcion_listas (
+  producto_id INTEGER NOT NULL REFERENCES productos(id) ON DELETE CASCADE,
+  lista_id INTEGER NOT NULL REFERENCES opcion_listas(id) ON DELETE CASCADE,
+  orden INTEGER DEFAULT 0,
+  PRIMARY KEY (producto_id, lista_id)
+);
+
 CREATE TABLE IF NOT EXISTS clientes (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   nombre TEXT NOT NULL,
@@ -223,6 +269,9 @@ CREATE TABLE IF NOT EXISTS pedidos (
   origen TEXT DEFAULT 'tpv',
   repartidor_id INTEGER REFERENCES repartidores(id) ON DELETE SET NULL,
   repartidor_nombre TEXT DEFAULT '',
+  mozo_usuario_id INTEGER REFERENCES usuarios(id) ON DELETE SET NULL,
+  mozo_nombre TEXT DEFAULT '',
+  idempotency_key TEXT DEFAULT '',
   creado_en DATETIME DEFAULT CURRENT_TIMESTAMP,
   actualizado_en DATETIME DEFAULT CURRENT_TIMESTAMP
 );
@@ -415,6 +464,20 @@ CREATE TABLE IF NOT EXISTS mesa_reservas (
   estado TEXT DEFAULT 'reservada',
   creado_en DATETIME DEFAULT CURRENT_TIMESTAMP,
   actualizado_en DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_pedidos_mozo_idempotency
+  ON pedidos(mozo_usuario_id, idempotency_key)
+  WHERE mozo_usuario_id IS NOT NULL AND idempotency_key <> '';
+
+-- Una mesa puede tener muchas comandas, pero la operación se asigna a un
+-- único mozo mientras esté abierta. Evita cargas simultáneas sin contexto.
+CREATE TABLE IF NOT EXISTS mesas_asignaciones (
+  mesa TEXT PRIMARY KEY,
+  mozo_usuario_id INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+  mozo_nombre TEXT NOT NULL DEFAULT '',
+  asignada_en DATETIME DEFAULT CURRENT_TIMESTAMP,
+  actualizada_en DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS mercadopago_eventos (
@@ -845,6 +908,8 @@ CREATE INDEX IF NOT EXISTS idx_whatsapp_borrador_marketing_campana ON whatsapp_p
 
 CREATE INDEX IF NOT EXISTS idx_clientes_telefono ON clientes(telefono);
 CREATE INDEX IF NOT EXISTS idx_clientes_nombre ON clientes(nombre);
+CREATE INDEX IF NOT EXISTS idx_opcion_items_lista ON opcion_items(lista_id, orden);
+CREATE INDEX IF NOT EXISTS idx_producto_opcion_listas_lista ON producto_opcion_listas(lista_id);
 CREATE INDEX IF NOT EXISTS idx_productos_categoria ON productos(categoria_id);
 CREATE INDEX IF NOT EXISTS idx_productos_activo ON productos(activo);
 CREATE INDEX IF NOT EXISTS idx_pedidos_cliente ON pedidos(cliente_id);

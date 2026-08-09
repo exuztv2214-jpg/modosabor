@@ -27,6 +27,15 @@ const { centsToPesos } = require('./moneyConversion');
 const logger = require('./logger');
 const { sendRiderAssignmentPush } = require('./firebasePush');
 
+// Los mozos no deben recibir el stream global: contiene teléfonos, direcciones
+// y pedidos de otros canales. Caja, Cocina, Delivery y Admin siguen viendo la
+// operación completa como hasta ahora.
+const BACKOFFICE_ROLES = ['admin', 'caja', 'cocina', 'delivery'];
+
+function emitToBackOffice(io, event, payload) {
+  BACKOFFICE_ROLES.forEach((role) => io.to(`role_${role}`).emit(event, payload));
+}
+
 // Almacenamiento en memoria de tokens de seguimiento (podria moverse a Redis en el futuro)
 const trackingTokens = new Map();
 
@@ -124,6 +133,7 @@ function initSocketSecurity(io) {
   io.on('connection', (socket) => {
     if (socket.authenticated && socket.user) {
       socket.join(`role_${socket.user.rol}`);
+      if (socket.user.rol === 'mozo') socket.join(`mozo_${socket.user.id}`);
       socket.join('authenticated');
       socket.emit('authenticated', { success: true, rol: socket.user.rol });
     }
@@ -135,6 +145,7 @@ function initSocketSecurity(io) {
         socket.user = user;
         socket.authenticated = true;
         socket.join(`role_${user.rol}`);
+        if (user.rol === 'mozo') socket.join(`mozo_${user.id}`);
         socket.join('authenticated');
         socket.emit('authenticated', { success: true, rol: user.rol });
       } catch (error) {
@@ -261,10 +272,15 @@ function emitPedidoActualizado(io, pedido, options = {}) {
     repartidor: riderData,
   });
 
-  // 2. Emitir version completa a usuarios autenticados (admin)
-  io.to('authenticated').emit('pedido_actualizado_admin', fullData);
+  // 2. Versión completa para back-office, nunca para el rol Mozo.
+  emitToBackOffice(io, 'pedido_actualizado_admin', fullData);
 
-  // 3. Si tiene repartidor, notificar solo a ese repartidor
+  // 3. El mozo que creó la comanda sólo recibe su propio pedido.
+  if (normalizedPedido.mozo_usuario_id) {
+    io.to(`mozo_${normalizedPedido.mozo_usuario_id}`).emit('mozo_pedido_actualizado', fullData);
+  }
+
+  // 4. Si tiene repartidor, notificar solo a ese repartidor
   if (normalizedPedido.repartidor_id) {
     io.to(`repartidor_${normalizedPedido.repartidor_id}`).emit('pedido_actualizado', fullData);
   }
@@ -317,24 +333,26 @@ function emitRepartidorUbicacion(io, repartidor, pedidoId) {
     io.to(`pedido_${pedidoId}`).emit('repartidor_ubicacion', publicLocation);
   }
 
-  // Admins ven ubicacion completa
-  io.to('authenticated').emit('repartidor_ubicacion_admin', repartidor);
+  // Back-office ve ubicación completa; Mozo no necesita rastreo de delivery.
+  emitToBackOffice(io, 'repartidor_ubicacion_admin', repartidor);
 }
 
 /**
  * Emitir nuevo pedido (solo a admins autenticados)
  */
 function emitNuevoPedido(io, pedido) {
-  const room = io.to('authenticated');
   const payload = paraElCliente(pedido);
-  room.emit('nuevo_pedido', payload);
-  room.emit('system_nuevo_pedido', payload);
+  emitToBackOffice(io, 'nuevo_pedido', payload);
+  emitToBackOffice(io, 'system_nuevo_pedido', payload);
+  if (payload.mozo_usuario_id) {
+    io.to(`mozo_${payload.mozo_usuario_id}`).emit('mozo_nuevo_pedido', payload);
+  }
   emitPedidoAsignado(io, payload);
 
   // Logging para debugging de alarmas
   const stats = getRoomStats(io);
   logger.info(
-    `[socket] nuevo_pedido #${pedido?.numero} emitido. Origen: ${pedido?.origen}. Sockets en 'authenticated': ${stats['authenticated'] || 0}`
+    `[socket] nuevo_pedido #${pedido?.numero} emitido. Origen: ${pedido?.origen}. Sockets back-office: ${BACKOFFICE_ROLES.reduce((total, role) => total + (stats[`role_${role}`] || 0), 0)}`
   );
 }
 
@@ -350,6 +368,7 @@ function getRoomStats(io) {
       !roomName.startsWith('role_') &&
       !roomName.startsWith('pedido_') &&
       !roomName.startsWith('repartidor_') &&
+      !roomName.startsWith('mozo_') &&
       roomName !== 'authenticated'
     ) {
       continue;

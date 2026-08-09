@@ -51,6 +51,38 @@ router.post('/login', loginRateLimit, validateBody(loginSchema), (req, res) => {
   });
 });
 
+/**
+ * La APK de Mozo no depende de cookies del WebView. Devuelve un JWT de alcance
+ * normal que la app guarda en almacenamiento cifrado del dispositivo y envía
+ * como Authorization Bearer. Sólo el rol Mozo puede obtenerlo por este canal.
+ */
+router.post('/native-login', loginRateLimit, validateBody(loginSchema), (req, res) => {
+  const { email, password } = req.body;
+  const user = db.prepare('SELECT * FROM usuarios WHERE email = ? AND activo = 1').get(email);
+  if (!user || !bcrypt.compareSync(password, user.password_hash)) {
+    return res.status(401).json({ error: 'Credenciales invalidas' });
+  }
+  if (user.rol !== 'mozo') {
+    return res.status(403).json({ error: 'Esta cuenta no está habilitada para la app de Mozo.' });
+  }
+  const token = jwt.sign(
+    { id: user.id, email: user.email, rol: user.rol, nombre: user.nombre },
+    JWT_SECRET,
+    { expiresIn: '7d' }
+  );
+  return res.json({
+    token,
+    user: {
+      id: user.id,
+      nombre: user.nombre,
+      email: user.email,
+      rol: user.rol,
+      avatar: user.avatar,
+      permissions: getPermissionsForRole(user.rol),
+    },
+  });
+});
+
 router.post('/logout', (_req, res) => {
   res.clearCookie('auth_token', {
     httpOnly: true,
@@ -148,7 +180,7 @@ router.post(
       return res.status(400).json({ error: 'Nombre, email y contrasena son requeridos' });
     }
 
-    const validRoles = ['admin', 'caja', 'cocina', 'delivery'];
+    const validRoles = ['admin', 'caja', 'cocina', 'delivery', 'mozo'];
     if (!validRoles.includes(rol)) return res.status(400).json({ error: 'Rol invalido' });
 
     const exists = db.prepare('SELECT id FROM usuarios WHERE email = ?').get(email);
@@ -171,7 +203,7 @@ router.put('/usuarios/:id', auth, requirePermission('config.manage'), (req, res)
   const existing = db.prepare('SELECT * FROM usuarios WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Usuario no encontrado' });
 
-  const validRoles = ['admin', 'caja', 'cocina', 'delivery'];
+  const validRoles = ['admin', 'caja', 'cocina', 'delivery', 'mozo'];
   const nombre = req.body.nombre ?? existing.nombre;
   const email = req.body.email ?? existing.email;
   const rol = req.body.rol ?? existing.rol;

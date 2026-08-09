@@ -1,0 +1,17 @@
+{
+  "appId": "com.modosabor.mozo",
+  "appName": "Modo Sabor Mozo",
+  "webDir": "dist",
+  "bundledWebRuntime": false,
+  "android": {
+    "useLegacyBridge": true
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 1800,
+      "launchAutoHide": true,
+      "backgroundColor": "#dc1f2d",
+      "showSpinner": false
+    }
+  }
+}

@@ -18,6 +18,7 @@ const ROLES = [
   { value: 'caja', label: 'Caja' },
   { value: 'cocina', label: 'Cocina' },
   { value: 'delivery', label: 'Delivery' },
+  { value: 'mozo', label: 'Mozo (app de comandas)' },
 ];
 
 const PERMISSION_GROUPS = [
@@ -45,6 +46,10 @@ const PERMISSION_GROUPS = [
   {
     grupo: 'Mesas',
     permisos: [{ key: 'mesas.view', label: 'Ver mesas' }],
+  },
+  {
+    grupo: 'Mozo',
+    permisos: [{ key: 'mozo.use', label: 'Usar app de comandas' }],
   },
   {
     grupo: 'Clientes',
@@ -101,6 +106,7 @@ const ROLE_PERMISSIONS_MAP = {
     'pedidos.view',
     'configuracion.view',
   ],
+  mozo: ['mozo.use'],
 };
 
 function hasRolePerm(rol, permKey) {
@@ -111,8 +117,14 @@ function hasRolePerm(rol, permKey) {
 
 function RolePermissionsMatrix() {
   const [expanded, setExpanded] = useState(false);
-  const roles = ['admin', 'caja', 'cocina', 'delivery'];
-  const roleLabels = { admin: 'Admin', caja: 'Caja', cocina: 'Cocina', delivery: 'Delivery' };
+  const roles = ['admin', 'caja', 'cocina', 'delivery', 'mozo'];
+  const roleLabels = {
+    admin: 'Admin',
+    caja: 'Caja',
+    cocina: 'Cocina',
+    delivery: 'Delivery',
+    mozo: 'Mozo',
+  };
 
   return (
     <div className="rounded-xl bg-white shadow-[0_4px_24px_rgba(0,0,0,0.04)] border border-gray-100 overflow-hidden">
@@ -279,7 +291,7 @@ export default function Usuarios() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Usuarios y Accesos</h1>
           <p className="text-sm font-medium text-gray-500">
-            Controla accesos por perfil para caja, cocina, delivery y administración.
+            Controla accesos por perfil para caja, cocina, mozos, delivery y administración.
           </p>
         </div>
         <button

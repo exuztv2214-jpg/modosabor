@@ -15,6 +15,7 @@ export const ROLE_PERMISSIONS = {
   ],
   cocina: ['dashboard.view', 'kds.view', 'pedidos.view', 'pedidos.kitchen', 'pedidos.print'],
   delivery: ['dashboard.view', 'delivery.view', 'delivery.manage', 'pedidos.view'],
+  mozo: ['mozo.use'],
 };
 
 export function getPermissionsForRole(role) {

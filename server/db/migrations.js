@@ -124,6 +124,24 @@ function runMigrations(db) {
   ensureColumn(db, 'pedidos', 'inventario_revertido', 'INTEGER DEFAULT 0');
   ensureColumn(db, 'pedidos', 'repartidor_id', 'INTEGER');
   ensureColumn(db, 'pedidos', 'repartidor_nombre', "TEXT DEFAULT ''");
+  ensureColumn(db, 'pedidos', 'mozo_usuario_id', 'INTEGER');
+  ensureColumn(db, 'pedidos', 'mozo_nombre', "TEXT DEFAULT ''");
+  ensureColumn(db, 'pedidos', 'idempotency_key', "TEXT DEFAULT ''");
+  db.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_pedidos_mozo_idempotency
+      ON pedidos(mozo_usuario_id, idempotency_key)
+      WHERE mozo_usuario_id IS NOT NULL AND idempotency_key <> ''
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS mesas_asignaciones (
+      mesa TEXT PRIMARY KEY,
+      mozo_usuario_id INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+      mozo_nombre TEXT NOT NULL DEFAULT '',
+      asignada_en DATETIME DEFAULT CURRENT_TIMESTAMP,
+      actualizada_en DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
   ensureColumn(db, 'pedidos', 'tracking_token', "TEXT DEFAULT ''");
   ensureColumn(db, 'pedidos', 'repartidor_latitud', 'REAL');
   ensureColumn(db, 'pedidos', 'repartidor_longitud', 'REAL');

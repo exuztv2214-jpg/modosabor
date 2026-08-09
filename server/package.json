@@ -8,6 +8,7 @@
     "seed:menu": "node scripts/seedMenuModoSabor.js",
     "smoke": "node scripts/smoke-test.js",
     "verify:core": "node scripts/verify-isolated.js scripts/verify-core.js",
+    "verify:mozo": "node scripts/verify-isolated.js scripts/verify-mozo.js",
     "verify:operacion": "node scripts/verify-isolated.js scripts/verify-operacion.js",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",

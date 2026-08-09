@@ -22,6 +22,9 @@ const ROLE_PERMISSIONS = {
     'pedidos.view',
     'configuracion.view',
   ],
+  // El mozo usa una app separada: no hereda TPV ni Caja. Sus únicas acciones
+  // operativas pasan por la API /api/mozo, que valida mesa y precios.
+  mozo: ['mozo.use'],
 };
 
 function getPermissionsForRole(role) {

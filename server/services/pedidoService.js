@@ -348,6 +348,9 @@ function createPedidoRecord(payload) {
     marketing_medium = '',
     marketing_campaign = '',
     marketing_content = '',
+    mozo_usuario_id = null,
+    mozo_nombre = '',
+    idempotency_key = '',
   } = safePayload;
   const metodoPago = normalizeMetodoPago(metodo_pago);
   const pagoEstado = resolveInitialPagoEstado({
@@ -442,8 +445,9 @@ function createPedidoRecord(payload) {
         direccion_casa, direccion_origen, direccion_confianza, cliente_geocodificado,
         cliente_geocoding_precision, entrega_foto, entrega_foto_en,
         repartidor_id, marketing_campana_id, marketing_promo_id, marketing_origen, marketing_codigo,
-        marketing_source, marketing_medium, marketing_campaign, marketing_content
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        marketing_source, marketing_medium, marketing_campaign, marketing_content,
+        mozo_usuario_id, mozo_nombre, idempotency_key
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       numero,
@@ -492,7 +496,10 @@ function createPedidoRecord(payload) {
       String(marketing_source || ''),
       String(marketing_medium || ''),
       String(marketing_campaign || ''),
-      String(marketing_content || '')
+      String(marketing_content || ''),
+      optionalNumber(mozo_usuario_id),
+      String(mozo_nombre || ''),
+      String(idempotency_key || '')
     );
 
   const pedidoId = result.lastInsertRowid;
@@ -545,7 +552,7 @@ function createPedidoRecord(payload) {
 
 function createPedidoWithInventory(payload) {
   // Validar caja abierta para pedidos internos/tpv
-  if (['tpv', 'interno', 'mesa', 'caja'].includes(payload.origen || 'web')) {
+  if (['tpv', 'interno', 'mesa', 'caja', 'mozo'].includes(payload.origen || 'web')) {
     const operationalContext = getOperationalShiftContext(getOperationalConfigMap(db));
     if (!operationalContext.abiertoAhora) {
       throw new Error('No se puede registrar el pedido porque no hay un turno operativo abierto.');
@@ -564,6 +571,15 @@ function createPedidoWithInventory(payload) {
         'La caja abierta no corresponde al turno operativo actual. Cerrala y abrí la del turno correcto.'
       );
     }
+  }
+
+  const idempotencyKey = String(payload?.idempotency_key || '').trim();
+  const mozoUserId = optionalNumber(payload?.mozo_usuario_id);
+  if (idempotencyKey && mozoUserId) {
+    const existing = db
+      .prepare('SELECT * FROM pedidos WHERE mozo_usuario_id = ? AND idempotency_key = ?')
+      .get(mozoUserId, idempotencyKey);
+    if (existing) return existing;
   }
 
   try {
@@ -612,6 +628,12 @@ function createPedidoWithInventory(payload) {
     try {
       db.exec('ROLLBACK');
     } catch {}
+    if (idempotencyKey && mozoUserId) {
+      const existing = db
+        .prepare('SELECT * FROM pedidos WHERE mozo_usuario_id = ? AND idempotency_key = ?')
+        .get(mozoUserId, idempotencyKey);
+      if (existing) return existing;
+    }
     throw error;
   }
 }
@@ -766,7 +788,11 @@ async function buildPedidoPayload(body, options = {}) {
     cargar precios a mano. Ver services/preciosServidor.js.
   */
   const itemsEscalados = scalePedidoItemsToStorage(body.items);
-  const parsedItems = isPublicFlow ? recalcularPreciosPublicos(itemsEscalados) : itemsEscalados;
+  // Los pedidos de Mozo también se calculan desde catálogo. A diferencia del
+  // TPV, el celular nunca puede fijar precios ni descuentos manuales.
+  const forceServerPrices = options.forceServerPrices === true;
+  const parsedItems =
+    isPublicFlow || forceServerPrices ? recalcularPreciosPublicos(itemsEscalados) : itemsEscalados;
   const subtotal = subtotalFromItems(parsedItems);
 
   // Validar cupón si se proporciona

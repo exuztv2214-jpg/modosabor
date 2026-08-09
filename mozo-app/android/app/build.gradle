@@ -1,0 +1,89 @@
+apply plugin: 'com.android.application'
+
+import groovy.json.JsonSlurper
+
+// El número de versión nace en package.json, igual que Rider. Así cada APK
+// distribuido tiene un versionCode creciente y Android puede actualizarlo.
+def readAppVersion() {
+    def pkg = new JsonSlurper().parse(file("${rootDir}/../package.json"))
+    def name = (pkg.version ?: '1.0.0').toString()
+    def parts = name.tokenize('.') + ['0', '0', '0']
+    return [name: name, code: (parts[0].toInteger() * 10000) + (parts[1].toInteger() * 100) + parts[2].toInteger()]
+}
+def appVersion = readAppVersion()
+
+android {
+    namespace = "com.modosabor.mozo"
+    compileSdk = rootProject.ext.compileSdkVersion
+    defaultConfig {
+        applicationId "com.modosabor.mozo"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode appVersion.code
+        versionName appVersion.name
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        aaptOptions {
+             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
+             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
+            ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
+    }
+    // La clave no se guarda en el proyecto. Se toma del mismo almacén seguro
+    // que Rider mediante variables de entorno al generar una distribución.
+    signingConfigs {
+        release {
+            def ksPath = System.getenv('MODOSABOR_KEYSTORE_PATH')
+            def ksPass = System.getenv('MODOSABOR_KEYSTORE_PASSWORD')
+            def ksAlias = System.getenv('MODOSABOR_KEY_ALIAS')
+            def ksAliasPass = System.getenv('MODOSABOR_KEY_PASSWORD') ?: ksPass
+            if (ksPath && ksPass && ksAlias) {
+                storeFile file(ksPath)
+                storePassword ksPass
+                keyAlias ksAlias
+                keyPassword ksAliasPass
+            }
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            def hasKs = System.getenv('MODOSABOR_KEYSTORE_PATH') && System.getenv('MODOSABOR_KEYSTORE_PASSWORD') && System.getenv('MODOSABOR_KEY_ALIAS')
+            def releaseRequested = gradle.startParameter.taskNames.any { it.toLowerCase().contains('release') }
+            if (releaseRequested && !hasKs) {
+                throw new GradleException('Release Mozo bloqueado: faltan MODOSABOR_KEYSTORE_PATH, MODOSABOR_KEYSTORE_PASSWORD o MODOSABOR_KEY_ALIAS.')
+            }
+            signingConfig hasKs ? signingConfigs.release : signingConfigs.debug
+        }
+    }
+}
+
+repositories {
+    flatDir{
+        dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
+    }
+}
+
+dependencies {
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
+    implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    implementation project(':capacitor-android')
+    testImplementation "junit:junit:$junitVersion"
+    androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
+    androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+    implementation project(':capacitor-cordova-android-plugins')
+    implementation "androidx.security:security-crypto:1.1.0"
+}
+
+apply from: 'capacitor.build.gradle'
+
+try {
+    def servicesJSON = file('google-services.json')
+    if (servicesJSON.text) {
+        apply plugin: 'com.google.gms.google-services'
+    }
+} catch(Exception e) {
+    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
+}
