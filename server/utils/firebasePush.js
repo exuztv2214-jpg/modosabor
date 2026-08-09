@@ -1,4 +1,5 @@
 const admin = require('firebase-admin');
+const { getMessaging: getFirebaseMessaging } = require('firebase-admin/messaging');
 const logger = require('./logger');
 
 let initializationAttempted = false;
@@ -26,7 +27,7 @@ function getMessaging() {
     if (admin.getApps().length === 0) {
       admin.initializeApp({ credential: admin.cert(credential) });
     }
-    firebaseMessaging = admin.messaging();
+    firebaseMessaging = getFirebaseMessaging();
   } catch (error) {
     logger.error('FCM inactivo: no se pudo inicializar Firebase Admin', {
       message: error.message,
