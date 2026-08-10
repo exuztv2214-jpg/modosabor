@@ -682,17 +682,9 @@ function runMigrations(db) {
     logger.error('Error al inicializar fidelizacion_config', { message: e.message });
   }
 
-  // Normalizar turnos del personal
-  try {
-    db.prepare(
-      "UPDATE personal SET turno_preferido = 'manana' WHERE lower(trim(nombre)) = lower('Mathias Gonzalez')"
-    ).run();
-    db.prepare(
-      "UPDATE personal SET turno_preferido = 'noche' WHERE lower(trim(nombre)) IN (lower('Cristian Galvan'), lower('Ivan Lopez')) AND COALESCE(turno_preferido, '') != 'doble'"
-    ).run();
-  } catch (e) {
-    logger.error('Error al normalizar turnos del personal', { message: e.message });
-  }
+  // Los turnos pertenecen a cada ficha de Personal. No se deben reescribir por
+  // nombre al iniciar el servidor: eso impedía que el encargado corrigiera un
+  // cambio de horario desde la interfaz.
 
   // Normalizar estado de pagos en pedidos
   const normalizePedidoPaymentStmt = db.prepare(`

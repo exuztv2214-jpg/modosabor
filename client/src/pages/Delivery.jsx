@@ -493,9 +493,13 @@ export default function Delivery() {
     () => repartidores.filter((item) => item.activo),
     [repartidores]
   );
-  const repartidoresDisponibles = useMemo(
-    () => repartidoresActivos.filter((item) => item.disponible),
+  const repartidoresEnTurno = useMemo(
+    () => repartidoresActivos.filter((item) => item.en_turno_actual),
     [repartidoresActivos]
+  );
+  const repartidoresDisponibles = useMemo(
+    () => repartidoresEnTurno.filter((item) => item.disponible),
+    [repartidoresEnTurno]
   );
   const pedidosDelivery = useMemo(
     () => pedidos.filter((pedido) => pedido.tipo_entrega === 'delivery'),

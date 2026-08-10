@@ -21,6 +21,8 @@ const {
   assignPedidoToRepartidor,
   autoAssignPedido,
   getRepartidorById,
+  listActiveRepartidores,
+  filterRepartidoresByCurrentShift,
 } = require('../utils/deliveryAssignment');
 const { uploadsDir, uploadPathFromFilename } = require('../utils/storagePaths');
 const {
@@ -219,8 +221,26 @@ router.get('/', auth, (req, res) => {
   if (!hasPermission(req.user, 'delivery.view') && !hasPermission(req.user, 'tpv.use')) {
     return res.status(403).json({ error: 'Sin permisos para ver repartidores' });
   }
+  const soloTurnoActual = ['1', 'true'].includes(
+    String(req.query?.turno_actual || '').toLowerCase()
+  );
+  if (soloTurnoActual) {
+    return res.json(filterRepartidoresByCurrentShift(db, listActiveRepartidores(db)));
+  }
+
+  const enTurnoActual = new Set(
+    filterRepartidoresByCurrentShift(db, listActiveRepartidores(db)).map((row) => Number(row.id))
+  );
   const rows = db.prepare('SELECT id FROM repartidores ORDER BY nombre ASC').all();
-  res.json(rows.map((row) => hydrateRepartidor(row.id)));
+  res.json(
+    rows.map((row) => {
+      const repartidor = hydrateRepartidor(row.id);
+      return {
+        ...repartidor,
+        en_turno_actual: enTurnoActual.has(Number(row.id)),
+      };
+    })
+  );
 });
 
 router.get('/rider-diagnostics', auth, requirePermission('delivery.manage'), (_req, res) => {

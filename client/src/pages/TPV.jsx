@@ -269,7 +269,7 @@ export default function TPV() {
       api.get('/categorias'),
       api.get('/productos?activo=1'),
       api.get('/configuracion'),
-      api.get('/repartidores').catch(() => []),
+      api.get('/repartidores?turno_actual=1').catch(() => []),
       api.get('/caja/estado').catch(() => null),
       api.get('/fidelizacion/config').catch(() => null),
       api.get('/direcciones/barrios').catch(() => ({ barrios: [] })),

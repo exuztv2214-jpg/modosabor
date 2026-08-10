@@ -47,13 +47,13 @@ function listActiveRepartidores(db) {
     .all();
 }
 
-function filterRepartidoresByCurrentShift(db, repartidores) {
+function filterRepartidoresByCurrentShift(db, repartidores, shiftInfoOverride = null) {
   const config = getConfigMap(db);
-  const shiftInfo = getCurrentShiftInfo(config);
+  const shiftInfo = shiftInfoOverride || getCurrentShiftInfo(config);
   const currentShiftId = String(shiftInfo.turno_actual?.id || '')
     .trim()
     .toLowerCase();
-  if (!currentShiftId) return repartidores;
+  if (!currentShiftId) return [];
 
   const filtered = (repartidores || []).filter((repartidor) => {
     if (Number(repartidor.personal_id || 0) > 0 && Number(repartidor.personal_activo || 1) === 0) {
@@ -62,7 +62,9 @@ function filterRepartidoresByCurrentShift(db, repartidores) {
     return matchesPreferredShift(repartidor.personal_turno_preferido, currentShiftId);
   });
 
-  return filtered.length ? filtered : repartidores;
+  // No hay reemplazo silencioso: si en el turno actual no hay rider asignado,
+  // no se debe ofrecer ni autoasignar uno del turno siguiente/anterior.
+  return filtered;
 }
 
 function listAvailableRepartidores(db) {
@@ -124,6 +126,12 @@ function assignPedidoToRepartidor(db, pedidoId, repartidorId, options = {}) {
 
   const repartidor = getRepartidorById(db, repartidorId);
   if (!repartidor || !repartidor.activo) throw new Error('Repartidor no encontrado');
+  const estaEnTurnoActual = filterRepartidoresByCurrentShift(db, listActiveRepartidores(db)).some(
+    (item) => Number(item.id) === Number(repartidor.id)
+  );
+  if (!estaEnTurnoActual) {
+    throw new Error('El repartidor no corresponde al turno actual');
+  }
 
   const previousRepartidorId = Number(pedido.repartidor_id || 0);
   const previousRepartidor =
@@ -197,6 +205,7 @@ function autoAssignPedido(db, pedidoId, options = {}) {
 
 module.exports = {
   listActiveRepartidores,
+  filterRepartidoresByCurrentShift,
   listAvailableRepartidores,
   pickBestAvailableRepartidor,
   getPedidoById,
