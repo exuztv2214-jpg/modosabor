@@ -134,11 +134,40 @@ function hydratePedido(pedido) {
       .get(pedido.repartidor_id);
   }
 
-  const eta = estimateDeliveryEta({ ...pedido, repartidor }, config);
+  /*
+    Cuánto tarda la cocina en este pedido, según lo cargado en cada plato.
+
+    `productos.tiempo_preparacion` existía desde siempre y no lo leía nadie: se
+    completaba en el formulario y la estimación de entrega usaba un número fijo
+    de configuración, igual para una milanesa que para un café.
+
+    Se toma el plato más lento y no la suma, porque la cocina trabaja en
+    paralelo. Si el pedido no tiene ítems con producto —los de antes de
+    `pedido_items`, o uno cargado a mano— queda en cero y la estimación usa la
+    configuración de siempre.
+  */
+  const itemsDelPedido = loadPedidoItems(db, pedido, { backfill: false });
+  const idsDeProductos = [
+    ...new Set(itemsDelPedido.map((i) => Number(i?.producto_id)).filter(Boolean)),
+  ];
+  let minutosCocina = 0;
+  if (idsDeProductos.length) {
+    const fila = db
+      .prepare(
+        `SELECT MAX(tiempo_preparacion) AS minutos FROM productos
+          WHERE id IN (${idsDeProductos.map(() => '?').join(',')})`
+      )
+      .get(...idsDeProductos);
+    minutosCocina = Math.max(0, Number(fila?.minutos || 0));
+  }
+
+  const eta = estimateDeliveryEta({ ...pedido, repartidor, minutos_cocina: minutosCocina }, config);
 
   return {
     ...pedido,
-    items: loadPedidoItems(db, pedido, { backfill: false }),
+    // Ya se cargaron arriba para calcular los minutos de cocina: leerlos de
+    // nuevo serían dos consultas por cada pedido de cada listado.
+    items: itemsDelPedido,
     metodo_pago: metodoPago,
     pago_estado: pagoEstado,
     repartidor: repartidor || null,
@@ -366,14 +395,25 @@ function createPedidoRecord(payload) {
 
   if (clienteIdExplicit) {
     const existing = db
-      .prepare('SELECT id, nombre, telefono FROM clientes WHERE id = ?')
+      .prepare('SELECT id, nombre, telefono, direccion FROM clientes WHERE id = ?')
       .get(clienteIdExplicit);
     if (existing) {
       cliente_id = existing.id;
+      /*
+        Un pedido completa la ficha del cliente, nunca la vacía.
+
+        `direccion` se guardaba como `cliente_direccion || ''`: un cliente de
+        delivery que compraba en el mostrador —donde no se pide dirección—
+        perdía la que tenía guardada. La próxima vez que llamaba había que
+        preguntársela de nuevo.
+
+        El nombre y el teléfono ya caían para atrás contra lo que había; la
+        dirección no, y era la única de las tres que se podía perder.
+      */
       db.prepare('UPDATE clientes SET nombre = ?, telefono = ?, direccion = ? WHERE id = ?').run(
         cliente_nombre || existing.nombre || '',
         cliente_telefono || existing.telefono || '',
-        cliente_direccion || '',
+        cliente_direccion || existing.direccion || '',
         existing.id
       );
       ensureClienteDireccion(
@@ -392,11 +432,23 @@ function createPedidoRecord(payload) {
   }
 
   if (!cliente_id && cliente_telefono) {
-    const existing = db.prepare('SELECT id FROM clientes WHERE telefono = ?').get(cliente_telefono);
+    const existing = db
+      .prepare('SELECT id, nombre FROM clientes WHERE telefono = ?')
+      .get(cliente_telefono);
     if (existing) {
       cliente_id = existing.id;
+      /*
+        Acá estaba el peor de los dos: `cliente_nombre || ''` le escribía el
+        nombre vacío al cliente cuando el pedido venía sólo con el teléfono.
+
+        Pasa todos los días: el cliente habitual llama, el cajero pone el
+        teléfono, el sistema lo reconoce y no hace falta escribir el nombre de
+        nuevo. Con eso, "Juan Pérez" quedaba en blanco en la base. No da error,
+        no se ve en el momento, y se descubre semanas después cuando alguien lo
+        busca y no lo encuentra.
+      */
       db.prepare('UPDATE clientes SET nombre = ? WHERE id = ?').run(
-        cliente_nombre || '',
+        cliente_nombre || existing.nombre || '',
         existing.id
       );
       ensureClienteDireccion(
@@ -411,25 +463,45 @@ function createPedidoRecord(payload) {
         { makePrimaryIfEmpty: true }
       );
       asegurarCodigoTarjeta(existing.id);
-    } else if (cliente_nombre) {
-      const created = db
-        .prepare('INSERT INTO clientes (nombre, telefono, direccion) VALUES (?, ?, ?)')
-        .run(cliente_nombre, cliente_telefono, cliente_direccion || '');
-      cliente_id = created.lastInsertRowid;
-      asegurarCodigoTarjeta(cliente_id);
-      ensureClienteDireccion(
-        db,
-        cliente_id,
-        {
-          etiqueta: 'Principal',
-          direccion: cliente_direccion || '',
-          latitud: cliente_latitud,
-          longitud: cliente_longitud,
-          principal: true,
-        },
-        { makePrimaryIfEmpty: true }
-      );
     }
+  }
+
+  /*
+    ── Alta automática: con nombre O con teléfono ────────────────────────────
+
+    Antes esto vivía adentro del `if (cliente_telefono)` de arriba y encima
+    pedía nombre, así que hacían falta **los dos** datos para que el cliente
+    quedara guardado. Con uno solo no se creaba nada:
+
+      - Nombre sin teléfono  → típico del mostrador. Se perdía.
+      - Teléfono sin nombre  → típico del pedido apurado. Se perdía.
+
+    En los dos casos la venta salía bien y el nombre quedaba escrito en el
+    pedido, así que nadie notaba nada. Pero el cliente no existía: no sumaba
+    puntos, no entraba al club, y la próxima vez no aparecía en el buscador.
+
+    Ahora alcanza con cualquiera de los dos. Con menos que eso no hay a quién
+    guardar —una venta de mostrador sin ningún dato es anónima y está bien que
+    lo sea—.
+  */
+  if (!cliente_id && (cliente_nombre || cliente_telefono)) {
+    const created = db
+      .prepare('INSERT INTO clientes (nombre, telefono, direccion) VALUES (?, ?, ?)')
+      .run(cliente_nombre || '', cliente_telefono || '', cliente_direccion || '');
+    cliente_id = created.lastInsertRowid;
+    asegurarCodigoTarjeta(cliente_id);
+    ensureClienteDireccion(
+      db,
+      cliente_id,
+      {
+        etiqueta: 'Principal',
+        direccion: cliente_direccion || '',
+        latitud: cliente_latitud,
+        longitud: cliente_longitud,
+        principal: true,
+      },
+      { makePrimaryIfEmpty: true }
+    );
   }
 
   const itemsArray = parsePedidoItems(items);

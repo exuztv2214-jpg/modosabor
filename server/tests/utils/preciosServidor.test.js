@@ -41,9 +41,68 @@ const PRODUCTOS = {
   },
 };
 
+/**
+ * Listas de opciones compartidas asignadas a cada plato.
+ *
+ * La suprema lleva la lista "Salsas", que **no está** en su columna
+ * `variantes`: vive en `opcion_listas` y se le asignó aparte. Es justo el caso
+ * que puede sacar la web de servicio, porque una opción que el validador no
+ * reconoce no se cobra mal — hace que se rechace el pedido entero.
+ */
+const LISTAS_POR_PRODUCTO = {
+  67: [
+    {
+      id: 1,
+      nombre: 'Salsas',
+      tipo: 'variante',
+      obligatorio: 0,
+      opciones: [
+        { nombre: 'Salsa de pollo', precio: 0 },
+        { nombre: 'Salsa de carne', precio: 30000 }, // $300
+      ],
+    },
+  ],
+};
+
+/*
+  La base falsa tiene que saber responder `.all` y no sólo `.get`: al resolver
+  las listas compartidas, preciosServidor hace dos consultas que devuelven
+  varias filas. Con un `prepare` que sólo devolvía `get`, el módulo entero
+  reventaba con "db.prepare(...).all is not a function" — y como esto se
+  descubrió recién, queda dicho: si esta simulación se queda corta otra vez,
+  el síntoma es ese.
+*/
 const dbFalsa = {
-  prepare() {
-    return { get: (id) => PRODUCTOS[Number(id)] || undefined };
+  prepare(sql) {
+    return {
+      get: (id) => PRODUCTOS[Number(id)] || undefined,
+      all: (...ids) => {
+        if (sql.includes('producto_opcion_listas')) {
+          return ids.flatMap((id) =>
+            (LISTAS_POR_PRODUCTO[Number(id)] || []).map((lista) => ({
+              producto_id: Number(id),
+              id: lista.id,
+              nombre: lista.nombre,
+              tipo: lista.tipo,
+              obligatorio: lista.obligatorio,
+              orden: 0,
+            }))
+          );
+        }
+        if (sql.includes('FROM opcion_items')) {
+          const todas = Object.values(LISTAS_POR_PRODUCTO).flat();
+          return ids.flatMap((listaId) => {
+            const lista = todas.find((l) => l.id === Number(listaId));
+            return (lista?.opciones || []).map((opcion) => ({
+              lista_id: lista.id,
+              nombre: opcion.nombre,
+              precio: opcion.precio,
+            }));
+          });
+        }
+        return [];
+      },
+    };
   },
 };
 
@@ -146,6 +205,49 @@ test('rechaza una guarnición inventada', () => {
         { producto_id: 67, cantidad: 1, variantes: { Guarniciones: 'Langostinos' } },
       ]),
     PrecioInvalidoError
+  );
+});
+
+// ── Listas de opciones compartidas ─────────────────────────────────────────
+//
+// "Salsas" no está en la columna `variantes` de la suprema: se le asignó como
+// lista compartida. Si el validador no las resuelve, esto no cobra de menos
+// —tira `PrecioInvalidoError` y el cliente no puede terminar el pedido—.
+test('acepta una opción que viene de una lista compartida', () => {
+  const items = recalcularPreciosPublicos([
+    { producto_id: 67, cantidad: 1, variantes: { Salsas: 'Salsa de pollo' } },
+  ]);
+  assert.strictEqual(items[0].precio_unitario, 500000, 'una salsa sin recargo no cambia el precio');
+});
+
+test('cobra el recargo de una opción compartida', () => {
+  const items = recalcularPreciosPublicos([
+    { producto_id: 67, cantidad: 2, variantes: { Salsas: 'Salsa de carne' } },
+  ]);
+  assert.strictEqual(items[0].precio_unitario, 530000, '$5.000 + $300 de salsa de carne');
+  assert.strictEqual(items[0].subtotal, 1060000, 'el recargo compartido va por unidad');
+});
+
+test('la lista compartida convive con las variantes propias del plato', () => {
+  const items = recalcularPreciosPublicos([
+    {
+      producto_id: 67,
+      cantidad: 1,
+      variantes: { Guarniciones: 'Papas', Salsas: 'Salsa de carne' },
+      extras: [{ nombre: 'Jugo + Postre' }],
+    },
+  ]);
+  assert.strictEqual(items[0].precio_unitario, 630000, '$5.000 + $300 salsa + $1.000 postre');
+});
+
+test('sigue rechazando una salsa que no está en la lista', () => {
+  assert.throws(
+    () =>
+      recalcularPreciosPublicos([
+        { producto_id: 67, cantidad: 1, variantes: { Salsas: 'Salsa de trufa' } },
+      ]),
+    PrecioInvalidoError,
+    'resolver las listas no puede aflojar la validación'
   );
 });
 

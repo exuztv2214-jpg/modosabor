@@ -1,4 +1,5 @@
 const db = require('../db');
+const { listasPorProducto, mezclarListas } = require('../utils/opcionesCompartidas');
 
 /**
  * Recálculo de precios del lado del servidor.
@@ -146,6 +147,18 @@ function recalcularPreciosPublicos(items) {
     'SELECT id, nombre, precio, activo, variantes, extras FROM productos WHERE id = ?'
   );
 
+  /*
+    Las guarniciones y los agregados que vienen de una lista compartida no
+    están en el JSON del producto, así que sin esto una guarnición perfectamente
+    válida se leería como "opción que el producto no tiene" y el pedido se
+    rechazaría entero. Se resuelven todas de una, antes del bucle, para no
+    consultar las listas una vez por ítem.
+  */
+  const listasDelPedido = listasPorProducto(
+    db,
+    lista.map((item) => Number(item?.producto_id || item?.id || 0))
+  );
+
   return lista.map((item) => {
     const productoId = Number(item?.producto_id || item?.id || 0);
 
@@ -171,14 +184,19 @@ function recalcularPreciosPublicos(items) {
     }
 
     const precioBase = Number(producto.precio || 0);
+    const conListas = mezclarListas(
+      producto.variantes,
+      producto.extras,
+      listasDelPedido.get(productoId)
+    );
     const extraVariantes = recargoDeVariantes(
       item.variantes,
-      parsearJson(producto.variantes, []),
+      parsearJson(conListas.variantes, []),
       producto.nombre
     );
     const extraAdicionales = recargoDeExtras(
       item.extras,
-      parsearJson(producto.extras, []),
+      parsearJson(conListas.extras, []),
       producto.nombre
     );
 

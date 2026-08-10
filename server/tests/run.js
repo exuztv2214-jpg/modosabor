@@ -26,7 +26,25 @@ function run() {
 
   for (const testFile of tests) {
     try {
-      require(testFile);
+      const modulo = require(testFile);
+      /*
+        Hay dos estilos de test en esta carpeta. Los viejos hacen sus
+        comprobaciones mientras se cargan, así que con el `require` alcanza.
+        Los nuevos las meten adentro de una función `run` y la llaman sólo si
+        el archivo se ejecuta directo:
+
+            if (require.main === module) run();
+            module.exports = { run };
+
+        Eso, visto desde acá, es un archivo que se carga sin hacer nada. Siete
+        de los veintinueve tests estaban en ese grupo: se cargaban, no
+        fallaban, y se contaban como pasados. `npm test` daba verde sin haber
+        probado una sola de sus comprobaciones.
+
+        Se descubrió al agregar un test que estaba escrito así y ver que el
+        resultado no cambiaba ni rompiendo a propósito el código que probaba.
+      */
+      if (typeof modulo?.run === 'function') modulo.run();
       passed++;
     } catch (error) {
       failed++;

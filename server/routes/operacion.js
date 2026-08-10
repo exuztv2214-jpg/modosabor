@@ -9,6 +9,11 @@ const { summarizePaymentRows } = require('../utils/paymentStatus');
 const { recalculateClienteStats } = require('../utils/loyalty');
 
 const { fechaLocal } = require('../utils/fechaLocal');
+const {
+  guardarNombresDeLista,
+  LISTA_GUARNICIONES,
+  nombresDeLista,
+} = require('../utils/opcionesCompartidas');
 router.use(auth);
 
 const BASE_INSUMOS = [
@@ -114,7 +119,24 @@ function loadMenuDiaSettings() {
       'menu_dia_extra_bebida_postre_precio',
       MENU_DIA_EXTRA_PRECIO_FALLBACK
     ),
-    guarnicionesLista: parseJsonList(map.get('menu_dia_guarniciones_lista'), []),
+    /*
+      ── Una sola lista de guarniciones ────────────────────────────────────
+
+      Antes vivía acá, en `configuracion.menu_dia_guarniciones_lista`, como un
+      array de nombres sueltos. Cuando se agregaron las listas compartidas
+      —guarniciones, salsas y agregados para toda la carta— quedaron dos
+      sistemas haciendo lo mismo: uno para el menú del día y otro para el
+      resto. Dos lugares donde cargar la misma guarnición, y ninguna forma de
+      saber cuál era el bueno.
+
+      Ahora la fuente es la lista compartida. La clave vieja queda sólo como
+      red: si por lo que sea la lista no existe, el menú del día sigue
+      funcionando con lo que había en vez de quedarse sin guarniciones en
+      pleno servicio. La migración la crea en el primer arranque.
+    */
+    guarnicionesLista:
+      nombresDeLista(db, LISTA_GUARNICIONES) ||
+      parseJsonList(map.get('menu_dia_guarniciones_lista'), []),
   };
 }
 
@@ -911,10 +933,19 @@ router.put('/menu-dia/config', requirePermission('productos.edit'), (req, res) =
   num('menu_dia_extra_postre_precio', body.extraPostrePrecio, 0);
   num('menu_dia_extra_bebida_postre_precio', body.extraBebidaPostrePrecio, 0);
   if (Array.isArray(body.guarnicionesLista)) {
-    const clean = Array.from(
-      new Set(body.guarnicionesLista.map((g) => String(g || '').trim()).filter(Boolean))
-    );
-    upsert.run('menu_dia_guarniciones_lista', JSON.stringify(clean));
+    /*
+      Se guarda en la lista compartida, que es la única fuente. La guarnición
+      que se agregue acá aparece también en las milanesas y las supremas, que
+      es justamente el punto.
+
+      `guardarNombresDeLista` conserva el precio de las que ya estaban: si
+      alguien le puso recargo a la ensalada desde la pantalla de listas, editar
+      el menú del día no se lo borra.
+    */
+    guardarNombresDeLista(db, LISTA_GUARNICIONES, body.guarnicionesLista, {
+      tipo: 'variante',
+      obligatorio: 1,
+    });
   }
   res.json(loadMenuDiaSettings());
 });

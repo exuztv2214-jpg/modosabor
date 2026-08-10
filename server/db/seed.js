@@ -72,10 +72,20 @@ function runSeed(db) {
     // ── Menu del día: precios base + lista de guarniciones + precios de extras ──
     // La lista de guarniciones globales se edita una sola vez desde la UI y
     // luego cada plato elige cuáles se ofrecen. Formato JSON array de strings.
-    ['menu_dia_precio_economico', '5000'],
-    ['menu_dia_precio_ejecutivo', '7000'],
-    ['menu_dia_extra_postre_precio', '1000'],
-    ['menu_dia_extra_bebida_postre_precio', '1000'],
+    /*
+      En CENTAVOS, que es la unidad de toda la plata del sistema y lo que
+      espera `loadMenuDiaSettings` —su fallback ya está en centavos—.
+
+      Estaban escritos en pesos: '5000' se leía como $50 y el postre de '1000'
+      como $10. No se notó nunca porque el seed sólo escribe las claves que
+      faltan, y en la base del local ya estaban con el valor bueno. Una
+      instalación nueva, en cambio, arrancaba con el menú del día a cincuenta
+      pesos.
+    */
+    ['menu_dia_precio_economico', '500000'],
+    ['menu_dia_precio_ejecutivo', '700000'],
+    ['menu_dia_extra_postre_precio', '100000'],
+    ['menu_dia_extra_bebida_postre_precio', '100000'],
     [
       'menu_dia_guarniciones_lista',
       JSON.stringify([

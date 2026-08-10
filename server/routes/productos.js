@@ -25,6 +25,68 @@ const {
 const { validateBody } = require('../middleware/validate');
 const { createProductoSchema, updateProductoSchema } = require('../schemas');
 const { pesosToCents } = require('../utils/moneyConversion');
+const authOpcional = require('../middleware/authOpcional');
+const { aplicarListasCompartidas } = require('../utils/opcionesCompartidas');
+
+/**
+ * Lo que ve alguien que no está adentro del panel.
+ *
+ * ── Qué pasaba ─────────────────────────────────────────────────────────────
+ *
+ * El catálogo se sirve sin login, y así tiene que ser: de ahí come la web
+ * pública. Pero la consulta era `SELECT p.*`, o sea que devolvía la fila
+ * entera. Comprobado contra producción, sin ninguna credencial:
+ *
+ *     GET /api/productos  →  "costo": 0, "stock_directo": 16, "stock": 16
+ *
+ * El costo de cada plato es tu estructura de márgenes. Hoy no filtra nada
+ * porque están todos en cero, pero el día que los cargues quedan a un click de
+ * cualquiera —incluido el de la esquina—. El stock ya está expuesto: se puede
+ * ver cuántas porciones quedan de cada cosa.
+ *
+ * ── Cómo se resolvió ───────────────────────────────────────────────────────
+ *
+ * En vez de tapar campos uno por uno —que es una lista que se olvida de
+ * actualizar cuando alguien agrega una columna— se arma la respuesta pública
+ * nombrando lo que se necesita. Si mañana se agrega `costo_proveedor`, no sale
+ * por accidente: hay que agregarlo acá a propósito.
+ *
+ * La lista salió de leer qué usa la web de verdad. `disponible_para_venta` sí
+ * va —el cliente tiene que saber si puede pedirlo— pero es un sí o un no, no
+ * el número de porciones.
+ */
+const CAMPOS_PUBLICOS = [
+  'id',
+  'nombre',
+  'descripcion',
+  'precio',
+  'precio_anterior',
+  'categoria_id',
+  'categoria_nombre',
+  'categoria_icono',
+  'imagen',
+  'variantes',
+  'extras',
+  'activo',
+  'destacado',
+  'tiempo_preparacion',
+  'menu_dia_tipo',
+  'disponible_para_venta',
+];
+
+function paraElPublico(productos) {
+  return (productos || []).map((p) =>
+    CAMPOS_PUBLICOS.reduce((acc, campo) => {
+      if (p[campo] !== undefined) acc[campo] = p[campo];
+      return acc;
+    }, {})
+  );
+}
+
+/** El panel ve todo; cualquier otro, sólo lo que la carta necesita mostrar. */
+function segunQuienPregunta(req, productos) {
+  return req.user ? productos : paraElPublico(productos);
+}
 
 // Multer populates req.body AFTER the global money middleware has already run,
 // so multipart requests skip pesos→centavos conversion.  This route-level
@@ -208,7 +270,7 @@ function buildProductPayload(body, options = {}) {
   };
 }
 
-router.get('/', (req, res) => {
+router.get('/', authOpcional, (req, res) => {
   const { categoria_id, activo } = req.query;
   let q =
     'SELECT p.*, c.nombre as categoria_nombre, c.icono as categoria_icono FROM productos p LEFT JOIN categorias c ON p.categoria_id = c.id WHERE 1=1';
@@ -222,7 +284,13 @@ router.get('/', (req, res) => {
     params.push(Number(activo));
   }
   q += ' ORDER BY c.orden ASC, p.nombre ASC';
-  res.json(decorateProductsWithInventory(db, db.prepare(q).all(...params)));
+  /*
+    Las listas compartidas se mezclan acá, sobre las filas crudas, para que
+    todo lo que viene después —la proyección pública, el conversor de plata, el
+    TPV, la web y la app del rider— vea el mismo JSON de siempre.
+  */
+  const productos = aplicarListasCompartidas(db, db.prepare(q).all(...params));
+  res.json(segunQuienPregunta(req, decorateProductsWithInventory(db, productos)));
 });
 
 router.post(
@@ -236,14 +304,15 @@ router.post(
   }
 );
 
-router.get('/:id', (req, res) => {
+router.get('/:id', authOpcional, (req, res) => {
   const p = db
     .prepare(
       'SELECT p.*, c.nombre as categoria_nombre FROM productos p LEFT JOIN categorias c ON p.categoria_id = c.id WHERE p.id = ?'
     )
     .get(req.params.id);
   if (!p) return res.status(404).json({ error: 'Producto no encontrado' });
-  res.json(decorateProductsWithInventory(db, [p])[0]);
+  const [conListas] = aplicarListasCompartidas(db, [p]);
+  res.json(segunQuienPregunta(req, decorateProductsWithInventory(db, [conListas]))[0]);
 });
 
 router.post(
@@ -388,14 +457,84 @@ router.put(
   }
 );
 
+/**
+ * Qué se lleva puesto borrar este producto de verdad.
+ *
+ * La pantalla lo pregunta antes de mostrar el cartel de confirmación, para
+ * poder decir qué se pierde en vez de "se quitará del sistema".
+ */
+router.get('/:id/dependencias', auth, requirePermission('productos.edit'), (req, res) => {
+  const id = req.params.id;
+  const contar = (sql) => {
+    try {
+      return db.prepare(sql).get(id).n;
+    } catch {
+      return 0;
+    }
+  };
+
+  res.json({
+    receta: contar('SELECT COUNT(*) AS n FROM inventario_recetas WHERE producto_id = ?'),
+    menuDia: contar('SELECT COUNT(*) AS n FROM menu_dia_historial WHERE producto_id = ?'),
+    vendido: contar('SELECT COUNT(*) AS n FROM pedido_items WHERE producto_id = ?'),
+  });
+});
+
+/**
+ * Sacar un producto de circulación.
+ *
+ * ── Por qué ya no borra ────────────────────────────────────────────────────
+ *
+ * Antes esto era un `DELETE` de verdad, y hay dos tablas que se van en cascada
+ * con el producto:
+ *
+ *     inventario_recetas    ON DELETE CASCADE
+ *     menu_dia_historial    ON DELETE CASCADE
+ *
+ * Las claves foráneas están activas, así que borrar un plato **destruía su
+ * receta** —qué insumos lleva y en qué cantidad, que es carga de datos que
+ * nadie quiere repetir— y lo sacaba del historial del menú del día, de donde
+ * salen los reportes de qué se cocinó.
+ *
+ * Y el cartel que se leía antes de confirmar decía nada más que "el producto se
+ * quitará del sistema y dejará de estar disponible para venta". Alguien que
+ * quiere dejar de vender un plato lee eso y aprieta tranquilo.
+ *
+ * Casi siempre lo que se quiere es justamente eso: que deje de venderse. Para
+ * eso alcanza con darlo de baja, y así la receta queda esperando por si el
+ * plato vuelve —que en un restaurante con menú del día, vuelve—.
+ *
+ * ── Cuándo borra igual ─────────────────────────────────────────────────────
+ *
+ * Con `?definitivo=1`, y eso lo manda la pantalla sólo después de mostrar qué
+ * se pierde. La opción existe porque un producto cargado por error no tiene
+ * por qué quedar dando vueltas.
+ */
 router.delete('/:id', auth, requirePermission('productos.edit'), (req, res) => {
-  const p = db.prepare('SELECT imagen FROM productos WHERE id = ?').get(req.params.id);
-  if (p?.imagen) {
-    const file = imagePathToFile(p.imagen);
-    if (fs.existsSync(file)) fs.unlinkSync(file);
+  const producto = db
+    .prepare('SELECT id, nombre, imagen, activo FROM productos WHERE id = ?')
+    .get(req.params.id);
+  if (!producto) return res.status(404).json({ error: 'Producto no encontrado' });
+
+  const definitivo = String(req.query.definitivo || '') === '1';
+
+  if (!definitivo) {
+    db.prepare('UPDATE productos SET activo = 0 WHERE id = ?').run(producto.id);
+    return res.json({
+      success: true,
+      accion: 'baja',
+      mensaje: `${producto.nombre} ya no se vende. La receta y el historial quedan guardados.`,
+    });
   }
-  db.prepare('DELETE FROM productos WHERE id = ?').run(req.params.id);
-  res.json({ success: true });
+
+  // La imagen se borra sólo en el borrado definitivo: si es una baja, el plato
+  // puede volver y sería una lástima tener que subir la foto de nuevo.
+  if (producto.imagen) {
+    const file = imagePathToFile(producto.imagen);
+    if (file && fs.existsSync(file)) fs.unlinkSync(file);
+  }
+  db.prepare('DELETE FROM productos WHERE id = ?').run(producto.id);
+  res.json({ success: true, accion: 'eliminado' });
 });
 
 module.exports = router;

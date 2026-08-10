@@ -29,6 +29,7 @@ const {
 } = require('./utils/uploadValidation');
 const { syncAllDeliveryPersonnel } = require('./utils/deliveryPersonnelSync');
 const { createRateLimiter, createSqliteRateLimitStore } = require('./utils/rateLimit');
+const { traducirErrorDeBase } = require('./utils/erroresDeBase');
 const logger = require('./utils/logger');
 const sanitizeMiddleware = require('./middleware/sanitize');
 
@@ -248,6 +249,7 @@ app.use(moneyResponseMiddleware);
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/categorias', require('./routes/categorias'));
 app.use('/api/productos', require('./routes/productos'));
+app.use('/api/opcion-listas', require('./routes/opcionListas'));
 app.use('/api/inventario', require('./routes/inventario'));
 app.use('/api/pedidos', require('./routes/pedidos'));
 app.use('/api/mozo', require('./routes/mozo'));
@@ -362,29 +364,22 @@ app.use((error, _req, res, next) => {
 
   const isDev = process.env.NODE_ENV !== 'production';
 
-  // Errores específicos de SQLite
-  const message = String(error.message || '').toLowerCase();
-  if (message.includes('unique constraint failed')) {
-    return res.status(409).json({
-      error: 'Ya existe un registro con ese valor. Probá con otro.',
-      ...(isDev ? { detail: error.message } : {}),
-    });
-  }
-  if (message.includes('foreign key constraint failed')) {
-    return res.status(400).json({
-      error: 'No se puede eliminar o vincular porque el dato relacionado ya no existe.',
-      ...(isDev ? { detail: error.message } : {}),
-    });
-  }
-  if (message.includes('not null constraint failed')) {
-    return res.status(400).json({
-      error: 'Faltan datos obligatorios. Revisá los campos requeridos.',
-      ...(isDev ? { detail: error.message } : {}),
-    });
-  }
-  if (message.includes('check constraint failed')) {
-    return res.status(400).json({
-      error: 'El valor ingresado no cumple con las reglas del sistema.',
+  /*
+    Errores de la base, dichos en castellano y nombrando el campo.
+
+    Antes cada uno tenía su mensaje fijo —"Ya existe un registro con ese
+    valor"— y el detalle se guardaba sólo en desarrollo. En producción eso
+    dejaba a quien atiende con un cartel que no dice nada, y obligaba a entrar
+    a los registros del servidor para saber qué campo estaba repetido.
+
+    El nombre del campo no es información sensible: es el mismo dato que la
+    persona acaba de escribir en la pantalla. El valor sí lo es, y ese nunca
+    viaja en el mensaje de SQLite.
+  */
+  const traducido = traducirErrorDeBase(error);
+  if (traducido) {
+    return res.status(traducido.status).json({
+      error: traducido.error,
       ...(isDev ? { detail: error.message } : {}),
     });
   }

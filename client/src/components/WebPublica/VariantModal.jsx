@@ -3,15 +3,11 @@ import { X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { fmt, getVariantSelectionPrice } from '../../lib/webPublicaHelpers.js';
 import { getStructuredDisplayPrices } from '../../lib/pedidoForm.js';
+import { variantesCompletas as esCompleto } from '../../lib/variantesObligatorias.js';
 
 export default function VariantModal({ modal, setModal, colorPrimario, onClose, onAddToCart }) {
   const variantesCompletas = useMemo(
-    () =>
-      !modal ||
-      modal.variantes.every((group) => {
-        const selected = modal.sel?.[group.nombre];
-        return Boolean(selected?.nombre || selected);
-      }),
+    () => !modal || esCompleto(modal.variantes, modal.sel),
     [modal]
   );
 

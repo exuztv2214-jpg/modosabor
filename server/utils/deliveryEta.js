@@ -44,7 +44,28 @@ function estimateFromState(pedido, config = {}) {
     Number(pedido?.tiempo_estimado_min || config.tiempo_delivery || 30)
   );
   const baseRetiro = Math.max(5, Number(config.tiempo_retiro || 20));
-  const base = pedido?.tipo_entrega === 'retiro' ? baseRetiro : baseDelivery;
+  const baseConfigurada = pedido?.tipo_entrega === 'retiro' ? baseRetiro : baseDelivery;
+
+  /*
+    Lo que tarda la cocina en este pedido.
+
+    Cada producto tiene cargado su `tiempo_preparacion`, y hasta ahora ese
+    número no lo leía nadie: se completaba en el formulario, se guardaba, se
+    mostraba en la ficha, y la estimación seguía usando un valor fijo de
+    configuración igual para todo.
+
+    O sea que una milanesa y un café prometían lo mismo.
+
+    Se toma el plato más lento del pedido, no la suma: la cocina trabaja en
+    paralelo, así que un pedido de cuatro cosas tarda lo que tarda la que más
+    demora, no la suma de las cuatro.
+
+    Y se usa como piso, no como reemplazo: si la configuración dice 30 minutos
+    y el plato más lento tarda 45, se promete 45. Si el plato tarda 10, se
+    siguen prometiendo los 30, porque además de cocinar hay que despachar.
+  */
+  const minutosCocina = Math.max(0, Number(pedido?.minutos_cocina || 0));
+  const base = Math.max(baseConfigurada, minutosCocina);
 
   if (!pedido?.creado_en) {
     return { minutes: base, source: 'config' };

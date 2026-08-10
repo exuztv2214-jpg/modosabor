@@ -914,6 +914,9 @@ function runMigrations(db) {
   migrateMoneyColumns(db);
   migrarUmbralesDeNivel(db);
   migrarPuntosInflados(db);
+  // Va después de `db.exec(tableStatements)` en db/index.js, así que
+  // `opcion_listas` ya existe cuando esto corre.
+  migrarGuarnicionesAListaCompartida(db);
 }
 
 /**
@@ -1021,6 +1024,74 @@ function migrarUmbralesDeNivel(db) {
     });
   } catch (error) {
     logger.error('Error corrigiendo los umbrales de nivel', { message: error.message });
+  }
+}
+
+/**
+ * Pasa las guarniciones del menú del día a la lista compartida.
+ *
+ * ── Por qué ────────────────────────────────────────────────────────────────
+ *
+ * El menú del día tenía su propia lista maestra de guarniciones guardada en
+ * `configuracion.menu_dia_guarniciones_lista`, como un array de nombres. Al
+ * agregarse las listas compartidas —que sirven para toda la carta— quedaron
+ * dos lugares donde cargar la misma guarnición, y ninguna forma de saber cuál
+ * mandaba.
+ *
+ * Esto copia esos nombres a la lista compartida "Guarniciones" una sola vez.
+ * A partir de ahí, agregar una guarnición desde Operación la deja disponible
+ * también para las milanesas y las supremas.
+ *
+ * ── Qué NO hace ────────────────────────────────────────────────────────────
+ *
+ * No borra la clave vieja de `configuracion`. Queda como red: si algo sale
+ * mal, el menú del día vuelve a leer de ahí y sigue funcionando. Borrarla es
+ * una decisión para cuando esto lleve un tiempo andando, no para el mismo día
+ * en que se migra.
+ *
+ * Tampoco toca las guarniciones ya elegidas en cada plato: eso es una decisión
+ * por plato —la Costillita ofrece siete y las Albóndigas seis— y no una copia.
+ */
+function migrarGuarnicionesAListaCompartida(db) {
+  try {
+    const yaExiste = db
+      .prepare("SELECT id FROM opcion_listas WHERE LOWER(nombre) = 'guarniciones'")
+      .get();
+    if (yaExiste) return;
+
+    const fila = db
+      .prepare("SELECT valor FROM configuracion WHERE clave = 'menu_dia_guarniciones_lista'")
+      .get();
+    if (!fila?.valor) return;
+
+    let nombres;
+    try {
+      nombres = JSON.parse(fila.valor);
+    } catch {
+      return;
+    }
+    const limpios = (Array.isArray(nombres) ? nombres : [])
+      .map((valor) => String(valor || '').trim())
+      .filter(Boolean);
+    if (limpios.length === 0) return;
+
+    const { lastInsertRowid } = db
+      .prepare(
+        "INSERT INTO opcion_listas (nombre, tipo, obligatorio, orden, activo) VALUES ('Guarniciones', 'variante', 1, 0, 1)"
+      )
+      .run();
+    const insertar = db.prepare(
+      'INSERT INTO opcion_items (lista_id, nombre, precio, orden, activo) VALUES (?, ?, 0, ?, 1)'
+    );
+    limpios.forEach((nombre, indice) => insertar.run(lastInsertRowid, nombre, indice));
+
+    logger.info(`Guarniciones del menú del día migradas a la lista compartida (${limpios.length})`);
+  } catch (error) {
+    // Que esto falle no puede impedir que arranque el sistema: sin la lista,
+    // el menú del día sigue leyendo la clave vieja de `configuracion`.
+    logger.error('No se pudieron migrar las guarniciones a la lista compartida', {
+      message: error.message,
+    });
   }
 }
 

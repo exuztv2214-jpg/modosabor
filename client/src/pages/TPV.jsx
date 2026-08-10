@@ -22,6 +22,10 @@ import TpvSidebar from '../components/TPV/TpvSidebar.jsx';
 import TpvPaymentModal from '../components/TPV/TpvPaymentModal.jsx';
 import { TPV_BG } from '../components/TPV/tpvUi.jsx';
 import TpvVariantModal from '../components/TPV/TpvVariantModal.jsx';
+import {
+  grupoEsObligatorio,
+  variantesCompletas as esCompleto,
+} from '../lib/variantesObligatorias.js';
 
 const PAGOS = ['efectivo', 'mercadopago', 'transferencia', 'modo', 'uala'];
 const TPV_PAYMENT_OPTIONS = [...PAGOS, 'mixto'];
@@ -695,9 +699,7 @@ export default function TPV() {
     );
     return ordered[0]?.method || 'efectivo';
   }, [metodoPago, splitPaymentEntries]);
-  const variantesCompletas =
-    !variantModal ||
-    variantModal.variantes.every((group) => Boolean(variantModal.sel[group.nombre]));
+  const variantesCompletas = !variantModal || esCompleto(variantModal.variantes, variantModal.sel);
   const selectedVariantTotal = !variantModal
     ? 0
     : (variantModal.rewardOptions?.priceOverride !== undefined
@@ -1291,13 +1293,24 @@ export default function TPV() {
   };
 
   const seleccionarVariante = (groupName, option) => {
-    setVariantModal((previous) => ({
-      ...previous,
-      sel: {
-        ...previous.sel,
-        [groupName]: typeof option === 'string' ? { nombre: option } : option,
-      },
-    }));
+    setVariantModal((previous) => {
+      const elegida = typeof option === 'string' ? { nombre: option } : option;
+      const grupo = previous.variantes.find((g) => g.nombre === groupName);
+      /*
+        En un grupo opcional, volver a tocar la opción elegida la saca.
+
+        Sin esto no habría forma de arrepentirse: el cliente pide ñoquis con
+        salsa, cambia de idea, y el cajero no puede dejar el grupo vacío. Con
+        los obligatorios no aplica, porque ahí siempre tiene que quedar una.
+      */
+      const yaEstaba = previous.sel?.[groupName]?.nombre === elegida?.nombre;
+      if (yaEstaba && !grupoEsObligatorio(grupo)) {
+        const resto = { ...previous.sel };
+        delete resto[groupName];
+        return { ...previous, sel: resto };
+      }
+      return { ...previous, sel: { ...previous.sel, [groupName]: elegida } };
+    });
   };
 
   const toggleExtraVariante = (extra) => {

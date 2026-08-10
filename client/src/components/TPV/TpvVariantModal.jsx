@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { Check, X } from 'lucide-react';
 
 import { BRAND, fmt, STROKE } from './tpvUi.jsx';
+import { faltaElegirGrupo, grupoEsObligatorio } from '../../lib/variantesObligatorias.js';
 
 /**
  * Modal de armado de producto.
@@ -54,9 +55,15 @@ export default function TpvVariantModal({
       ? Number(variantModal.rewardOptions.priceOverride || 0)
       : Number(variantModal.producto.precio || 0);
 
-  // El primer grupo sin elegir es el que nombra el botón.
+  /*
+    El primer grupo obligatorio sin elegir es el que nombra el botón.
+
+    Tiene que mirar sólo los obligatorios: un grupo opcional sin elegir —una
+    salsa que el cliente no quiso— dejaría el botón diciendo "Elegí Salsas"
+    para siempre, al lado de un botón que sí funciona.
+  */
   const grupoPendiente = useMemo(
-    () => variantModal.variantes.find((group) => !variantModal.sel[group.nombre])?.nombre || null,
+    () => faltaElegirGrupo(variantModal.variantes, variantModal.sel)?.nombre || null,
     [variantModal.variantes, variantModal.sel]
   );
 
@@ -116,7 +123,11 @@ export default function TpvVariantModal({
                     <span className="text-[11px] font-semibold" style={{ color: BRAND }}>
                       Elegí una
                     </span>
-                  ) : null}
+                  ) : grupoEsObligatorio(group) ? null : (
+                    // Sin esto, un grupo opcional se ve igual que uno que ya
+                    // fue elegido, y el cajero no sabe si le falta algo.
+                    <span className="text-[11px] font-medium text-gray-400">Opcional</span>
+                  )}
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   {(group.opciones || []).map((option) => {

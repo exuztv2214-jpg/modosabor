@@ -15,6 +15,7 @@ import {
   getStructuredPricingConfig,
   updateStructuredPricing,
   getVariantTemplate,
+  sinListasCompartidas,
 } from './utils';
 
 export default function useProductos() {
@@ -39,17 +40,52 @@ export default function useProductos() {
   const [selectedIds, setSelectedIds] = useState([]);
   const [deleteDialog, setDeleteDialog] = useState(null);
   const [categoryDialog, setCategoryDialog] = useState(null);
+  /*
+    Listas de opciones compartidas: las que existen, y cuáles lleva el plato
+    que está abierto en el formulario. Se guardan aparte del producto porque el
+    formulario manda multipart —lleva la foto— y el conversor de plata no ve
+    adentro de un multipart; por ese camino los precios de las opciones
+    entrarían en pesos a columnas que están en centavos.
+  */
+  const [listasDisponibles, setListasDisponibles] = useState([]);
+  const [listasElegidas, setListasElegidas] = useState([]);
 
   const cargar = async () => {
     setLoading(true);
     try {
-      const [prods, cats] = await Promise.all([api.get('/productos'), api.get('/categorias')]);
+      const [prods, cats, listas] = await Promise.all([
+        api.get('/productos'),
+        api.get('/categorias'),
+        // Si falla no se cae la pantalla entera: sin listas el formulario
+        // funciona como funcionaba antes de que existieran.
+        api.get('/opcion-listas').catch(() => []),
+      ]);
       setProductos(prods);
       setCategorias(cats);
+      setListasDisponibles(Array.isArray(listas) ? listas.filter((l) => l.activo) : []);
     } catch (error) {
       toast.error(error?.error || 'Error al cargar productos');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const toggleLista = (listaId) =>
+    setListasElegidas((prev) =>
+      prev.includes(listaId) ? prev.filter((id) => id !== listaId) : [...prev, listaId]
+    );
+
+  /** Guarda qué listas lleva el plato. Va aparte del producto, en JSON. */
+  const guardarListasDelProducto = async (productoId) => {
+    if (!productoId) return;
+    try {
+      await api.put(`/opcion-listas/producto/${productoId}`, {
+        listas: listasElegidas,
+      });
+    } catch (error) {
+      // El producto ya se guardó bien; lo que falló es la asignación. Decirlo
+      // aparte evita que alguien crea que se perdió el plato entero.
+      toast.error(error?.error || 'El plato se guardó, pero no se pudieron asignar las listas');
     }
   };
 
@@ -182,14 +218,32 @@ export default function useProductos() {
     setImageFile(null);
     setImagePreview('');
     setRemoveImage(false);
+    setListasElegidas([]);
     setModal('nuevo');
   };
 
   const abrirEditar = (producto) => {
+    /*
+      Qué listas tiene asignadas se pregunta a la API en vez de deducirlo del
+      JSON del producto. Una lista asignada puede no aparecer ahí: si el plato
+      ya tenía un grupo propio con el mismo nombre, la compartida no se mezcla
+      —gana lo cargado a mano—. Deducirla la haría desaparecer al guardar.
+    */
+    setListasElegidas([]);
+    api
+      .get(`/opcion-listas/producto/${producto.id}`)
+      .then((listas) =>
+        setListasElegidas(Array.isArray(listas) ? listas.map((lista) => lista.id) : [])
+      )
+      .catch(() => setListasElegidas([]));
+
     const normalizedPricing = normalizeStructuredPricingState(
       categoriasMap.get(producto.categoria_id)?.nombre,
       producto.precio,
-      parseJsonList(producto.variantes)
+      // Sólo las variantes propias del plato: las que vienen de una lista
+      // compartida se editan desde "Listas de opciones", y si entraran acá el
+      // guardado se las copiaría adentro.
+      sinListasCompartidas(parseJsonList(producto.variantes))
     );
 
     setForm({
@@ -206,7 +260,7 @@ export default function useProductos() {
       stock: producto.stock_directo ?? producto.stock ?? 0,
     });
     setVariantesEditor(normalizedPricing.groups);
-    setExtrasEditor(parseJsonList(producto.extras));
+    setExtrasEditor(sinListasCompartidas(parseJsonList(producto.extras)));
     setImageFile(null);
     // Sin resolver, la foto guardada en /uploads no cargaba en el editor y
     // parecía que el producto no tenía imagen.
@@ -219,7 +273,10 @@ export default function useProductos() {
     const normalizedPricing = normalizeStructuredPricingState(
       categoriasMap.get(producto.categoria_id)?.nombre,
       producto.precio,
-      parseJsonList(producto.variantes)
+      // Sólo las variantes propias del plato: las que vienen de una lista
+      // compartida se editan desde "Listas de opciones", y si entraran acá el
+      // guardado se las copiaría adentro.
+      sinListasCompartidas(parseJsonList(producto.variantes))
     );
     setForm({
       nombre: `${producto.nombre || ''} (copia)`,
@@ -235,7 +292,7 @@ export default function useProductos() {
       stock: 0,
     });
     setVariantesEditor(normalizedPricing.groups);
-    setExtrasEditor(parseJsonList(producto.extras));
+    setExtrasEditor(sinListasCompartidas(parseJsonList(producto.extras)));
     setImageFile(null);
     setImagePreview('');
     setRemoveImage(false);
@@ -489,10 +546,12 @@ export default function useProductos() {
       if (removeImage) payload.append('remove_imagen', '1');
 
       if (modal === 'nuevo') {
-        await api.post('/productos', payload);
+        const creado = await api.post('/productos', payload);
+        await guardarListasDelProducto(creado?.id);
         toast.success('Producto creado');
       } else {
         await api.put(`/productos/${modal.id}`, payload);
+        await guardarListasDelProducto(modal.id);
         toast.success('Producto actualizado');
       }
 
@@ -521,11 +580,24 @@ export default function useProductos() {
     setCategoryDialog(null);
   };
 
-  const confirmarEliminar = async () => {
+  /*
+    Por defecto da de baja, no borra.
+
+    Borrar de verdad se lleva en cascada la receta del plato y su historial en
+    el menú del día, así que el camino normal es sacarlo de la carta y dejar
+    todo eso guardado. El borrado definitivo se pide aparte, desde el mismo
+    cartel, después de que diga con números qué se pierde.
+  */
+  const confirmarEliminar = async (definitivo = false) => {
     if (!deleteDialog) return;
     try {
-      await api.delete(`/productos/${deleteDialog.id}`);
-      toast.success('Producto eliminado');
+      const respuesta = await api.delete(
+        `/productos/${deleteDialog.id}${definitivo ? '?definitivo=1' : ''}`
+      );
+      toast.success(
+        respuesta?.mensaje ||
+          (definitivo ? 'Producto eliminado' : `${deleteDialog.nombre} ya no se vende`)
+      );
       if (detalle?.id === deleteDialog.id) setDetalle(null);
       setDeleteDialog(null);
       await cargar();
@@ -646,6 +718,9 @@ export default function useProductos() {
     selectedIds,
     deleteDialog,
     categoryDialog,
+    listasDisponibles,
+    listasElegidas,
+    toggleLista,
     // Computed
     categoriasMap,
     productosUi,

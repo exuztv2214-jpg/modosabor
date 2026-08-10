@@ -73,6 +73,9 @@ export default function Productos() {
         formPriceOptions={hook.formPriceOptions}
         variantesEditor={hook.variantesEditor}
         extrasEditor={hook.extrasEditor}
+        listasDisponibles={hook.listasDisponibles}
+        listasElegidas={hook.listasElegidas}
+        onToggleLista={hook.toggleLista}
         imagePreview={hook.imagePreview}
         recipeManagedStock={hook.recipeManagedStock}
         saving={hook.saving}

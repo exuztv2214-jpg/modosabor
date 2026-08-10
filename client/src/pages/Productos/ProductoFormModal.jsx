@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { ImageOff, ImagePlus, Plus, Trash2, X } from 'lucide-react';
+import { Check, ImageOff, ImagePlus, Plus, Trash2, X } from 'lucide-react';
 
 import { BRAND, STROKE } from '../../lib/theme.js';
 import ActionDialog from '../../components/ActionDialog.jsx';
@@ -67,6 +67,9 @@ export default function ProductoFormModal({
   formPriceOptions,
   variantesEditor,
   extrasEditor,
+  listasDisponibles = [],
+  listasElegidas = [],
+  onToggleLista,
   imagePreview,
   recipeManagedStock,
   saving,
@@ -433,6 +436,67 @@ export default function ProductoFormModal({
                           <BotonQuitar onClick={() => onRemoveExtra(index)} titulo="Quitar extra" />
                         </div>
                       ))}
+                    </div>
+                  )}
+                </Seccion>
+
+                {/*
+                  Listas compartidas.
+
+                  Lo de arriba —variantes y extras— es lo que vive adentro de
+                  este plato. Esto es lo que se carga una vez en "Listas de
+                  opciones" y se le presta a los platos que lo llevan: las
+                  guarniciones, las salsas, los agregados de hamburguesa.
+
+                  Acá sólo se tilda cuáles lleva. Los nombres y los precios se
+                  editan allá, y cambian en todos los platos a la vez. Por eso
+                  no hay campos para escribir en esta sección: si se pudiera
+                  editar desde acá, volveríamos a tener una copia por plato.
+                */}
+                <Seccion
+                  title="Listas compartidas"
+                  description="Guarniciones, salsas y agregados que se cargan una vez y se usan en varios platos."
+                >
+                  {listasDisponibles.length === 0 ? (
+                    <p className="rounded-xl border border-dashed border-gray-200 px-4 py-6 text-center text-[13px] text-gray-400">
+                      Todavía no hay listas cargadas. Se crean en Catálogo → Listas de opciones.
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      {listasDisponibles.map((lista) => {
+                        const elegida = listasElegidas.includes(lista.id);
+                        return (
+                          <button
+                            key={lista.id}
+                            type="button"
+                            aria-pressed={elegida}
+                            onClick={() => onToggleLista(lista.id)}
+                            className={`flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition ${
+                              elegida
+                                ? 'border-transparent bg-brand-50 ring-2 ring-brand-500'
+                                : 'border-gray-200 hover:bg-gray-50'
+                            }`}
+                          >
+                            <span
+                              className={`flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-md border ${elegida ? 'border-transparent text-white' : 'border-gray-300 bg-white'}`}
+                              style={elegida ? { backgroundColor: BRAND } : undefined}
+                            >
+                              {elegida ? <Check size={12} strokeWidth={3} /> : null}
+                            </span>
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-[13px] font-medium text-gray-900">
+                                {lista.nombre}
+                              </span>
+                              <span className="mt-0.5 block truncate text-[11px] text-gray-500">
+                                {lista.opciones.map((opcion) => opcion.nombre).join(' · ')}
+                              </span>
+                            </span>
+                            <span className="shrink-0 text-[11px] font-semibold text-gray-400">
+                              {lista.tipo === 'extra' ? 'Se agregan' : 'Se elige una'}
+                            </span>
+                          </button>
+                        );
+                      })}
                     </div>
                   )}
                 </Seccion>

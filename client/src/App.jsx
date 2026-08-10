@@ -48,6 +48,7 @@ const Productos = lazy(() => import('./pages/Productos.jsx'));
 const Inventario = lazy(() => import('./pages/Inventario.jsx'));
 const Compras = lazy(() => import('./pages/Compras.jsx'));
 const Categorias = lazy(() => import('./pages/Categorias.jsx'));
+const ListasOpciones = lazy(() => import('./pages/ListasOpciones.jsx'));
 const Clientes = lazy(() => import('./pages/Clientes.jsx'));
 const Delivery = lazy(() => import('./pages/Delivery.jsx'));
 const Direcciones = lazy(() => import('./pages/Direcciones.jsx'));
@@ -129,6 +130,7 @@ export default function App() {
                     <Route element={<PrivateRoute permission="productos.edit" />}>
                       <Route path="/admin/productos" element={<Productos />} />
                       <Route path="/admin/categorias" element={<Categorias />} />
+                      <Route path="/admin/listas-opciones" element={<ListasOpciones />} />
                     </Route>
                     <Route
                       element={<PrivateRoute permission="productos.edit" moduleKey="inventario" />}

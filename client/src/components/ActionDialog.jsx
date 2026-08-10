@@ -33,6 +33,10 @@ export default function ActionDialog({
   inputPlaceholder = '',
   inputValue = '',
   onInputChange,
+  // Contenido extra bajo la descripción: un detalle de lo que se pierde, una
+  // segunda opción menos destructiva. Va antes de los botones para que se lea
+  // antes de decidir.
+  children,
 }) {
   /*
     Escape cierra. Se escucha en el documento y no en la tarjeta porque el foco
@@ -117,6 +121,8 @@ export default function ActionDialog({
             />
           </div>
         ) : null}
+
+        {children ? <div className="pl-15">{children}</div> : null}
 
         <div className="mt-7 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <button

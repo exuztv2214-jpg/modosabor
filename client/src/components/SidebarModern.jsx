@@ -11,6 +11,7 @@ import {
   ExternalLink,
   Gift,
   LayoutDashboard,
+  ListPlus,
   LogOut,
   MapPinned,
   Megaphone,
@@ -121,6 +122,12 @@ const GRUPOS = [
     items: [
       { to: '/admin/productos', icon: Package, label: 'Productos', permission: 'productos.edit' },
       { to: '/admin/categorias', icon: Tag, label: 'Categorías', permission: 'productos.edit' },
+      {
+        to: '/admin/listas-opciones',
+        icon: ListPlus,
+        label: 'Listas de opciones',
+        permission: 'productos.edit',
+      },
       {
         to: '/admin/inventario',
         icon: Boxes,

@@ -48,6 +48,26 @@ export function parseJsonList(value) {
   }
 }
 
+/**
+ * Saca del editor lo que vino de una lista compartida.
+ *
+ * La API mezcla las listas asignadas adentro de `variantes` y `extras` para que
+ * el TPV, la web y la app del rider no tengan que enterarse de que existen.
+ * Pero el formulario de Productos hace el viaje de ida y vuelta: carga esos
+ * mismos campos y los vuelve a guardar.
+ *
+ * Sin filtrarlos, abrir un plato y apretar Guardar le copiaría la lista
+ * compartida adentro de su propio JSON. No rompe nada en el momento —se ve
+ * igual, se cobra igual— pero a la semana cada plato tiene otra vez su copia
+ * privada, y volvemos a los dieciséis lugares donde cambiar el precio del
+ * queso extra.
+ *
+ * Se reconocen por `lista_id`, que se lo pone el servidor al mezclarlas.
+ */
+export function sinListasCompartidas(items) {
+  return (items || []).filter((item) => !item?.lista_id);
+}
+
 export function normalizeText(value) {
   return String(value || '')
     .trim()
