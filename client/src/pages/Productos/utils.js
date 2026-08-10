@@ -131,9 +131,11 @@ export function getStructuredPricingConfig(categoryName) {
   if (name.includes('milanesa')) {
     return {
       groupName: 'Tipo',
-      baseOption: 'Ternera',
+      // La carta y los productos persistidos usan "Carne". Mantener el mismo
+      // nombre evita que la ficha pierda el adicional frente a Pollo al calcular.
+      baseOption: 'Carne',
       options: [
-        { nombre: 'Ternera', label: 'Precio carne' },
+        { nombre: 'Carne', label: 'Precio carne' },
         { nombre: 'Pollo', label: 'Precio pollo' },
       ],
       helper:
