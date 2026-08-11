@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { AlertTriangle, Camera, Check, Loader2, Send, X } from 'lucide-react';
+import { AlertTriangle, Camera, Check, Loader2, ScanSearch, Send, X } from 'lucide-react';
 
 import api from '../../lib/api.js';
 import { BRAND, STROKE, Z } from '../../lib/theme.js';
 import { useCerrarConEscape } from '../../hooks/useCerrarConEscape.js';
 import { achicarImagen } from '../../lib/achicarImagen.js';
+import { useAuth } from '../../context/AuthContext.jsx';
 
 /**
  * Asistente flotante del panel.
@@ -47,8 +48,10 @@ export default function AsistenteFlotante() {
   const [aplicando, setAplicando] = useState(null);
   // La foto de un remito, ya achicada y lista para mandar.
   const [foto, setFoto] = useState(null);
+  const [revisando, setRevisando] = useState(false);
   const finDeLista = useRef(null);
   const campoFoto = useRef(null);
+  const { hasPermission } = useAuth();
 
   useCerrarConEscape(abierto, () => setAbierto(false));
 
@@ -165,6 +168,43 @@ export default function AsistenteFlotante() {
     });
   };
 
+  const revisarSistema = async () => {
+    if (revisando) return;
+    setRevisando(true);
+    setMensajes((prev) => [
+      ...prev,
+      { rol: 'usuario', texto: 'Revisá el sistema y decime qué encontrás.' },
+    ]);
+    try {
+      const datos = await api.post('/asistente/revision');
+      const severidad = datos.severidad;
+      const color = severidad === 'critico' ? '🔴' : severidad === 'advertencia' ? '🟡' : '🟢';
+      let texto = `${color} **Severidad: ${severidad.toUpperCase()}**\n\n`;
+      if (datos.problemas_detectados === 0) {
+        texto += 'No detecté ningún problema. Todo parece estar en orden.';
+      } else {
+        texto += `Detecté **${datos.problemas_detectados}** problema(s):\n\n`;
+        datos.problemas.forEach((p) => {
+          const emoji =
+            p.severidad === 'critico' ? '🔴' : p.severidad === 'advertencia' ? '🟡' : 'ℹ️';
+          texto += `${emoji} **[${p.modulo.toUpperCase()}]** ${p.mensaje}\n`;
+        });
+      }
+      setMensajes((prev) => [...prev, { rol: 'asistente', texto, revision: datos }]);
+    } catch (error) {
+      setMensajes((prev) => [
+        ...prev,
+        {
+          rol: 'asistente',
+          texto: error?.error || 'No pude revisar el sistema. Fijate la conexión y probá de nuevo.',
+          falló: true,
+        },
+      ]);
+    } finally {
+      setRevisando(false);
+    }
+  };
+
   if (!disponible) return null;
 
   return (
@@ -219,6 +259,17 @@ export default function AsistenteFlotante() {
                   lo confirmes.
                 </p>
                 <div className="mt-4 space-y-2">
+                  {hasPermission('config.manage') && (
+                    <button
+                      type="button"
+                      onClick={revisarSistema}
+                      disabled={revisando}
+                      className="flex w-full items-center gap-2 rounded-xl border border-red-100 bg-red-50 px-3.5 py-2.5 text-left text-[13px] font-medium text-red-800 transition hover:bg-red-100 disabled:opacity-50"
+                    >
+                      <ScanSearch size={15} strokeWidth={STROKE} />
+                      {revisando ? 'Revisando el sistema...' : '🔍 Revisar sistema'}
+                    </button>
+                  )}
                   {EJEMPLOS.map((ejemplo) => (
                     <button
                       key={ejemplo}
@@ -268,6 +319,45 @@ export default function AsistenteFlotante() {
                   </div>
                 </div>
 
+                {mensaje.revision ? (
+                  <div
+                    className="rounded-2xl border p-3.5"
+                    style={{
+                      borderColor:
+                        mensaje.revision.severidad === 'critico'
+                          ? '#EF4444'
+                          : mensaje.revision.severidad === 'advertencia'
+                            ? '#F59E0B'
+                            : '#22C55E',
+                      background:
+                        mensaje.revision.severidad === 'critico'
+                          ? '#FEF2F2'
+                          : mensaje.revision.severidad === 'advertencia'
+                            ? '#FFFBEB'
+                            : '#F0FDF4',
+                    }}
+                  >
+                    <p className="text-[13px] font-semibold text-gray-900">
+                      {mensaje.revision.severidad === 'critico'
+                        ? '🔴 Problemas críticos detectados'
+                        : mensaje.revision.severidad === 'advertencia'
+                          ? '🟡 Advertencias encontradas'
+                          : '🟢 Todo en orden'}
+                    </p>
+                    {mensaje.revision.problemas?.length ? (
+                      <ul className="mt-2 space-y-1">
+                        {mensaje.revision.problemas.map((p, i) => (
+                          <li key={i} className="text-[12px] text-gray-700">
+                            <span className="font-medium">[{p.modulo}]</span> {p.mensaje}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="mt-1 text-[12px] text-gray-600">No se encontraron problemas.</p>
+                    )}
+                  </div>
+                ) : null}
+
                 {/* ── La tarjeta de confirmación ── */}
                 {mensaje.propuesta ? (
                   <div
@@ -291,11 +381,6 @@ export default function AsistenteFlotante() {
                       </dl>
                     ) : null}
 
-                    {/*
-                    La advertencia va destacada porque avisa de un efecto que no
-                    se deduce del resumen: guardar el menú del día deja afuera
-                    los platos que no estén en la lista.
-                  */}
                     {mensaje.propuesta.advertencia ? (
                       <p className="mt-2.5 flex items-start gap-1.5 rounded-lg bg-amber-50 px-2.5 py-2 text-[11px] leading-relaxed text-amber-900">
                         <AlertTriangle size={13} className="mt-px shrink-0" strokeWidth={STROKE} />
@@ -368,11 +453,6 @@ export default function AsistenteFlotante() {
             className="shrink-0 border-t px-3 py-3"
             style={{ borderColor: STROKE }}
           >
-            {/*
-              La foto elegida se muestra antes de mandarla. Sin esto, quien saca
-              una foto movida se entera recién cuando el asistente contesta que
-              no se lee.
-            */}
             {foto ? (
               <div className="mb-2 flex items-center gap-2 rounded-xl bg-gray-50 p-2">
                 <img src={foto} alt="Foto a enviar" className="h-12 w-12 rounded-lg object-cover" />

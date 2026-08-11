@@ -228,7 +228,69 @@ function runMigrations(db) {
     )
   `);
 
-  // ── Trazabilidad de tiempos del pedido ──────────────────────────
+  // ── Tokens de propuesta del asistente (anti-replay) ──────────────────────
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS tokens_propuesta (
+      token_hash TEXT PRIMARY KEY,
+      usuario_id TEXT NOT NULL,
+      accion TEXT NOT NULL,
+      consumido_en DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_tokens_propuesta_usuario
+    ON tokens_propuesta(usuario_id, consumido_en DESC)
+  `);
+
+  // Limpieza automática de tokens viejos (más de 1 hora)
+  db.exec(`
+    DELETE FROM tokens_propuesta
+    WHERE consumido_en < datetime('now', '-1 hour')
+  `);
+
+  // ── Auditoría del asistente de IA ────────────────────────────────────────
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS auditoria_ia (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      usuario_id INTEGER NOT NULL,
+      usuario_nombre TEXT DEFAULT '',
+      tipo TEXT NOT NULL DEFAULT 'consulta',
+      pregunta TEXT DEFAULT '',
+      respuesta TEXT DEFAULT '',
+      herramientas_usadas TEXT DEFAULT '[]',
+      accion TEXT DEFAULT '',
+      proveedor TEXT DEFAULT '',
+      modelo TEXT DEFAULT '',
+      duracion_ms INTEGER DEFAULT 0,
+      fallback INTEGER DEFAULT 0,
+      proveedor_original TEXT DEFAULT '',
+      error TEXT DEFAULT '',
+      creado_en DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_auditoria_ia_usuario
+    ON auditoria_ia(usuario_id, creado_en DESC)
+  `);
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_auditoria_ia_tipo
+    ON auditoria_ia(tipo, creado_en DESC)
+  `);
+
+  // Limpieza automática de auditoría vieja (más de 90 días)
+  db.exec(`
+    DELETE FROM auditoria_ia
+    WHERE creado_en < datetime('now', '-90 days')
+  `);
+
+  // Un renglon por cada transicion de estado.
+  db.exec(`
+    DELETE FROM tokens_propuesta
+    WHERE consumido_en < datetime('now', '-1 hour')
+  `);
   // Un renglon por cada transicion de estado. Permite responder
   // "por que este pedido tardo 50 minutos" y alimentar los reportes
   // de delivery (tiempo promedio por rider, por zona, por franja).

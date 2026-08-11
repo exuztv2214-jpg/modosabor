@@ -1,4 +1,4 @@
-name: CI/CD
+name: Modo Sabor CI
 
 on:
   push:
@@ -29,6 +29,9 @@ jobs:
       - name: Run tests
         run: npm test
 
+      - name: Verify backup restore in a temporary database
+        run: npm run verify:backup
+
       - name: Run linter
         run: npm run lint
 
@@ -53,18 +56,3 @@ jobs:
 
       - name: Build
         run: npm run build
-
-  deploy:
-    name: Deploy to Railway
-    needs: [test, build]
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Deploy to Railway
-        uses: railway/cli@v3
-        with:
-          service: modosabor-api
-        env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}

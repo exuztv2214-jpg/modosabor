@@ -227,6 +227,22 @@ function testProveedores() {
   console.log('  OK los proveedores están bien declarados');
 }
 
+function testPrivacidadYTransporteIa() {
+  const { esBaseUrlSegura } = require('../../services/iaProveedor');
+  const { redactarAuditoriaIa } = require('../../routes/asistente');
+
+  assert.ok(esBaseUrlSegura('https://api.ejemplo.com/v1'), 'la IA acepta HTTPS');
+  assert.ok(!esBaseUrlSegura('http://api.ejemplo.com/v1'), 'la IA no acepta HTTP público');
+
+  const auditado = redactarAuditoriaIa(
+    'Llamar al +54 381 555 1234 y escribir a cliente@ejemplo.com',
+    500
+  );
+  assert.ok(!auditado.includes('555 1234'), 'la auditoría no conserva teléfonos');
+  assert.ok(!auditado.includes('cliente@ejemplo.com'), 'la auditoría no conserva emails');
+  console.log('  OK IA cifra el transporte y redacta datos sensibles en auditoría');
+}
+
 function testFirmaDePropuestas() {
   const propuesta = { accion: 'proponer_cambio_de_stock', argumentos: { insumo_id: 7, nuevo: 30 } };
   const token = firmarPropuesta(propuesta, 5);
@@ -308,6 +324,97 @@ function testAccionesNoEjecutanAlPrepararse() {
   console.log('  OK las acciones separan proponer de ejecutar');
 }
 
+function testAccionesDeReparacionIdentificadas() {
+  const { esAccionReparacion } = require('../../services/asistenteAcciones');
+
+  assert.ok(esAccionReparacion('proponer_cancelar_pedido'), 'cancelar pedido es reparación');
+  assert.ok(
+    esAccionReparacion('proponer_ajustar_stock_negativo'),
+    'ajustar stock negativo es reparación'
+  );
+  assert.ok(esAccionReparacion('proponer_marcar_pagado'), 'marcar pagado es reparación');
+  assert.ok(
+    !esAccionReparacion('proponer_cambio_de_stock'),
+    'cambio de stock normal NO es reparación'
+  );
+  assert.ok(!esAccionReparacion('proponer_pedido'), 'cargar pedido NO es reparación');
+
+  console.log('  OK las acciones de reparación se identifican correctamente');
+}
+
+function testAccionesDeReparacionValidan() {
+  const { prepararAccion } = require('../../services/asistenteAcciones');
+
+  // Cancelar pedido inexistente → error
+  const cancelar = prepararAccion('proponer_cancelar_pedido', { pedido: '999999999' });
+  assert.ok(cancelar.error, 'cancelar pedido inexistente devuelve error');
+
+  // Ajustar stock de insumo inexistente → error
+  const ajustar = prepararAccion('proponer_ajustar_stock_negativo', {
+    insumo: 'xyz_no_existe_123',
+  });
+  assert.ok(ajustar.error, 'ajustar insumo inexistente devuelve error');
+
+  // Marcar pagado pedido inexistente → error
+  const pagado = prepararAccion('proponer_marcar_pagado', { pedido: '999999999' });
+  assert.ok(pagado.error, 'marcar pagado pedido inexistente devuelve error');
+
+  console.log('  OK las acciones de reparación validan antes de proponer');
+}
+
+function testHerramientasDeDiagnostico() {
+  const {
+    revisionAutomatica,
+    stockNegativo,
+    productosSinPrecio,
+    deliverysSinRepartidor,
+    clientesDuplicados,
+  } = require('../../services/asistenteHerramientas');
+
+  // Cada diagnóstico devuelve una estructura esperada
+  const stockNeg = stockNegativo();
+  assert.ok(typeof stockNeg.cantidad === 'number', 'stockNegativo devuelve cantidad');
+  assert.ok(Array.isArray(stockNeg.insumos), 'stockNegativo devuelve array de insumos');
+
+  const prodSinPrecio = productosSinPrecio();
+  assert.ok(typeof prodSinPrecio.cantidad === 'number', 'productosSinPrecio devuelve cantidad');
+  assert.ok(Array.isArray(prodSinPrecio.productos), 'productosSinPrecio devuelve array');
+
+  const deliverys = deliverysSinRepartidor();
+  assert.ok(typeof deliverys.cantidad === 'number', 'deliverysSinRepartidor devuelve cantidad');
+  assert.ok(Array.isArray(deliverys.pedidos), 'deliverysSinRepartidor devuelve array');
+
+  const duplicados = clientesDuplicados();
+  assert.ok(typeof duplicados.cantidad === 'number', 'clientesDuplicados devuelve cantidad');
+  assert.ok(Array.isArray(duplicados.duplicados), 'clientesDuplicados devuelve array');
+
+  // La revisión automática orquesta todo y devuelve severidad
+  const revision = revisionAutomatica();
+  assert.ok(
+    typeof revision.problemas_detectados === 'number',
+    'revisionAutomatica devuelve conteo'
+  );
+  assert.ok(['ok', 'advertencia', 'critico'].includes(revision.severidad), 'severidad es válida');
+  assert.ok(Array.isArray(revision.problemas), 'problemas es array');
+  assert.ok(revision.detalle, 'tiene detalle');
+
+  console.log('  OK las herramientas de diagnóstico devuelven estructuras válidas');
+}
+
+function testInstruccionesMencionanDiagnostico() {
+  const { INSTRUCCIONES } = require('../../routes/asistente');
+
+  // El modelo tiene que saber que puede detectar problemas
+  assert.match(INSTRUCCIONES, /Detectar problemas/);
+  assert.match(INSTRUCCIONES, /revisión_/);
+  assert.match(INSTRUCCIONES, /pedidos_colgados/);
+  assert.match(INSTRUCCIONES, /stock_negativo/);
+  assert.match(INSTRUCCIONES, /severidad/);
+  assert.match(INSTRUCCIONES, /crítico/);
+
+  console.log('  OK las instrucciones mencionan diagnósticos y severidad');
+}
+
 function testLaListaDelClienteCoincide() {
   /*
     La pantalla de Configuración lee los proveedores de un archivo propio, no
@@ -355,10 +462,15 @@ function run() {
   testElModeloNoPuedeFijarPrecios();
   testInstruccionesTraenElBlindaje();
   testProveedores();
+  testPrivacidadYTransporteIa();
   testLaListaDelClienteCoincide();
   testFirmaDePropuestas();
   testAccionesNoEjecutanAlPrepararse();
-  console.log('Todos los tests del asistente pasaron\n');
+  testInstruccionesMencionanDiagnostico();
+  testAccionesDeReparacionIdentificadas();
+  testAccionesDeReparacionValidan();
+  testHerramientasDeDiagnostico();
+  console.log('Todos los tests del asistente pasaron');
 }
 
 run();

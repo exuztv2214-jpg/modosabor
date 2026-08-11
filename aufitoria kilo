@@ -1,0 +1,341 @@
+# AUDITORÍA KILO — Modo Sabor
+_Generada: 2026-08-06_
+
+## Resumen ejecutivo
+
+Proyecto monolítico **Node.js + Express (backend)** + **React 18 + Vite (frontend)** con SQLite (`better-sqlite3`), Socket.IO, JWT y MercadoPago. Presenta una base funcional sólida pero con **varias fallas de seguridad, huecos de testing, deuda técnica importante y prácticas de producción riesgosas**.
+
+---
+
+## 1. FALLAS CRÍTICAS (Security / Data Integrity)
+
+### 1.1 Credenciales en texto plano en archivo versionado
+- **Ubicación:** `.claude/settings.local.json:11`
+- **Hallazgo:** Contiene el admin email y password hardcodeados en un comando Bash (`admin@modosabor.com` / `Huracan840921`).
+- **Riesgo:** Aunque el archivo está en `.gitignore`, cualquier persona con acceso al filesystem del servidor o a un backup local ve las credenciales. Además, el archivo existe en el repositorio de trabajo.
+- **Acción:** Rotar el password de producción INMEDIATAMENTE, mover el comando a un gestor de secretos (Railway Variables / 1Password / Vault) y eliminar el comando del archivo de permisos.
+
+### 1.2 API Key de MercadoPago / Agente expuesta en `.env`
+- **Ubicación:** `server/.env: AGENT_API_KEY=ms_agent_7f3a1c9e2b6d4f8081a5c3e7b9d2f4a6`
+- **Hallazgo:** El `.env` contiene un `AGENT_API_KEY` real en texto plano. El archivo está en `.gitignore`, pero si alguien filtra el repo, los secrets locales no están protegidos por git.
+- **Riesgo:** Acceso no autorizado a `/api/agente/*` si el key se filtra.
+- **Acción:** Inyectar `AGENT_API_KEY` solo por variables de entorno del host (Railway/Render/Docker), nunca commitear ni dejar en `.env` local con valor real.
+
+### 1.3 Cookies de sesión almacenadas en disco (`cookies.txt`)
+- **Ubicación:** `cookies.txt` (raíz)
+- **Hallazgo:** Archivo de cookies de navegador guardado en el proyecto.
+- **Riesgo:** Si se commitea o se filtra, un atacante puede replayear la sesión.
+- **Acción:** Agregar `cookies.txt` a `.gitignore` (ya está) y eliminar del disco; usar `ry_cookies.txt` en `.tmp-runtime/` o fuera del repo.
+
+### 1.4 JWT Secret con fallback inseguro en desarrollo
+- **Ubicación:** `server/utils/authConfig.js:1`
+- **Hallazgo:** `DEFAULT_JWT_SECRET = 'modosabor_jwt_2024'` es un secreto conocido.
+- **Riesgo:** Si en producción alguien se olvida de setear `JWT_SECRET`, el servidor arranca con un secreto predecible.
+- **Acción:** Ya hay un guard (`isProduction && secret === DEFAULT_JWT_SECRET`), pero mejorar lanzando el error incluso en dev si el `.env` no define uno, para evitar acostumbrarse.
+
+### 1.5 Sanitización mutante de entrada (data corruption risk)
+- **Ubicación:** `server/middleware/sanitize.js:27-55`
+- **Hallazgo:** El middleware modifica todos los strings de entrada: trim, escape HTML, limitar a 5000 chars, eliminar null bytes. Aunque se eliminó el escape de comillas (commit 2026-08-06), aplicar HTML-escaping en la entrada a la API rompe datos legítimos (URLs con parámetros, JSONs embebidos, direcciones con `&`, descripciones con `<`).
+- **Riesgo:** Corrupción silenciosa de datos (ej: direcciones, enlaces de Google Maps, contenido de marketing).
+- **Acción:** Eliminar el escape HTML del middleware de entrada. La defensa contra XSS debe ser en la capa de presentación (frontend), nunca mutando datos en la API.
+
+### 1.6 Ausencia de CSRF protection
+- **Hallazgo:** No hay tokens CSRF. La auth se apoya exclusivamente en cookies `SameSite`. En producción usa `sameSite: 'none'` + `secure: true`, lo cual es necesario para cross-origin pero elimina la protección SameSite.
+- **Riesgo:** CSRF en endpoints state-changing (`POST /api/pedidos`, `/api/configuracion/bulk`, etc.) si el admin abre un tab malicioso.
+- **Acción:** Implementar doble submit cookie o header personalizado (`X-CSRF-Token`) para rutas críticas.
+
+### 1.7 Rate limiter en memoria (no escalable)
+- **Ubicación:** `server/utils/rateLimit.js:14-42`
+- **Hallazgo:** Usa un `Map` en memoria. Al reiniciar el servidor se pierden los contadores, y en cluster/multi-replica cada instancia tiene su propio límite.
+- **Riesgo:** En producción con múltiples instancias, el rate limiting es inconsistente.
+- **Acción:** Mover a Redis o usar `express-rate-limit` con store compartido.
+
+---
+
+## 2. FALLAS ALTAS (Security / Reliability)
+
+### 2.1 Contraseñas con longitud mínima de 6 caracteres
+- **Ubicación:** `server/schemas/index.js:25,32` y `server/routes/auth.js:204`
+- **Hallazgo:** `z.string().min(6)` y validación manual `length < 6`.
+- **Riesgo:** Contraseñas cortas son vulnerables a brute force.
+- **Acción:** Subir a mínimo 8 caracteres + validación de complejidad.
+
+### 2.2 Sin lockout por intentos fallidos de login
+- **Ubicación:** `server/routes/auth.js:28-33`
+- **Hallazgo:** El rate limiter existe (20 intentos / 15 min), pero no hay bloqueo incremental por usuario ni alerta.
+- **Riesgo:** Ataques de credential stuffing.
+- **Acción:** Implementar bloqueo exponencial por usuario + notificación de intento sospechoso.
+
+### 2.3 Ausencia de MFA / 2FA
+- **Hallazgo:** No hay soporte para segundo factor en cuentas admin.
+- **Riesgo:** Cuentas comprometidas por phishing o filtraciones.
+- **Acción:** Agregar TOTP (Google Authenticator) como opcional pero recomendado para rol `admin`.
+
+### 2.4 Tracking tokens en memoria sin expiración agresiva
+- **Ubicación:** `server/utils/socketRooms.js:13-43`
+- **Hallazgo:** `trackingTokens` es un `Map` en memoria con expiración de 7 días. Al reiniciar el servidor se pierden, aunque hay fallback a DB.
+- **Riesgo:** Bajo (hay fallback), pero acumulación de tokens si no se limpian.
+- **Acción:** Usar Redis con TTL o, al menos, un cron de limpieza.
+
+### 2.5 Archivos de log sensibles en el repo
+- **Ubicación:** `server.log`, `server/scripts/*.log`, `client/*.log`, `client/build.log`, `client/client-live.log`
+- **Hallazgo:** Varios archivos de log están en `.gitignore`, pero si alguien ejecuta `git add .` forzando pueden commitearse.
+- **Acción:** Verificar que `.gitignore` tenga patrones correctos (ya los tiene) y agregar pre-commit hook que revise secretos.
+
+### 2.6 CORS demasiado permisivo en desarrollo
+- **Ubicación:** `server/index.js:109-133`
+- **Hallazgo:** Acepta cualquier origen `localhost/127.0.0.1/LAN privada` en desarrollo. Esto es correcto para Vite, pero si alguien deja `NODE_ENV=development` en producción, cualquier origen local puede acceder.
+- **Acción:** Agregar validación estricta de `NODE_ENV` al boot y negar arranque si no es `production` en entornos productivos.
+
+### 2.7 Inconsistencia de permisos entre server y client
+- **Ubicación:** `server/utils/permissions.js` vs `client/src/lib/permissions.js`
+- **Hallazgo:** El rol `caja` tiene `configuracion.view` en server pero no en client. El rol `delivery` tiene `configuracion.view` en server pero no en client.
+- **Riesgo:** Desincronización de accesos: el backend permite algo que el frontend oculta (o viceversa).
+- **Acción:** Unificar la fuente de verdad en un solo archivo compartido o generar ambos desde el mismo schema.
+
+### 2.8 `cookies.txt` en la raíz del proyecto
+- **Ubicación:** `D:\Proyectos\modosabor1\cookies.txt`
+- **Hallazgo:** Archivo de cookies de navegador guardado en el proyecto.
+- **Riesgo:** Si se commitea, un atacante puede replayear la sesión.
+- **Acción:** Mover a `.tmp-runtime/` y agregar a `.gitignore` (ya está, pero debe eliminarse del disco).
+
+---
+
+## 3. FALTAS / AUSENCIAS (Missing Items)
+
+### 3.1 Testing insuficiente
+- **Backend:** Solo 7 archivos de test unitarios en `server/tests/utils/` (rateLimit, pedidoSchema, paymentStatus, pedidoItems, preciosServidor, sanitize, whatsappCopiloto).
+- **Falta:**
+  - Tests de integración de rutas (`supertest` + base de datos en memoria).
+  - Tests de servicios críticos (`pedidoService`, `fidelizacionService`, `backupManager`).
+  - Tests de middleware (`auth`, `sanitize`, `validate`).
+  - Tests de E2E (Playwright ya está en devDependencies pero no configurado).
+  - Tests de frontend (ninguno).
+
+### 3.2 Sin TypeScript
+- **Hallazgo:** Proyecto 100% en JavaScript. Con la cantidad de entidades (pedidos, productos, clientes, inventario, delivery, personal, cupones, marketing), la falta de tipos genera bugs en runtime.
+- **Acción:** Migrar gradualmente a TypeScript o, al menos, agregar JSDoc + `checkJs` en `tsconfig` para catch de tipos básicos.
+
+### 3.3 Sin documentación de API
+- **Hallazgo:** No hay OpenAPI/Swagger/Redoc.
+- **Acción:** Generar spec OpenAPI 3.0 con `swagger-jsdoc` + `swagger-ui-express` o `redoc`.
+
+### 3.4 CI/CD incompleto
+- **Hallazgo:** El workflow `.github/workflows/ci.yml` solo ejecuta `npm test` y `npm run build` en backend, y `npm run build` en frontend. No ejecuta:
+  - `npm run lint:client` (solo backend lint)
+  - `npm run lint:fix` / `npm run format:check`
+  - `npm run verify:core` / `npm run verify:operacion`
+  - `npm run build` del backend (si aplica)
+  - Security scanning (`npm audit`, `snyk`, `trivy`)
+  - Dependabot para actualizaciones automáticas
+- **Acción:** Expandir CI para ejecutar todos los checks de lint, format, verify y security scan en cada PR.
+
+### 3.5 Sin monitoreo / observabilidad
+- **Falta:**
+  - APM (New Relic, Datadog, Sentry)
+  - Logging estructurado a archivo (ahora solo `console.*`)
+  - Métricas de negocio (pedidos/min, tasa de error, tiempo de respuesta)
+  - Health check avanzado (dependencias externas: MercadoPago, geocoding, DB)
+  - Alertas (si el backup falla, si la DB crece mucho, si el rate limit se activa demasiado)
+
+### 3.6 Sin manejo de secretos en producción
+- **Hallazgo:** `Dockerfile` no tiene `HEALTHCHECK`. No hay secrets manager. Los secrets vienen por env vars.
+- **Acción:** Agregar `HEALTHCHECK` al Dockerfile, usar secrets manager (Railway Variables / Docker Secrets / AWS Secrets Manager).
+
+### 3.7 Sin caché de configuración
+- **Hallazgo:** `AppConfigContext` cachea en `sessionStorage`, pero el backend consulta `SELECT * FROM configuracion` en cada llamado a `getConfigMap()`.
+- **Riesgo:** N+1 queries innecesarias en endpoints pesados.
+- **Acción:** Cachear `configMap` en memoria con TTL corto (ej: 30s) o usar Redis.
+
+### 3.8 Sin estrategia de índices en SQLite
+- **Hallazgo:** No se definen índices compuestos en las tablas más consultadas (`pedidos` por `estado + creado_en`, `productos` por `categoria_id + activo`, `clientes` por `telefono`).
+- **Riesgo:** Queries lentos en tablas grandes.
+- **Acción:** Agregar migraciones con índices compuestos en `server/db/migrations.js`.
+
+### 3.9 Sin manejo de migraciones versionadas
+- **Hallazgo:** `server/db/migrations.js` existe y agrega columnas, pero no hay control de versión ni rollback explícito.
+- **Acción:** Implementar un sistema de migraciones con timestamp + rollback (ej: `db-migrate` o custom).
+
+### 3.10 Sin soporte multi-tenant / multi-sucursal
+- **Hallazgo:** El sistema asume un solo negocio. No hay concepto de sucursal, zona horaria, ni idioma.
+- **Acción:** Agregar `sucursal_id` en entidades clave y soporte i18n mínimo.
+
+### 3.11 Sin manejo de errores frontend centralizado
+- **Hallazgo:** `api.js` intercepta 401, pero no hay un `ErrorBoundary` por ruta ni manejo de errores asíncronos global (Sentry, etc.).
+- **Acción:** Integrar Sentry o similar, agregar boundaries por módulo.
+
+### 3.12 Sin validación de ambiente al boot
+- **Hallazgo:** El servidor arranca incluso si `.env` tiene valores default peligrosos (excepto `JWT_SECRET`).
+- **Acción:** Agregar validación estricta de variables requeridas al inicio (`zod` + `dotenv`).
+
+### 3.13 Sin secretos en frontend
+- **Hallazgo:** `VITE_API_URL` no está definido en el proyecto. El frontend usa `API_BASE_URL` desde `lib/runtime.js`. Verificar que no haya secrets hardcodeados.
+- **Acción:** Auditar `client/src/lib/runtime.js` para confirmar que no hay URLs hardcodeadas ni secrets.
+
+### 3.14 Sin manejo de expiración de JWT en frontend
+- **Hallazgo:** El JWT expira en 7 días, pero el frontend no refresca el token ni maneja el `TokenExpiredError` de forma elegante (solo redirect a `/admin`).
+- **Acción:** Implementar refresh token o al menos detectar `jwt.expired` y mostrar mensaje claro.
+
+---
+
+## 4. MEJORAS RECOMENDADAS (Code Quality / Performance / UX)
+
+### 4.1 Refactorizar archivos gigantes
+- **`server/routes/pedidos.js`** — 1440 líneas. Dividir en routers especializados:
+  - `pedidos.estado.js` (cambios de estado, trazabilidad)
+  - `pedidos.pagos.js` (MercadoPago, sync)
+  - `pedidos.mesa.js` (precuenta, mover, fusionar)
+  - `pedidos.publico.js` (checkout, web publica)
+- **`client/src/pages/WebPublica.jsx`** — 1158 líneas. Extraer lógica a custom hooks (`useCart`, `useCheckout`, `useDeliveryQuote`, `usePopup`).
+
+### 4.2 Eliminar código muerto y artefactos
+- **`server/index.js:346`** — `io.on('connection', () => {});` vacío.
+- **`server/routes/pedidos.js:820-822`** — Bloque vacío `if (pedido.estado !== synced.pedido.estado) {}`.
+- **`server/routes/pedidos.js:1366-1367`** — Bloque vacío `if (fidelidadActualizada) {}`.
+- **`BYPASS_CAJA_CERRADA`** en `client/src/pages/TPV.jsx:48` — Flag temporal que debe eliminarse antes de deploy.
+- **`server/db/seed.js`** — Solo se usa en boot, pero podría ser un script separado.
+- Archivos de documentación obsoletos en raíz (`AUDITORIA_*.md`, `PLAN_DE_ACCION.md`, `PROMPT-*.md`) — mover a `docs/` o eliminar.
+
+### 4.3 Mejorar ESLint y Prettier
+- **Hallazgo:** Muchas reglas están en `warn` en vez de `error` (`import/order`, `no-empty`, `no-useless-catch`, `react/no-unescaped-entities`).
+- **Acción:**
+  - Subir reglas críticas a `error`.
+  - Agregar `no-console` como `error` (excepto en `utils/logger.js`).
+  - Activar `no-var`, `prefer-const`, `eqeqeq` (ya están en server, faltan en client).
+  - Agregar `sonarjs` plugin para detectar code smells.
+
+### 4.4 Estandarizar manejo de errores
+- **Hallazgo:** Algunas rutas devuelven `err.message` directo al cliente (`res.status(400).json({ error: error.message })`), exponiendo detalles internos (stack traces, nombres de tablas, constraints).
+- **Acción:** Usar un error handler personalizado que mapee errores conocidos a mensajes user-friendly y devuelva `error.message` solo en development.
+
+### 4.5 Externalizar constantes y configuración
+- **Hallazgo:** Muchos strings hardcodeados: estados de pedido (`'entregado'`, `'cancelado'`), roles (`'admin'`, `'caja'`), límites de archivo (`5 * 1024 * 1024`), timeouts (`15000`).
+- **Acción:** Crear `server/constants.js` y `client/src/lib/constants.js` con constantes centralizadas.
+
+### 4.6 Mejorar seguridad de uploads
+- **Hallazgo:** `multer` almacena archivos con nombres basados en timestamp, pero no hay scan de malware ni verificación de contenido real (solo extensión + MIME).
+- **Acción:** Agregar `file-type` o `magic-numbers` validation, almacenar en path aleatorio, limitar uploads por usuario autenticado.
+
+### 4.7 Implementar compresión y cache en respuestas públicas
+- **Hallazgo:** `compression()` está activado, pero faltan headers de cache para assets estáticos y config pública (`/api/configuracion`).
+- **Acción:** Agregar `Cache-Control` en `/api/configuracion`, `/api/categorias`, `/api/productos` (cache corto: 30s-1min).
+
+### 4.8 Mejorar service workers
+- **Hallazgo:** Hay `sw-admin.js` y `sw-rider.js`, pero no hay estrategia de actualización forzada ni manejo de versionado.
+- **Acción:** Agregar skip-waiting + clients.claim() y notificar al usuario de actualizaciones pendientes.
+
+### 4.9 Mejorar accesibilidad (a11y)
+- **Hallazgo:** ESLint tiene `jsx-a11y` pero muchas reglas están en `warn`. Faltan:
+  - Labels asociados en formularios (Login tiene labels pero no `htmlFor`).
+  - Focus management en modales.
+  - ARIA live regions para notificaciones de Socket.IO.
+  - Navegación por teclado en carrito y menús.
+
+### 4.10 Mejorar SEO y PWA
+- **Hallazgo:** `index.html` tiene title y meta tags básicos, pero faltan:
+  - `manifest.json` con shortcuts y categorías actualizadas.
+  - `robots.txt`
+  - Sitemap.xml (si hay múltiples rutas públicas)
+  - Structured data (JSON-LD) para el menú, reseñas, horarios.
+
+### 4.11 Eliminar dependencias innecesarias o pesadas
+- **Hallazgo:** `framer-motion` (12.42.0) es una librería pesada. Considerar reemplazar por CSS transitions donde sea posible.
+- **Hallazgo:** `recharts` se agrupa manualmente, pero el bundle sigue siendo grande. Verificar tree-shaking.
+
+### 4.12 Mejorar manejo de sockets
+- **Hallazgo:** `io.on('connection', () => {});` vacío en `server/index.js:346`.
+- **Hallazgo:** Socket auth legacy (`socket.on('authenticate')`) emite el token JWT por evento, lo cual puede ser interceptado en redes no confiables.
+- **Acción:** Eliminar el handler vacío, deprecar el evento `authenticate` en favor de cookie-based auth.
+
+### 4.13 Agregar validación de ambiente al arranque
+- **Acción:** Crear un validador que revise todas las variables requeridas (`JWT_SECRET`, `PORT`, `DATA_DIR`, etc.) y falle rápido si falta alguna.
+
+### 4.14 Implementar feature flags
+- **Hallazgo:** Los módulos (TPV, KDS, Delivery, etc.) se habilitan por flags en DB, pero no hay forma de habilitarlos por usuario/sucursal en runtime sin recargar.
+- **Acción:** Cachear `configMap` con TTL y permitir hot-reload de módulos.
+
+### 4.15 Mejorar el Dockerfile
+- **Hallazgo:** No tiene `HEALTHCHECK`. No instala `curl` para health checks.
+- **Acción:** Agregar `HEALTHCHECK CMD curl -f http://localhost:3001/api/health || exit 1` y exponer el puerto correctamente.
+
+### 4.16 Agregar `.env` validation con Zod
+- **Acción:** Usar `zod` para validar `process.env` al boot, con defaults tipados y fallos explícitos.
+
+### 4.17 Implementar WebSocket rate limiting
+- **Hallazgo:** Socket.IO no tiene rate limiting por evento. Un cliente malicioso puede spamear `join_tracking`.
+- **Acción:** Agregar rate limiting por socket en eventos críticos.
+
+### 4.18 Mejorar el manejo de timeouts
+- **Hallazgo:** Varios `setTimeout` sin cleanup en componentes React (ej: `setTimeout(() => scrollIntoView(...), 80)`).
+- **Acción:** Limpiar timeouts en `useEffect` cleanup.
+
+---
+
+## 5. RESUMEN POR PRIORIDAD
+
+| # | Hallazgo | Severidad | Tipo |
+|---|----------|-----------|------|
+| 1 | Credenciales en `.claude/settings.local.json` | CRITICAL | Security |
+| 2 | `AGENT_API_KEY` real en `.env` local | CRITICAL | Security |
+| 3 | `cookies.txt` en raíz del proyecto | CRITICAL | Security |
+| 4 | JWT Secret con fallback inseguro | HIGH | Security |
+| 5 | Sanitización mutante de entrada | HIGH | Data Integrity |
+| 6 | Ausencia de CSRF protection | HIGH | Security |
+| 7 | Rate limiter en memoria | MEDIUM | Reliability |
+| 8 | Contraseñas mínimas de 6 caracteres | HIGH | Security |
+| 9 | Sin lockout por login fallido | HIGH | Security |
+| 10 | Sin MFA/2FA | HIGH | Security |
+| 11 | Permisos inconsistentes server/client | MEDIUM | Security |
+| 12 | Testing insuficiente | HIGH | Quality |
+| 13 | Sin documentación de API | MEDIUM | Documentation |
+| 14 | CI/CD incompleto | MEDIUM | DevOps |
+| 15 | Sin monitoreo/observabilidad | HIGH | Operations |
+| 16 | Sin índices SQLite | MEDIUM | Performance |
+| 17 | Archivos gigantes (pedidos.js 1440 líneas) | MEDIUM | Maintainability |
+| 18 | ESLint en warn mode | LOW | Quality |
+| 19 | Sin TypeScript | MEDIUM | Maintainability |
+| 20 | CORS permisivo en desarrollo | LOW | Security |
+| 21 | Tracking tokens en memoria | LOW | Reliability |
+| 22 | `BYPASS_CAJA_CERRADA` flag en TPV | LOW | Code Smell |
+| 23 | Bloques de código vacíos | LOW | Code Smell |
+| 24 | Sin cache de configMap | MEDIUM | Performance |
+| 25 | Sin manejo de expiración JWT frontend | MEDIUM | UX |
+| 26 | Service workers sin skip-waiting | LOW | UX |
+| 27 | SEO/PWA incompleto | LOW | UX |
+| 28 | Accesibilidad en warn mode | LOW | Accessibility |
+| 29 | Docker sin HEALTHCHECK | LOW | DevOps |
+| 30 | Sin secretos manager en producción | HIGH | Security |
+
+---
+
+## 6. RECOMENDACIONES INMEDIATAS (Top 10)
+
+1. **Rotar credenciales:** Cambiar password de `admin@modosabor.com` en producción, eliminar el comando con credenciales de `.claude/settings.local.json`, mover a gestor de secretos.
+2. **Limpiar sanitize.js:** Eliminar escape HTML de entrada, mover defensa XSS al frontend.
+3. **Implementar CSRF tokens** en formularios críticos (o al menos validar `Origin`/`Referer` en mutaciones).
+4. **Subir longitud mínima de contraseña a 8** y agregar lockout exponencial.
+5. **Expandir CI:** Agregar `lint:client`, `lint:fix`, `format:check`, `verify:core`, `verify:operacion` y `npm audit`.
+6. **Agregar tests de integración** para rutas críticas (`pedidos`, `auth`, `caja`, `configuracion`).
+7. **Implementar caché de configMap** en backend (TTL 30s) y agregar índices SQLite.
+8. **Migrar rate limiter y tracking tokens a Redis** (o al menos documentar la limitación en producción mono-instancia).
+9. **Unificar permisos server/client** en un solo archivo compartido.
+10. **Agregar `.env` validator** con Zod al boot del servidor y eliminar el DEFAULT_JWT_SECRET inseguro.
+
+---
+
+## 7. FORTALEZAS DEL PROYECTO
+
+- Arquitectura clara: separación client/server con API REST + Socket.IO.
+- Uso de `better-sqlite3` con transacciones explícitas (`BEGIN`/`COMMIT`/`ROLLBACK`).
+- Middleware de sanitización, validación Zod, rate limiting y auth JWT.
+- Sistema de permisos granular por módulo.
+- Logging estructurado y auditoría de eventos críticos.
+- Manejo de money conversion (pesos ↔ centavos) consistente.
+- Backup automático + restore + import/export.
+- PWA funcional con service workers para admin y rider.
+- Diseño de UI moderno con Tailwind + tokens semánticos.
+- Código bien comentado en mayoría de los archivos complejos.
+
+---
+
+_Fin de la auditoría._

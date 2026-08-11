@@ -1043,6 +1043,41 @@ export default function TPV() {
     setClientePickerOpen(false);
   };
 
+  /**
+   * Alta de cliente desde el mostrador.
+   *
+   * Antes esto no existía: el buscador sólo buscaba, así que dar de alta a
+   * alguien que estaba esperando obligaba a salir del TPV, ir a Clientes,
+   * cargarlo y volver a armar el pedido. En la práctica no se cargaba a nadie.
+   *
+   * Queda seleccionado en el acto, con su tarjeta ya generada por el servidor,
+   * para poder cantarle el código en el momento.
+   */
+  const crearClienteDesdeElTpv = async (datos) => {
+    try {
+      const creado = await api.post('/clientes', {
+        nombre: datos.nombre,
+        telefono: datos.telefono || '',
+        direccion: datos.direccion || '',
+      });
+      aplicarCliente(creado);
+      toast.success(
+        creado?.codigo_tarjeta
+          ? `${creado.nombre} — tarjeta ${creado.codigo_tarjeta}`
+          : `${creado.nombre} quedó cargado`
+      );
+    } catch (error) {
+      toast.error(error?.error || 'No se pudo guardar el cliente');
+      /*
+        Se vuelve a lanzar para que el modal sepa que falló y deje el formulario
+        como estaba. Si se lo tragara acá, el modal daría por bueno el guardado,
+        cerraría el alta y borraría lo tipeado — con el cliente esperando del
+        otro lado del mostrador.
+      */
+      throw error;
+    }
+  };
+
   const abrirSelectorClientes = () => {
     const initialSearch = String(
       cliente.codigo_tarjeta || cliente.telefono || cliente.nombre || ''
@@ -1904,6 +1939,7 @@ export default function TPV() {
           clientesCatalogo={clientesCatalogo}
           loadingClientesCatalogo={loadingClientesCatalogo}
           onApplyCliente={aplicarCliente}
+          onCrearCliente={crearClienteDesdeElTpv}
           onClose={() => setClientePickerOpen(false)}
           onSearchChange={setClientePickerSearch}
           search={clientePickerSearch}

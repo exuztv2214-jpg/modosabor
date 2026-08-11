@@ -269,7 +269,7 @@ function StockAlert({ item, onClick }) {
 }
 
 export default function DashboardModern() {
-  const { user } = useAuth();
+  const { user, hasPermission } = useAuth();
   const { isModuleEnabled } = useAppConfig();
   const navigate = useNavigate();
   const [data, setData] = useState(null);
@@ -282,6 +282,7 @@ export default function DashboardModern() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
   const personalEnabled = isModuleEnabled('personal');
+  const personalVisible = personalEnabled && hasPermission('personal.view');
 
   const loadDashboard = async ({ silent = false } = {}) => {
     if (!silent) {
@@ -312,7 +313,7 @@ export default function DashboardModern() {
       setData(response);
       setOperationHealth(operacion);
 
-      if (personalEnabled) {
+      if (personalVisible) {
         const [personalStats, personalAttendance] = await Promise.allSettled([
           api.get('/personal/estadisticas'),
           api.get(`/personal/asistencia/analitica?desde=${desde}&hasta=${hasta}`),
@@ -368,7 +369,7 @@ export default function DashboardModern() {
       unsubscribeNuevo();
       unsubscribeActualizado();
     };
-  }, [personalEnabled]);
+  }, [personalVisible]);
 
   const ticketPromedio = useMemo(() => {
     if (!data?.ventasHoy?.pedidos) return 0;
@@ -913,7 +914,7 @@ export default function DashboardModern() {
               <div className="space-y-1">
                 {data.clientesMasCompran.map((cli, idx) => (
                   <RankRow
-                    key={`${cli.id || cli.telefono || cli.nombre}-${idx}`}
+                    key={`${cli.id || cli.nombre}-${idx}`}
                     position={idx + 1}
                     title={cli.nombre}
                     subtitle={`${fmtNumber(cli.total_pedidos || 0)} pedidos${cli.nivel ? ` · ${cli.nivel}` : ''}`}
@@ -942,7 +943,7 @@ export default function DashboardModern() {
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
               {data.clientesVIP.map((cli, idx) => (
                 <div
-                  key={`${cli.id || cli.telefono || cli.nombre}-${idx}`}
+                  key={`${cli.id || cli.nombre}-${idx}`}
                   className="rounded-xl border border-gray-100 p-3"
                 >
                   <div className="flex items-center gap-2.5">
@@ -1039,7 +1040,7 @@ export default function DashboardModern() {
         ) : null}
 
         {/* ── Pulso del equipo ── */}
-        {personalPulseError && personalEnabled ? (
+        {personalPulseError && personalVisible ? (
           <div className="flex items-center gap-2.5 rounded-2xl bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.06)]">
             <AlertTriangle size={17} strokeWidth={STROKE} className="shrink-0 text-amber-500" />
             <p className="text-[13px] text-gray-600">

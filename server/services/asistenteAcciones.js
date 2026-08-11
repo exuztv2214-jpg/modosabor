@@ -1,6 +1,10 @@
 const db = require('../db');
 const marketingService = require('./marketingService');
-const { insertInventoryMovement, roundStock } = require('../utils/inventory');
+const {
+  restoreInventoryForPedido,
+  insertInventoryMovement,
+  roundStock,
+} = require('../utils/inventory');
 const { persistMenuDiaItems, loadMenuDiaLibrary } = require('../routes/operacion');
 const { registrarCompra } = require('../routes/compras');
 const { buildPedidoPayload, createPedidoWithInventory, hydratePedido } = require('./pedidoService');
@@ -22,28 +26,19 @@ const { emitNuevoPedido, emitPedidoActualizado } = require('../utils/socketRooms
  * propone, el servidor arma un resumen en castellano de lo que va a pasar, y
  * eso se le muestra al usuario. Recién si toca confirmar, se ejecuta.
  *
- * Esto resuelve dos problemas de una:
- *
- *   1. El modelo entiende mal. Va a pasar: le decís "subí la carne a 30" y
- *      entiende 30 kilos cuando eran 30 más. Con la confirmación lo ves antes.
- *
- *   2. Alguien intenta darle órdenes desde afuera. Las notas de los pedidos y
- *      los nombres de clientes los escribe cualquiera desde la web. Aunque un
- *      texto así logre confundir al modelo, el cambio queda esperando una
- *      confirmación que ese atacante no puede dar.
- *
  * Cada acción tiene dos partes:
- *
- *   `preparar(args)` → valida contra la base y devuelve el resumen que ve el
- *                      usuario. No escribe nada.
- *   `ejecutar(args, contexto)` → hace el cambio. Vuelve a validar, porque entre
- *                      la propuesta y la confirmación el mundo pudo cambiar.
+ *   `preparar(args)` → valida contra la base y devuelve el resumen. No escribe.
+ *   `ejecutar(args, contexto)` → hace el cambio. Vuelve a validar.
  */
 
 const CENTAVOS = 100;
 
 function aCentavos(pesos) {
   return Math.round(Number(pesos || 0) * CENTAVOS);
+}
+
+function aPesos(centavos) {
+  return Math.round(Number(centavos || 0)) / CENTAVOS;
 }
 
 function pesos(centavos) {
@@ -53,16 +48,6 @@ function pesos(centavos) {
 /** Un error que el asistente puede contarle al usuario tal cual. */
 class ErrorDeAccion extends Error {}
 
-/*
-  ── Buscar por nombre ──────────────────────────────────────────────────────
-
-  El usuario habla, no elige de una lista: dice "carne", no "insumo #42". Y el
-  modelo repite esa palabra.
-
-  Si hay más de una coincidencia NO se elige la primera: se devuelven las
-  opciones para que el usuario decida. Adivinar acá significa cambiarle el
-  stock al insumo equivocado, y eso se descubre recién cuando falta mercadería.
-*/
 function buscarUnico(filas, termino, queEs) {
   if (filas.length === 1) return filas[0];
   if (filas.length === 0) {
@@ -78,8 +63,6 @@ function buscarInsumo(nombre) {
   const termino = String(nombre || '').trim();
   if (!termino) throw new ErrorDeAccion('Decime el nombre del insumo.');
 
-  // Primero exacto: si hay un insumo llamado "Carne" y otro "Carne picada",
-  // pedir "carne" tiene que dar el primero y no un empate.
   const exacto = db
     .prepare('SELECT * FROM inventario_insumos WHERE activo = 1 AND LOWER(nombre) = LOWER(?)')
     .all(termino);
@@ -104,6 +87,19 @@ function buscarProducto(nombre) {
   return buscarUnico(parciales, termino, 'producto');
 }
 
+function buscarPedidoPorNumero(numero) {
+  const termino = String(numero || '').trim();
+  if (!termino) throw new ErrorDeAccion('Decime el número del pedido.');
+
+  const pedido = db.prepare('SELECT * FROM pedidos WHERE numero = ?').get(termino);
+  if (!pedido) {
+    const porId = db.prepare('SELECT * FROM pedidos WHERE id = ?').get(Number(termino) || 0);
+    if (!porId) throw new ErrorDeAccion(`No encontré ningún pedido con número "${termino}".`);
+    return porId;
+  }
+  return pedido;
+}
+
 // ── Stock ───────────────────────────────────────────────────────────────────
 
 function prepararStock(args = {}) {
@@ -116,11 +112,6 @@ function prepararStock(args = {}) {
   const operacion = String(args.operacion || 'sumar').toLowerCase();
   const actual = roundStock(insumo.stock_actual);
 
-  /*
-    "Sumar 30" y "dejar en 30" son cosas distintas y se confunden fácil al
-    hablar. Por eso el resumen dice siempre de cuánto a cuánto: así el usuario
-    ve el resultado final antes de confirmar, sin tener que hacer la cuenta.
-  */
   let nuevo;
   if (operacion === 'fijar') nuevo = cantidad;
   else if (operacion === 'restar') nuevo = roundStock(actual - cantidad);
@@ -140,8 +131,6 @@ function prepararStock(args = {}) {
       { etiqueta: 'Queda en', valor: `${nuevo} ${insumo.unidad}` },
       { etiqueta: 'Motivo', valor: String(args.motivo || 'Cargado desde el asistente') },
     ],
-    // Se guarda el id resuelto: al confirmar no se vuelve a buscar por nombre,
-    // porque el resultado de la búsqueda podría haber cambiado.
     argumentosResueltos: {
       insumo_id: insumo.id,
       nuevo,
@@ -164,9 +153,6 @@ function ejecutarStock(argumentos) {
     db.prepare(
       'UPDATE inventario_insumos SET stock_actual = ?, actualizado_en = CURRENT_TIMESTAMP WHERE id = ?'
     ).run(nuevo, insumo.id);
-
-    // Queda en el historial de inventario como cualquier otro movimiento, para
-    // que después se pueda rastrear de dónde salió.
     insertInventoryMovement(db, {
       insumo_id: insumo.id,
       cantidad: roundStock(nuevo - anterior),
@@ -228,8 +214,6 @@ function prepararPromo(args = {}) {
       nombre,
       descripcion: String(args.descripcion || ''),
       tipo_promo: tipo,
-      // El servicio de marketing guarda el valor tal cual se le pasa. Para el
-      // descuento fijo va en centavos, como el resto de la plata del sistema.
       valor: tipo === 'descuento_fijo' ? aCentavos(valor) : valor,
       fecha_inicio: String(args.desde || ''),
       fecha_fin: String(args.hasta || ''),
@@ -256,8 +240,6 @@ function prepararMenuDia(args = {}) {
     const nombre = String(plato?.nombre || plato || '').trim();
     if (!nombre) throw new ErrorDeAccion('Uno de los platos vino sin nombre.');
 
-    // Se busca primero entre los platos que ya son del menú del día: son los
-    // que el usuario tiene en la cabeza cuando dicta el menú.
     const enBiblioteca = biblioteca.filter((p) =>
       String(p.nombre || '')
         .toLowerCase()
@@ -275,15 +257,8 @@ function prepararMenuDia(args = {}) {
   });
 
   return {
-    resumen: `Armar el menú de hoy con ${resueltos.length} ${
-      resueltos.length === 1 ? 'plato' : 'platos'
-    }.`,
+    resumen: `Armar el menú de hoy con ${resueltos.length} ${resueltos.length === 1 ? 'plato' : 'platos'}.`,
     detalles: resueltos.map((p) => ({ etiqueta: p.nombre, valor: pesos(p.precio) })),
-    /*
-      Este aviso importa: guardar el menú del día apaga todos los platos que no
-      estén en la lista. Si el usuario quería agregar uno a los que ya había,
-      tiene que verlo antes de confirmar y no después.
-    */
     advertencia:
       'Los platos que no estén en esta lista quedan fuera del menú de hoy. Si querías sumar uno a los que ya había, decímelos todos juntos.',
     argumentosResueltos: { platos: resueltos },
@@ -314,16 +289,6 @@ function prepararCompra(args = {}) {
       throw new ErrorDeAccion(`La cantidad de ${insumo.nombre} tiene que ser mayor que cero.`);
     }
 
-    /*
-      El costo unitario es el punto donde más fácil se cuela un error caro.
-
-      "20 kilos de carne por 170.000" puede ser el total o el precio por kilo, y
-      la diferencia son dos órdenes de magnitud en el costo del insumo, que
-      después arrastra todos los cálculos de rentabilidad.
-
-      Por eso se pide siempre el unitario y el resumen muestra las dos cifras:
-      cuánto por unidad y cuánto en total. Así el error se ve antes de confirmar.
-    */
     const costoUnitario = Number(item?.costo_unitario || 0);
     if (costoUnitario < 0) throw new ErrorDeAccion('El costo no puede ser negativo.');
 
@@ -350,13 +315,9 @@ function prepararCompra(args = {}) {
   detalles.push({ etiqueta: 'Pago', valor: String(args.metodo_pago || 'efectivo') });
 
   return {
-    resumen: `Registrar una compra de ${pesos(totalCentavos)}${
-      proveedor ? ` a ${proveedor}` : ''
-    }.`,
+    resumen: `Registrar una compra de ${pesos(totalCentavos)}${proveedor ? ` a ${proveedor}` : ''}.`,
     detalles,
-    advertencia: `Suma el stock de ${
-      resueltos.length === 1 ? 'ese insumo' : 'esos insumos'
-    } y actualiza su costo al de esta compra.`,
+    advertencia: `Suma el stock de ${resueltos.length === 1 ? 'ese insumo' : 'esos insumos'} y actualiza su costo al de esta compra.`,
     argumentosResueltos: {
       proveedor,
       metodo_pago: String(args.metodo_pago || 'efectivo'),
@@ -381,22 +342,6 @@ function ejecutarCompra(argumentos, contexto = {}) {
 
 // ── Pedidos ─────────────────────────────────────────────────────────────────
 
-/*
-  ── Por qué el pedido se arma con el flujo público ─────────────────────────
-
-  Se carga con `origen: 'whatsapp'`, que el sistema trata como canal público. Eso
-  significa que **los precios los rebusca el servidor desde la base**, ignorando
-  cualquier precio que venga en la propuesta.
-
-  Es la decisión más importante de esta acción: el modelo no puede fijar precios.
-  Aunque alguien lo convenza de cargar una milanesa a un peso, el precio que se
-  guarda es el del catálogo. Lo único que el modelo elige es qué producto y qué
-  cantidad.
-
-  De paso se hereda todo lo demás que ya hace ese flujo: el costo de envío por
-  zona, el control de turno abierto, la geocodificación de la dirección para que
-  el rider tenga mapa, y el descuento de stock.
-*/
 const ORIGEN_ASISTENTE = 'whatsapp';
 
 function armarCuerpoDePedido(args = {}, itemsResueltos) {
@@ -442,18 +387,11 @@ async function prepararPedido(args = {}) {
     };
   });
 
-  /*
-    Se arma el pedido completo pero no se guarda: sirve para que el resumen
-    muestre los totales de verdad —con el envío calculado por zona— y no una
-    estimación que después no coincida con lo que se cobra.
-  */
   const cuerpo = armarCuerpoDePedido(args, itemsResueltos);
   let calculado;
   try {
     calculado = await buildPedidoPayload(cuerpo);
   } catch (error) {
-    // Los errores de este flujo ya están escritos para que los lea una persona
-    // ("estamos fuera de turno", "la dirección está fuera de la zona").
     throw new ErrorDeAccion(String(error?.message || 'No pude armar el pedido.'));
   }
 
@@ -462,9 +400,8 @@ async function prepararPedido(args = {}) {
     valor: '',
   }));
   detalles.push({ etiqueta: 'Cliente', valor: nombre });
-  if (args.cliente_telefono) {
+  if (args.cliente_telefono)
     detalles.push({ etiqueta: 'Teléfono', valor: String(args.cliente_telefono) });
-  }
   detalles.push({
     etiqueta: 'Entrega',
     valor: tipoEntrega === 'delivery' ? `Delivery a ${args.direccion}` : 'Retira en el local',
@@ -474,10 +411,7 @@ async function prepararPedido(args = {}) {
     detalles.push({ etiqueta: 'Envío', valor: pesos(calculado.costo_envio) });
   }
   detalles.push({ etiqueta: 'Total', valor: pesos(calculado.total) });
-  detalles.push({
-    etiqueta: 'Pago',
-    valor: String(args.metodo_pago || 'sin especificar'),
-  });
+  detalles.push({ etiqueta: 'Pago', valor: String(args.metodo_pago || 'sin especificar') });
 
   return {
     resumen: `Cargar un pedido de ${pesos(calculado.total)} para ${nombre}.`,
@@ -485,9 +419,6 @@ async function prepararPedido(args = {}) {
     advertencia: String(args.metodo_pago || '').trim()
       ? ''
       : 'No aclaraste la forma de pago. Se puede cargar igual y corregirla después, pero mientras tanto la caja no va a cuadrar.',
-    // Se guardan los argumentos originales y no el pedido ya calculado: al
-    // confirmar se vuelve a calcular todo, para que los precios sean los de ese
-    // momento y no los de hace cinco minutos.
     argumentosResueltos: { cuerpo },
   };
 }
@@ -503,13 +434,6 @@ async function ejecutarPedido(argumentos, contexto = {}) {
     }),
   });
 
-  /*
-    Avisarle a la cocina.
-
-    Sin esto el pedido queda guardado pero no suena la alarma ni aparece en el
-    KDS: entraría en silencio y se cocinaría tarde, que es peor que no tener la
-    función.
-  */
   const io = contexto.io;
   if (io) {
     const hidratado = hydratePedido(pedido);
@@ -518,6 +442,174 @@ async function ejecutarPedido(argumentos, contexto = {}) {
   }
 
   return `Pedido #${pedido.numero} cargado. Ya está en cocina.`;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ACCIONES DE REPARACIÓN (nuevas)
+// ═════════════════════════════════════════════════════════════════════════════
+
+// ── Cancelar pedido colgado ─────────────────────────────────────────────────
+
+function prepararCancelarPedido(args = {}) {
+  const pedido = buscarPedidoPorNumero(args.pedido);
+
+  if (pedido.estado === 'cancelado') {
+    throw new ErrorDeAccion(`El pedido #${pedido.numero} ya está cancelado.`);
+  }
+  if (pedido.estado === 'entregado') {
+    throw new ErrorDeAccion(
+      `No se puede cancelar el pedido #${pedido.numero} porque ya fue entregado.`
+    );
+  }
+
+  const motivo = String(args.motivo || 'Cancelado desde el asistente').trim();
+
+  return {
+    resumen: `Cancelar el pedido #${pedido.numero} de ${pedido.cliente_nombre || '—'} ($${aPesos(pedido.total)}).`,
+    detalles: [
+      { etiqueta: 'Pedido', valor: `#${pedido.numero}` },
+      { etiqueta: 'Cliente', valor: pedido.cliente_nombre || '—' },
+      { etiqueta: 'Estado actual', valor: pedido.estado },
+      { etiqueta: 'Total', valor: `$${aPesos(pedido.total)}` },
+      { etiqueta: 'Motivo', valor: motivo },
+    ],
+    advertencia: 'Se va a restaurar el stock de los productos del pedido.',
+    argumentosResueltos: {
+      pedido_id: pedido.id,
+      numero: pedido.numero,
+      motivo,
+    },
+  };
+}
+
+function ejecutarCancelarPedido(argumentos, contexto = {}) {
+  const pedido = db.prepare('SELECT * FROM pedidos WHERE id = ?').get(argumentos.pedido_id);
+  if (!pedido) throw new ErrorDeAccion('El pedido ya no existe.');
+  if (pedido.estado === 'cancelado') throw new ErrorDeAccion('El pedido ya está cancelado.');
+  if (pedido.estado === 'entregado')
+    throw new ErrorDeAccion('No se puede cancelar un pedido entregado.');
+
+  const aplicar = db.transaction(() => {
+    db.prepare(
+      `UPDATE pedidos SET estado = 'cancelado', actualizado_en = CURRENT_TIMESTAMP WHERE id = ?`
+    ).run(pedido.id);
+    restoreInventoryForPedido(db, pedido, { motivo: argumentos.motivo });
+  });
+  aplicar();
+
+  const io = contexto.io;
+  if (io) {
+    const actualizado = db.prepare('SELECT * FROM pedidos WHERE id = ?').get(pedido.id);
+    emitPedidoActualizado(io, hydratePedido(actualizado));
+  }
+
+  return `Pedido #${pedido.numero} cancelado. El stock fue restaurado.`;
+}
+
+// ── Ajustar stock negativo ──────────────────────────────────────────────────
+
+function prepararAjustarStockNegativo(args = {}) {
+  const insumo = buscarInsumo(args.insumo);
+  const actual = roundStock(insumo.stock_actual);
+
+  if (actual >= 0) {
+    throw new ErrorDeAccion(
+      `${insumo.nombre} no tiene stock negativo (tiene ${actual} ${insumo.unidad}).`
+    );
+  }
+
+  const motivo = String(args.motivo || 'Ajuste desde el asistente (stock negativo)').trim();
+
+  return {
+    resumen: `Ajustar el stock de ${insumo.nombre}: de ${actual} a 0 ${insumo.unidad}.`,
+    detalles: [
+      { etiqueta: 'Insumo', valor: insumo.nombre },
+      { etiqueta: 'Stock actual', valor: `${actual} ${insumo.unidad}` },
+      { etiqueta: 'Queda en', valor: `0 ${insumo.unidad}` },
+      { etiqueta: 'Motivo', valor: motivo },
+    ],
+    argumentosResueltos: {
+      insumo_id: insumo.id,
+      nombre: insumo.nombre,
+      anterior: actual,
+      motivo,
+    },
+  };
+}
+
+function ejecutarAjustarStockNegativo(argumentos) {
+  const insumo = db
+    .prepare('SELECT * FROM inventario_insumos WHERE id = ?')
+    .get(argumentos.insumo_id);
+  if (!insumo) throw new ErrorDeAccion('El insumo ya no existe.');
+
+  const anterior = roundStock(insumo.stock_actual);
+  if (anterior >= 0) throw new ErrorDeAccion('El insumo ya no tiene stock negativo.');
+
+  const aplicar = db.transaction(() => {
+    db.prepare(
+      'UPDATE inventario_insumos SET stock_actual = 0, actualizado_en = CURRENT_TIMESTAMP WHERE id = ?'
+    ).run(insumo.id);
+
+    insertInventoryMovement(db, {
+      insumo_id: insumo.id,
+      cantidad: roundStock(0 - anterior),
+      tipo: 'ajuste',
+      motivo: argumentos.motivo,
+      detalle: { insumo_nombre: insumo.nombre, anterior, nuevo: 0, origen: 'asistente_reparacion' },
+    });
+  });
+  aplicar();
+
+  return `Listo. ${insumo.nombre} quedó en 0 ${insumo.unidad} (estaba en ${anterior}).`;
+}
+
+// ── Marcar pedido como pagado ───────────────────────────────────────────────
+
+function prepararMarcarPagado(args = {}) {
+  const pedido = buscarPedidoPorNumero(args.pedido);
+
+  if (pedido.pago_estado === 'pagado') {
+    throw new ErrorDeAccion(`El pedido #${pedido.numero} ya figura como pagado.`);
+  }
+  if (pedido.estado === 'cancelado') {
+    throw new ErrorDeAccion(
+      `No se puede marcar como pagado un pedido cancelado (#${pedido.numero}).`
+    );
+  }
+
+  const metodo = String(args.metodo_pago || pedido.metodo_pago || 'efectivo').trim();
+  if (!metodo) throw new ErrorDeAccion('El pedido no tiene método de pago. Decime cuál usar.');
+
+  return {
+    resumen: `Marcar el pedido #${pedido.numero} como pagado (${metodo}).`,
+    detalles: [
+      { etiqueta: 'Pedido', valor: `#${pedido.numero}` },
+      { etiqueta: 'Cliente', valor: pedido.cliente_nombre || '—' },
+      { etiqueta: 'Total', valor: `$${aPesos(pedido.total)}` },
+      { etiqueta: 'Método de pago', valor: metodo },
+      { etiqueta: 'Estado actual', valor: pedido.estado },
+    ],
+    argumentosResueltos: {
+      pedido_id: pedido.id,
+      numero: pedido.numero,
+      metodo_pago: metodo,
+    },
+  };
+}
+
+function ejecutarMarcarPagado(argumentos) {
+  const pedido = db.prepare('SELECT * FROM pedidos WHERE id = ?').get(argumentos.pedido_id);
+  if (!pedido) throw new ErrorDeAccion('El pedido ya no existe.');
+  if (pedido.estado === 'cancelado')
+    throw new ErrorDeAccion('No se puede marcar como pagado un pedido cancelado.');
+  if (pedido.pago_estado === 'pagado') throw new ErrorDeAccion('El pedido ya figura como pagado.');
+
+  db.prepare(
+    `UPDATE pedidos SET pago_estado = 'pagado', metodo_pago = ?, actualizado_en = CURRENT_TIMESTAMP WHERE id = ?`
+  ).run(argumentos.metodo_pago, pedido.id);
+
+  return `Pedido #${pedido.numero} marcado como pagado (${argumentos.metodo_pago}).`;
 }
 
 // ── Catálogo ────────────────────────────────────────────────────────────────
@@ -666,6 +758,58 @@ const ACCIONES = [
     preparar: prepararPedido,
     ejecutar: ejecutarPedido,
   },
+  // ══════════════════════════════════════════════════════════════════════════
+  // ACCIONES DE REPARACIÓN (nuevas)
+  // ══════════════════════════════════════════════════════════════════════════
+  {
+    nombre: 'proponer_cancelar_pedido',
+    descripcion:
+      'Cancelar un pedido que está colgado o que el usuario quiere anular. No se puede cancelar un pedido ya entregado. El stock de los productos se restaura automáticamente.',
+    parametros: {
+      type: 'object',
+      properties: {
+        pedido: { type: 'string', description: 'Número del pedido a cancelar.' },
+        motivo: { type: 'string', description: 'Por qué se cancela.' },
+      },
+      required: ['pedido'],
+    },
+    preparar: prepararCancelarPedido,
+    ejecutar: ejecutarCancelarPedido,
+  },
+  {
+    nombre: 'proponer_ajustar_stock_negativo',
+    descripcion:
+      'Ajustar el stock de un insumo que tiene cantidad negativa, llevándolo a cero. Usala cuando el diagnóstico detecte stock negativo.',
+    parametros: {
+      type: 'object',
+      properties: {
+        insumo: { type: 'string', description: 'Nombre del insumo con stock negativo.' },
+        motivo: { type: 'string', description: 'Por qué se ajusta.' },
+      },
+      required: ['insumo'],
+    },
+    preparar: prepararAjustarStockNegativo,
+    ejecutar: ejecutarAjustarStockNegativo,
+  },
+  {
+    nombre: 'proponer_marcar_pagado',
+    descripcion:
+      'Marcar un pedido como pagado. Usala para arreglar pedidos entregados que figuran sin cobrar, o cuando el diagnóstico de caja detecte pagos faltantes.',
+    parametros: {
+      type: 'object',
+      properties: {
+        pedido: { type: 'string', description: 'Número del pedido.' },
+        metodo_pago: {
+          type: 'string',
+          description:
+            'efectivo, transferencia, mercadopago... Si no se indica, usa el que ya tenga el pedido.',
+        },
+      },
+      required: ['pedido'],
+    },
+    preparar: prepararMarcarPagado,
+    ejecutar: ejecutarMarcarPagado,
+  },
 ];
 
 function catalogoDeAcciones() {
@@ -680,12 +824,16 @@ function esAccion(nombre) {
   return ACCIONES.some((a) => a.nombre === nombre);
 }
 
-/**
- * Arma la propuesta sin ejecutar nada.
- *
- * Un error de validación no se lanza: vuelve como `{ error }` para que el
- * modelo se lo explique al usuario y pueda corregir en la misma conversación.
- */
+const ACCIONES_REPARACION = new Set([
+  'proponer_cancelar_pedido',
+  'proponer_ajustar_stock_negativo',
+  'proponer_marcar_pagado',
+]);
+
+function esAccionReparacion(nombre) {
+  return ACCIONES_REPARACION.has(nombre);
+}
+
 function prepararAccion(nombre, args = {}) {
   const accion = ACCIONES.find((a) => a.nombre === nombre);
   if (!accion) return { error: `No existe la acción "${nombre}".` };
@@ -699,12 +847,9 @@ function prepararAccion(nombre, args = {}) {
   }
 }
 
-/** Ejecuta una propuesta ya confirmada por el usuario. */
 async function ejecutarAccion(nombre, argumentosResueltos, contexto = {}) {
   const accion = ACCIONES.find((a) => a.nombre === nombre);
   if (!accion) throw new ErrorDeAccion(`No existe la acción "${nombre}".`);
-  // El contexto lleva quién confirmó: la compra queda a nombre de la persona y
-  // no de "Sistema", que es lo que haría falta para auditarla después.
   return accion.ejecutar(argumentosResueltos || {}, contexto);
 }
 
@@ -713,6 +858,7 @@ module.exports = {
   ErrorDeAccion,
   catalogoDeAcciones,
   esAccion,
+  esAccionReparacion,
   prepararAccion,
   ejecutarAccion,
 };

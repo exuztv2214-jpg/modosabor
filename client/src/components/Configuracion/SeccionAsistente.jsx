@@ -202,6 +202,15 @@ export default function SeccionAsistente({ config, setConfig }) {
             </div>
 
             <div className="mt-3">
+              <ToggleSwitch
+                checked={String(config.ia_fallback_activo ?? '0') === '1'}
+                onChange={(encendido) => setToggle('ia_fallback_activo', encendido)}
+                label="Usar proveedor alternativo si falla"
+                description="Si lo activás, la consulta puede enviarse a otro proveedor que tenga una clave configurada. Dejalo apagado si no querés compartir datos fuera del proveedor elegido."
+              />
+            </div>
+
+            <div className="mt-3">
               <InputField
                 label="Clave de la API"
                 type="password"

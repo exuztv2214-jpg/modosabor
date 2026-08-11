@@ -2,6 +2,7 @@ const db = require('../db');
 const { fechaLocal } = require('../utils/fechaLocal');
 const { buildCajaResumen } = require('../routes/caja');
 const { normalizePagoEstado, normalizeMetodoPago } = require('../utils/paymentStatus');
+const { envolverDato, envolverDatoInline } = require('../utils/sanitizarPrompt');
 
 /**
  * Lo que el asistente puede consultar.
@@ -13,7 +14,7 @@ const { normalizePagoEstado, normalizeMetodoPago } = require('../utils/paymentSt
  * pueda cambiar un precio, borrar un pedido ni tocar el stock. El daño máximo
  * posible es que conteste una pregunta que no le hiciste.
  *
- * Cuando se agreguen herramientas que escriban, no van a vivir en este
+ * Cuando se agreguen herramientas que escriben, no van a vivir en este
  * archivo: van a ir en uno aparte, con confirmación obligatoria del usuario.
  * Mantener la separación física hace difícil equivocarse.
  *
@@ -78,7 +79,7 @@ function resolverRango({ desde, hasta, periodo } = {}) {
   }
 }
 
-// ── Herramientas ────────────────────────────────────────────────────────────
+// ── Herramientas existentes ────────────────────────────────────────────────
 
 function ventasDelPeriodo(args = {}) {
   const { desde, hasta } = resolverRango(args);
@@ -192,7 +193,6 @@ function stockBajo() {
 
   return {
     cantidad: filas.length,
-    // El stock no es plata: no se divide por 100.
     insumos: filas.map((f) => ({
       nombre: f.nombre,
       rubro: f.rubro,
@@ -221,8 +221,8 @@ function pedidosEnCurso() {
       numero: f.numero,
       estado: f.estado,
       entrega: f.tipo_entrega,
-      cliente: f.cliente_nombre,
-      repartidor: f.repartidor_nombre,
+      cliente: envolverDatoInline(f.cliente_nombre),
+      repartidor: envolverDatoInline(f.repartidor_nombre),
       total_pesos: aPesos(f.total),
       creado_en: f.creado_en,
     })),
@@ -250,10 +250,9 @@ function resumenPorRepartidor(args = {}) {
     desde,
     hasta,
     repartidores: filas.map((f) => ({
-      repartidor: f.repartidor,
+      repartidor: envolverDatoInline(f.repartidor),
       entregas: f.entregas,
       total_pesos: aPesos(f.total),
-      // Lo que tendría que entregar en mano al cerrar el turno.
       efectivo_a_rendir_pesos: aPesos(f.efectivo),
     })),
   };
@@ -284,28 +283,6 @@ function estadoDeCaja() {
   };
 }
 
-/*
-  ── El cierre de caja, explicado ───────────────────────────────────────────
-
-  La pantalla de caja da el número final. Esto da el número **y qué lo explica**:
-  los pedidos puntuales que no cuadran.
-
-  Son tres casos, y los tres son plata que se puede perder sin que nadie lo note
-  hasta que ya pasó:
-
-    · Entregado pero sin cobrar. El pedido salió, el cliente lo recibió y el
-      sistema no registra el cobro. O se cobró y no se cargó, o no se cobró.
-
-    · Sin método de pago. Entró por WhatsApp, nadie completó cómo pagó. En el
-      cierre no suma a ningún lado, así que la caja no cuadra y no se sabe por
-      qué.
-
-    · Cobrado pero cancelado. Si se cobró y después se anuló, hay que devolver
-      esa plata o el arqueo va a dar de más.
-
-  El efectivo esperado se calcula con la misma función que usa el cierre real,
-  no con una cuenta propia: si fueran dos, en algún momento darían distinto.
-*/
 function revisionDeCaja() {
   const caja = db
     .prepare(`SELECT * FROM cierres_caja WHERE estado = 'abierta' ORDER BY id DESC LIMIT 1`)
@@ -333,8 +310,8 @@ function revisionDeCaja() {
     const pago = normalizePagoEstado(p.pago_estado, { metodoPago: metodo, origen: p.origen });
     const base = {
       pedido: p.numero,
-      cliente: p.cliente_nombre,
-      repartidor: p.repartidor_nombre,
+      cliente: envolverDatoInline(p.cliente_nombre),
+      repartidor: envolverDatoInline(p.repartidor_nombre),
       total_pesos: aPesos(p.total),
     };
 
@@ -359,7 +336,6 @@ function revisionDeCaja() {
     monto_inicial_pesos: aPesos(caja.monto_inicial),
     ventas_pesos: aPesos(resumen.totalVentas),
     efectivo_de_ventas_pesos: aPesos(resumen.efectivoVentas),
-    // Lo que tendría que haber en el cajón si todo se cargó bien.
     efectivo_esperado_pesos: aPesos(esperado),
     pedidos_con_problemas: problemas,
     total_en_problemas_pesos: problemas.reduce((s, p) => s + p.total_pesos, 0),
@@ -380,20 +356,245 @@ function clientesHabituales(args = {}) {
 
   return {
     clientes: filas.map((f) => ({
-      nombre: f.nombre,
+      nombre: envolverDatoInline(f.nombre),
       pedidos: f.total_pedidos,
       gastado_pesos: aPesos(f.total_gastado),
     })),
   };
 }
 
-/*
-  ── El catálogo ────────────────────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════════════════════
+// DIAGNÓSTICOS AUTOMÁTICOS (nuevos)
+// ═════════════════════════════════════════════════════════════════════════════
 
-  La descripción de cada herramienta es lo único que el modelo lee para decidir
-  cuál usar. Si es vaga, elige mal y contesta cualquier cosa con seguridad. Por
-  eso dicen explícitamente qué devuelven y en qué unidad.
-*/
+function pedidosColgados(args = {}) {
+  const horas = Math.min(Math.max(Number(args.horas) || 2, 1), 48);
+  const limite = Math.min(Math.max(Number(args.limite) || 20, 1), 50);
+
+  const filas = db
+    .prepare(
+      `SELECT numero, estado, tipo_entrega, cliente_nombre, repartidor_nombre,
+              total, creado_en,
+              ROUND((julianday('now') - julianday(creado_en)) * 24, 1) AS horas_pasadas
+         FROM pedidos
+        WHERE estado IN ('pendiente', 'preparando', 'listo', 'en_camino')
+          AND creado_en < datetime('now', ?)
+        ORDER BY creado_en ASC
+        LIMIT ?`
+    )
+    .all(`-${horas} hours`, limite);
+
+  return {
+    horas_umbral: horas,
+    cantidad: filas.length,
+    pedidos: filas.map((f) => ({
+      numero: f.numero,
+      estado: f.estado,
+      entrega: f.tipo_entrega,
+      cliente: envolverDatoInline(f.cliente_nombre),
+      repartidor: envolverDatoInline(f.repartidor_nombre),
+      total_pesos: aPesos(f.total),
+      horas_pasadas: f.horas_pasadas,
+      creado_en: f.creado_en,
+    })),
+  };
+}
+
+function stockNegativo() {
+  const filas = db
+    .prepare(
+      `SELECT nombre, rubro, unidad, stock_actual, stock_minimo
+         FROM inventario_insumos
+        WHERE activo = 1 AND stock_actual < 0
+        ORDER BY stock_actual ASC`
+    )
+    .all();
+
+  return {
+    cantidad: filas.length,
+    insumos: filas.map((f) => ({
+      nombre: f.nombre,
+      rubro: f.rubro,
+      stock_actual: f.stock_actual,
+      stock_minimo: f.stock_minimo,
+      unidad: f.unidad,
+    })),
+  };
+}
+
+function productosSinPrecio() {
+  const filas = db
+    .prepare(
+      `SELECT p.id, p.nombre, c.nombre AS categoria_nombre, p.precio
+         FROM productos p
+         LEFT JOIN categorias c ON c.id = p.categoria_id
+        WHERE p.activo = 1 AND (p.precio IS NULL OR p.precio <= 0)
+        ORDER BY p.nombre`
+    )
+    .all();
+
+  return {
+    cantidad: filas.length,
+    productos: filas.map((f) => ({
+      id: f.id,
+      nombre: f.nombre,
+      categoria: f.categoria_nombre,
+      precio: aPesos(f.precio),
+    })),
+  };
+}
+
+function deliverysSinRepartidor() {
+  const filas = db
+    .prepare(
+      `SELECT numero, estado, cliente_nombre, cliente_direccion, total, creado_en
+         FROM pedidos
+        WHERE tipo_entrega = 'delivery'
+          AND estado IN ('pendiente', 'preparando', 'listo')
+          AND (repartidor_id IS NULL OR repartidor_id = '')
+        ORDER BY creado_en ASC
+        LIMIT 30`
+    )
+    .all();
+
+  return {
+    cantidad: filas.length,
+    pedidos: filas.map((f) => ({
+      numero: f.numero,
+      estado: f.estado,
+      cliente: envolverDatoInline(f.cliente_nombre),
+      total_pesos: aPesos(f.total),
+      creado_en: f.creado_en,
+    })),
+  };
+}
+
+function clientesDuplicados() {
+  const filas = db
+    .prepare(
+      `SELECT telefono,
+              COUNT(*) AS total,
+              GROUP_CONCAT(nombre, ' | ') AS nombres
+         FROM clientes
+        WHERE telefono IS NOT NULL AND TRIM(telefono) != ''
+        GROUP BY telefono
+        HAVING COUNT(*) > 1
+        ORDER BY total DESC
+        LIMIT 20`
+    )
+    .all();
+
+  return {
+    cantidad: filas.length,
+    duplicados: filas.map((f) => ({
+      telefono_termina_en: String(f.telefono || '')
+        .replace(/\D/g, '')
+        .slice(-4),
+      cantidad: f.total,
+    })),
+  };
+}
+
+function insumosSinMovimientos(args = {}) {
+  const dias = Math.min(Math.max(Number(args.dias) || 30, 7), 365);
+  const filas = db
+    .prepare(
+      `SELECT i.nombre, i.rubro, i.stock_actual, i.unidad,
+              MAX(m.creado_en) AS ultimo_movimiento
+         FROM inventario_insumos i
+         LEFT JOIN inventario_movimientos m ON m.insumo_id = i.id
+        WHERE i.activo = 1
+        GROUP BY i.id
+        HAVING ultimo_movimiento IS NULL
+           OR ultimo_movimiento < datetime('now', ?)
+        ORDER BY ultimo_movimiento ASC NULLS FIRST
+        LIMIT 30`
+    )
+    .all(`-${dias} days`);
+
+  return {
+    dias_umbral: dias,
+    cantidad: filas.length,
+    insumos: filas.map((f) => ({
+      nombre: f.nombre,
+      rubro: f.rubro,
+      stock_actual: f.stock_actual,
+      unidad: f.unidad,
+      ultimo_movimiento: f.ultimo_movimiento || 'Nunca',
+    })),
+  };
+}
+
+function revisionAutomatica() {
+  const resultados = {
+    stock_bajo: stockBajo(),
+    stock_negativo: stockNegativo(),
+    pedidos_colgados: pedidosColgados({ horas: 2 }),
+    pedidos_en_curso: pedidosEnCurso(),
+    deliverys_sin_repartidor: deliverysSinRepartidor(),
+    productos_sin_precio: productosSinPrecio(),
+    clientes_duplicados: clientesDuplicados(),
+    insumos_sin_movimientos: insumosSinMovimientos({ dias: 30 }),
+  };
+
+  const problemas = [];
+  if (resultados.stock_negativo.cantidad > 0) {
+    problemas.push({
+      severidad: 'critico',
+      modulo: 'inventario',
+      mensaje: `${resultados.stock_negativo.cantidad} insumo(s) con stock negativo`,
+    });
+  }
+  if (resultados.stock_bajo.cantidad > 0) {
+    problemas.push({
+      severidad: 'advertencia',
+      modulo: 'inventario',
+      mensaje: `${resultados.stock_bajo.cantidad} insumo(s) con stock bajo`,
+    });
+  }
+  if (resultados.pedidos_colgados.cantidad > 0) {
+    problemas.push({
+      severidad: 'critico',
+      modulo: 'pedidos',
+      mensaje: `${resultados.pedidos_colgados.cantidad} pedido(s) colgado(s) hace más de 2 horas`,
+    });
+  }
+  if (resultados.deliverys_sin_repartidor.cantidad > 0) {
+    problemas.push({
+      severidad: 'advertencia',
+      modulo: 'delivery',
+      mensaje: `${resultados.deliverys_sin_repartidor.cantidad} delivery(s) sin repartidor asignado`,
+    });
+  }
+  if (resultados.productos_sin_precio.cantidad > 0) {
+    problemas.push({
+      severidad: 'advertencia',
+      modulo: 'productos',
+      mensaje: `${resultados.productos_sin_precio.cantidad} producto(s) sin precio`,
+    });
+  }
+  if (resultados.clientes_duplicados.cantidad > 0) {
+    problemas.push({
+      severidad: 'info',
+      modulo: 'clientes',
+      mensaje: `${resultados.clientes_duplicados.cantidad} teléfono(s) duplicado(s)`,
+    });
+  }
+
+  return {
+    problemas_detectados: problemas.length,
+    severidad: problemas.some((p) => p.severidad === 'critico')
+      ? 'critico'
+      : problemas.some((p) => p.severidad === 'advertencia')
+        ? 'advertencia'
+        : 'ok',
+    problemas,
+    detalle: resultados,
+  };
+}
+
+// ── El catálogo ────────────────────────────────────────────────────────────
+
 const PERIODO = {
   type: 'string',
   enum: ['hoy', 'ayer', 'semana', 'mes'],
@@ -476,6 +677,76 @@ const HERRAMIENTAS = [
     },
     ejecutar: clientesHabituales,
   },
+  // ── Diagnósticos automáticos (nuevos) ────────────────────────────────────
+  {
+    nombre: 'pedidos_colgados',
+    descripcion:
+      'Pedidos que llevan mucho tiempo en curso sin entregarse. Por defecto detecta los de más de 2 horas. Usala cuando pregunten por pedidos atrasados o colgados.',
+    parametros: {
+      type: 'object',
+      properties: {
+        horas: {
+          type: 'integer',
+          description: 'Cuántas horas de demora para considerar colgado (default 2, máx 48).',
+        },
+        limite: {
+          type: 'integer',
+          description: 'Máximo de pedidos a devolver (default 20, máx 50).',
+        },
+      },
+    },
+    ejecutar: pedidosColgados,
+  },
+  {
+    nombre: 'stock_negativo',
+    descripcion:
+      'Insumos con stock negativo. Esto es un problema grave porque indica errores de conteo o descuentos mal aplicados.',
+    parametros: { type: 'object', properties: {} },
+    ejecutar: stockNegativo,
+  },
+  {
+    nombre: 'productos_sin_precio',
+    descripcion:
+      'Productos activos que no tienen precio o tienen precio cero. Estos productos no se pueden vender.',
+    parametros: { type: 'object', properties: {} },
+    ejecutar: productosSinPrecio,
+  },
+  {
+    nombre: 'deliverys_sin_repartidor',
+    descripcion:
+      'Pedidos de delivery pendientes que no tienen repartidor asignado. Se van a enfriar si nadie los lleva.',
+    parametros: { type: 'object', properties: {} },
+    ejecutar: deliverysSinRepartidor,
+  },
+  {
+    nombre: 'clientes_duplicados',
+    descripcion:
+      'Teléfonos de clientes que aparecen más de una vez en la base. Pueden ser el mismo cliente cargado varias veces.',
+    parametros: { type: 'object', properties: {} },
+    ejecutar: clientesDuplicados,
+  },
+  {
+    nombre: 'insumos_sin_movimientos',
+    descripcion:
+      'Insumos que no tuvieron movimientos de stock en los últimos días. Pueden ser insumos que ya no se usan o que se olvidó cargar.',
+    parametros: {
+      type: 'object',
+      properties: {
+        dias: {
+          type: 'integer',
+          description: 'Cuántos días sin movimientos (default 30, mín 7, máx 365).',
+        },
+      },
+    },
+    ejecutar: insumosSinMovimientos,
+  },
+  {
+    nombre: 'revision_automatica',
+    descripcion:
+      'Revisa todo el sistema de una sola vez: stock bajo, stock negativo, pedidos colgados, deliverys sin repartidor, productos sin precio, clientes duplicados e insumos sin movimientos. Devuelve un resumen con severidad (ok, advertencia o crítico). Usala cuando el usuario diga "revisá el sistema", "qué está mal" o "hacé un diagnóstico".',
+    parametros: { type: 'object', properties: {} },
+    ejecutar: revisionAutomatica,
+  },
 ];
 
 /** Definiciones para el modelo, sin la implementación. */
@@ -510,4 +781,12 @@ module.exports = {
   ejecutarHerramienta,
   resolverRango,
   aPesos,
+  // Exportar diagnósticos para uso externo (ej: endpoint de revisión automática)
+  revisionAutomatica,
+  stockNegativo,
+  pedidosColgados,
+  productosSinPrecio,
+  deliverysSinRepartidor,
+  clientesDuplicados,
+  insumosSinMovimientos,
 };

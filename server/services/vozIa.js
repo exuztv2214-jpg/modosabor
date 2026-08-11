@@ -5,6 +5,7 @@ const crypto = require('crypto');
 const db = require('../db');
 const { uploadsDir } = require('../utils/storagePaths');
 const logger = require('../utils/logger');
+const { desencriptar } = require('../utils/encryptConfig');
 
 /**
  * Voz de los avisos, generada con IA.
@@ -153,7 +154,7 @@ async function generarAudio(limpio, config) {
   if (generandoAhora.has(archivo)) return null;
   generandoAhora.add(archivo);
 
-  const clave = process.env.GEMINI_API_KEY || config.gemini_api_key;
+  const clave = process.env.GEMINI_API_KEY || desencriptar(config.gemini_api_key);
   const modelo = config.voz_ia_modelo || MODELO_POR_DEFECTO;
 
   const controlador = new AbortController();

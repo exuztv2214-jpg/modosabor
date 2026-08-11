@@ -10,6 +10,7 @@
     "smoke": "npm --prefix server run smoke",
     "verify:core": "npm --prefix server run verify:core",
     "verify:operacion": "npm --prefix server run verify:operacion",
+    "verify:backup": "npm --prefix server run verify:backup",
     "build": "npm --prefix client run build",
     "native:build": "npm --prefix client run build:native",
     "native:android:debug": "powershell -ExecutionPolicy Bypass -File ./deploy/build-rider-apk.ps1",

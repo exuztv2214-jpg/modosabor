@@ -35,6 +35,7 @@ const {
   restoreDatabaseBackup,
 } = require('../utils/backupManager');
 const { importBaseDataPackage } = require('../utils/dataPackage');
+const { encriptar } = require('../utils/encryptConfig');
 
 const { fechaLocal } = require('../utils/fechaLocal');
 const storage = multer.diskStorage({
@@ -265,6 +266,23 @@ function normalizeConfigUpdates(rawUpdates = {}) {
     updates.delivery_zonas = serializeZones(parseJsonArray(updates.delivery_zonas));
   }
 
+  if (updates.ia_fallback_activo !== undefined) {
+    updates.ia_fallback_activo = String(updates.ia_fallback_activo) === '1' ? '1' : '0';
+  }
+
+  if (updates.ia_base_url !== undefined) {
+    const url = String(updates.ia_base_url || '').trim();
+    const esLocalDeDesarrollo =
+      String(process.env.NODE_ENV || '').trim() !== 'production' &&
+      /^http:\/\/(localhost|127\.0\.0\.1)(?::\d+)?(?:\/|$)/i.test(url);
+    if (url && !/^https:\/\//i.test(url) && !esLocalDeDesarrollo) {
+      throw new Error(
+        'La dirección de IA debe usar HTTPS. HTTP sólo se permite para localhost en desarrollo.'
+      );
+    }
+    updates.ia_base_url = url;
+  }
+
   delete updates.negocio_horarios;
 
   // Limpiar claves calculadas que no deben persistirse
@@ -281,9 +299,15 @@ function persistConfigUpdates(rawUpdates, req) {
   const updates = normalizeConfigUpdates(rawUpdates);
   const stmt = db.prepare('INSERT OR REPLACE INTO configuracion (clave, valor) VALUES (?, ?)');
 
+  // Claves sensibles que deben encriptarse antes de guardar en la base.
+  const ENCRYPTED_KEYS = new Set(['ia_api_key', 'gemini_api_key']);
+
   Object.entries(updates).forEach(([key, value]) => {
     // Asegurar que guardamos strings para evitar errores en SQLite
-    const safeValue = value === null || value === undefined ? '' : String(value);
+    let safeValue = value === null || value === undefined ? '' : String(value);
+    if (ENCRYPTED_KEYS.has(key) && safeValue) {
+      safeValue = encriptar(safeValue);
+    }
     stmt.run(key, safeValue);
   });
 

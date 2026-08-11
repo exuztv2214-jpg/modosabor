@@ -10,6 +10,7 @@
     "verify:core": "node scripts/verify-isolated.js scripts/verify-core.js",
     "verify:mozo": "node scripts/verify-isolated.js scripts/verify-mozo.js",
     "verify:operacion": "node scripts/verify-isolated.js scripts/verify-operacion.js",
+    "verify:backup": "node scripts/verify-backup-restore.js",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "test": "node tests/run.js"

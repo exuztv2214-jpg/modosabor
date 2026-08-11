@@ -7,7 +7,7 @@ const { resolveShiftLabel } = require('../utils/shifts');
 const { summarizePaymentRows } = require('../utils/paymentStatus');
 const { hydratePedido } = require('../services/pedidoService');
 
-const { fechaLocal } = require('../utils/fechaLocal');
+const { fechaLocal, hoyArgentina } = require('../utils/fechaLocal');
 function toDateOnly(value) {
   return new Date(value).toISOString().split('T')[0];
 }
@@ -112,7 +112,6 @@ function buildVipCustomers(limit = 5) {
     SELECT
       c.id,
       c.nombre,
-      c.telefono,
       c.total_pedidos,
       c.total_gastado,
       c.nivel,
@@ -608,15 +607,23 @@ function buildTopProductsAllTime(productosPorId, productosPorNombre, limit = 5) 
   const rows = db
     .prepare(
       `
-    SELECT id
-    FROM pedidos
-    WHERE estado != 'cancelado'
+    SELECT
+      pi.producto_id,
+      pi.nombre,
+      MAX(pi.precio_unitario) AS precio,
+      COALESCE(SUM(pi.cantidad), 0) AS cantidad,
+      COALESCE(SUM(pi.subtotal), 0) AS total
+    FROM pedido_items pi
+    JOIN pedidos p ON p.id = pi.pedido_id
+    WHERE p.estado != 'cancelado'
+    GROUP BY COALESCE(CAST(pi.producto_id AS TEXT), lower(trim(pi.nombre)))
+    ORDER BY cantidad DESC, total DESC
+    LIMIT ?
   `
     )
-    .all();
+    .all(limit);
 
-  const vendidos = {};
-  getPedidoItemRows(rows.map((pedido) => pedido.id)).forEach((item) => {
+  return rows.map((item) => {
     const productoRelacionado =
       productosPorId.get(String(item.producto_id || '')) ||
       productosPorNombre.get(
@@ -624,25 +631,16 @@ function buildTopProductsAllTime(productosPorId, productosPorNombre, limit = 5) 
           .trim()
           .toLowerCase()
       );
-    const key = item.producto_id || item.nombre;
-    if (!vendidos[key]) {
-      vendidos[key] = {
-        id: productoRelacionado?.id || item.producto_id || null,
-        nombre: item.nombre || productoRelacionado?.nombre || 'Producto',
-        categoria: productoRelacionado?.categoria || item.categoria || 'Otros',
-        imagen: productoRelacionado?.imagen || item.imagen || '',
-        precio: Number(item.precio_unitario || 0),
-        cantidad: 0,
-        total: 0,
-      };
-    }
-    vendidos[key].cantidad += Number(item.cantidad || 0);
-    vendidos[key].total += Number(item.subtotal || 0);
+    return {
+      id: productoRelacionado?.id || item.producto_id || null,
+      nombre: item.nombre || productoRelacionado?.nombre || 'Producto',
+      categoria: productoRelacionado?.categoria || 'Otros',
+      imagen: productoRelacionado?.imagen || '',
+      precio: Number(item.precio || 0),
+      cantidad: Number(item.cantidad || 0),
+      total: Number(item.total || 0),
+    };
   });
-
-  return Object.values(vendidos)
-    .sort((a, b) => b.cantidad - a.cantidad || b.total - a.total)
-    .slice(0, limit);
 }
 
 function buildTopCustomersAllTime(limit = 5) {
@@ -652,7 +650,6 @@ function buildTopCustomersAllTime(limit = 5) {
     SELECT
       c.id,
       c.nombre,
-      c.telefono,
       c.total_pedidos,
       c.total_gastado,
       c.nivel,
@@ -669,8 +666,8 @@ function buildTopCustomersAllTime(limit = 5) {
 }
 
 router.get('/dashboard', auth, requirePermission('dashboard.view'), (req, res) => {
-  const hoy = new Date().toISOString().split('T')[0];
-  const ayer = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+  const hoy = hoyArgentina();
+  const ayer = hoyArgentina(new Date(Date.now() - 86400000));
   const catalogoProductos = db
     .prepare(
       `
@@ -723,7 +720,7 @@ router.get('/dashboard', auth, requirePermission('dashboard.view'), (req, res) =
     )
     .get();
 
-  const ventas7dias = db
+  const ventas7diasRows = db
     .prepare(
       `
     SELECT ${fechaLocal('creado_en')} as fecha, COUNT(*) as pedidos, COALESCE(SUM(total),0) as total
@@ -732,6 +729,13 @@ router.get('/dashboard', auth, requirePermission('dashboard.view'), (req, res) =
   `
     )
     .all();
+  const ventas7diasPorFecha = new Map(ventas7diasRows.map((row) => [row.fecha, row]));
+  const ventas7dias = Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(`${hoy}T12:00:00-03:00`);
+    date.setDate(date.getDate() - (6 - index));
+    const fecha = date.toISOString().slice(0, 10);
+    return ventas7diasPorFecha.get(fecha) || { fecha, pedidos: 0, total: 0 };
+  });
 
   const pedidosHoyDetallados = db
     .prepare(`SELECT * FROM pedidos WHERE ${fechaLocal('creado_en')}=? AND estado!='cancelado'`)

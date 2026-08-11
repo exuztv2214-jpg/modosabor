@@ -1,5 +1,6 @@
 const db = require('../db');
 const logger = require('../utils/logger');
+const { desencriptar } = require('../utils/encryptConfig');
 
 /**
  * Capa única de acceso a los modelos de IA.
@@ -18,11 +19,24 @@ const logger = require('../utils/logger');
  * —o ni eso: con la opción "personalizado" se escribe la dirección desde
  * Configuración, sin tocar código.
  *
+ * ── Circuit breaker y fallback ─────────────────────────────────────────────
+ *
+ * Si el proveedor activo falla (timeout, caída, rate limit), el sistema
+ * reintenta una vez con backoff y luego prueba automáticamente con otros
+ * proveedores que tengan clave configurada en variables de entorno.
+ *
+ * Esto permite tener un proveedor principal (ej: Gemini) y un respaldo
+ * (ej: Groq) sin que nadie tenga que hacer nada cuando el principal se cae.
+ *
  * ── Qué NO hace ────────────────────────────────────────────────────────────
  *
  * No decide nada sobre el negocio ni sabe qué es un pedido. Solo manda texto y
  * herramientas, y devuelve lo que contestó el modelo.
  */
+
+const TIMEOUT_MS = 30000;
+const RETRY_DELAY_MS = 1500;
+const MAX_RETRIES = 1;
 
 /*
   ── Sobre los modelos de esta lista ────────────────────────────────────────
@@ -50,6 +64,7 @@ const PROVEEDORES = {
       'gemini-1.5-flash',
       'gemini-1.5-pro',
     ],
+    envKey: 'GEMINI_API_KEY',
     donde: 'aistudio.google.com/apikey',
     nota: 'Tiene nivel gratuito.',
   },
@@ -59,6 +74,7 @@ const PROVEEDORES = {
     baseUrl: 'https://api.anthropic.com/v1',
     modeloPorDefecto: 'claude-sonnet-4-20250514',
     modelos: ['claude-sonnet-4-20250514', 'claude-opus-4-20250514', 'claude-3-5-haiku-20241022'],
+    envKey: 'ANTHROPIC_API_KEY',
     donde: 'console.anthropic.com',
     nota: 'Sin nivel gratuito.',
   },
@@ -68,6 +84,7 @@ const PROVEEDORES = {
     baseUrl: 'https://api.openai.com/v1',
     modeloPorDefecto: 'gpt-4o-mini',
     modelos: ['gpt-4o-mini', 'gpt-4o', 'o4-mini'],
+    envKey: 'OPENAI_API_KEY',
     donde: 'platform.openai.com/api-keys',
     nota: 'Sin nivel gratuito.',
   },
@@ -77,6 +94,7 @@ const PROVEEDORES = {
     baseUrl: 'https://api.moonshot.ai/v1',
     modeloPorDefecto: 'kimi-k2-0711-preview',
     modelos: ['kimi-k2-0711-preview', 'moonshot-v1-32k', 'moonshot-v1-128k'],
+    envKey: 'MOONSHOT_API_KEY',
     donde: 'platform.moonshot.ai',
     nota: 'Si tu cuenta es de China, la dirección termina en .cn — cambiala abajo.',
   },
@@ -86,6 +104,7 @@ const PROVEEDORES = {
     baseUrl: 'https://api.deepseek.com/v1',
     modeloPorDefecto: 'deepseek-chat',
     modelos: ['deepseek-chat', 'deepseek-reasoner'],
+    envKey: 'DEEPSEEK_API_KEY',
     donde: 'platform.deepseek.com',
     nota: 'Muy barato para el volumen de un restaurante.',
   },
@@ -95,6 +114,7 @@ const PROVEEDORES = {
     baseUrl: 'https://api.groq.com/openai/v1',
     modeloPorDefecto: 'llama-3.3-70b-versatile',
     modelos: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant'],
+    envKey: 'GROQ_API_KEY',
     donde: 'console.groq.com/keys',
     nota: 'Contesta muy rápido y tiene nivel gratuito.',
   },
@@ -109,6 +129,7 @@ const PROVEEDORES = {
       'google/gemini-2.0-flash-001',
       'deepseek/deepseek-chat',
     ],
+    envKey: 'OPENROUTER_API_KEY',
     donde: 'openrouter.ai/keys',
     nota: 'Una sola clave para cientos de modelos de distintas empresas.',
   },
@@ -118,6 +139,7 @@ const PROVEEDORES = {
     baseUrl: 'https://api.x.ai/v1',
     modeloPorDefecto: 'grok-2-latest',
     modelos: ['grok-2-latest', 'grok-2-vision-latest'],
+    envKey: 'XAI_API_KEY',
     donde: 'console.x.ai',
     nota: '',
   },
@@ -127,6 +149,7 @@ const PROVEEDORES = {
     baseUrl: 'https://api.mistral.ai/v1',
     modeloPorDefecto: 'mistral-small-latest',
     modelos: ['mistral-small-latest', 'mistral-large-latest', 'pixtral-12b-2409'],
+    envKey: 'MISTRAL_API_KEY',
     donde: 'console.mistral.ai',
     nota: '',
   },
@@ -136,6 +159,7 @@ const PROVEEDORES = {
     baseUrl: 'https://api.together.xyz/v1',
     modeloPorDefecto: 'meta-llama/Llama-3.3-70B-Instruct-Turbo',
     modelos: ['meta-llama/Llama-3.3-70B-Instruct-Turbo', 'Qwen/Qwen2.5-72B-Instruct-Turbo'],
+    envKey: 'TOGETHER_API_KEY',
     donde: 'api.together.ai',
     nota: '',
   },
@@ -144,14 +168,12 @@ const PROVEEDORES = {
     familia: 'openai',
     baseUrl: '',
     modeloPorDefecto: '',
-    // Vacío a propósito: en un proveedor propio los modelos los sabe el usuario.
     modelos: [],
+    envKey: null,
     donde: '',
     nota: 'Para cualquier proveedor que no esté en la lista, o un modelo corriendo en tu propia máquina. Escribí la dirección de su API.',
   },
 };
-
-const TIMEOUT_MS = 30000;
 
 function leerConfig() {
   const filas = db.prepare('SELECT clave, valor FROM configuracion').all();
@@ -159,6 +181,17 @@ function leerConfig() {
     acc[f.clave] = f.valor;
     return acc;
   }, {});
+}
+
+function esBaseUrlSegura(baseUrl) {
+  const url = String(baseUrl || '').trim();
+  if (/^https:\/\//i.test(url)) return true;
+  // El HTTP sólo se admite en desarrollo para proveedores locales; nunca para
+  // enviar una clave o datos del negocio por una red pública.
+  return (
+    String(process.env.NODE_ENV || '').trim() !== 'production' &&
+    /^http:\/\/(localhost|127\.0\.0\.1)(?::\d+)?(?:\/|$)/i.test(url)
+  );
 }
 
 /**
@@ -180,22 +213,12 @@ function proveedorActivo(config = null) {
   const definicion = PROVEEDORES[id] || PROVEEDORES.gemini;
   const idValido = PROVEEDORES[id] ? id : 'gemini';
 
-  // La variable de entorno gana sobre la base: en Railway queda encriptada y
-  // fuera del alcance de cualquiera que entre al admin.
-  const clave = process.env.IA_API_KEY || cfg.ia_api_key || '';
+  const clave = process.env.IA_API_KEY || desencriptar(cfg.ia_api_key) || '';
 
-  /*
-    La dirección se puede sobrescribir incluso en los proveedores conocidos:
-    algunos tienen dominios distintos por región.
-
-    Pero se ignora si no parece una dirección. En la configuración puede quedar
-    cualquier cosa —un valor a medio escribir, basura de una versión anterior— y
-    en ese caso es mejor usar la del proveedor que fallar con un error que no
-    explica nada.
-  */
   const guardada = String(cfg.ia_base_url || '').trim();
   const esDireccion = /^https?:\/\/.+/i.test(guardada);
-  const baseUrl = (esDireccion ? guardada : definicion.baseUrl || '').replace(/\/+$/, '');
+  const baseUrlCandidata = (esDireccion ? guardada : definicion.baseUrl || '').replace(/\/+$/, '');
+  const baseUrl = esBaseUrlSegura(baseUrlCandidata) ? baseUrlCandidata : '';
 
   return {
     id: idValido,
@@ -212,8 +235,6 @@ function iaHabilitada(config = null) {
   const cfg = config || leerConfig();
   if (String(cfg.ia_asistente_activo ?? '0') !== '1') return false;
   const activo = proveedorActivo(cfg);
-  // Sin dirección no hay a dónde pegarle: pasa con "personalizado" a medio
-  // configurar.
   return Boolean(activo.clave && activo.baseUrl && activo.modelo);
 }
 
@@ -224,21 +245,8 @@ function iaHabilitada(config = null) {
   herramientas: [{ nombre, descripcion, parametros }]  (parametros = JSON Schema)
 
   Respuesta:    { texto, llamadas: [{ nombre, argumentos }] }
-
-  Cuando el modelo quiere usar una herramienta devuelve `llamadas`; cuando ya
-  tiene la respuesta devuelve `texto`. Puede devolver las dos cosas.
-
-  `imagen` es un data URL ("data:image/jpeg;base64,...") y sólo tiene sentido en
-  los mensajes del usuario. Se usa para leer la foto de un remito. Cada familia
-  lo manda distinto, y esa diferencia se resuelve acá adentro.
 */
 
-/**
- * Parte un data URL en tipo y contenido.
- *
- * Devuelve `null` si no tiene la forma esperada: una imagen rota no puede
- * tirar abajo toda la consulta, se manda el texto solo.
- */
 function partirImagen(dataUrl) {
   const coincidencia = /^data:(image\/[a-z0-9.+-]+);base64,(.+)$/i.exec(String(dataUrl || ''));
   if (!coincidencia) return null;
@@ -255,10 +263,6 @@ async function pedirConTimeout(url, opciones) {
   }
 }
 
-/**
- * Un error de la API trae explicación de qué pasó (clave vencida, modelo
- * inexistente, sin saldo). Se recorta porque el cuerpo puede ser enorme.
- */
 async function errorDeApi(respuesta, proveedor) {
   let detalle = '';
   try {
@@ -269,8 +273,6 @@ async function errorDeApi(respuesta, proveedor) {
   return new Error(`${proveedor} respondió ${respuesta.status}. ${detalle}`.trim());
 }
 
-// ── Familia Gemini ──────────────────────────────────────────────────────────
-
 function aFormatoGemini(mensajes) {
   return mensajes.map((m) => {
     if (m.rol === 'herramienta') {
@@ -280,7 +282,6 @@ function aFormatoGemini(mensajes) {
           {
             functionResponse: {
               name: m.nombre,
-              // Gemini exige un objeto acá, no un texto suelto.
               response: { resultado: m.resultado },
             },
           },
@@ -344,10 +345,6 @@ async function conversarGemini({ clave, baseUrl, modelo, sistema, mensajes, herr
   };
 }
 
-// ── Familia OpenAI ──────────────────────────────────────────────────────────
-// La usan OpenAI, Kimi, DeepSeek, Groq, OpenRouter, Grok, Mistral, Together y
-// prácticamente cualquier proveedor nuevo.
-
 function aFormatoOpenAI(mensajes) {
   const salida = [];
   mensajes.forEach((m) => {
@@ -368,7 +365,6 @@ function aFormatoOpenAI(mensajes) {
       return;
     }
     if (m.rol === 'usuario' && partirImagen(m.imagen)) {
-      // El formato de OpenAI acepta el data URL entero, sin partirlo.
       salida.push({
         role: 'user',
         content: [
@@ -421,8 +417,6 @@ async function conversarOpenAI({
     })),
   };
 }
-
-// ── Familia Anthropic ───────────────────────────────────────────────────────
 
 function aFormatoAnthropic(mensajes) {
   return mensajes.map((m) => {
@@ -497,11 +491,6 @@ async function conversarAnthropic({ clave, baseUrl, modelo, sistema, mensajes, h
   };
 }
 
-/**
- * Los argumentos vienen como texto JSON y el modelo a veces manda algo roto.
- * Un objeto vacío es mejor que tirar abajo toda la consulta: la herramienta
- * va a fallar por falta de datos y el modelo puede reintentar.
- */
 function parsearArgumentos(texto) {
   try {
     return JSON.parse(texto || '{}');
@@ -517,40 +506,163 @@ const FAMILIAS = {
 };
 
 /**
+ * Devuelve proveedores alternativos que tienen clave en variables de entorno.
+ * Ordenados por velocidad/costo aproximado para un restaurante.
+ */
+function proveedoresFallback() {
+  const ordenPreferido = [
+    'groq',
+    'deepseek',
+    'openrouter',
+    'gemini',
+    'moonshot',
+    'mistral',
+    'xai',
+    'together',
+    'openai',
+    'anthropic',
+  ];
+  const resultado = [];
+  ordenPreferido.forEach((id) => {
+    const p = PROVEEDORES[id];
+    if (!p || !p.envKey) return;
+    const clave = process.env[p.envKey];
+    if (!clave) return;
+    resultado.push({
+      id,
+      definicion: p,
+      familia: p.familia,
+      clave,
+      baseUrl: p.baseUrl,
+      modelo: p.modeloPorDefecto,
+    });
+  });
+  return resultado;
+}
+
+async function dormir(ms) {
+  return new Promise((resolver) => setTimeout(resolver, ms));
+}
+
+async function intentarConProveedor(opciones) {
+  const { familia, definicion, clave, baseUrl, modelo, sistema, mensajes, herramientas } = opciones;
+  if (!clave) throw new Error('No hay una clave de IA configurada');
+  if (!baseUrl) throw new Error('Falta la dirección de la API del proveedor');
+
+  const implementacion = FAMILIAS[familia];
+  return await implementacion({
+    clave,
+    baseUrl,
+    modelo,
+    sistema,
+    mensajes,
+    herramientas,
+    nombreProveedor: definicion.nombre,
+  });
+}
+
+/**
  * Manda una conversación al modelo configurado.
+ *
+ * Si el proveedor activo falla:
+ *  1. Reintenta una vez con backoff.
+ *  2. Si sigue fallando, prueba con proveedores alternativos que tengan
+ *     clave en variables de entorno.
  *
  * @param {object} opciones
  * @param {string} opciones.sistema        Instrucciones fijas del asistente.
  * @param {Array}  opciones.mensajes       Conversación en formato común.
  * @param {Array}  [opciones.herramientas] Lo que el modelo puede llamar.
- * @returns {Promise<{texto: string, llamadas: Array}>}
+ * @returns {Promise<{texto: string, llamadas: Array, _meta: {proveedor: string, modelo: string, duracionMs: number}}>}
  */
 async function conversar({ sistema, mensajes, herramientas = [] }) {
-  const { id, familia, definicion, clave, baseUrl, modelo } = proveedorActivo();
-  if (!clave) throw new Error('No hay una clave de IA configurada');
-  if (!baseUrl) throw new Error('Falta la dirección de la API del proveedor');
+  const inicio = Date.now();
+  const config = leerConfig();
+  const principal = proveedorActivo(config);
+  const fallbackHabilitado = String(config.ia_fallback_activo || '0') === '1';
+  let ultimoError = null;
 
-  const implementacion = FAMILIAS[familia];
-  try {
-    return await implementacion({
-      clave,
-      baseUrl,
-      modelo,
-      sistema,
-      mensajes,
-      herramientas,
-      nombreProveedor: definicion.nombre,
-    });
-  } catch (error) {
-    // Se loguea corto: el mensaje puede traer partes de la respuesta del
-    // proveedor, y los logs de Railway son más accesibles que la base.
-    logger.warn('[ia] Falló la consulta al modelo', {
-      proveedor: id,
-      modelo,
-      mensaje: String(error?.message || error).slice(0, 200),
-    });
-    throw error;
+  // ── 1. Intentar con el proveedor activo (con retry) ───────────────────────
+  for (let intento = 0; intento <= MAX_RETRIES; intento += 1) {
+    if (intento > 0) {
+      logger.info(`[ia] Reintento ${intento} con ${principal.id} después de ${RETRY_DELAY_MS}ms`);
+      await dormir(RETRY_DELAY_MS);
+    }
+    try {
+      const resultado = await intentarConProveedor({
+        ...principal,
+        sistema,
+        mensajes,
+        herramientas,
+      });
+      return {
+        ...resultado,
+        _meta: {
+          proveedor: principal.id,
+          modelo: principal.modelo,
+          duracionMs: Date.now() - inicio,
+          fallback: false,
+        },
+      };
+    } catch (error) {
+      ultimoError = error;
+      const esRecuperable =
+        error.name === 'AbortError' ||
+        /timeout|ETIMEDOUT|ECONNRESET|ENOTFOUND|fetch failed/i.test(String(error.message));
+      if (!esRecuperable) break; // Error de auth/modelo: no tiene sentido reintentar.
+    }
   }
+
+  // ── 2. Fallback a proveedores alternativos ────────────────────────────────
+  const alternativas = fallbackHabilitado
+    ? proveedoresFallback().filter((a) => a.id !== principal.id)
+    : [];
+  if (alternativas.length > 0) {
+    logger.warn('[ia] Proveedor principal falló, probando fallback', {
+      proveedor: principal.id,
+      error: String(ultimoError?.message || ultimoError).slice(0, 200),
+      alternativas: alternativas.map((a) => a.id),
+    });
+  }
+
+  for (const alternativa of alternativas) {
+    try {
+      const resultado = await intentarConProveedor({
+        ...alternativa,
+        sistema,
+        mensajes,
+        herramientas,
+      });
+      logger.info('[ia] Fallback exitoso', {
+        proveedor: alternativa.id,
+        modelo: alternativa.modelo,
+      });
+      return {
+        ...resultado,
+        _meta: {
+          proveedor: alternativa.id,
+          modelo: alternativa.modelo,
+          duracionMs: Date.now() - inicio,
+          fallback: true,
+          proveedorOriginal: principal.id,
+        },
+      };
+    } catch (error) {
+      ultimoError = error;
+      logger.warn('[ia] Fallback falló', {
+        proveedor: alternativa.id,
+        mensaje: String(error?.message || error).slice(0, 200),
+      });
+    }
+  }
+
+  // Nada funcionó.
+  logger.error('[ia] Todos los proveedores fallaron', {
+    principal: principal.id,
+    alternativas: alternativas.map((a) => a.id),
+    error: String(ultimoError?.message || ultimoError).slice(0, 200),
+  });
+  throw ultimoError || new Error('No se pudo conectar con ningún proveedor de IA');
 }
 
 /** Lista para la pantalla de Configuración, sin datos internos. */
@@ -573,4 +685,6 @@ module.exports = {
   conversar,
   iaHabilitada,
   proveedorActivo,
+  proveedoresFallback,
+  esBaseUrlSegura,
 };

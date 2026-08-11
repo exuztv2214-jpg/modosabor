@@ -67,14 +67,14 @@ function hoyLocal() {
  * corre en UTC en Railway y Tucumán es UTC−3, así que de las 21:00 en adelante
  * da el día siguiente. Esta función da el día que ve el reloj del local.
  */
-function hoyArgentina() {
+function hoyArgentina(date = new Date()) {
   const formatter = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'America/Argentina/Buenos_Aires',
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
   });
-  return formatter.format(new Date());
+  return formatter.format(date);
 }
 
 /**
