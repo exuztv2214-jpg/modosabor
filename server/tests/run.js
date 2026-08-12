@@ -15,7 +15,7 @@ function findTests(dir) {
   return files;
 }
 
-function run() {
+async function run() {
   const testsDir = path.join(__dirname, 'utils');
   const tests = findTests(testsDir);
 
@@ -44,7 +44,7 @@ function run() {
         Se descubrió al agregar un test que estaba escrito así y ver que el
         resultado no cambiaba ni rompiendo a propósito el código que probaba.
       */
-      if (typeof modulo?.run === 'function') modulo.run();
+      if (typeof modulo?.run === 'function') await modulo.run();
       passed++;
     } catch (error) {
       failed++;
@@ -57,4 +57,7 @@ function run() {
   process.exit(failed > 0 ? 1 : 0);
 }
 
-run();
+run().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});

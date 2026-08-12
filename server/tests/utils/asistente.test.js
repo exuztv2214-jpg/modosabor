@@ -324,6 +324,145 @@ function testAccionesNoEjecutanAlPrepararse() {
   console.log('  OK las acciones separan proponer de ejecutar');
 }
 
+function testAccionesOperativasCompletas() {
+  const { ACCIONES } = require('../../services/asistenteAcciones');
+  const nombres = new Set(ACCIONES.map((accion) => accion.nombre));
+  [
+    'proponer_pedido',
+    'proponer_cambio_de_stock',
+    'proponer_stock_de_producto',
+    'proponer_receta_de_producto',
+    'proponer_menu_del_dia',
+    'proponer_nuevo_plato_menu_del_dia',
+  ].forEach((nombre) => {
+    assert.ok(nombres.has(nombre), `falta la acción operativa ${nombre}`);
+  });
+
+  const receta = ACCIONES.find((accion) => accion.nombre === 'proponer_receta_de_producto');
+  assert.deepStrictEqual(
+    receta.parametros.properties.ingredientes.items.properties.condicion_tipo.enum,
+    ['siempre', 'variante', 'extra'],
+    'las recetas deben soportar ingredientes base, variantes y extras'
+  );
+
+  const menu = ACCIONES.find((accion) => accion.nombre === 'proponer_menu_del_dia');
+  assert.ok(
+    menu.parametros.properties.platos.items.properties.stock,
+    'el menú del día debe poder cargar stock por plato'
+  );
+  console.log('  OK el chat cubre pedidos, stocks, recetas y menú del día');
+}
+
+async function testAccionesOperativasEjecutan() {
+  const db = require('../../db');
+  const { prepararAccion, ejecutarAccion } = require('../../services/asistenteAcciones');
+  const marca = `ASISTENTE_TEST_${Date.now()}`;
+  let productoDirectoId;
+  let productoRecetaId;
+  let insumoId;
+  let platoMenuId;
+
+  try {
+    const categoria = db.prepare('SELECT id FROM categorias ORDER BY id LIMIT 1').get();
+    assert.ok(categoria?.id, 'hace falta una categoría para probar acciones');
+    productoDirectoId = Number(
+      db
+        .prepare(
+          `INSERT INTO productos (nombre, precio, categoria_id, stock_directo, stock_mode, activo)
+           VALUES (?, 100000, ?, 5, 'direct', 1)`
+        )
+        .run(`${marca}_DIRECTO`, categoria.id).lastInsertRowid
+    );
+    productoRecetaId = Number(
+      db
+        .prepare(
+          `INSERT INTO productos (nombre, precio, categoria_id, stock_directo, stock_mode, activo)
+           VALUES (?, 100000, ?, 0, 'direct', 1)`
+        )
+        .run(`${marca}_RECETA`, categoria.id).lastInsertRowid
+    );
+    insumoId = Number(
+      db
+        .prepare(
+          `INSERT INTO inventario_insumos
+           (nombre, unidad, stock_actual, stock_minimo, costo_unitario, activo)
+           VALUES (?, 'kg', 20, 1, 0, 1)`
+        )
+        .run(`${marca}_INSUMO`).lastInsertRowid
+    );
+
+    const stock = prepararAccion('proponer_stock_de_producto', {
+      producto: `${marca}_DIRECTO`,
+      cantidad: 3,
+      operacion: 'sumar',
+    });
+    assert.ok(!stock.error, stock.error);
+    assert.strictEqual(
+      db.prepare('SELECT stock_directo FROM productos WHERE id = ?').get(productoDirectoId)
+        .stock_directo,
+      5,
+      'preparar stock no debe escribir'
+    );
+    await ejecutarAccion(stock.accion, stock.argumentosResueltos);
+    assert.strictEqual(
+      db.prepare('SELECT stock_directo FROM productos WHERE id = ?').get(productoDirectoId)
+        .stock_directo,
+      8,
+      'confirmar stock debe sumar sobre el valor actual'
+    );
+
+    const receta = prepararAccion('proponer_receta_de_producto', {
+      producto: `${marca}_RECETA`,
+      ingredientes: [{ insumo: `${marca}_INSUMO`, cantidad: 0.25 }],
+    });
+    assert.ok(!receta.error, receta.error);
+    assert.strictEqual(
+      db
+        .prepare('SELECT COUNT(*) AS total FROM inventario_recetas WHERE producto_id = ?')
+        .get(productoRecetaId).total,
+      0,
+      'preparar receta no debe escribir'
+    );
+    await ejecutarAccion(receta.accion, receta.argumentosResueltos);
+    const recetaGuardada = db
+      .prepare(
+        `SELECT r.cantidad, p.stock_mode
+           FROM inventario_recetas r JOIN productos p ON p.id = r.producto_id
+          WHERE r.producto_id = ? AND r.insumo_id = ?`
+      )
+      .get(productoRecetaId, insumoId);
+    assert.strictEqual(recetaGuardada.cantidad, 0.25);
+    assert.strictEqual(recetaGuardada.stock_mode, 'recipe');
+
+    const plato = prepararAccion('proponer_nuevo_plato_menu_del_dia', {
+      nombre: `${marca}_MENU`,
+      descripcion: 'Plato temporal de prueba',
+      tipo: 'economico',
+      precio: 6500,
+      stock: 12,
+    });
+    assert.ok(!plato.error, plato.error);
+    await ejecutarAccion(plato.accion, plato.argumentosResueltos);
+    const menuGuardado = db
+      .prepare(
+        `SELECT id, precio, stock_directo, menu_dia_base, menu_dia_disponible_hoy
+           FROM productos WHERE nombre = ?`
+      )
+      .get(`${marca}_MENU`);
+    platoMenuId = menuGuardado.id;
+    assert.strictEqual(menuGuardado.precio, 650000);
+    assert.strictEqual(menuGuardado.stock_directo, 12);
+    assert.strictEqual(menuGuardado.menu_dia_base, 1);
+    assert.strictEqual(menuGuardado.menu_dia_disponible_hoy, 1);
+    console.log('  OK stock, receta y plato nuevo se ejecutan tras confirmar');
+  } finally {
+    [productoDirectoId, productoRecetaId, platoMenuId]
+      .filter(Boolean)
+      .forEach((id) => db.prepare('DELETE FROM productos WHERE id = ?').run(id));
+    if (insumoId) db.prepare('DELETE FROM inventario_insumos WHERE id = ?').run(insumoId);
+  }
+}
+
 function testAccionesDeReparacionIdentificadas() {
   const { esAccionReparacion } = require('../../services/asistenteAcciones');
 
@@ -452,7 +591,7 @@ function testLaListaDelClienteCoincide() {
   console.log('  OK la lista del cliente coincide con la del servidor');
 }
 
-function run() {
+async function run() {
   console.log('\nTests del asistente');
   testCentavos();
   testRangos();
@@ -466,6 +605,10 @@ function run() {
   testLaListaDelClienteCoincide();
   testFirmaDePropuestas();
   testAccionesNoEjecutanAlPrepararse();
+  testAccionesOperativasCompletas();
+  if (process.env.ISOLATED_OPERATIONAL_TEST === '1') {
+    await testAccionesOperativasEjecutan();
+  }
   testInstruccionesMencionanDiagnostico();
   testAccionesDeReparacionIdentificadas();
   testAccionesDeReparacionValidan();
@@ -473,4 +616,7 @@ function run() {
   console.log('Todos los tests del asistente pasaron');
 }
 
-run();
+run().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});

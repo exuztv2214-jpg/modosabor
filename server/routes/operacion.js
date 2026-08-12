@@ -950,32 +950,32 @@ router.put('/menu-dia/config', requirePermission('productos.edit'), (req, res) =
   res.json(loadMenuDiaSettings());
 });
 
-router.post('/menu-dia/nuevo', requirePermission('productos.edit'), (req, res) => {
+function createMenuDiaProduct(body = {}) {
   const fecha = today();
   const category = ensureMenuDiaCategory();
   const settings = loadMenuDiaSettings();
-  const nombre = String(req.body?.nombre || '').trim();
-  const descripcion = String(req.body?.descripcion || 'Menu del dia.').trim();
-  const tipo = req.body?.tipo === 'ejecutivo' ? 'ejecutivo' : 'economico';
+  const nombre = String(body?.nombre || '').trim();
+  const descripcion = String(body?.descripcion || 'Menu del dia.').trim();
+  const tipo = body?.tipo === 'ejecutivo' ? 'ejecutivo' : 'economico';
   const precioDefault = tipo === 'ejecutivo' ? settings.precioEjecutivo : settings.precioEconomico;
-  const precio = roundStock(Math.max(0, Number(req.body?.precio || precioDefault)));
-  const stock = roundStock(Math.max(0, Number(req.body?.stock_directo || 0)));
-  const tiempo = roundStock(Math.max(1, Number(req.body?.tiempo_preparacion || 15)));
+  const precio = roundStock(Math.max(0, Number(body?.precio || precioDefault)));
+  const stock = roundStock(Math.max(0, Number(body?.stock_directo || 0)));
+  const tiempo = roundStock(Math.max(1, Number(body?.tiempo_preparacion || 15)));
 
   // Guarniciones (variante obligatoria) y extras opcionales (postre / bebida+postre).
   // Todos vienen opcionales del UI para que crear un plato sin nada extra siga
   // funcionando exactamente igual que antes.
-  const guarniciones = Array.isArray(req.body?.guarniciones) ? req.body.guarniciones : [];
-  const ofrecePostre = Number(req.body?.ofrece_postre) === 1;
-  const ofreceBebidaPostre = Number(req.body?.ofrece_bebida_postre) === 1 && tipo === 'ejecutivo';
+  const guarniciones = Array.isArray(body?.guarniciones) ? body.guarniciones : [];
+  const ofrecePostre = Number(body?.ofrece_postre) === 1;
+  const ofreceBebidaPostre = Number(body?.ofrece_bebida_postre) === 1 && tipo === 'ejecutivo';
   const variantes = buildMenuDiaVariantes(guarniciones);
   const extras = buildMenuDiaExtras({ ofrecePostre, ofreceBebidaPostre }, settings);
 
   if (!nombre) {
-    return res.status(400).json({ error: 'Nombre requerido' });
+    throw new Error('Nombre requerido');
   }
   if (precio <= 0) {
-    return res.status(400).json({ error: 'Precio inválido' });
+    throw new Error('Precio inválido');
   }
 
   const result = db
@@ -1013,7 +1013,15 @@ router.post('/menu-dia/nuevo', requirePermission('productos.edit'), (req, res) =
   `
   ).run(fecha, result.lastInsertRowid, precio, stock, descripcion, Date.now());
 
-  res.json({ success: true, created, ...buildMenuDiaManagerPayload() });
+  return { success: true, created, ...buildMenuDiaManagerPayload() };
+}
+
+router.post('/menu-dia/nuevo', requirePermission('productos.edit'), (req, res) => {
+  try {
+    res.json(createMenuDiaProduct(req.body));
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
 });
 
 module.exports = router;
@@ -1028,3 +1036,4 @@ module.exports = router;
 */
 module.exports.persistMenuDiaItems = persistMenuDiaItems;
 module.exports.loadMenuDiaLibrary = loadMenuDiaLibrary;
+module.exports.createMenuDiaProduct = createMenuDiaProduct;

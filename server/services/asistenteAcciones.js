@@ -3,9 +3,15 @@ const marketingService = require('./marketingService');
 const {
   restoreInventoryForPedido,
   insertInventoryMovement,
+  registerManualStockAdjustment,
   roundStock,
+  CONDITION_TYPES,
 } = require('../utils/inventory');
-const { persistMenuDiaItems, loadMenuDiaLibrary } = require('../routes/operacion');
+const {
+  persistMenuDiaItems,
+  loadMenuDiaLibrary,
+  createMenuDiaProduct,
+} = require('../routes/operacion');
 const { registrarCompra } = require('../routes/compras');
 const { buildPedidoPayload, createPedidoWithInventory, hydratePedido } = require('./pedidoService');
 const { resolveInitialPagoEstado } = require('../utils/paymentStatus');
@@ -166,6 +172,153 @@ function ejecutarStock(argumentos) {
   return `Listo. ${insumo.nombre} quedó en ${nuevo} ${insumo.unidad}.`;
 }
 
+function prepararStockProducto(args = {}) {
+  const producto = buscarProducto(args.producto);
+  if (String(producto.stock_mode || 'direct') === 'recipe') {
+    throw new ErrorDeAccion(
+      `${producto.nombre} usa stock por receta. Ajustá sus insumos o cambiá la receta.`
+    );
+  }
+  const cantidad = roundStock(args.cantidad);
+  if (!Number.isFinite(cantidad) || cantidad <= 0) {
+    throw new ErrorDeAccion('La cantidad tiene que ser un número mayor que cero.');
+  }
+  const operacion = String(args.operacion || 'sumar').toLowerCase();
+  const actual = roundStock(producto.stock_directo || 0);
+  const nuevo =
+    operacion === 'fijar'
+      ? cantidad
+      : operacion === 'restar'
+        ? roundStock(actual - cantidad)
+        : roundStock(actual + cantidad);
+  if (nuevo < 0) {
+    throw new ErrorDeAccion(
+      `No puedo: ${producto.nombre} tiene ${actual} unidades y quedaría en negativo.`
+    );
+  }
+  return {
+    resumen: `Cambiar el stock directo de ${producto.nombre}: de ${actual} a ${nuevo} unidades.`,
+    detalles: [
+      { etiqueta: 'Producto', valor: producto.nombre },
+      { etiqueta: 'Stock actual', valor: `${actual} unidades` },
+      { etiqueta: 'Queda en', valor: `${nuevo} unidades` },
+      { etiqueta: 'Motivo', valor: String(args.motivo || 'Cargado desde el asistente') },
+    ],
+    argumentosResueltos: {
+      producto_id: producto.id,
+      nuevo,
+      motivo: String(args.motivo || 'Cargado desde el asistente'),
+    },
+  };
+}
+
+function ejecutarStockProducto(argumentos) {
+  const producto = db.prepare('SELECT * FROM productos WHERE id = ?').get(argumentos.producto_id);
+  if (!producto) throw new ErrorDeAccion('El producto ya no existe.');
+  if (String(producto.stock_mode || 'direct') === 'recipe') {
+    throw new ErrorDeAccion('El producto ahora usa stock por receta. Ajustá sus insumos.');
+  }
+  registerManualStockAdjustment(db, producto, argumentos.nuevo, argumentos.motivo);
+  return `Listo. ${producto.nombre} quedó en ${roundStock(argumentos.nuevo)} unidades.`;
+}
+
+// ── Recetas ────────────────────────────────────────────────────────────────
+
+function prepararReceta(args = {}) {
+  const producto = buscarProducto(args.producto);
+  const lineas = Array.isArray(args.ingredientes) ? args.ingredientes : [];
+  if (!lineas.length) {
+    throw new ErrorDeAccion('La receta necesita al menos un ingrediente.');
+  }
+
+  const resueltas = lineas.map((linea, orden) => {
+    const insumo = buscarInsumo(linea?.insumo);
+    const cantidad = roundStock(linea?.cantidad);
+    if (!Number.isFinite(cantidad) || cantidad <= 0) {
+      throw new ErrorDeAccion(`La cantidad de ${insumo.nombre} tiene que ser mayor que cero.`);
+    }
+    const condicionTipo = String(linea?.condicion_tipo || CONDITION_TYPES.ALWAYS).toLowerCase();
+    const condicionGrupo = String(linea?.condicion_grupo || '').trim();
+    const condicionValor = String(linea?.condicion_valor || '').trim();
+    if (!Object.values(CONDITION_TYPES).includes(condicionTipo)) {
+      throw new ErrorDeAccion(`La condición de ${insumo.nombre} no es válida.`);
+    }
+    if (condicionTipo === CONDITION_TYPES.VARIANT && (!condicionGrupo || !condicionValor)) {
+      throw new ErrorDeAccion(`Para la variante de ${insumo.nombre} faltan el grupo y la opción.`);
+    }
+    if (condicionTipo === CONDITION_TYPES.EXTRA && !condicionValor) {
+      throw new ErrorDeAccion(`Para el extra de ${insumo.nombre} falta el nombre del extra.`);
+    }
+    return {
+      insumo_id: insumo.id,
+      insumo_nombre: insumo.nombre,
+      unidad: insumo.unidad,
+      cantidad,
+      condicion_tipo: condicionTipo,
+      condicion_grupo: condicionGrupo,
+      condicion_valor: condicionValor,
+      orden,
+    };
+  });
+
+  return {
+    resumen: `Reemplazar la receta completa de ${producto.nombre} con ${resueltas.length} ingredientes.`,
+    detalles: resueltas.map((linea) => ({
+      etiqueta: linea.insumo_nombre,
+      valor: `${linea.cantidad} ${linea.unidad}${
+        linea.condicion_tipo === CONDITION_TYPES.ALWAYS
+          ? ''
+          : ` · ${linea.condicion_tipo}: ${linea.condicion_grupo || linea.condicion_valor}${
+              linea.condicion_grupo ? ` = ${linea.condicion_valor}` : ''
+            }`
+      }`,
+    })),
+    advertencia:
+      'Esta acción reemplaza toda la receta actual y cambia el producto a stock por receta.',
+    argumentosResueltos: {
+      producto_id: producto.id,
+      ingredientes: resueltas.map(({ insumo_nombre, unidad, ...linea }) => linea),
+    },
+  };
+}
+
+function ejecutarReceta(argumentos) {
+  const producto = db.prepare('SELECT * FROM productos WHERE id = ?').get(argumentos.producto_id);
+  if (!producto) throw new ErrorDeAccion('El producto ya no existe.');
+  const ingredientes = Array.isArray(argumentos.ingredientes) ? argumentos.ingredientes : [];
+  if (!ingredientes.length) throw new ErrorDeAccion('La receta quedó vacía.');
+
+  const guardar = db.transaction(() => {
+    const ids = ingredientes.map((linea) => Number(linea.insumo_id));
+    const existentes = db
+      .prepare(`SELECT id FROM inventario_insumos WHERE id IN (${ids.map(() => '?').join(',')})`)
+      .all(...ids);
+    if (new Set(existentes.map((fila) => Number(fila.id))).size !== new Set(ids).size) {
+      throw new ErrorDeAccion('Uno de los insumos ya no existe.');
+    }
+    db.prepare('DELETE FROM inventario_recetas WHERE producto_id = ?').run(producto.id);
+    const insertar = db.prepare(
+      `INSERT INTO inventario_recetas
+       (producto_id, insumo_id, cantidad, condicion_tipo, condicion_grupo, condicion_valor, orden)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    );
+    ingredientes.forEach((linea, orden) => {
+      insertar.run(
+        producto.id,
+        linea.insumo_id,
+        roundStock(linea.cantidad),
+        linea.condicion_tipo,
+        linea.condicion_grupo || '',
+        linea.condicion_valor || '',
+        Number(linea.orden ?? orden)
+      );
+    });
+    db.prepare("UPDATE productos SET stock_mode = 'recipe' WHERE id = ?").run(producto.id);
+  });
+  guardar();
+  return `Receta de ${producto.nombre} guardada con ${ingredientes.length} ingredientes.`;
+}
+
 // ── Promos ──────────────────────────────────────────────────────────────────
 
 const TIPOS_PROMO = {
@@ -253,12 +406,16 @@ function prepararMenuDia(args = {}) {
       id: producto.id,
       nombre: producto.nombre,
       precio: precioPesos > 0 ? aCentavos(precioPesos) : producto.precio,
+      stock: roundStock(plato?.stock ?? args.stock ?? producto.stock_directo ?? 0),
     };
   });
 
   return {
     resumen: `Armar el menú de hoy con ${resueltos.length} ${resueltos.length === 1 ? 'plato' : 'platos'}.`,
-    detalles: resueltos.map((p) => ({ etiqueta: p.nombre, valor: pesos(p.precio) })),
+    detalles: resueltos.map((p) => ({
+      etiqueta: p.nombre,
+      valor: `${pesos(p.precio)} · stock ${p.stock}`,
+    })),
     advertencia:
       'Los platos que no estén en esta lista quedan fuera del menú de hoy. Si querías sumar uno a los que ya había, decímelos todos juntos.',
     argumentosResueltos: { platos: resueltos },
@@ -270,10 +427,72 @@ function ejecutarMenuDia(argumentos) {
     id: p.id,
     disponible_hoy: 1,
     precio_hoy: p.precio,
+    stock_hoy: p.stock,
     orden_hoy: indice,
   }));
   persistMenuDiaItems(items);
   return `Menú del día armado con ${items.length} ${items.length === 1 ? 'plato' : 'platos'}.`;
+}
+
+function prepararNuevoPlatoMenuDia(args = {}) {
+  const nombre = String(args.nombre || '').trim();
+  if (!nombre) throw new ErrorDeAccion('Decime el nombre del plato.');
+  const duplicado = loadMenuDiaLibrary().find(
+    (plato) =>
+      String(plato.nombre || '')
+        .trim()
+        .toLowerCase() === nombre.toLowerCase()
+  );
+  if (duplicado) {
+    throw new ErrorDeAccion(
+      `${duplicado.nombre} ya existe en la biblioteca. Usá la acción de armar el menú para activarlo.`
+    );
+  }
+  const precio = Number(args.precio || 0);
+  const stock = roundStock(args.stock || 0);
+  if (!Number.isFinite(precio) || precio <= 0) {
+    throw new ErrorDeAccion('El plato necesita un precio mayor que cero.');
+  }
+  if (!Number.isFinite(stock) || stock < 0) {
+    throw new ErrorDeAccion('El stock no puede ser negativo.');
+  }
+  const tipo = args.tipo === 'ejecutivo' ? 'ejecutivo' : 'economico';
+  const guarniciones = Array.isArray(args.guarniciones)
+    ? args.guarniciones.map((item) => String(item || '').trim()).filter(Boolean)
+    : [];
+  return {
+    resumen: `Crear y activar ${nombre} en el menú del día.`,
+    detalles: [
+      { etiqueta: 'Plato', valor: nombre },
+      { etiqueta: 'Tipo', valor: tipo },
+      { etiqueta: 'Precio', valor: `$${precio.toLocaleString('es-AR')}` },
+      { etiqueta: 'Stock inicial', valor: String(stock) },
+      { etiqueta: 'Guarniciones', valor: guarniciones.join(', ') || 'Sin guarniciones' },
+    ],
+    argumentosResueltos: {
+      nombre,
+      descripcion: String(args.descripcion || 'Menú del día.').trim(),
+      tipo,
+      precio: aCentavos(precio),
+      stock_directo: stock,
+      tiempo_preparacion: Math.max(1, Number(args.tiempo_preparacion || 15)),
+      guarniciones,
+      ofrece_postre: args.ofrece_postre === true ? 1 : 0,
+      ofrece_bebida_postre: args.ofrece_bebida_postre === true ? 1 : 0,
+    },
+  };
+}
+
+function ejecutarNuevoPlatoMenuDia(argumentos) {
+  let resultado;
+  try {
+    resultado = createMenuDiaProduct(argumentos);
+  } catch (error) {
+    throw new ErrorDeAccion(String(error?.message || 'No se pudo crear el plato.'));
+  }
+  return `${resultado.created.nombre} fue creado y quedó activo en el menú del día con stock ${roundStock(
+    resultado.created.stock_directo
+  )}.`;
 }
 
 // ── Compras ─────────────────────────────────────────────────────────────────
@@ -345,7 +564,8 @@ function ejecutarCompra(argumentos, contexto = {}) {
 const ORIGEN_ASISTENTE = 'whatsapp';
 
 function armarCuerpoDePedido(args = {}, itemsResueltos) {
-  const tipoEntrega = String(args.tipo_entrega || 'delivery').toLowerCase();
+  const solicitado = String(args.tipo_entrega || 'delivery').toLowerCase();
+  const tipoEntrega = solicitado === 'retira' || solicitado === 'retiro' ? 'retiro' : 'delivery';
   return {
     origen: ORIGEN_ASISTENTE,
     tipo_entrega: tipoEntrega,
@@ -370,7 +590,8 @@ async function prepararPedido(args = {}) {
   const nombre = String(args.cliente_nombre || '').trim();
   if (!nombre) throw new ErrorDeAccion('Decime a nombre de quién va el pedido.');
 
-  const tipoEntrega = String(args.tipo_entrega || 'delivery').toLowerCase();
+  const solicitado = String(args.tipo_entrega || 'delivery').toLowerCase();
+  const tipoEntrega = solicitado === 'retira' || solicitado === 'retiro' ? 'retiro' : 'delivery';
   if (tipoEntrega === 'delivery' && !String(args.direccion || '').trim()) {
     throw new ErrorDeAccion('Para un delivery necesito la dirección.');
   }
@@ -633,6 +854,57 @@ const ACCIONES = [
     ejecutar: ejecutarStock,
   },
   {
+    nombre: 'proponer_stock_de_producto',
+    descripcion:
+      'Cambiar el stock directo de un producto terminado. Usala para productos con stock directo; si usa receta, hay que ajustar sus insumos.',
+    parametros: {
+      type: 'object',
+      properties: {
+        producto: { type: 'string', description: 'Nombre exacto o suficientemente claro.' },
+        cantidad: { type: 'number', description: 'Cantidad positiva.' },
+        operacion: { type: 'string', enum: ['sumar', 'restar', 'fijar'] },
+        motivo: { type: 'string' },
+      },
+      required: ['producto', 'cantidad'],
+    },
+    preparar: prepararStockProducto,
+    ejecutar: ejecutarStockProducto,
+  },
+  {
+    nombre: 'proponer_receta_de_producto',
+    descripcion:
+      'Crear o reemplazar la receta completa de un producto usando insumos existentes. Cada cantidad usa la unidad del insumo. Puede ser siempre, variante o extra.',
+    parametros: {
+      type: 'object',
+      properties: {
+        producto: { type: 'string' },
+        ingredientes: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              insumo: { type: 'string' },
+              cantidad: { type: 'number' },
+              condicion_tipo: { type: 'string', enum: ['siempre', 'variante', 'extra'] },
+              condicion_grupo: {
+                type: 'string',
+                description: 'Grupo de variante, por ejemplo Presentación.',
+              },
+              condicion_valor: {
+                type: 'string',
+                description: 'Opción de variante o nombre del extra.',
+              },
+            },
+            required: ['insumo', 'cantidad'],
+          },
+        },
+      },
+      required: ['producto', 'ingredientes'],
+    },
+    preparar: prepararReceta,
+    ejecutar: ejecutarReceta,
+  },
+  {
     nombre: 'proponer_promo',
     descripcion:
       'Crear una promoción. El valor va en porcentaje si el tipo es "porcentaje", y en pesos si es "descuento_fijo". Las fechas en formato AAAA-MM-DD.',
@@ -677,6 +949,7 @@ const ACCIONES = [
             properties: {
               nombre: { type: 'string' },
               precio: { type: 'number', description: 'En pesos. Opcional.' },
+              stock: { type: 'number', description: 'Stock disponible para hoy. Opcional.' },
             },
             required: ['nombre'],
           },
@@ -685,11 +958,34 @@ const ACCIONES = [
           type: 'number',
           description: 'Precio en pesos para todos los platos que no traigan uno propio.',
         },
+        stock: { type: 'number', description: 'Stock común para los platos que no indiquen uno.' },
       },
       required: ['platos'],
     },
     preparar: prepararMenuDia,
     ejecutar: ejecutarMenuDia,
+  },
+  {
+    nombre: 'proponer_nuevo_plato_menu_del_dia',
+    descripcion:
+      'Crear un plato nuevo en la biblioteca del menú del día y dejarlo activo hoy. Usar solo si el plato todavía no existe.',
+    parametros: {
+      type: 'object',
+      properties: {
+        nombre: { type: 'string' },
+        descripcion: { type: 'string' },
+        tipo: { type: 'string', enum: ['economico', 'ejecutivo'] },
+        precio: { type: 'number', description: 'Precio en pesos.' },
+        stock: { type: 'number', description: 'Unidades disponibles hoy.' },
+        tiempo_preparacion: { type: 'number', description: 'Minutos.' },
+        guarniciones: { type: 'array', items: { type: 'string' } },
+        ofrece_postre: { type: 'boolean' },
+        ofrece_bebida_postre: { type: 'boolean' },
+      },
+      required: ['nombre', 'precio', 'stock'],
+    },
+    preparar: prepararNuevoPlatoMenuDia,
+    ejecutar: ejecutarNuevoPlatoMenuDia,
   },
   {
     nombre: 'proponer_compra',
@@ -728,7 +1024,7 @@ const ACCIONES = [
       properties: {
         cliente_nombre: { type: 'string' },
         cliente_telefono: { type: 'string' },
-        tipo_entrega: { type: 'string', enum: ['delivery', 'retira'] },
+        tipo_entrega: { type: 'string', enum: ['delivery', 'retiro'] },
         direccion: { type: 'string', description: 'Obligatoria si es delivery.' },
         metodo_pago: { type: 'string', description: 'efectivo, transferencia, mercadopago...' },
         notas: { type: 'string', description: 'Aclaraciones para la cocina.' },
@@ -838,7 +1134,18 @@ function prepararAccion(nombre, args = {}) {
   const accion = ACCIONES.find((a) => a.nombre === nombre);
   if (!accion) return { error: `No existe la acción "${nombre}".` };
   try {
-    return { ...accion.preparar(args || {}), accion: nombre };
+    const preparada = accion.preparar(args || {});
+    if (preparada && typeof preparada.then === 'function') {
+      return preparada
+        .then((resultado) => ({ ...resultado, accion: nombre }))
+        .catch((error) => ({
+          error:
+            error instanceof ErrorDeAccion
+              ? error.message
+              : `No pude preparar el cambio: ${String(error?.message || error).slice(0, 200)}`,
+        }));
+    }
+    return { ...preparada, accion: nombre };
   } catch (error) {
     if (error instanceof ErrorDeAccion) return { error: error.message };
     return {

@@ -11,6 +11,7 @@
     "verify:mozo": "node scripts/verify-isolated.js scripts/verify-mozo.js",
     "verify:operacion": "node scripts/verify-isolated.js scripts/verify-operacion.js",
     "verify:whatsapp": "node scripts/verify-isolated.js scripts/verify-whatsapp-agent.js",
+    "verify:asistente": "node scripts/verify-isolated.js tests/utils/asistente.test.js",
     "verify:backup": "node scripts/verify-backup-restore.js",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",

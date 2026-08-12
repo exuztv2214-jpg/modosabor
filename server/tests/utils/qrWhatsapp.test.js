@@ -75,16 +75,17 @@ function run() {
       console.log('  ✓ los dos endpoints dibujan el QR y borran el código crudo');
 
       // ── 3. La pantalla no se lo pasa a nadie ────────────────────────────────
-      const pantalla = fs.readFileSync(
-        path.join(__dirname, '../../../client/src/pages/Marketing/MarketingWhatsapp.jsx'),
-        'utf8'
-      );
+      const pantallas = [
+        '../../../client/src/pages/Marketing/MarketingWhatsapp.jsx',
+        '../../../client/src/components/Configuracion/SeccionWhatsapp.jsx',
+      ].map((rutaPantalla) => fs.readFileSync(path.join(__dirname, rutaPantalla), 'utf8'));
       //
       // Se sacan los comentarios antes de buscar. El primer intento filtraba
       // las líneas que empezaban con `*`, y falló contra su propio caso: el
       // comentario que explica por qué se sacó qrserver está dentro de un
       // bloque JSX, donde las líneas no llevan asterisco. Un test que confunde
       // una explicación con el problema que explica no sirve para nada.
+      const pantalla = pantallas.join('\n');
       const sinComentarios = pantalla.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
       const enCodigo = sinComentarios.split('\n').filter((l) => l.includes('qrserver'));
       assert.strictEqual(
@@ -93,7 +94,7 @@ function run() {
         `la pantalla volvió a mandarle el código a un servicio ajeno:\n${enCodigo.join('\n')}`
       );
       assert.ok(
-        pantalla.includes('src={qrImagen}'),
+        pantalla.includes('src={qrImagen}') || pantalla.includes('src={wa.qrImagen}'),
         'la pantalla dejó de usar la imagen del propio servidor'
       );
       console.log('  ✓ la pantalla usa la imagen propia, sin servicios de afuera\n');

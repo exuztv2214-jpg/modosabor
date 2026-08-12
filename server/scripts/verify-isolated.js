@@ -80,6 +80,7 @@ async function main() {
       UPLOADS_DIR: path.join(tempDir, 'uploads'),
       BACKUPS_DIR: path.join(tempDir, 'backups'),
       NODE_ENV: 'test',
+      ISOLATED_OPERATIONAL_TEST: '1',
     };
     api = spawn(process.execPath, ['index.js'], {
       cwd: path.join(__dirname, '..'),
