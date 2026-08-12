@@ -3,7 +3,7 @@ const globals = require('globals');
 const importPlugin = require('eslint-plugin-import');
 
 module.exports = [
-  { ignores: ['node_modules', 'data', 'uploads', 'backups', 'dist'] },
+  { ignores: ['node_modules', '.venv-whisper', 'data', 'uploads', 'backups', 'dist'] },
   {
     files: ['**/*.js'],
     languageOptions: {

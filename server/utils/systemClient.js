@@ -4,6 +4,7 @@ const { quoteDelivery, parseZones } = require('./deliveryZones');
 const { decorateProductsWithInventory } = require('./inventory');
 const { resolveInitialPagoEstado } = require('./paymentStatus');
 const { loadPedidoItems } = require('./pedidoItems');
+const { getCurrentShiftInfo } = require('./shifts');
 const {
   buildPedidoPayload,
   createPedidoWithInventory,
@@ -181,6 +182,10 @@ function getProducts(db, options = {}) {
   if (options.categoryId) {
     query += ' AND p.categoria_id = ?';
     params.push(Number(options.categoryId));
+  }
+
+  if (options.excludeMenuDia) {
+    query += ' AND COALESCE(p.menu_dia_base, 0) = 0';
   }
 
   query += ' ORDER BY p.destacado DESC, c.orden ASC, p.nombre ASC';
@@ -729,6 +734,34 @@ function resolveSelectionsFromText(db, product, query) {
       return;
     }
 
+    // En Modo Sabor "una pizza" significa una pizza ENTERA con cremoso.
+    // Media o muzza son excepciones que el cliente debe pedir expresamente.
+    // Resolverlo aca evita que el modelo pregunte algo que el negocio no
+    // pregunta y, sobre todo, hace que el precio se calcule con la variante
+    // correcta aunque el proveedor de IA cambie.
+    if (detectProductType(product) === 'pizza') {
+      const options = parseJsonArray(group?.opciones);
+      const wantsHalf = /\b(media|mitad)\b/.test(normalizedQuery);
+      const wantsMuzza = /\b(muzza|muzzarella|muzzarela|mozzarella|mozza|muzarela)\b/.test(
+        normalizedQuery
+      );
+      const preferredName = `${wantsHalf ? 'Media' : 'Entera'} ${wantsMuzza ? 'Muzza' : 'Cremoso'}`;
+      const defaultOption =
+        options.find((option) => normalizeText(option?.nombre) === normalizeText(preferredName)) ||
+        options.find(
+          (option) =>
+            normalizeText(option?.nombre).includes(wantsHalf ? 'media' : 'entera') &&
+            (!wantsMuzza || normalizeText(option?.nombre).includes('muzza'))
+        );
+      if (defaultOption) {
+        selectedVariants[group.nombre] = {
+          nombre: defaultOption.nombre,
+          precio_extra: Number(defaultOption.precio_extra || 0),
+        };
+        return;
+      }
+    }
+
     if (parseJsonArray(group?.opciones).length > 1) {
       missingGroups.push({
         grupo: group?.nombre || '',
@@ -822,6 +855,17 @@ function quoteProduct(db, query) {
     };
   }
 
+  if (Number(product.menu_dia_base || 0) === 1) {
+    const shift = getCurrentShiftInfo(getConfigMap(db));
+    if (!shift.abierto_ahora || shift.turno_actual?.id !== 'manana') {
+      return {
+        status: 'unavailable',
+        product: summarizeProduct(product),
+        message: 'El menú del día se vende solamente durante el turno de la mañana.',
+      };
+    }
+  }
+
   if (!product.disponible_para_venta) {
     return {
       status: 'unavailable',
@@ -888,6 +932,18 @@ function quoteProduct(db, query) {
       flavorCounts: selection.normalizedFlavorCounts,
       nota: '',
     }),
+    // Bloque listo para copiar en crear_pedido. Evita que el modelo pierda
+    // la variante que acaba de cotizar entre un mensaje y la confirmación.
+    order_item: {
+      producto_id: product.id,
+      cantidad: 1,
+      variantes: selection.selectedVariants,
+      extras: selection.selectedExtras,
+      mitad_sabores: selection.normalizedMitades,
+      sabores: selection.normalizedSabores,
+      sabores_cantidades: selection.normalizedFlavorCounts,
+      seleccion_texto: cleanText(query),
+    },
   };
 }
 
@@ -903,17 +959,49 @@ function buildProductPreview(product) {
     })
     .filter(Boolean);
 
+  let displayPrice = Number(product.precio || 0);
+  let priceLabel = 'Precio';
+  if (detectProductType(product) === 'pizza') {
+    const presentation = variantGroups.find((group) =>
+      normalizeText(group?.nombre).includes('presentacion')
+    );
+    const wholeCream = parseJsonArray(presentation?.opciones).find(
+      (option) => normalizeText(option?.nombre) === 'entera cremoso'
+    );
+    if (wholeCream) {
+      displayPrice += Number(wholeCream.precio_extra || 0);
+      priceLabel = 'Entera con cremoso';
+    }
+  }
+
   return {
     id: product.id,
     nombre: product.nombre,
     categoria: product.categoria_nombre || '',
-    precio_desde: Number(product.precio || 0),
-    precio_desde_texto: formatMoney(product.precio || 0),
+    precio_desde: displayPrice,
+    precio_desde_texto: formatMoney(displayPrice),
+    precio_referencia: priceLabel,
     descripcion: product.descripcion || '',
     disponible_para_venta: product.disponible_para_venta,
     stock_disponible: Number(product.stock_disponible || 0),
     opciones: optionsSummary,
   };
+}
+
+function getMenuDiaToday(db) {
+  const rows = db
+    .prepare(
+      `SELECT p.*, c.nombre AS categoria_nombre
+         FROM productos p
+         LEFT JOIN categorias c ON c.id = p.categoria_id
+        WHERE p.activo = 1
+          AND COALESCE(p.menu_dia_disponible_hoy, 0) = 1
+        ORDER BY p.destacado DESC, p.nombre ASC`
+    )
+    .all();
+  return decorateProducts(db, rows)
+    .filter((product) => product.disponible_para_venta)
+    .map(buildProductPreview);
 }
 
 function getMenuOverview(db, options = {}) {
@@ -935,6 +1023,7 @@ function getMenuOverview(db, options = {}) {
       activeOnly: true,
       categoryId: categoryMatch.category.id,
       sellableOnly: true,
+      excludeMenuDia: true,
     }).map(buildProductPreview);
 
     return {
@@ -951,6 +1040,7 @@ function getMenuOverview(db, options = {}) {
       activeOnly: true,
       categoryId: category.id,
       sellableOnly: true,
+      excludeMenuDia: true,
       limit: limitPerCategory,
     }).map(buildProductPreview),
   }));
@@ -1116,8 +1206,26 @@ function enrichOrderItemsWithCatalog(db, items = []) {
     }
 
     const quantity = Math.max(1, Number(item?.cantidad || 1));
+    let variants = item?.variantes || {};
+    let extras = item?.extras || [];
+    const selectionText = cleanText(
+      item?.seleccion_texto || item?.descripcion || item?.nombre || ''
+    );
+    if (product && Object.keys(variants).length === 0 && selectionText) {
+      const selection = resolveSelectionsFromText(db, product, selectionText);
+      if (selection.missingGroups.length === 0) {
+        variants = selection.selectedVariants;
+        extras = selection.selectedExtras;
+      }
+    }
+    const variantsForOrder = Object.fromEntries(
+      Object.entries(variants).map(([groupName, selected]) => [
+        groupName,
+        typeof selected === 'string' ? selected : selected?.nombre || '',
+      ])
+    );
     const unitPrice = product
-      ? resolvePriceFromCatalog(product, item?.variantes, item?.extras)
+      ? resolvePriceFromCatalog(product, variants, extras)
       : Number(item?.precio_unitario ?? 0);
     if (!Number.isFinite(unitPrice) || unitPrice <= 0) {
       throw new Error(
@@ -1131,8 +1239,8 @@ function enrichOrderItemsWithCatalog(db, items = []) {
       nombre: cleanText(item?.nombre || product?.nombre),
       cantidad: quantity,
       precio_unitario: unitPrice,
-      variantes: item?.variantes || {},
-      extras: item?.extras || [],
+      variantes: variantsForOrder,
+      extras,
       descripcion: cleanText(item?.descripcion || ''),
     };
   });
@@ -1140,13 +1248,34 @@ function enrichOrderItemsWithCatalog(db, items = []) {
 
 async function createRealOrder(db, body = {}) {
   const existingCustomer = findClienteByPhone(db, body.cliente_telefono || '');
+  const enrichedItems = enrichOrderItemsWithCatalog(db, body.items || []);
+  const menuDiaIds = enrichedItems
+    .map((item) => Number(item.producto_id || 0))
+    .filter(Boolean)
+    .filter((productId) => {
+      const row = db.prepare('SELECT menu_dia_base FROM productos WHERE id = ?').get(productId);
+      return Number(row?.menu_dia_base || 0) === 1;
+    });
+  if (menuDiaIds.length > 0) {
+    const shift = getCurrentShiftInfo(getConfigMap(db));
+    if (!shift.abierto_ahora || shift.turno_actual?.id !== 'manana') {
+      throw new Error('El menú del día solo puede cargarse durante el turno de la mañana');
+    }
+  }
   const normalizedBody = {
     ...body,
     cliente_nombre: cleanText(body.cliente_nombre || existingCustomer?.nombre || ''),
     cliente_telefono: cleanText(existingCustomer?.telefono || body.cliente_telefono || ''),
     cliente_direccion: cleanText(body.cliente_direccion || ''),
-    items: enrichOrderItemsWithCatalog(db, body.items || []),
+    items: enrichedItems,
     origen: cleanText(body.origen || 'whatsapp') || 'whatsapp',
+    // La atencion por WhatsApp es delivery y pago al recibir. Retiro y
+    // transferencia solo se conservan cuando el cliente los pidio de forma
+    // explicita y el agente los incluyo.
+    tipo_entrega: normalizeText(body.tipo_entrega) === 'retiro' ? 'retiro' : 'delivery',
+    metodo_pago: normalizeText(body.metodo_pago).includes('transfer')
+      ? 'transferencia'
+      : 'efectivo',
   };
 
   const payload = await buildPedidoPayload(normalizedBody, { config: getConfigMap(db) });
@@ -1174,6 +1303,7 @@ module.exports = {
   getProductById,
   getProductOptionsDetail,
   getMenuOverview,
+  getMenuDiaToday,
   searchProducts,
   findProductMatch,
   findCategoryMatch,

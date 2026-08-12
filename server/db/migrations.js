@@ -132,6 +132,11 @@ function runMigrations(db) {
       ON pedidos(mozo_usuario_id, idempotency_key)
       WHERE mozo_usuario_id IS NOT NULL AND idempotency_key <> ''
   `);
+  db.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_pedidos_whatsapp_idempotency
+    ON pedidos(idempotency_key)
+    WHERE origen = 'whatsapp' AND idempotency_key <> ''
+  `);
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS mesas_asignaciones (
@@ -179,6 +184,7 @@ function runMigrations(db) {
   ensureColumn(db, 'whatsapp_pedidos_borrador', 'marketing_campaign', "TEXT DEFAULT ''");
   ensureColumn(db, 'whatsapp_pedidos_borrador', 'marketing_content', "TEXT DEFAULT ''");
   ensureColumn(db, 'whatsapp_conversaciones', 'bot_silenciado', 'INTEGER DEFAULT 0');
+  ensureColumn(db, 'whatsapp_conversaciones', 'bot_silenciado_hasta', 'DATETIME');
   ensureColumn(db, 'whatsapp_conversaciones', 'marketing_campana_id', 'INTEGER');
   ensureColumn(db, 'whatsapp_conversaciones', 'marketing_promo_id', 'INTEGER');
   ensureColumn(db, 'whatsapp_conversaciones', 'marketing_origen', "TEXT DEFAULT ''");
@@ -870,6 +876,30 @@ function runMigrations(db) {
     }
   } catch (e) {
     logger.error('Error al normalizar turnos operativos por defecto', { message: e.message });
+  }
+
+  // Agosto 2026: el local extendió el turno noche hasta las 02:00. Solo se
+  // migra el horario anterior exacto; cualquier horario personalizado del
+  // dueño se conserva intacto.
+  try {
+    const row = db.prepare("SELECT valor FROM configuracion WHERE clave = 'turnos_negocio'").get();
+    const turnos = JSON.parse(row?.valor || '[]');
+    let changed = false;
+    if (Array.isArray(turnos)) {
+      turnos.forEach((turno) => {
+        if (turno?.id === 'noche' && turno?.desde === '20:30' && turno?.hasta === '01:30') {
+          turno.hasta = '02:00';
+          changed = true;
+        }
+      });
+    }
+    if (changed) {
+      db.prepare("UPDATE configuracion SET valor = ? WHERE clave = 'turnos_negocio'").run(
+        JSON.stringify(turnos)
+      );
+    }
+  } catch (e) {
+    logger.error('Error al extender el turno nocturno', { message: e.message });
   }
 
   // Eliminar claves de configuración obsoletas

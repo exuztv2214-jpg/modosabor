@@ -13,8 +13,6 @@ $items = @(
   "server\uploads",
   "deploy",
   "agente-whatsapp",
-  "Iniciar_WhatsApp_Copiloto.bat",
-  "Instalar_WhatsApp_Copiloto_Inicio_Windows.bat",
   "package.json",
   "package-lock.json",
   "server\package.json",

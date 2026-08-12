@@ -10,7 +10,10 @@
     "smoke": "npm --prefix server run smoke",
     "verify:core": "npm --prefix server run verify:core",
     "verify:operacion": "npm --prefix server run verify:operacion",
+    "verify:whatsapp": "npm --prefix server run verify:whatsapp",
     "verify:backup": "npm --prefix server run verify:backup",
+    "whatsapp:analizar-historial": "node agente-whatsapp/analizar-historial.js",
+    "whatsapp:aplicar-entrenamiento": "node agente-whatsapp/aplicar-entrenamiento.js",
     "build": "npm --prefix client run build",
     "native:build": "npm --prefix client run build:native",
     "native:android:debug": "powershell -ExecutionPolicy Bypass -File ./deploy/build-rider-apk.ps1",
@@ -22,8 +25,6 @@
     "lint:fix": "npm run lint:client -- --fix && npm run lint:server -- --fix",
     "format": "prettier --write \"**/*.{js,jsx,json,md,css}\"",
     "format:check": "prettier --check \"**/*.{js,jsx,json,md,css}\"",
-    "whatsapp:bridge:install": "npm --prefix agente-whatsapp/puente-web install",
-    "whatsapp:bridge": "npm --prefix agente-whatsapp/puente-web start",
     "prepare": "husky"
   },
   "devDependencies": {

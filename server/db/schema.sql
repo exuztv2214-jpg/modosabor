@@ -364,6 +364,7 @@ CREATE TABLE IF NOT EXISTS whatsapp_conversaciones (
   ultimo_contexto TEXT DEFAULT '',
   escalado_humano INTEGER DEFAULT 0,
   bot_silenciado INTEGER DEFAULT 0,
+  bot_silenciado_hasta DATETIME,
   ultimo_mensaje_en DATETIME,
   ultima_respuesta_en DATETIME,
   creado_en DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -469,6 +470,9 @@ CREATE TABLE IF NOT EXISTS mesa_reservas (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_pedidos_mozo_idempotency
   ON pedidos(mozo_usuario_id, idempotency_key)
   WHERE mozo_usuario_id IS NOT NULL AND idempotency_key <> '';
+CREATE UNIQUE INDEX IF NOT EXISTS idx_pedidos_whatsapp_idempotency
+  ON pedidos(idempotency_key)
+  WHERE origen = 'whatsapp' AND idempotency_key <> '';
 
 -- Una mesa puede tener muchas comandas, pero la operación se asigna a un
 -- único mozo mientras esté abierta. Evita cargas simultáneas sin contexto.

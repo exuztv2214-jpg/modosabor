@@ -1,6 +1,10 @@
 node_modules/
 client/node_modules/
 server/node_modules/
+server/.venv-whisper/
+server/whisper-models/
+agente-whatsapp/n8n/*.export.json
+agente-whatsapp/n8n/*.generated.json
 client/dist/
 server/data/
 server/backups/
@@ -38,10 +42,9 @@ deploy/railway-cookies.txt
 deploy/railway-vars.bat
 server/scripts/reset-admin-password.*
 test-tracking-result.json
-agente-whatsapp/puente-web/.wwebjs_auth/
-agente-whatsapp/puente-web/.wwebjs_cache/
-agente-whatsapp/puente-web/data/*.log
-agente-whatsapp/puente-web/data/history.json
+agente-whatsapp/n8n/*.generated.json
+agente-whatsapp/n8n/*.export.json
+agente-whatsapp/n8n/n8n-debug.sqlite*
 DProyectos*/
 # Archivos de configuración local de Claude Code (contienen credenciales y comandos sensibles)
 .claude/settings.local.json

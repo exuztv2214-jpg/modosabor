@@ -65,7 +65,7 @@ export default function GlobalOrderAlerts() {
     const intentarImpresionAutomatica = async (pedido) => {
       if (!pedido?.id) return;
       const origen = String(pedido.origen || '').toLowerCase();
-      const esWeb = origen === 'web';
+      const esWeb = origen === 'web' || origen === 'whatsapp';
       const esTpv = origen === 'tpv' || origen === 'interno';
       const permitida =
         (esWeb && String(config?.impresion_auto_web) === '1') ||

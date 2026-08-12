@@ -16,7 +16,7 @@ Proyecto monolítico **Node.js + Express (backend)** + **React 18 + Vite (fronte
 - **Acción:** Rotar el password de producción INMEDIATAMENTE, mover el comando a un gestor de secretos (Railway Variables / 1Password / Vault) y eliminar el comando del archivo de permisos.
 
 ### 1.2 API Key de MercadoPago / Agente expuesta en `.env`
-- **Ubicación:** `server/.env: AGENT_API_KEY=ms_agent_7f3a1c9e2b6d4f8081a5c3e7b9d2f4a6`
+- **Ubicación:** `server/.env: AGENT_API_KEY=[valor omitido]`
 - **Hallazgo:** El `.env` contiene un `AGENT_API_KEY` real en texto plano. El archivo está en `.gitignore`, pero si alguien filtra el repo, los secrets locales no están protegidos por git.
 - **Riesgo:** Acceso no autorizado a `/api/agente/*` si el key se filtra.
 - **Acción:** Inyectar `AGENT_API_KEY` solo por variables de entorno del host (Railway/Render/Docker), nunca commitear ni dejar en `.env` local con valor real.

@@ -11,6 +11,7 @@ import {
   calculatePedidoSummary,
   createDeliveryQuoteState,
   createEmptyCustomer,
+  getDefaultVariantSelection,
   getTpvSubmitError,
   normalizeText,
   safeParseArray,
@@ -1316,7 +1317,14 @@ export default function TPV() {
     // frenar la venta rápida; el extra (o una nota tipo "sin aceituna") se puede
     // sumar aparte tocando "+ opciones", que ahora siempre está disponible.
     if (variantes.length > 0 || extras.length > 0 || forceOptions) {
-      setVariantModal({ producto, variantes, extras, sel: {}, extrasSel: [], notas: '' });
+      setVariantModal({
+        producto,
+        variantes,
+        extras,
+        sel: getDefaultVariantSelection(producto),
+        extrasSel: [],
+        notas: '',
+      });
       return;
     }
 

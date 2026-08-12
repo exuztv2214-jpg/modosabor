@@ -301,7 +301,7 @@ export default function Pedidos() {
     }
 
     const unsubscribeNuevo = socketManager.on('nuevo_pedido', (p) => {
-      const remoteOrder = p.origen === 'web';
+      const remoteOrder = ['web', 'whatsapp'].includes(String(p.origen || '').toLowerCase());
       setPedidos((prev) => [p, ...prev]);
       if (claimAlertKey(`nuevo:${p.id}`)) {
         runOrderAlert({

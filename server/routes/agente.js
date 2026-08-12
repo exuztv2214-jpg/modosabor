@@ -1,12 +1,16 @@
 const express = require('express');
 const router = express.Router();
+const { normalizeAgentOrderPayload } = require('../utils/agentOrderPayload');
 const db = require('../db');
 const { createRateLimiter, createSqliteRateLimitStore } = require('../utils/rateLimit');
 const { getConfigMap } = require('../utils/mercadoPago');
 const { getCurrentShiftInfo } = require('../utils/shifts');
+const { buildAgentTraining } = require('../services/whatsappAgentTraining');
 const { logAudit } = require('../utils/audit');
+const { emitNuevoPedido } = require('../utils/socketRooms');
 const {
   getMenuOverview,
+  getMenuDiaToday,
   getProductOptionsDetail,
   quoteProduct,
   getDeliveryInfo,
@@ -14,7 +18,6 @@ const {
   createRealOrder,
   getBusinessInfo,
 } = require('../utils/systemClient');
-const { createDraftFromCopilot } = require('../services/whatsappCopilotoService');
 
 // ============================================
 // API para el agente de WhatsApp (n8n)
@@ -62,6 +65,16 @@ router.get('/estado', (req, res) => {
       negocio: getBusinessInfo(db),
       abierto_ahora: shift.abierto_ahora,
       turno_actual: shift.turno_actual,
+      horarios: shift.turnos.map((turno) => ({
+        id: turno.id,
+        nombre: turno.nombre,
+        desde: turno.desde,
+        hasta: turno.hasta,
+      })),
+      horarios_texto: shift.turnos
+        .map((turno) => `${turno.nombre}: ${turno.desde} a ${turno.hasta}`)
+        .join(' · '),
+      atencion: buildAgentTraining(config, shift.turno_actual),
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -76,6 +89,27 @@ router.get('/menu', (req, res) => {
       limitPerCategory: req.query.limite ? Number(req.query.limite) : undefined,
     });
     res.json(data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /api/agente/menu-dia — solamente lo disponible hoy y solamente durante
+// el turno de la manana. La carta comun sigue disponible en ambos turnos.
+router.get('/menu-dia', (req, res) => {
+  try {
+    const config = getConfigMap(db);
+    const shift = getCurrentShiftInfo(config);
+    const isMorning = shift.abierto_ahora && shift.turno_actual?.id === 'manana';
+    res.json({
+      status: isMorning ? 'ok' : 'fuera_de_turno',
+      disponible_ahora: isMorning,
+      turno_actual: shift.turno_actual,
+      productos: isMorning ? getMenuDiaToday(db) : [],
+      mensaje: isMorning
+        ? 'Menu del dia disponible ahora. La carta habitual tambien esta disponible.'
+        : 'El menu del dia se vende solamente en el turno de la manana. Ofrecer la carta habitual.',
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -132,36 +166,6 @@ router.get('/cliente/:telefono?', (req, res) => {
   }
 });
 
-// POST /api/agente/copiloto/dale
-// Modo humano primero: n8n solo debe llamar esta ruta cuando el operador del
-// local escribio "#dale". La ruta no responde al cliente: crea un borrador
-// revisable en el panel para que el local lo confirme.
-router.post('/copiloto/dale', (req, res) => {
-  try {
-    const result = createDraftFromCopilot(db, req.body || {});
-    const status = result?.needs_ai_payload ? 422 : 200;
-
-    logAudit(db, {
-      modulo: 'agente_whatsapp',
-      accion: result?.ignored ? 'copiloto_ignorado' : 'copiloto_borrador',
-      entidad: result?.borrador ? 'whatsapp_borrador' : 'whatsapp_conversacion',
-      entidad_id: result?.borrador?.id || result?.conversacion?.id || null,
-      actor_id: null,
-      actor_nombre: 'Copiloto WhatsApp',
-      detalle: {
-        telefono: result?.conversacion?.telefono || req.body?.telefono || '',
-        comando: '#dale',
-        ignored: Boolean(result?.ignored),
-        needs_ai_payload: Boolean(result?.needs_ai_payload),
-      },
-    });
-
-    res.status(status).json(result);
-  } catch (error) {
-    res.status(400).json({ error: error.message || 'No se pudo crear el borrador' });
-  }
-});
-
 // POST /api/agente/pedido — crea el pedido real
 // Body esperado:
 // {
@@ -182,15 +186,11 @@ router.post('/pedido', async (req, res) => {
     // cuando el body es un objeto libre con muchos campos anidados; para esos
     // casos n8n manda todo el pedido como un solo string JSON en
     // "pedido_json". Lo soportamos ademas del body plano de siempre.
-    let payload = req.body;
-    if (typeof req.body?.pedido_json === 'string') {
-      try {
-        payload = JSON.parse(req.body.pedido_json);
-      } catch (parseError) {
-        return res
-          .status(400)
-          .json({ error: 'pedido_json no es JSON valido: ' + parseError.message });
-      }
+    let payload;
+    try {
+      payload = normalizeAgentOrderPayload(req.body);
+    } catch (parseError) {
+      return res.status(400).json({ error: parseError.message });
     }
 
     const items = Array.isArray(payload?.items) ? payload.items : [];
@@ -201,20 +201,35 @@ router.post('/pedido', async (req, res) => {
       return res.status(400).json({ error: 'Falta cliente_telefono' });
     }
 
+    const idempotencyKey = String(payload?.idempotency_key || '').trim();
+    const existingBefore = idempotencyKey
+      ? db
+          .prepare("SELECT id FROM pedidos WHERE origen = 'whatsapp' AND idempotency_key = ?")
+          .get(idempotencyKey)
+      : null;
+
     const pedido = await createRealOrder(db, {
       ...payload,
       origen: 'whatsapp',
     });
 
-    logAudit(db, {
-      modulo: 'agente_whatsapp',
-      accion: 'crear_pedido',
-      entidad: 'pedido',
-      entidad_id: pedido.id,
-      actor_id: null,
-      actor_nombre: 'Agente WhatsApp',
-      detalle: { cliente_telefono: payload?.cliente_telefono, items_count: items.length },
-    });
+    if (!existingBefore) {
+      logAudit(db, {
+        modulo: 'agente_whatsapp',
+        accion: 'crear_pedido',
+        entidad: 'pedido',
+        entidad_id: pedido.id,
+        actor_id: null,
+        actor_nombre: 'Agente WhatsApp',
+        detalle: { cliente_telefono: payload?.cliente_telefono, items_count: items.length },
+      });
+
+      // Esta ruta no pasa por /api/pedidos, por eso debe publicar explícitamente
+      // el alta. Sin este evento el TPV nunca ve el pedido hasta recargar y no
+      // puede ejecutar ni la voz ni la impresión automática.
+      const io = req.app.get('io');
+      if (io) emitNuevoPedido(io, pedido);
+    }
 
     res.json(pedido);
   } catch (error) {

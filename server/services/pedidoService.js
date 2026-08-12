@@ -647,10 +647,16 @@ function createPedidoWithInventory(payload) {
 
   const idempotencyKey = String(payload?.idempotency_key || '').trim();
   const mozoUserId = optionalNumber(payload?.mozo_usuario_id);
-  if (idempotencyKey && mozoUserId) {
+  const whatsappIdempotency =
+    idempotencyKey && String(payload?.origen || '').toLowerCase() === 'whatsapp';
+  if (idempotencyKey && (mozoUserId || whatsappIdempotency)) {
     const existing = db
-      .prepare('SELECT * FROM pedidos WHERE mozo_usuario_id = ? AND idempotency_key = ?')
-      .get(mozoUserId, idempotencyKey);
+      .prepare(
+        whatsappIdempotency
+          ? "SELECT * FROM pedidos WHERE origen = 'whatsapp' AND idempotency_key = ?"
+          : 'SELECT * FROM pedidos WHERE mozo_usuario_id = ? AND idempotency_key = ?'
+      )
+      .get(...(whatsappIdempotency ? [idempotencyKey] : [mozoUserId, idempotencyKey]));
     if (existing) return existing;
   }
 
@@ -700,10 +706,14 @@ function createPedidoWithInventory(payload) {
     try {
       db.exec('ROLLBACK');
     } catch {}
-    if (idempotencyKey && mozoUserId) {
+    if (idempotencyKey && (mozoUserId || whatsappIdempotency)) {
       const existing = db
-        .prepare('SELECT * FROM pedidos WHERE mozo_usuario_id = ? AND idempotency_key = ?')
-        .get(mozoUserId, idempotencyKey);
+        .prepare(
+          whatsappIdempotency
+            ? "SELECT * FROM pedidos WHERE origen = 'whatsapp' AND idempotency_key = ?"
+            : 'SELECT * FROM pedidos WHERE mozo_usuario_id = ? AND idempotency_key = ?'
+        )
+        .get(...(whatsappIdempotency ? [idempotencyKey] : [mozoUserId, idempotencyKey]));
       if (existing) return existing;
     }
     throw error;
@@ -1055,6 +1065,7 @@ async function buildPedidoPayload(body, options = {}) {
     marketing_medium: marketingMedium,
     marketing_campaign: marketingCampaign,
     marketing_content: marketingContent,
+    idempotency_key: String(body.idempotency_key || '').trim(),
   };
 }
 

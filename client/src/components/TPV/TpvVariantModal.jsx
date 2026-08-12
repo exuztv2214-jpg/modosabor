@@ -68,9 +68,22 @@ export default function TpvVariantModal({
   );
 
   const total =
-    selectedVariantTotal ||
-    variantModal.rewardOptions?.priceOverride ||
+    selectedVariantTotal ??
+    variantModal.rewardOptions?.priceOverride ??
     variantModal.producto.precio;
+
+  const optionFinalPrice = (groupName, option) => {
+    const otherVariants = Object.entries(variantModal.sel || {}).reduce(
+      (sum, [name, selected]) =>
+        name === groupName ? sum : sum + Number(selected?.precio_extra || 0),
+      0
+    );
+    const selectedExtras = (variantModal.extrasSel || []).reduce(
+      (sum, extra) => sum + Number(extra?.precio || 0),
+      0
+    );
+    return precioBase + otherVariants + Number(option?.precio_extra || 0) + selectedExtras;
+  };
 
   return (
     <div
@@ -98,7 +111,7 @@ export default function TpvVariantModal({
                 Premio de fidelidad
               </span>
             ) : (
-              <p className="mt-0.5 text-[13px] text-gray-400">Desde {fmt(precioBase)}</p>
+              <p className="mt-0.5 text-[13px] text-gray-400">Selección actual {fmt(total)}</p>
             )}
           </div>
           <button
@@ -133,7 +146,7 @@ export default function TpvVariantModal({
                   {(group.opciones || []).map((option) => {
                     const optionName = option.nombre || option;
                     const selected = variantModal.sel[group.nombre]?.nombre === optionName;
-                    const extra = Number(option.precio_extra || 0);
+                    const finalPrice = optionFinalPrice(group.nombre, option);
                     return (
                       <button
                         key={optionName}
@@ -155,7 +168,7 @@ export default function TpvVariantModal({
                           className={`mt-0.5 block text-[12px] font-bold tabular-nums ${selected ? '' : 'text-gray-500'}`}
                           style={selected ? { color: BRAND } : undefined}
                         >
-                          {extra > 0 ? `+${fmt(extra)}` : fmt(precioBase)}
+                          {fmt(finalPrice)}
                         </span>
                         {selected ? (
                           <span

@@ -66,6 +66,30 @@ function runSeed(db) {
     ['impresion_mostrar_qr_seguimiento', '1'],
     ['impresion_compacta', '0'],
     ['impresion_comanda_mostrar_cliente', '1'],
+    ['whatsapp_gateway_pausa_total', '0'],
+    ['whatsapp_atencion_ia_activa', '0'],
+    ['whatsapp_masivos_activo', '0'],
+    ['whatsapp_agente_webhook_url', 'http://127.0.0.1:5678/webhook/modosabor-atencion-web'],
+    ['whatsapp_agente_nombre', 'Chispita'],
+    [
+      'whatsapp_agente_estilo',
+      'Hablá como el local: mensajes breves, cálidos y directos, con voseo argentino. Hacé una pregunta por vez. No uses emojis salvo que el cliente los use primero.',
+    ],
+    [
+      'whatsapp_agente_reglas_generales',
+      'No inventes productos, precios, promociones ni tiempos. El pedido es delivery salvo retiro explícito; reutilizá o pedí la dirección. No preguntes forma de pago: se abona al recibir. Las pizzas son enteras con cremoso por defecto. Antes de crear el pedido, enviá el resumen completo y esperá confirmación explícita.',
+    ],
+    [
+      'whatsapp_agente_reglas_turnos',
+      JSON.stringify({
+        manana: 'Se vende el menú del día disponible y también la carta completa.',
+        noche: 'Se vende únicamente la carta habitual. No ofrezcas menú del día.',
+      }),
+    ],
+    [
+      'whatsapp_agente_ejemplos',
+      'Cliente: Hola. Respuesta: Hola, ¿qué querés pedir?\nCliente: Quiero una pizza común. Respuesta: Dale, una común entera con cremoso. ¿Algo más?\nCliente: Eso es todo. Respuesta: Perfecto. ¿A qué dirección te lo mando?',
+    ],
     // Minutos que tiene el rider para deshacer una entrega marcada por
     // error. Pasado ese tiempo la correccion la hace el local.
     ['delivery_ventana_deshacer_min', '5'],
@@ -285,7 +309,7 @@ function runSeed(db) {
     delivery_autoasignar_activo: '1',
     turnos_negocio: JSON.stringify([
       { id: 'manana', nombre: 'Turno manana', desde: '10:00', hasta: '14:30', activo: true },
-      { id: 'noche', nombre: 'Turno noche', desde: '20:30', hasta: '01:30', activo: true },
+      { id: 'noche', nombre: 'Turno noche', desde: '20:30', hasta: '02:00', activo: true },
     ]),
     horarios: JSON.stringify({
       lunes: { abierto: true, desde: '18:00', hasta: '23:30' },

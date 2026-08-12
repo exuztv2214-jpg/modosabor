@@ -1,0 +1,121 @@
+{
+  "generado_en": "2026-08-12T02:57:20.493Z",
+  "origen": "whatsapp-para-analisis-2026-08-12T02-52-42-517Z.json",
+  "privacidad": "Solo contiene agregados estadísticos. No incluye textos, nombres, teléfonos, direcciones ni IDs de chats.",
+  "volumen": {
+    "chats": 502,
+    "mensajes": 41969,
+    "entrantes": 25463,
+    "salientes": 16506,
+    "multimedia": 15775
+  },
+  "estilo_local": {
+    "palabras_mediana": 2,
+    "palabras_p75": 7,
+    "porcentaje_con_emoji": 19.9,
+    "porcentaje_con_pregunta": 18.2
+  },
+  "operacion": {
+    "respuesta_mediana_minutos": 0.3,
+    "respuesta_promedio_minutos": 3,
+    "confirmaciones_con_respuesta": 636,
+    "horas_mas_activas": [
+      {
+        "hour": 13,
+        "count": 3335
+      },
+      {
+        "hour": 12,
+        "count": 2941
+      },
+      {
+        "hour": 22,
+        "count": 2576
+      },
+      {
+        "hour": 21,
+        "count": 2093
+      },
+      {
+        "hour": 11,
+        "count": 2073
+      }
+    ]
+  },
+  "motivos": [
+    {
+      "name": "saludo",
+      "count": 1203
+    },
+    {
+      "name": "agradecimiento",
+      "count": 832
+    },
+    {
+      "name": "confirmacion",
+      "count": 822
+    },
+    {
+      "name": "menu_precio",
+      "count": 814
+    },
+    {
+      "name": "pago",
+      "count": 479
+    },
+    {
+      "name": "pedido",
+      "count": 428
+    },
+    {
+      "name": "delivery_retiro",
+      "count": 221
+    },
+    {
+      "name": "direccion",
+      "count": 190
+    },
+    {
+      "name": "demora",
+      "count": 126
+    },
+    {
+      "name": "reclamo",
+      "count": 108
+    },
+    {
+      "name": "horario",
+      "count": 28
+    }
+  ],
+  "familias_producto": [
+    {
+      "name": "milanesas",
+      "count": 201
+    },
+    {
+      "name": "papas",
+      "count": 191
+    },
+    {
+      "name": "pizzas",
+      "count": 165
+    },
+    {
+      "name": "bebidas",
+      "count": 111
+    },
+    {
+      "name": "sandwiches",
+      "count": 104
+    },
+    {
+      "name": "hamburguesas",
+      "count": 93
+    },
+    {
+      "name": "empanadas",
+      "count": 91
+    }
+  ]
+}

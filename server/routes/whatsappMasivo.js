@@ -9,6 +9,7 @@ const { conexion } = require('../services/whatsappMasivo/conexion');
 const { motor, registrarRespuesta } = require('../services/whatsappMasivo/motor');
 const { normalizarTelefono, formatearTelefono } = require('../services/whatsappMasivo/telefono');
 const reglas = require('../services/whatsappMasivo/reglas');
+const { resumenGateway, gatewayConfig } = require('../services/whatsappGateway');
 
 const router = express.Router();
 
@@ -63,6 +64,7 @@ router.get('/estado', async (_req, res) => {
   const whatsapp = conexion.resumen();
   res.json({
     whatsapp: { ...whatsapp, qr: undefined, qrImagen: await qrDibujado(whatsapp) },
+    gateway: resumenGateway(),
     motor: motor.resumen(),
     hoy: {
       enviados: motor.enviadosHoy(),
@@ -85,7 +87,108 @@ router.post('/conectar', async (_req, res) => {
 });
 
 router.post('/desconectar', async (_req, res) => {
-  res.json(await conexion.desconectar());
+  res.json(await conexion.desvincular());
+});
+
+router.put('/gateway', (req, res) => {
+  const guardar = db.prepare(
+    `INSERT INTO configuracion (clave, valor) VALUES (?, ?)
+     ON CONFLICT(clave) DO UPDATE SET valor = excluded.valor`
+  );
+  const mapa = {
+    pausaTotal: 'whatsapp_gateway_pausa_total',
+    atencionIa: 'whatsapp_atencion_ia_activa',
+    masivos: 'whatsapp_masivos_activo',
+  };
+  Object.entries(mapa).forEach(([campo, clave]) => {
+    if (!Object.prototype.hasOwnProperty.call(req.body || {}, campo)) return;
+    guardar.run(clave, req.body[campo] === true ? '1' : '0');
+  });
+  if (req.body?.pausaTotal === true || req.body?.masivos === false) motor.pausar();
+  res.json({ ok: true, gateway: resumenGateway() });
+});
+
+router.get('/conversaciones', (req, res) => {
+  const limite = Math.min(Math.max(Number(req.query.limite) || 30, 1), 100);
+  const items = db
+    .prepare(
+      `SELECT c.*,
+              (SELECT contenido FROM whatsapp_mensajes m
+                WHERE m.conversacion_id = c.id ORDER BY m.id DESC LIMIT 1) AS ultimo_mensaje,
+              (SELECT tipo FROM whatsapp_mensajes m
+                WHERE m.conversacion_id = c.id ORDER BY m.id DESC LIMIT 1) AS ultimo_tipo,
+              (SELECT COUNT(*) FROM pedidos p
+                WHERE REPLACE(REPLACE(REPLACE(p.cliente_telefono, ' ', ''), '+', ''), '-', '')
+                  LIKE '%' || REPLACE(REPLACE(REPLACE(c.telefono, ' ', ''), '+', ''), '-', '')
+                  AND p.origen = 'whatsapp') AS pedidos_creados
+         FROM whatsapp_conversaciones c
+        ORDER BY datetime(c.ultimo_mensaje_en) DESC, c.id DESC
+        LIMIT ?`
+    )
+    .all(limite);
+  res.json({ items });
+});
+
+router.get('/conversaciones/:id/mensajes', (req, res) => {
+  const conversacionId = Number(req.params.id);
+  const conversation = db
+    .prepare('SELECT * FROM whatsapp_conversaciones WHERE id = ?')
+    .get(conversacionId);
+  if (!conversation) return res.status(404).json({ error: 'Conversación no encontrada' });
+  const mensajes = db
+    .prepare(
+      `SELECT id, direccion, tipo, contenido, creado_en, payload
+         FROM whatsapp_mensajes WHERE conversacion_id = ? ORDER BY id DESC LIMIT 80`
+    )
+    .all(conversacionId)
+    .reverse();
+  res.json({ conversation, mensajes });
+});
+
+router.put('/conversaciones/:id/control', (req, res) => {
+  const id = Number(req.params.id);
+  const accion = String(req.body?.accion || '').toLowerCase();
+  if (!['tomar', 'devolver'].includes(accion)) {
+    return res.status(400).json({ error: 'Acción inválida' });
+  }
+  const result =
+    accion === 'tomar'
+      ? db
+          .prepare(
+            `UPDATE whatsapp_conversaciones SET bot_silenciado = 1, escalado_humano = 1,
+                    bot_silenciado_hasta = NULL, actualizado_en = CURRENT_TIMESTAMP WHERE id = ?`
+          )
+          .run(id)
+      : db
+          .prepare(
+            `UPDATE whatsapp_conversaciones SET bot_silenciado = 0, escalado_humano = 0,
+                    bot_silenciado_hasta = NULL, actualizado_en = CURRENT_TIMESTAMP WHERE id = ?`
+          )
+          .run(id);
+  if (!result.changes) return res.status(404).json({ error: 'Conversación no encontrada' });
+  res.json({ ok: true });
+});
+
+router.get('/metricas-atencion', (_req, res) => {
+  const totals = db
+    .prepare(
+      `SELECT
+         SUM(CASE WHEN direccion = 'entrante' THEN 1 ELSE 0 END) AS recibidos,
+         SUM(CASE WHEN direccion = 'saliente' THEN 1 ELSE 0 END) AS respondidos,
+         SUM(CASE WHEN tipo = 'audio' AND json_extract(payload, '$.transcripto') = 1 THEN 1 ELSE 0 END) AS audios_transcriptos,
+         SUM(CASE WHEN json_extract(payload, '$.motivo') = 'audio_no_transcripto' THEN 1 ELSE 0 END) AS errores_audio,
+         SUM(CASE WHEN json_extract(payload, '$.motivo') = 'proveedor_ia_temporal' THEN 1 ELSE 0 END) AS errores_ia
+       FROM whatsapp_mensajes
+       WHERE datetime(creado_en) >= datetime('now', '-7 days')`
+    )
+    .get();
+  const pedidos = db
+    .prepare(
+      `SELECT COUNT(*) AS total FROM pedidos
+        WHERE origen = 'whatsapp' AND datetime(creado_en) >= datetime('now', '-7 days')`
+    )
+    .get()?.total;
+  res.json({ periodo_dias: 7, ...totals, pedidos: Number(pedidos || 0) });
 });
 
 // ── Destinatarios ─────────────────────────────────────────────────────────
@@ -113,6 +216,10 @@ router.get('/destinatarios', (_req, res) => {
 // ── Campañas ──────────────────────────────────────────────────────────────
 
 router.post('/preparar', (req, res) => {
+  const gateway = gatewayConfig();
+  if (gateway.pausaTotal || !gateway.masivos) {
+    return res.status(409).json({ error: 'WhatsApp masivo está desactivado en Configuración' });
+  }
   const { mensaje, nombre, imagen, simulacro, clientesIds } = req.body || {};
   try {
     res.json(
@@ -134,6 +241,10 @@ router.post('/preparar', (req, res) => {
  * ciento cincuenta personas no puede ser un solo click.
  */
 router.post('/enviar', async (req, res) => {
+  const gateway = gatewayConfig();
+  if (gateway.pausaTotal || !gateway.masivos) {
+    return res.status(409).json({ error: 'WhatsApp masivo está desactivado en Configuración' });
+  }
   const campanaId = Number(req.body?.campanaId);
   if (!campanaId) return res.status(400).json({ error: 'Falta la campaña' });
   try {

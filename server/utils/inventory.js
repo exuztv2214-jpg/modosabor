@@ -15,7 +15,10 @@ function cleanText(value) {
 }
 
 function normalizeText(value) {
-  return cleanText(value).toLowerCase();
+  return cleanText(value)
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
 }
 
 function parseJson(value, fallback) {

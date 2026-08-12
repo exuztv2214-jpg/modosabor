@@ -9,18 +9,6 @@ import AppErrorBoundary from './components/AppErrorBoundary.jsx';
 import AppConfigWarning from './components/AppConfigWarning.jsx';
 import { isNativeRiderApp } from './lib/nativeRiderGps.js';
 
-// Componente de carga
-const PageLoader = () => (
-  <div className="flex items-center justify-center min-h-screen bg-white">
-    <div className="flex flex-col items-center">
-      <div className="w-10 h-10 border-4 border-brand-500 border-t-transparent rounded-full animate-spin shadow-lg"></div>
-      <p className="mt-6 text-gray-400 font-bold text-[10px] uppercase tracking-[0.2em] animate-pulse">
-        Cargando Modo Sabor...
-      </p>
-    </div>
-  </div>
-);
-
 /*
   WebPublica se deja como import directo a propósito: es la carta, la pantalla
   que abre el cliente con hambre, y un chunk aparte le agregaría un viaje de red
@@ -59,7 +47,6 @@ const Usuarios = lazy(() => import('./pages/Usuarios.jsx'));
 const Reportes = lazy(() => import('./pages/Reportes.jsx'));
 const ReportesDelivery = lazy(() => import('./pages/ReportesDelivery.jsx'));
 const MarketingDigital = lazy(() => import('./pages/MarketingDigital.jsx'));
-const WhatsAppCopiloto = lazy(() => import('./pages/WhatsAppCopiloto.jsx'));
 const Configuracion = lazy(() => import('./pages/Configuracion.jsx'));
 const Cupones = lazy(() => import('./pages/Cupones.jsx'));
 const Fidelizacion = lazy(() => import('./pages/Fidelizacion.jsx'));
@@ -148,9 +135,6 @@ export default function App() {
                       element={<PrivateRoute permission="reportes.view" moduleKey="marketing" />}
                     >
                       <Route path="/admin/marketing" element={<MarketingDigital />} />
-                    </Route>
-                    <Route element={<PrivateRoute permission="pedidos.view" />}>
-                      <Route path="/admin/whatsapp-copiloto" element={<WhatsAppCopiloto />} />
                     </Route>
                     <Route path="/admin/cuenta" element={<Cuenta />} />
                     <Route

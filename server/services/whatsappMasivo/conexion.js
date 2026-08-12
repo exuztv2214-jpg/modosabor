@@ -53,6 +53,9 @@ class ConexionWhatsapp extends EventEmitter {
     this.intentos = 0;
     this.cerradoAProposito = false;
     this.reintento = null;
+    this.enviadosPorSistema = new Set();
+    this.enviosEsperados = [];
+    this.downloadMediaMessage = null;
   }
 
   resumen() {
@@ -121,7 +124,13 @@ class ConexionWhatsapp extends EventEmitter {
     }
 
     const crearSocket = baileys.default || baileys.makeWASocket;
-    const { useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = baileys;
+    const {
+      useMultiFileAuthState,
+      DisconnectReason,
+      fetchLatestBaileysVersion,
+      downloadMediaMessage,
+    } = baileys;
+    this.downloadMediaMessage = downloadMediaMessage;
 
     try {
       const { state, saveCreds } = await useMultiFileAuthState(this.carpetaSesion);
@@ -147,6 +156,36 @@ class ConexionWhatsapp extends EventEmitter {
       this.socket = socket;
 
       socket.ev.on('creds.update', saveCreds);
+
+      // Un solo socket alimenta todos los consumidores del sistema. La
+      // conexión no decide si un mensaje pertenece a atención, campañas o
+      // métricas: publica el evento normalizado y cada servicio aplica sus
+      // propias reglas.
+      socket.ev.on('messages.upsert', ({ messages = [], type }) => {
+        if (type !== 'notify') return;
+        messages.forEach((message) => {
+          const jid = String(message?.key?.remoteJid || '');
+          if (!jid || jid === 'status@broadcast' || jid.endsWith('@g.us')) return;
+          const messageId = String(message?.key?.id || '');
+          const texto = String(
+            message?.message?.conversation ||
+              message?.message?.extendedTextMessage?.text ||
+              message?.message?.imageMessage?.caption ||
+              ''
+          ).trim();
+          const ahora = Date.now();
+          this.enviosEsperados = this.enviosEsperados.filter((item) => item.hasta > ahora);
+          const indiceEsperado = message?.key?.fromMe
+            ? this.enviosEsperados.findIndex((item) => item.jid === jid && item.texto === texto)
+            : -1;
+          const enviadoPorSistema = Boolean(
+            (messageId && this.enviadosPorSistema.has(messageId)) || indiceEsperado >= 0
+          );
+          if (enviadoPorSistema) this.enviadosPorSistema.delete(messageId);
+          if (indiceEsperado >= 0) this.enviosEsperados.splice(indiceEsperado, 1);
+          this.emit('mensaje', { ...message, enviadoPorSistema });
+        });
+      });
 
       socket.ev.on('connection.update', (u) => {
         const { connection, lastDisconnect, qr } = u;
@@ -230,6 +269,24 @@ class ConexionWhatsapp extends EventEmitter {
     return this.resumen();
   }
 
+  async desvincular() {
+    this.cerradoAProposito = true;
+    clearTimeout(this.reintento);
+    const socket = this.socket;
+    this.socket = null;
+    this.qr = null;
+    this.numero = null;
+    try {
+      await socket?.logout?.();
+    } catch {
+      // Si el socket ya estaba roto, borrar sus credenciales locales produce
+      // el mismo resultado operativo: el próximo inicio pedirá un QR nuevo.
+    }
+    this.limpiarSesionInvalida();
+    this.cambiarEstado('apagado', 'Sesión desvinculada');
+    return this.resumen();
+  }
+
   get listo() {
     return this.estado === 'conectado' && Boolean(this.socket);
   }
@@ -240,12 +297,62 @@ class ConexionWhatsapp extends EventEmitter {
    */
   async enviarTexto(jid, texto) {
     if (!this.listo) throw new Error('WhatsApp no está conectado');
-    return this.socket.sendMessage(jid, { text: texto });
+    const contenido = String(texto || '').trim();
+    this.enviosEsperados.push({ jid, texto: contenido, hasta: Date.now() + 60000 });
+    const result = await this.socket.sendMessage(jid, { text: contenido });
+    const id = String(result?.key?.id || '');
+    if (id) this.enviadosPorSistema.add(id);
+    return result;
   }
 
   async enviarImagen(jid, buffer, epigrafe = '') {
     if (!this.listo) throw new Error('WhatsApp no está conectado');
-    return this.socket.sendMessage(jid, { image: buffer, caption: epigrafe || undefined });
+    this.enviosEsperados.push({
+      jid,
+      texto: String(epigrafe || '').trim(),
+      hasta: Date.now() + 60000,
+    });
+    const result = await this.socket.sendMessage(jid, {
+      image: buffer,
+      caption: epigrafe || undefined,
+    });
+    const id = String(result?.key?.id || '');
+    if (id) this.enviadosPorSistema.add(id);
+    return result;
+  }
+
+  async enviarPresencia(jid, tipo = 'composing') {
+    if (!this.listo) return;
+    try {
+      await this.socket.presenceSubscribe(jid);
+      await this.socket.sendPresenceUpdate(tipo, jid);
+    } catch {
+      // El indicador de escritura es cosmético; una falla no debe impedir la
+      // respuesta ni cortar el pedido.
+    }
+  }
+
+  async descargarAudio(message) {
+    if (!this.listo) throw new Error('WhatsApp no está conectado');
+    let content = message?.message || {};
+    if (content.ephemeralMessage?.message) content = content.ephemeralMessage.message;
+    if (content.viewOnceMessage?.message) content = content.viewOnceMessage.message;
+    if (!content.audioMessage) throw new Error('El mensaje no contiene un audio');
+    if (typeof this.downloadMediaMessage !== 'function') {
+      throw new Error('El descargador de audio de WhatsApp no está disponible');
+    }
+    const normalizedMessage = { ...message, message: content };
+    return this.downloadMediaMessage(
+      normalizedMessage,
+      'buffer',
+      {},
+      {
+        reuploadRequest:
+          typeof this.socket.updateMediaMessage === 'function'
+            ? this.socket.updateMediaMessage.bind(this.socket)
+            : undefined,
+      }
+    );
   }
 
   /**

@@ -6,7 +6,6 @@ import {
   Loader2,
   Pause,
   Play,
-  QrCode,
   Send,
   Square,
   TestTube2,
@@ -74,69 +73,6 @@ const ESTADOS = {
   apagado: { texto: 'Sin conectar', fondo: '#F1F5F9', color: '#475569' },
   error: { texto: 'Error de sesión', fondo: '#FEF2F2', color: BRAND },
 };
-
-/**
- * Vincular el número.
- *
- * Es el único paso que no se puede automatizar: WhatsApp exige que alguien
- * escanee el código desde el celular del local. Se hace una sola vez — la
- * sesión queda guardada en el disco del servidor y sobrevive a los deploys.
- */
-function Vincular({ qrImagen, estado, detalle, conectando, onConectar }) {
-  return (
-    <Tarjeta>
-      <div className="flex flex-col items-center gap-4 py-2 text-center">
-        <span
-          className="flex h-12 w-12 items-center justify-center rounded-2xl"
-          style={{ background: '#FEF6E7', color: '#B45309' }}
-        >
-          <QrCode size={22} strokeWidth={STROKE} />
-        </span>
-        <div>
-          <p className="text-[15px] font-semibold text-gray-900">
-            {estado === 'qr' ? 'Escaneá el código' : 'Vinculá el número del local'}
-          </p>
-          <p className="mx-auto mt-1 max-w-sm text-[13px] leading-relaxed text-gray-500">
-            {detalle ||
-              'Desde WhatsApp del local: Ajustes → Dispositivos vinculados → Vincular dispositivo. Se hace una sola vez.'}
-          </p>
-        </div>
-
-        {/*
-          El código viene dibujado desde el servidor, como imagen embebida.
-
-          Antes se armaba acá con `api.qrserver.com`, pasándole el código por
-          la URL. Ese código es la credencial de vinculación: quien lo tenga,
-          mientras está vigente, puede vincular su propio teléfono al WhatsApp
-          del local. Mandárselo a un servicio ajeno para que dibuje un cuadrado
-          era regalar la llave del negocio.
-        */}
-        {qrImagen ? (
-          <img
-            src={qrImagen}
-            alt="Código QR para vincular WhatsApp"
-            className="h-[260px] w-[260px] rounded-2xl bg-white"
-          />
-        ) : (
-          <button
-            type="button"
-            onClick={onConectar}
-            disabled={conectando}
-            style={{ background: BRAND }}
-            className="inline-flex h-11 items-center gap-2 rounded-xl px-5 text-[13px] font-semibold text-white transition hover:brightness-110 disabled:opacity-60"
-          >
-            {conectando ? (
-              <Loader2 size={15} strokeWidth={STROKE} className="animate-spin" />
-            ) : (
-              <QrCode size={15} strokeWidth={STROKE} />
-            )}
-            Generar el código
-          </button>
-        )}
-      </div>
-    </Tarjeta>
-  );
-}
 
 /** Confirmación: acá es donde se ve a cuántos se le va a escribir. */
 function Confirmar({ previa, enviando, onCancelar, onConfirmar }) {
@@ -311,18 +247,30 @@ export default function MarketingWhatsapp() {
   const motor = estado?.motor || {};
   const hoy = estado?.hoy || {};
   const conectado = wa.estado === 'conectado';
+  const masivosHabilitados = estado?.gateway?.masivos === true && !estado?.gateway?.pausaTotal;
   const tono = ESTADOS[wa.estado] || ESTADOS.apagado;
 
   if (!conectado && !motor.corriendo) {
     return (
       <div className="space-y-3">
-        <Vincular
-          qrImagen={wa.qrImagen}
-          estado={wa.estado}
-          detalle={wa.detalle}
-          conectando={ocupado || wa.estado === 'conectando'}
-          onConectar={() => accion('conectar')}
-        />
+        <Tarjeta>
+          <div className="flex flex-col items-center gap-3 py-3 text-center">
+            <p className="text-[15px] font-semibold text-gray-900">WhatsApp no está vinculado</p>
+            <p className="max-w-md text-[13px] leading-relaxed text-gray-500">
+              La conexión y el único código QR del sistema se administran desde Configuración.
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                window.location.href = '/admin/configuracion?tab=whatsapp';
+              }}
+              style={{ background: BRAND }}
+              className="h-11 rounded-xl px-5 text-[13px] font-semibold text-white transition hover:brightness-110"
+            >
+              Ir a Configuración de WhatsApp
+            </button>
+          </div>
+        </Tarjeta>
         <Tarjeta>
           <div className="flex items-center gap-3">
             <Users size={18} strokeWidth={STROKE} className="text-gray-400" />
@@ -406,7 +354,7 @@ export default function MarketingWhatsapp() {
               <button
                 type="button"
                 onClick={() => preparar(true)}
-                disabled={ocupado}
+                disabled={ocupado || !masivosHabilitados}
                 className="inline-flex h-10 items-center gap-2 rounded-xl bg-gray-100 px-4 text-[13px] font-semibold text-gray-700 transition hover:bg-gray-200 disabled:opacity-50"
               >
                 <TestTube2 size={14} strokeWidth={STROKE} />
@@ -415,7 +363,7 @@ export default function MarketingWhatsapp() {
               <button
                 type="button"
                 onClick={() => preparar(false)}
-                disabled={ocupado || !mensaje.trim()}
+                disabled={ocupado || !mensaje.trim() || !masivosHabilitados}
                 style={{ background: mensaje.trim() ? BRAND : '#CBD5E1' }}
                 className="inline-flex h-10 items-center gap-2 rounded-xl px-4 text-[13px] font-semibold text-white transition hover:brightness-110 disabled:cursor-not-allowed"
               >
@@ -448,6 +396,25 @@ export default function MarketingWhatsapp() {
           </div>
         ) : null}
       </Tarjeta>
+
+      {!masivosHabilitados && !motor.corriendo ? (
+        <Tarjeta>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-[13px] text-gray-600">
+              Los envíos masivos están apagados. Activarlos no envía nada por sí solo.
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                window.location.href = '/admin/configuracion?tab=whatsapp';
+              }}
+              className="h-9 rounded-xl bg-gray-100 px-4 text-[12px] font-semibold text-gray-700"
+            >
+              Abrir Configuración
+            </button>
+          </div>
+        </Tarjeta>
+      ) : null}
 
       {previa ? (
         <Confirmar

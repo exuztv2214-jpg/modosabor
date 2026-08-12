@@ -199,6 +199,15 @@ function parseJsonArray(value) {
   }
 }
 
+function parseJsonObject(value) {
+  try {
+    const parsed = typeof value === 'string' ? JSON.parse(value || '{}') : value;
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    throw new Error('Las instrucciones por turno no tienen un formato válido');
+  }
+}
+
 function fallbackShiftName(id) {
   const normalized = String(id || 'turno')
     .replace(/[_-]+/g, ' ')
@@ -282,6 +291,27 @@ function normalizeConfigUpdates(rawUpdates = {}) {
     }
     updates.ia_base_url = url;
   }
+
+  const whatsappTrainingLimits = {
+    whatsapp_agente_nombre: 80,
+    whatsapp_agente_estilo: 2000,
+    whatsapp_agente_reglas_generales: 6000,
+    whatsapp_agente_reglas_turnos: 12000,
+    whatsapp_agente_ejemplos: 6000,
+  };
+  Object.entries(whatsappTrainingLimits).forEach(([key, max]) => {
+    if (updates[key] === undefined) return;
+    const value = String(updates[key] || '')
+      .replace(/\0/g, '')
+      .trim();
+    if (value.length > max) throw new Error(`${key} supera el máximo de ${max} caracteres`);
+    if (key === 'whatsapp_agente_reglas_turnos') {
+      const parsed = parseJsonObject(value);
+      updates[key] = JSON.stringify(parsed);
+      return;
+    }
+    updates[key] = value;
+  });
 
   delete updates.negocio_horarios;
 

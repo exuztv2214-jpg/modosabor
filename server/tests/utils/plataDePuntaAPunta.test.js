@@ -114,7 +114,7 @@ function cargarSocket() {
     test que pida la base la abre de nuevo —una segunda conexión al mismo
     archivo— y falla.
 
-    Pasó: este test dejaba caídos a `asistente` y `whatsappCopiloto`, que
+    Pasó: este test dejaba caídos a `asistente` y otros módulos, que
     corren después. Un test que rompe a otros es peor que no tenerlo.
   */
   const guardado = {};

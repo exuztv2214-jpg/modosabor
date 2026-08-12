@@ -15,7 +15,6 @@ import {
   LogOut,
   MapPinned,
   Megaphone,
-  MessageCircle,
   Package,
   Receipt,
   Settings,
@@ -81,12 +80,6 @@ const GRUPOS = [
         moduleKey: 'tpv',
       },
       { to: '/admin/pedidos', icon: ClipboardList, label: 'Pedidos', permission: 'pedidos.view' },
-      {
-        to: '/admin/whatsapp-copiloto',
-        icon: MessageCircle,
-        label: 'WhatsApp',
-        permission: 'pedidos.view',
-      },
       {
         to: '/admin/kds',
         icon: ChefHat,

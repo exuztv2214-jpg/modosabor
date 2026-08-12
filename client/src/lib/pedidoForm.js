@@ -60,6 +60,37 @@ export function getPrimaryDisplayPrice(producto) {
   };
 }
 
+/**
+ * La tarjeta del catálogo muestra una presentación concreta (por ejemplo,
+ * pizza entera con cremoso). Al abrir el producto, el modal debe empezar en
+ * esa misma presentación; de lo contrario la tarjeta dice $8.000 y el modal
+ * vuelve artificialmente al precio técnico de media pizza ($4.500).
+ */
+export function getDefaultVariantSelection(producto) {
+  const variantes = safeParseArray(producto?.variantes);
+  const selection = {};
+  const preferredOptions = [
+    { group: 'presentacion', option: 'entera cremoso' },
+    { group: 'presentacion', option: 'entera' },
+    { group: 'presentacion', option: 'docena' },
+    { group: 'tipo', option: 'ternera' },
+    { group: 'tipo', option: 'carne' },
+  ];
+
+  preferredOptions.forEach((preferred) => {
+    const group = variantes.find((item) => normalizeText(item?.nombre) === preferred.group);
+    if (!group || selection[group.nombre]) return;
+    const option = (group.opciones || []).find(
+      (item) => normalizeText(item?.nombre || item) === preferred.option
+    );
+    if (option) {
+      selection[group.nombre] = typeof option === 'string' ? { nombre: option } : option;
+    }
+  });
+
+  return selection;
+}
+
 export function getStructuredDisplayPrices(producto) {
   const basePrice = Number(producto?.precio || 0);
   const variantes = safeParseArray(producto?.variantes);

@@ -277,8 +277,6 @@ app.use('/api/tpv', require('./routes/tpvEspera'));
 app.use('/api/agente', require('./routes/agente'));
 app.use('/api/asistente', require('./routes/asistente'));
 app.use('/api/auditoria', require('./routes/auditoria'));
-app.use('/api/whatsapp-copiloto', require('./routes/whatsappCopiloto'));
-app.use('/api/whatsapp-copiloto', require('./routes/whatsappCopiloto'));
 
 if (process.env.NODE_ENV === 'production' && fs.existsSync(clientIndexFile)) {
   /*
@@ -396,6 +394,7 @@ app.use((error, _req, res, next) => {
 io.on('connection', () => {});
 
 startAutomaticBackups(db);
+require('./services/whatsappGateway').iniciarWhatsappGateway();
 
 // One-time catalog import: if catalog-export.json exists inside the
 // container, import it into the database and delete the file so it only
@@ -445,6 +444,11 @@ startAutomaticBackups(db);
 const PORT = Number(process.env.PORT || 3001);
 server.listen(PORT, () => {
   logger.info(`Modo Sabor API corriendo en http://localhost:${PORT}`);
+  // Si hay una sesión persistida, la conexión única queda disponible para
+  // atención y campañas sin que el operador abra primero una pantalla.
+  if (process.env.WHATSAPP_DISABLE_STARTUP !== '1') {
+    require('./services/whatsappMasivo/conexion').conexion.conectar();
+  }
   // FCM no puede ejecutarse antes de que el servidor tenga configurada la
   // aplicación y la base lista. Pequeña demora y sin bloquear el arranque.
   const riderUpdateTimer = setTimeout(() => {

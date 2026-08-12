@@ -265,7 +265,6 @@ export default function Layout() {
       '/admin/operacion': 'Control Diario',
       '/admin/tpv': 'TPV / Punto de Venta',
       '/admin/pedidos': 'Pedidos',
-      '/admin/whatsapp-copiloto': 'WhatsApp Copiloto',
       '/admin/caja': 'Cierre de Caja',
       '/admin/kds': 'Cocina / KDS',
       '/admin/mesas': 'Mesas / Salón',
