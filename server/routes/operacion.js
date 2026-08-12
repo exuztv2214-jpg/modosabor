@@ -8,7 +8,7 @@ const { insertInventoryMovement, roundStock } = require('../utils/inventory');
 const { summarizePaymentRows } = require('../utils/paymentStatus');
 const { recalculateClienteStats } = require('../utils/loyalty');
 
-const { fechaLocal } = require('../utils/fechaLocal');
+const { fechaLocal, hoyArgentina } = require('../utils/fechaLocal');
 const {
   guardarNombresDeLista,
   LISTA_GUARNICIONES,
@@ -27,7 +27,7 @@ const BASE_INSUMOS = [
 ];
 
 function today() {
-  return new Date().toISOString().slice(0, 10);
+  return hoyArgentina();
 }
 
 function money(value) {
@@ -286,6 +286,7 @@ function buildMenuDiaManagerPayload() {
   const fecha = today();
   const ultimaFecha = latestMenuDiaSnapshotDate(fecha);
   const snapshotHoy = new Map(loadMenuDiaSnapshot(fecha).map((item) => [item.producto_id, item]));
+  const tieneMenuGuardadoHoy = snapshotHoy.size > 0;
   const settings = loadMenuDiaSettings();
   const items = loadMenuDiaLibrary().map((item, index) => {
     const snapshot = snapshotHoy.get(Number(item.id));
@@ -293,11 +294,9 @@ function buildMenuDiaManagerPayload() {
     const extrasFlags = extractExtrasFlagsFromExtras(item.extras);
     return {
       ...item,
-      disponible_hoy: snapshot
-        ? snapshot.disponible
-        : Number(item.menu_dia_disponible_hoy) === 1
-          ? 1
-          : 0,
+      // Un menú es diario. Si todavía no se guardó la foto de esta fecha, no
+      // se reutiliza la marca vieja del producto: podría ser la de ayer.
+      disponible_hoy: snapshot ? snapshot.disponible : 0,
       precio_hoy: snapshot ? snapshot.precio : roundStock(item.precio || 0),
       stock_hoy: snapshot ? snapshot.stock_directo : roundStock(item.stock_directo || 0),
       descripcion_hoy: snapshot ? snapshot.descripcion : item.descripcion || '',
@@ -314,6 +313,7 @@ function buildMenuDiaManagerPayload() {
 
   return {
     fecha,
+    tieneMenuGuardadoHoy,
     categoria: findMenuDiaCategory(),
     ultimaFechaDisponible: ultimaFecha,
     /*

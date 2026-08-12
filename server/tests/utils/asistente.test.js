@@ -6,7 +6,7 @@ const {
   ejecutarHerramienta,
   catalogoParaModelo,
 } = require('../../services/asistenteHerramientas');
-const { sanearHistorial } = require('../../routes/asistente');
+const { sanearHistorial, esConsultaMenuDelDia } = require('../../routes/asistente');
 const { catalogoDeProveedores, PROVEEDORES } = require('../../services/iaProveedor');
 const { firmarPropuesta, verificarPropuesta } = require('../../utils/firmaPropuesta');
 
@@ -151,6 +151,16 @@ function testHistorialSaneado() {
   assert.strictEqual(largo[0].texto.length, 2000);
 
   console.log('  OK el historial del navegador se limpia antes de usarlo');
+}
+
+function testConsultaDirectaDeMenuDelDia() {
+  assert.ok(esConsultaMenuDelDia('q hay de menu del dia hoy'));
+  assert.ok(esConsultaMenuDelDia('qué hay de menú'));
+  assert.ok(esConsultaMenuDelDia('¿Qué hay de menú hoy?'));
+  assert.ok(esConsultaMenuDelDia('mostrame el menú del día'));
+  assert.ok(!esConsultaMenuDelDia('¿Cuánto vendí hoy?'));
+  assert.ok(!esConsultaMenuDelDia('agregá una milanesa al stock'));
+  console.log('  OK el menú del día se detecta sin depender de IA');
 }
 
 function testInstruccionesTraenElBlindaje() {
@@ -632,6 +642,7 @@ async function run() {
   testHerramientaInexistente();
   testCatalogoEsSoloLectura();
   testHistorialSaneado();
+  testConsultaDirectaDeMenuDelDia();
   testElModeloNoPuedeFijarPrecios();
   testInstruccionesTraenElBlindaje();
   testProveedores();

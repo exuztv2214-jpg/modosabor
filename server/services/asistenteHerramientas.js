@@ -1,5 +1,5 @@
 const db = require('../db');
-const { fechaLocal } = require('../utils/fechaLocal');
+const { fechaLocal, hoyArgentina } = require('../utils/fechaLocal');
 const { buildCajaResumen } = require('../routes/caja');
 const { buildMenuDiaManagerPayload } = require('../routes/operacion');
 const { normalizePagoEstado, normalizeMetodoPago } = require('../utils/paymentStatus');
@@ -209,6 +209,7 @@ function menuDelDiaActual(args = {}) {
     .trim()
     .toLowerCase();
   const data = buildMenuDiaManagerPayload();
+  const esHoy = data.fecha === hoyArgentina() && data.tieneMenuGuardadoHoy;
   const items = data.items
     .filter(
       (item) =>
@@ -221,7 +222,9 @@ function menuDelDiaActual(args = {}) {
       id: Number(item.id),
       nombre: item.nombre,
       activo_en_biblioteca: Number(item.activo) === 1,
-      activo_hoy: Number(item.disponible_hoy) === 1,
+      // Una marca sin snapshot fechado es arrastre de un día anterior y no se
+      // puede presentar como menú de hoy.
+      activo_hoy: esHoy && Number(item.disponible_hoy) === 1,
       precio_pesos: aPesos(item.precio_hoy),
       stock_hoy: Number(item.stock_hoy || 0),
       tipo: item.tipo_hoy,

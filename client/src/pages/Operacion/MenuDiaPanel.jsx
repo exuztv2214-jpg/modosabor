@@ -68,7 +68,7 @@ export default function MenuDiaPanel({
         subtitle={
           activos.length > 0
             ? `${activos.length} ${activos.length === 1 ? 'plato sale' : 'platos salen'} hoy · ${menuDia.fecha || ''}`
-            : 'Todavía no elegiste qué sale hoy'
+            : `No hay un menú publicado para hoy · ${menuDia.fecha || ''}`
         }
         action={
           <div className="flex flex-wrap gap-2">
@@ -103,7 +103,7 @@ export default function MenuDiaPanel({
               className={`flex h-10 items-center gap-2 rounded-xl px-4 text-[12px] font-semibold transition disabled:opacity-50 ${sucio ? '' : 'bg-gray-100 text-gray-500'}`}
             >
               <Save size={15} strokeWidth={STROKE} />
-              {guardando ? 'Guardando…' : sucio ? 'Guardar cambios' : 'Guardado'}
+              {guardando ? 'Publicando…' : sucio ? 'Guardar y publicar hoy' : 'Publicado hoy'}
             </button>
           </div>
         }
@@ -131,7 +131,8 @@ export default function MenuDiaPanel({
             <p className="mb-2 text-[11px] font-medium text-gray-400">Salen hoy</p>
             {activos.length === 0 ? (
               <div className="rounded-xl border-2 border-dashed border-gray-200 px-4 py-6 text-center text-[12px] text-gray-400">
-                Ningún plato marcado para hoy. Activá los que van desde la lista de abajo.
+                Ningún plato está publicado para hoy. Activá los que salen y tocá “Guardar y
+                publicar hoy”.
               </div>
             ) : (
               <div className="space-y-2.5">

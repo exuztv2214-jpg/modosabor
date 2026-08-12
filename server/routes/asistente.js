@@ -16,6 +16,7 @@ const {
 const {
   catalogoParaModelo,
   ejecutarHerramienta,
+  menuDelDiaActual,
   revisionAutomatica,
 } = require('../services/asistenteHerramientas');
 const {
@@ -27,6 +28,42 @@ const {
   ErrorDeAccion,
 } = require('../services/asistenteAcciones');
 const { firmarPropuesta, verificarPropuesta } = require('../utils/firmaPropuesta');
+
+/*
+  Las preguntas operativas más directas no necesitan gastar una llamada al
+  proveedor. Además, si el proveedor está temporalmente limitado (429), el
+  dueño tiene que poder ver el menú que ya está cargado en el sistema.
+*/
+function esConsultaMenuDelDia(pregunta) {
+  const normalizada = String(pregunta || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  return /\bmenu\s*(?:del?\s*)?dia\b|\bmenu\s+hoy\b|\bque\s+(?:hay|tenes)\s+(?:de\s+)?menu\b/.test(
+    normalizada
+  );
+}
+
+function responderMenuDelDia() {
+  const menu = menuDelDiaActual();
+  const platos = menu.platos.filter(
+    (plato) => plato.activo_en_biblioteca && plato.activo_hoy && Number(plato.stock_hoy) > 0
+  );
+  if (!platos.length) {
+    return 'Hoy no hay platos activos con stock en el menú del día. Podés cargarlos o activarlos desde Operación → Menú del día.';
+  }
+
+  const detalle = platos
+    .map((plato) => {
+      const extras = [];
+      if (plato.guarniciones?.length) extras.push(`guarniciones: ${plato.guarniciones.join(', ')}`);
+      if (plato.ofrece_postre) extras.push('incluye opción de postre');
+      if (plato.ofrece_bebida_postre) extras.push('incluye opción de bebida y postre');
+      return `• ${plato.nombre}: $${Number(plato.precio_pesos || 0).toLocaleString('es-AR')} (${plato.stock_hoy} disponibles)${extras.length ? ` — ${extras.join('; ')}` : ''}`;
+    })
+    .join('\n');
+  return `Menú del día de hoy:\n${detalle}`;
+}
 
 function redactarAuditoriaIa(valor, maximo) {
   return String(valor || '')
@@ -286,6 +323,21 @@ router.post(
     }
     if (pregunta.length > 1000) {
       return res.status(400).json({ error: 'La pregunta es demasiado larga.' });
+    }
+
+    // Esta respuesta sale de la misma fuente que usa Chispita y Operación.
+    // No depende del modelo, su cuota ni de la red externa.
+    if (!req.body?.imagen && esConsultaMenuDelDia(pregunta)) {
+      const respuesta = responderMenuDelDia();
+      logAudit(db, {
+        modulo: 'asistente',
+        accion: 'consulta_directa',
+        entidad: 'menu_del_dia',
+        actor_id: req.user?.id ?? null,
+        actor_nombre: req.user?.nombre || 'Desconocido',
+        detalle: { pregunta },
+      });
+      return res.json({ respuesta, consultas: ['consultar_menu_del_dia'] });
     }
 
     const imagen = String(req.body?.imagen || '');
@@ -615,3 +667,4 @@ module.exports = router;
 module.exports.sanearHistorial = sanearHistorial;
 module.exports.INSTRUCCIONES = INSTRUCCIONES;
 module.exports.redactarAuditoriaIa = redactarAuditoriaIa;
+module.exports.esConsultaMenuDelDia = esConsultaMenuDelDia;

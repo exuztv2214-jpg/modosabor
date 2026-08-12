@@ -5,6 +5,7 @@ const { decorateProductsWithInventory } = require('./inventory');
 const { resolveInitialPagoEstado } = require('./paymentStatus');
 const { loadPedidoItems } = require('./pedidoItems');
 const { getCurrentShiftInfo } = require('./shifts');
+const { hoyArgentina } = require('./fechaLocal');
 const {
   buildPedidoPayload,
   createPedidoWithInventory,
@@ -989,16 +990,37 @@ function buildProductPreview(product) {
 }
 
 function getMenuDiaToday(db) {
+  /*
+    El menú diario es una foto fechada. `menu_dia_disponible_hoy` queda como
+    compatibilidad para la pantalla de Operación, pero no sirve para atender:
+    puede quedar encendido desde ayer y terminar ofreciendo platos viejos.
+  */
+  const fecha = hoyArgentina();
   const rows = db
     .prepare(
-      `SELECT p.*, c.nombre AS categoria_nombre
-         FROM productos p
+      `SELECT p.*, c.nombre AS categoria_nombre,
+              h.precio AS precio_hoy,
+              h.stock_directo AS stock_hoy,
+              h.descripcion AS descripcion_hoy,
+              h.destacado AS destacado_hoy,
+              h.orden AS orden_hoy
+         FROM menu_dia_historial h
+         JOIN productos p ON p.id = h.producto_id
          LEFT JOIN categorias c ON c.id = p.categoria_id
-        WHERE p.activo = 1
-          AND COALESCE(p.menu_dia_disponible_hoy, 0) = 1
-        ORDER BY p.destacado DESC, p.nombre ASC`
+        WHERE h.fecha = ?
+          AND h.disponible = 1
+          AND p.activo = 1
+          AND h.stock_directo > 0
+        ORDER BY h.destacado DESC, h.orden ASC, p.nombre ASC`
     )
-    .all();
+    .all(fecha)
+    .map((row) => ({
+      ...row,
+      precio: Number(row.precio_hoy),
+      stock_directo: Number(row.stock_hoy),
+      descripcion: row.descripcion_hoy || row.descripcion,
+      destacado: Number(row.destacado_hoy),
+    }));
   return decorateProducts(db, rows)
     .filter((product) => product.disponible_para_venta)
     .map(buildProductPreview);
