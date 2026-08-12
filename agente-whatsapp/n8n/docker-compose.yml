@@ -1,6 +1,8 @@
 services:
   n8n:
-    image: n8nio/n8n:latest
+    # Versión fijada: evita que un reinicio instale una versión distinta sin
+    # haber probado antes los workflows de pedidos.
+    image: n8nio/n8n:2.34.4
     restart: unless-stopped
     ports:
       # Los webhooks del agente los consume un proceso local. No exponemos
@@ -18,6 +20,8 @@ services:
       # Las tools del agente usan estas variables para llegar al backend sin
       # incrustar secretos en el workflow exportable.
       N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
+      N8N_UNVERIFIED_PACKAGES_ENABLED: "false"
+      N8N_RUNNERS_TASK_TIMEOUT: "300"
       MODO_SABOR_API_URL: ${MODO_SABOR_API_URL}
       AGENT_API_KEY: ${AGENT_API_KEY}
       NVIDIA_API_KEY: ${NVIDIA_API_KEY}

@@ -1,4 +1,5 @@
 const express = require('express');
+const crypto = require('crypto');
 const router = express.Router();
 const { normalizeAgentOrderPayload } = require('../utils/agentOrderPayload');
 const db = require('../db');
@@ -15,6 +16,7 @@ const {
   quoteProduct,
   getDeliveryInfo,
   getCustomerSnapshot,
+  getCurrentOrderSnapshot,
   createRealOrder,
   getBusinessInfo,
 } = require('../utils/systemClient');
@@ -39,7 +41,12 @@ function requireAgentKey(req, res, next) {
     return res.status(404).json({ error: 'Agente deshabilitado' });
   }
   const providedKey = String(req.headers['x-agent-key'] || '').trim();
-  if (!providedKey || providedKey !== agentApiKey) {
+  const providedBuffer = Buffer.from(providedKey);
+  const expectedBuffer = Buffer.from(agentApiKey);
+  const valid =
+    providedBuffer.length === expectedBuffer.length &&
+    crypto.timingSafeEqual(providedBuffer, expectedBuffer);
+  if (!valid) {
     return res.status(401).json({ error: 'No autorizado' });
   }
   next();
@@ -161,6 +168,55 @@ router.get('/cliente/:telefono?', (req, res) => {
       return res.status(400).json({ error: 'Falta telefono' });
     }
     res.json(getCustomerSnapshot(db, telefono));
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /api/agente/pedido-actual?telefono=... — permite responder "¿cómo va?"
+// con el estado real del sistema, sin que el modelo lo deduzca del chat.
+router.get('/pedido-actual', (req, res) => {
+  try {
+    const telefono = String(req.query.telefono || '').trim();
+    if (!telefono) return res.status(400).json({ error: 'Falta telefono' });
+    res.json(getCurrentOrderSnapshot(db, telefono));
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /api/agente/derivar — la IA puede retirarse cuando el cliente pide una
+// persona, reclama o plantea algo que no puede resolver con datos confiables.
+router.post('/derivar', (req, res) => {
+  try {
+    const telefono = String(req.body?.telefono || '').trim();
+    const motivo = String(req.body?.motivo || 'Derivación solicitada por el agente')
+      .trim()
+      .slice(0, 300);
+    if (!telefono) return res.status(400).json({ error: 'Falta telefono' });
+    const result = db
+      .prepare(
+        `UPDATE whatsapp_conversaciones
+            SET bot_silenciado = 1,
+                escalado_humano = 1,
+                bot_silenciado_hasta = NULL,
+                ultimo_estado = 'esperando_humano',
+                ultimo_contexto = ?,
+                actualizado_en = CURRENT_TIMESTAMP
+          WHERE telefono = ?`
+      )
+      .run(motivo, telefono);
+    if (!result.changes) {
+      return res.status(404).json({ error: 'No encontré la conversación para derivar' });
+    }
+    logAudit(db, {
+      modulo: 'agente_whatsapp',
+      accion: 'derivar_humano',
+      entidad: 'whatsapp_conversacion',
+      actor_nombre: 'Agente WhatsApp',
+      detalle: { telefono, motivo },
+    });
+    res.json({ ok: true, estado: 'esperando_humano' });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

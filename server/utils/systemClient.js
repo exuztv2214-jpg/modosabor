@@ -1164,6 +1164,34 @@ function getCustomerSnapshot(db, phone) {
   };
 }
 
+function getCurrentOrderSnapshot(db, phone) {
+  const order = getLastOrderByPhone(db, phone);
+  if (!order) {
+    return {
+      encontrado: false,
+      mensaje: 'No encontré pedidos activos o recientes para este teléfono.',
+    };
+  }
+  const summary = summarizeOrder(order);
+  const stateLabels = {
+    nuevo: 'recibido por el local',
+    confirmado: 'confirmado',
+    preparando: 'en preparación',
+    listo: order.tipo_entrega === 'delivery' ? 'listo para salir' : 'listo para retirar',
+    en_camino: 'en camino',
+    entregado: 'entregado',
+  };
+  return {
+    encontrado: true,
+    pedido: {
+      ...summary,
+      estado_texto: stateLabels[order.estado] || order.estado || 'sin estado',
+      tiempo_estimado_min: Number(order.eta_min_dinamico || order.tiempo_estimado_min || 0),
+      creado_en: order.creado_en || '',
+    },
+  };
+}
+
 // Recalcula el precio unitario SIEMPRE desde el catalogo cuando hay
 // producto_id, matcheando variantes/extras por nombre contra lo que el
 // producto realmente tiene configurado. Nunca confia en un precio_unitario
@@ -1312,6 +1340,7 @@ module.exports = {
   findClienteByPhone,
   getLastOrderByPhone,
   getCustomerSnapshot,
+  getCurrentOrderSnapshot,
   enrichOrderItemsWithCatalog,
   createRealOrder,
 };

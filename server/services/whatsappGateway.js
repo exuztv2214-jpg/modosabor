@@ -15,6 +15,7 @@ const { transcribeWhatsappAudio } = require('./whatsappAudioTranscription');
 const DEFAULT_WEBHOOK = 'http://127.0.0.1:5678/webhook/modosabor-atencion-web';
 const DEFAULT_FALLBACK_WEBHOOK = 'http://127.0.0.1:5678/webhook/modosabor-atencion-web-fallback';
 const seen = new Set();
+const processingByChat = new Map();
 let iniciado = false;
 let recibidos = 0;
 let respondidos = 0;
@@ -353,6 +354,7 @@ async function handleIncoming(message) {
     }
 
     const createdOrder = createdWhatsappOrderAfter(telefono, previousOrder?.id);
+    let integrityError = '';
     if (claimsOrderWasCreated(output) && !createdOrder) {
       // La frase del modelo no es evidencia: el pedido debe existir realmente.
       // Si no existe, nunca se confirma al cliente y se entrega el chat a una
@@ -367,7 +369,8 @@ async function handleIncoming(message) {
       ).run(conversation.id);
       output =
         'Todavía no pude registrar el pedido en el sistema. No quedó confirmado; ya te atiende una persona del local para cargarlo bien.';
-      ultimoError = `La IA afirmo crear un pedido inexistente para ${telefono}`;
+      integrityError = `La IA afirmo crear un pedido inexistente para ${telefono}`;
+      ultimoError = integrityError;
       logger.error('WhatsApp Gateway: confirmacion de pedido bloqueada', { telefono });
     }
     await conexion.enviarTexto(jid, output);
@@ -379,7 +382,7 @@ async function handleIncoming(message) {
         WHERE id = ?`
     ).run(conversation.id);
     respondidos += 1;
-    ultimoError = '';
+    ultimoError = integrityError;
     ultimaActividad = `IA respondio a ${telefono}`;
   } catch (error) {
     ultimoError = error.message;
@@ -440,11 +443,29 @@ async function handleIncoming(message) {
   }
 }
 
+function serializeByKey(key, task) {
+  const queueKey = String(key || 'desconocido');
+  const previous = processingByChat.get(queueKey) || Promise.resolve();
+  const current = previous
+    .catch(() => {})
+    .then(task)
+    .finally(() => {
+      if (processingByChat.get(queueKey) === current) processingByChat.delete(queueKey);
+    });
+  processingByChat.set(queueKey, current);
+  return current;
+}
+
+function enqueueIncoming(message) {
+  const key = phoneFromMessage(message) || String(message?.key?.remoteJid || 'desconocido');
+  return serializeByKey(key, () => handleIncoming(message));
+}
+
 function iniciarWhatsappGateway() {
   if (iniciado) return;
   iniciado = true;
   conexion.on('mensaje', (message) => {
-    handleIncoming(message).catch((error) => {
+    enqueueIncoming(message).catch((error) => {
       ultimoError = error.message;
       logger.error('WhatsApp Gateway: mensaje no procesado', { message: error.message });
     });
@@ -464,4 +485,6 @@ module.exports = {
   asksForCarta,
   usableWhatsappName,
   claimsOrderWasCreated,
+  enqueueIncoming,
+  serializeByKey,
 };

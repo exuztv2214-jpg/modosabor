@@ -153,7 +153,32 @@ const workflow = {
         ],
       },
     }),
-    tool('tool-pedido', 'crear_pedido', [80, 380], {
+    tool('tool-pedido-actual', 'consultar_pedido_actual', [80, 380], {
+      toolDescription:
+        'Consulta el estado real del pedido más reciente del teléfono actual. Usar cuando pregunten cómo va, si ya salió, cuánto falta o si el pedido quedó registrado.',
+      method: 'GET',
+      url: '={{ $env.MODO_SABOR_API_URL }}/api/agente/pedido-actual',
+      sendQuery: true,
+      specifyQuery: 'keypair',
+      parametersQuery: {
+        values: [{ name: 'telefono', valueProvider: 'modelRequired' }],
+      },
+    }),
+    tool('tool-derivar', 'derivar_a_persona', [80, 480], {
+      toolDescription:
+        'Entrega la conversación a una persona del local y detiene la IA en ese chat. Usar ante reclamos, cancelaciones, cambios de un pedido ya creado, pedido explícito de hablar con alguien o cuando falte información confiable.',
+      method: 'POST',
+      url: '={{ $env.MODO_SABOR_API_URL }}/api/agente/derivar',
+      sendBody: true,
+      specifyBody: 'keypair',
+      parametersBody: {
+        values: [
+          { name: 'telefono', valueProvider: 'modelRequired' },
+          { name: 'motivo', valueProvider: 'modelRequired' },
+        ],
+      },
+    }),
+    tool('tool-pedido', 'crear_pedido', [80, 580], {
       toolDescription:
         'Crea el pedido real. Usar una sola vez y solamente despues de que el cliente confirme. pedido_json_texto debe ser un STRING con JSON valido y completo. Para delivery la direccion DEBE llamarse cliente_direccion (no direccion). En items copiar cada order_item cotizado. Solo existe exito si la respuesta contiene id y numero del pedido.',
       method: 'POST',
@@ -222,6 +247,12 @@ const workflow = {
       ai_tool: [[{ node: 'Chispita - Agente de pedidos', type: 'ai_tool', index: 0 }]],
     },
     consultar_cliente: {
+      ai_tool: [[{ node: 'Chispita - Agente de pedidos', type: 'ai_tool', index: 0 }]],
+    },
+    consultar_pedido_actual: {
+      ai_tool: [[{ node: 'Chispita - Agente de pedidos', type: 'ai_tool', index: 0 }]],
+    },
+    derivar_a_persona: {
       ai_tool: [[{ node: 'Chispita - Agente de pedidos', type: 'ai_tool', index: 0 }]],
     },
     crear_pedido: {
