@@ -28,6 +28,7 @@ function run() {
   assert.match(agentRoute, /\/derivar/);
   assert.match(workflow, /consultar_pedido_actual/);
   assert.match(workflow, /derivar_a_persona/);
+  assert.match(workflow, /ofrecé solamente el menú del día/i);
   console.log('  ✓ distingue carta de menú del día y valida el nombre visible');
   console.log('✅ Reglas del gateway verificadas\n');
 }
