@@ -3,7 +3,10 @@ const path = require('path');
 
 const prompt = fs.readFileSync(path.join(__dirname, '..', 'prompt-agente.md'), 'utf8');
 const workflowId = process.env.N8N_AGENT_WORKFLOW_ID || 'wviWYBeihJt3v4Xh';
-const credentialId = process.env.N8N_MODEL_CREDENTIAL_ID || 'GeminiModoSabor1';
+// NVIDIA es el proveedor operativo del local. La versión anterior dejó la
+// configuración principal apuntando a Gemini y por eso se importó un flujo
+// viejo sin las reglas de menú por turno.
+const credentialId = process.env.N8N_MODEL_CREDENTIAL_ID || 'HEzjBau3FRO3uLk9';
 const fallbackWorkflowId = process.env.N8N_AGENT_FALLBACK_WORKFLOW_ID || 'ModoSaborFallbackNvidia1';
 const fallbackCredentialId = process.env.N8N_FALLBACK_CREDENTIAL_ID || 'HEzjBau3FRO3uLk9';
 
@@ -53,29 +56,18 @@ const workflow = {
       },
     },
     {
-      id: 'memory-atencion',
-      name: 'Memoria por telefono',
-      type: '@n8n/n8n-nodes-langchain.memoryBufferWindow',
-      typeVersion: 1.3,
-      position: [-220, 420],
-      parameters: {
-        sessionIdType: 'customKey',
-        sessionKey: "={{ $('Entrada WhatsApp Web').item.json.body.sessionId }}",
-        contextWindowLength: 30,
-      },
-    },
-    {
       id: 'model-nvidia',
-      name: 'Google Gemini 3.1 Flash Lite',
-      type: '@n8n/n8n-nodes-langchain.lmChatGoogleGemini',
-      typeVersion: 1.1,
+      name: 'NVIDIA GLM 5.2',
+      type: '@n8n/n8n-nodes-langchain.lmChatOpenAi',
+      typeVersion: 1.3,
       position: [-380, 420],
       parameters: {
-        modelName: 'models/gemini-3.1-flash-lite',
+        model: { __rl: true, value: 'z-ai/glm-5.2', mode: 'id' },
+        responsesApiEnabled: false,
         options: {},
       },
       credentials: {
-        googlePalmApi: { id: credentialId, name: 'Gemini Modo Sabor' },
+        openAiApi: { id: credentialId, name: 'OpenAI account' },
       },
     },
     tool('tool-estado', 'consultar_estado', [80, -120], {
@@ -223,13 +215,10 @@ const workflow = {
     'Entrada WhatsApp Web': {
       main: [[{ node: 'Chispita - Agente de pedidos', type: 'main', index: 0 }]],
     },
-    'Google Gemini 3.1 Flash Lite': {
+    'NVIDIA GLM 5.2': {
       ai_languageModel: [
         [{ node: 'Chispita - Agente de pedidos', type: 'ai_languageModel', index: 0 }],
       ],
-    },
-    'Memoria por telefono': {
-      ai_memory: [[{ node: 'Chispita - Agente de pedidos', type: 'ai_memory', index: 0 }]],
     },
     consultar_estado: {
       ai_tool: [[{ node: 'Chispita - Agente de pedidos', type: 'ai_tool', index: 0 }]],

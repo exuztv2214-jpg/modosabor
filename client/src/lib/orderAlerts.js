@@ -7,6 +7,7 @@ const FALLBACK_ALERT_WAV =
 const recentAlertClaims = new Map();
 const PERSISTENT_ALERTS_KEY = 'ms_persistent_order_alerts_v1';
 const DELIVERED_ALERT_TTL_MS = 24 * 60 * 60 * 1000;
+let sharedAudioContext = null;
 const DEFAULT_NAME_PRONUNCIATIONS = new Map(
   [
     ['cristian', 'Cristián'],
@@ -73,6 +74,30 @@ function cleanupAnnouncementText(value) {
 export function normalizeOrderAlertEnabled(value, defaultValue = true) {
   if (value === undefined || value === null || value === '') return defaultValue;
   return String(value) === '1';
+}
+
+function getSharedAudioContext() {
+  if (typeof window === 'undefined') return null;
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextClass) return null;
+  if (!sharedAudioContext) {
+    sharedAudioContext = new AudioContextClass();
+  }
+  return sharedAudioContext;
+}
+
+// El panel de administración se monta luego del login. Si esperamos a ese
+// momento para escuchar el primer clic, Chromium puede bloquear el primer
+// pedido que entre mientras el operador todavía no volvió a tocar la pantalla.
+// Esta función se invoca desde main.jsx, que ya existe durante el clic de login.
+export async function unlockOrderAudio() {
+  try {
+    const context = getSharedAudioContext();
+    if (context?.state === 'suspended') await context.resume();
+    return context || null;
+  } catch {
+    return null;
+  }
 }
 
 export function normalizeCustomerName(value) {
@@ -209,7 +234,7 @@ export function pickSpanishSpeechVoice(preferredName = '') {
 }
 
 export function useOrderAlertPlayback() {
-  const audioContextRef = useRef(null);
+  const audioContextRef = useRef(sharedAudioContext);
   const voiceRef = useRef(null);
   const fallbackAudioRef = useRef(null);
 
@@ -233,14 +258,7 @@ export function useOrderAlertPlayback() {
   useEffect(() => {
     const unlockAudio = async () => {
       try {
-        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-        if (!AudioContextClass) return;
-        if (!audioContextRef.current) {
-          audioContextRef.current = new AudioContextClass();
-        }
-        if (audioContextRef.current.state === 'suspended') {
-          await audioContextRef.current.resume();
-        }
+        audioContextRef.current = (await unlockOrderAudio()) || audioContextRef.current;
       } catch {}
 
       try {
@@ -272,23 +290,20 @@ export function useOrderAlertPlayback() {
 
 export async function playOrderAlarm({ audioContextRef, enabled = true } = {}) {
   if (!enabled) return;
-  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-  if (!AudioContextClass) return;
+  const context = audioContextRef?.current || (await unlockOrderAudio()) || getSharedAudioContext();
+  if (!context) return;
+  if (audioContextRef) audioContextRef.current = context;
 
-  if (!audioContextRef?.current) {
-    audioContextRef.current = new AudioContextClass();
+  if (context.state === 'suspended') {
+    await context.resume();
   }
 
-  if (audioContextRef.current.state === 'suspended') {
-    await audioContextRef.current.resume();
-  }
-
-  const now = audioContextRef.current.currentTime;
+  const now = context.currentTime;
   [0, 0.22, 0.44].forEach((offset, index) => {
-    const osc = audioContextRef.current.createOscillator();
-    const gain = audioContextRef.current.createGain();
+    const osc = context.createOscillator();
+    const gain = context.createGain();
     osc.connect(gain);
-    gain.connect(audioContextRef.current.destination);
+    gain.connect(context.destination);
     osc.type = 'sine';
     osc.frequency.setValueAtTime(index === 1 ? 900 : 740, now + offset);
     gain.gain.setValueAtTime(0.0001, now + offset);

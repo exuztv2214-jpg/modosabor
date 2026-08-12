@@ -3,8 +3,17 @@ import ReactDOM from 'react-dom/client';
 
 import App from './App.jsx';
 import './index.css';
+import { unlockOrderAudio } from './lib/orderAlerts.js';
 
 const SW_VERSION = '2026-07-21-1';
+
+// Se instala antes incluso de la pantalla de login: así el primer pedido que
+// llega después de iniciar sesión no queda silenciado por la política autoplay.
+const enableOrderAudio = () => {
+  unlockOrderAudio().catch(() => {});
+};
+window.addEventListener('pointerdown', enableOrderAudio, { passive: true });
+window.addEventListener('keydown', enableOrderAudio);
 
 if (import.meta.env.PROD && 'serviceWorker' in navigator) {
   window.addEventListener('load', () => {
