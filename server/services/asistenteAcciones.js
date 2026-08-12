@@ -11,6 +11,8 @@ const {
   persistMenuDiaItems,
   loadMenuDiaLibrary,
   createMenuDiaProduct,
+  updateMenuDiaProduct,
+  archiveMenuDiaProduct,
 } = require('../routes/operacion');
 const { registrarCompra } = require('../routes/compras');
 const { buildPedidoPayload, createPedidoWithInventory, hydratePedido } = require('./pedidoService');
@@ -493,6 +495,147 @@ function ejecutarNuevoPlatoMenuDia(argumentos) {
   return `${resultado.created.nombre} fue creado y quedó activo en el menú del día con stock ${roundStock(
     resultado.created.stock_directo
   )}.`;
+}
+
+function buscarPlatoMenuDia(nombre) {
+  const termino = String(nombre || '').trim();
+  if (!termino) throw new ErrorDeAccion('Decime el nombre del plato del menú del día.');
+  const biblioteca = loadMenuDiaLibrary();
+  const exactos = biblioteca.filter(
+    (plato) => String(plato.nombre || '').toLowerCase() === termino.toLowerCase()
+  );
+  if (exactos.length === 1) return exactos[0];
+  const parciales = biblioteca.filter((plato) =>
+    String(plato.nombre || '')
+      .toLowerCase()
+      .includes(termino.toLowerCase())
+  );
+  return buscarUnico(parciales, termino, 'plato del menú del día');
+}
+
+function prepararEditarPlatoMenuDia(args = {}) {
+  const plato = buscarPlatoMenuDia(args.plato);
+  const cambios = {};
+  const detalles = [];
+  const agregar = (etiqueta, antes, despues) => {
+    if (antes !== despues) detalles.push({ etiqueta, valor: `${antes} → ${despues}` });
+  };
+
+  if (args.nombre !== undefined) {
+    const nombre = String(args.nombre || '').trim();
+    if (!nombre) throw new ErrorDeAccion('El nombre no puede quedar vacío.');
+    cambios.nombre = nombre;
+    agregar('Nombre', plato.nombre, nombre);
+  }
+  if (args.descripcion !== undefined) {
+    cambios.descripcion_hoy = String(args.descripcion || '').trim();
+    agregar(
+      'Descripción',
+      plato.descripcion || 'Sin descripción',
+      cambios.descripcion_hoy || 'Sin descripción'
+    );
+  }
+  if (args.precio !== undefined) {
+    const precio = Number(args.precio);
+    if (!Number.isFinite(precio) || precio <= 0) {
+      throw new ErrorDeAccion('El precio tiene que ser mayor que cero.');
+    }
+    cambios.precio_hoy = aCentavos(precio);
+    agregar('Precio', pesos(plato.precio), pesos(cambios.precio_hoy));
+  }
+  if (args.stock !== undefined) {
+    const stock = roundStock(args.stock);
+    if (!Number.isFinite(stock) || stock < 0)
+      throw new ErrorDeAccion('El stock no puede ser negativo.');
+    cambios.stock_hoy = stock;
+    agregar('Stock de hoy', String(roundStock(plato.stock_directo)), String(stock));
+  }
+  if (args.tipo !== undefined) {
+    cambios.tipo_hoy = args.tipo === 'ejecutivo' ? 'ejecutivo' : 'economico';
+    agregar('Tipo', plato.menu_dia_tipo || 'economico', cambios.tipo_hoy);
+  }
+  if (args.tiempo_preparacion !== undefined) {
+    const tiempo = Math.max(1, Number(args.tiempo_preparacion));
+    if (!Number.isFinite(tiempo)) throw new ErrorDeAccion('El tiempo de preparación no es válido.');
+    cambios.tiempo_preparacion = roundStock(tiempo);
+    agregar(
+      'Preparación',
+      `${plato.tiempo_preparacion || 15} min`,
+      `${cambios.tiempo_preparacion} min`
+    );
+  }
+  if (args.guarniciones !== undefined) {
+    if (!Array.isArray(args.guarniciones))
+      throw new ErrorDeAccion('Las guarniciones tienen que ser una lista.');
+    cambios.guarniciones_hoy = args.guarniciones
+      .map((item) => String(item || '').trim())
+      .filter(Boolean);
+    detalles.push({
+      etiqueta: 'Guarniciones',
+      valor: cambios.guarniciones_hoy.join(', ') || 'Sin guarniciones',
+    });
+  }
+  ['ofrece_postre', 'ofrece_bebida_postre', 'destacado', 'activo_hoy'].forEach((campo) => {
+    if (args[campo] === undefined) return;
+    const destino = {
+      ofrece_postre: 'ofrece_postre_hoy',
+      ofrece_bebida_postre: 'ofrece_bebida_postre_hoy',
+      destacado: 'destacado_hoy',
+      activo_hoy: 'disponible_hoy',
+    }[campo];
+    cambios[destino] = args[campo] === true ? 1 : 0;
+    const etiqueta = {
+      ofrece_postre: 'Postre',
+      ofrece_bebida_postre: 'Bebida + postre',
+      destacado: 'Destacado',
+      activo_hoy: 'Disponible hoy',
+    }[campo];
+    detalles.push({ etiqueta, valor: cambios[destino] ? 'Sí' : 'No' });
+  });
+  if (!Object.keys(cambios).length) {
+    throw new ErrorDeAccion('Decime qué querés modificar del plato.');
+  }
+  return {
+    resumen: `Editar ${plato.nombre} en la biblioteca y menú del día.`,
+    detalles,
+    advertencia:
+      'El cambio se aplica al plato y a su configuración de hoy. Activar o desactivar no borra el historial.',
+    argumentosResueltos: { producto_id: plato.id, ...cambios },
+  };
+}
+
+function ejecutarEditarPlatoMenuDia(argumentos) {
+  let actualizado;
+  try {
+    actualizado = updateMenuDiaProduct(argumentos.producto_id, argumentos);
+  } catch (error) {
+    throw new ErrorDeAccion(String(error?.message || 'No se pudo editar el plato.'));
+  }
+  return `${actualizado.nombre} fue actualizado${actualizado.disponible_hoy ? ' y está activo hoy' : ' y quedó desactivado hoy'}.`;
+}
+
+function prepararArchivarPlatoMenuDia(args = {}) {
+  const plato = buscarPlatoMenuDia(args.plato);
+  return {
+    resumen: `Archivar ${plato.nombre} de la biblioteca del menú del día.`,
+    detalles: [
+      { etiqueta: 'Plato', valor: plato.nombre },
+      { etiqueta: 'Estado actual', valor: plato.activo ? 'Activo' : 'Ya archivado' },
+    ],
+    advertencia:
+      'Deja de aparecer para vender y se desactiva hoy. No borra ventas, pedidos ni historial.',
+    argumentosResueltos: { producto_id: plato.id },
+  };
+}
+
+function ejecutarArchivarPlatoMenuDia(argumentos) {
+  let archivado;
+  try {
+    archivado = archiveMenuDiaProduct(argumentos.producto_id);
+  } catch (error) {
+    throw new ErrorDeAccion(String(error?.message || 'No se pudo archivar el plato.'));
+  }
+  return `${archivado.nombre} fue archivado. Sus ventas e historial se conservan.`;
 }
 
 // ── Compras ─────────────────────────────────────────────────────────────────
@@ -986,6 +1129,43 @@ const ACCIONES = [
     },
     preparar: prepararNuevoPlatoMenuDia,
     ejecutar: ejecutarNuevoPlatoMenuDia,
+  },
+  {
+    nombre: 'proponer_editar_plato_menu_del_dia',
+    descripcion:
+      'Editar un plato existente del menú del día: nombre, descripción, precio, stock, tipo, preparación, guarniciones, extras, destacado y si está activo hoy. Mandar sólo los campos que se quieran cambiar.',
+    parametros: {
+      type: 'object',
+      properties: {
+        plato: { type: 'string', description: 'Nombre actual del plato.' },
+        nombre: { type: 'string' },
+        descripcion: { type: 'string' },
+        precio: { type: 'number', description: 'Precio en pesos.' },
+        stock: { type: 'number', description: 'Stock disponible hoy.' },
+        tipo: { type: 'string', enum: ['economico', 'ejecutivo'] },
+        tiempo_preparacion: { type: 'number', description: 'Minutos.' },
+        guarniciones: { type: 'array', items: { type: 'string' } },
+        ofrece_postre: { type: 'boolean' },
+        ofrece_bebida_postre: { type: 'boolean' },
+        destacado: { type: 'boolean' },
+        activo_hoy: { type: 'boolean', description: 'Activar o desactivar para hoy.' },
+      },
+      required: ['plato'],
+    },
+    preparar: prepararEditarPlatoMenuDia,
+    ejecutar: ejecutarEditarPlatoMenuDia,
+  },
+  {
+    nombre: 'proponer_archivar_plato_menu_del_dia',
+    descripcion:
+      'Archivar un plato que ya no se usa en la biblioteca del menú del día. No borra su historial ni ventas anteriores.',
+    parametros: {
+      type: 'object',
+      properties: { plato: { type: 'string' } },
+      required: ['plato'],
+    },
+    preparar: prepararArchivarPlatoMenuDia,
+    ejecutar: ejecutarArchivarPlatoMenuDia,
   },
   {
     nombre: 'proponer_compra',

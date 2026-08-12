@@ -334,6 +334,8 @@ function testAccionesOperativasCompletas() {
     'proponer_receta_de_producto',
     'proponer_menu_del_dia',
     'proponer_nuevo_plato_menu_del_dia',
+    'proponer_editar_plato_menu_del_dia',
+    'proponer_archivar_plato_menu_del_dia',
   ].forEach((nombre) => {
     assert.ok(nombres.has(nombre), `falta la acción operativa ${nombre}`);
   });
@@ -349,6 +351,17 @@ function testAccionesOperativasCompletas() {
   assert.ok(
     menu.parametros.properties.platos.items.properties.stock,
     'el menú del día debe poder cargar stock por plato'
+  );
+  const editarMenu = ACCIONES.find(
+    (accion) => accion.nombre === 'proponer_editar_plato_menu_del_dia'
+  );
+  assert.ok(
+    editarMenu.parametros.properties.activo_hoy,
+    'el menú debe poder activarse o desactivarse'
+  );
+  assert.ok(
+    editarMenu.parametros.properties.guarniciones,
+    'el menú debe poder editar guarniciones'
   );
   console.log('  OK el chat cubre pedidos, stocks, recetas y menú del día');
 }
@@ -454,6 +467,27 @@ async function testAccionesOperativasEjecutan() {
     assert.strictEqual(menuGuardado.stock_directo, 12);
     assert.strictEqual(menuGuardado.menu_dia_base, 1);
     assert.strictEqual(menuGuardado.menu_dia_disponible_hoy, 1);
+    const editar = prepararAccion('proponer_editar_plato_menu_del_dia', {
+      plato: `${marca}_MENU`,
+      precio: 7000,
+      stock: 9,
+      descripcion: 'Plato editado por el asistente',
+      guarniciones: ['Papas', 'Ensalada'],
+      activo_hoy: false,
+    });
+    assert.ok(!editar.error, editar.error);
+    await ejecutarAccion(editar.accion, editar.argumentosResueltos);
+    const menuEditado = db
+      .prepare(
+        `SELECT precio, stock_directo, descripcion, menu_dia_disponible_hoy, variantes
+           FROM productos WHERE id = ?`
+      )
+      .get(platoMenuId);
+    assert.strictEqual(menuEditado.precio, 700000);
+    assert.strictEqual(menuEditado.stock_directo, 9);
+    assert.strictEqual(menuEditado.descripcion, 'Plato editado por el asistente');
+    assert.strictEqual(menuEditado.menu_dia_disponible_hoy, 0);
+    assert.match(menuEditado.variantes, /Papas/);
     console.log('  OK stock, receta y plato nuevo se ejecutan tras confirmar');
   } finally {
     [productoDirectoId, productoRecetaId, platoMenuId]

@@ -1,6 +1,7 @@
 const db = require('../db');
 const { fechaLocal } = require('../utils/fechaLocal');
 const { buildCajaResumen } = require('../routes/caja');
+const { buildMenuDiaManagerPayload } = require('../routes/operacion');
 const { normalizePagoEstado, normalizeMetodoPago } = require('../utils/paymentStatus');
 const { envolverDato, envolverDatoInline } = require('../utils/sanitizarPrompt');
 
@@ -201,6 +202,37 @@ function stockBajo() {
       unidad: f.unidad,
     })),
   };
+}
+
+function menuDelDiaActual(args = {}) {
+  const termino = String(args.plato || '')
+    .trim()
+    .toLowerCase();
+  const data = buildMenuDiaManagerPayload();
+  const items = data.items
+    .filter(
+      (item) =>
+        !termino ||
+        String(item.nombre || '')
+          .toLowerCase()
+          .includes(termino)
+    )
+    .map((item) => ({
+      id: Number(item.id),
+      nombre: item.nombre,
+      activo_en_biblioteca: Number(item.activo) === 1,
+      activo_hoy: Number(item.disponible_hoy) === 1,
+      precio_pesos: aPesos(item.precio_hoy),
+      stock_hoy: Number(item.stock_hoy || 0),
+      tipo: item.tipo_hoy,
+      descripcion: envolverDatoInline(item.descripcion_hoy || ''),
+      guarniciones: item.guarniciones_hoy || [],
+      ofrece_postre: Number(item.ofrece_postre_hoy) === 1,
+      ofrece_bebida_postre: Number(item.ofrece_bebida_postre_hoy) === 1,
+      destacado: Number(item.destacado_hoy) === 1,
+      tiempo_preparacion_min: Number(item.tiempo_preparacion || 0),
+    }));
+  return { fecha: data.fecha, cantidad: items.length, platos: items };
 }
 
 function pedidosEnCurso() {
@@ -641,6 +673,18 @@ const HERRAMIENTAS = [
     ejecutar: stockBajo,
   },
   {
+    nombre: 'consultar_menu_del_dia',
+    descripcion:
+      'Biblioteca y menú actual: platos, si están activos hoy, precio, stock, descripción, tipo, guarniciones, extras, destacado y tiempo de preparación. Usala antes de editar, activar, desactivar o archivar un plato.',
+    parametros: {
+      type: 'object',
+      properties: {
+        plato: { type: 'string', description: 'Nombre opcional para buscar un plato.' },
+      },
+    },
+    ejecutar: menuDelDiaActual,
+  },
+  {
     nombre: 'pedidos_en_curso',
     descripcion:
       'Pedidos que todavía no se entregaron: pendientes, en preparación, listos o en camino.',
@@ -781,6 +825,7 @@ module.exports = {
   ejecutarHerramienta,
   resolverRango,
   aPesos,
+  menuDelDiaActual,
   // Exportar diagnósticos para uso externo (ej: endpoint de revisión automática)
   revisionAutomatica,
   stockNegativo,

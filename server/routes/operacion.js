@@ -449,6 +449,96 @@ function persistMenuDiaItems(items = [], fecha = today()) {
   }
 }
 
+/**
+ * Actualiza un solo plato sin reconstruir el menú a mano desde el cliente.
+ *
+ * `persistMenuDiaItems` recibe la foto completa de hoy porque esa es la forma
+ * segura de dejar afuera los platos no elegidos. Para editar uno desde el
+ * asistente necesitamos primero conservar todos los demás y recién ahí aplicar
+ * el cambio puntual: de otro modo "subí el stock de la mila" apagaría todo el
+ * menú por accidente.
+ */
+function updateMenuDiaProduct(productId, changes = {}) {
+  const id = Number(productId);
+  const current = buildMenuDiaManagerPayload().items.find((item) => Number(item.id) === id);
+  if (!current) throw new Error('El plato no existe en la biblioteca del menú del día.');
+
+  const nextName = String(changes.nombre ?? current.nombre).trim();
+  if (!nextName) throw new Error('El nombre del plato no puede quedar vacío.');
+  const duplicate = db
+    .prepare('SELECT id FROM productos WHERE LOWER(nombre) = LOWER(?) AND id != ? LIMIT 1')
+    .get(nextName, id);
+  if (duplicate) throw new Error(`Ya existe otro producto llamado "${nextName}".`);
+
+  const nextTime = Math.max(
+    1,
+    Number(changes.tiempo_preparacion ?? current.tiempo_preparacion ?? 15)
+  );
+  if (!Number.isFinite(nextTime)) throw new Error('El tiempo de preparación no es válido.');
+
+  const items = buildMenuDiaManagerPayload().items.map((item) => {
+    const base = {
+      id: item.id,
+      disponible_hoy: item.disponible_hoy,
+      precio_hoy: item.precio_hoy,
+      stock_hoy: item.stock_hoy,
+      descripcion_hoy: item.descripcion_hoy,
+      destacado_hoy: item.destacado_hoy,
+      orden_hoy: item.orden_hoy,
+      tipo_hoy: item.tipo_hoy,
+      guarniciones_hoy: item.guarniciones_hoy,
+      ofrece_postre_hoy: item.ofrece_postre_hoy,
+      ofrece_bebida_postre_hoy: item.ofrece_bebida_postre_hoy,
+    };
+    if (Number(item.id) !== id) return base;
+    return {
+      ...base,
+      disponible_hoy:
+        changes.disponible_hoy === undefined ? base.disponible_hoy : changes.disponible_hoy ? 1 : 0,
+      precio_hoy: changes.precio_hoy ?? base.precio_hoy,
+      stock_hoy: changes.stock_hoy ?? base.stock_hoy,
+      descripcion_hoy: changes.descripcion_hoy ?? base.descripcion_hoy,
+      destacado_hoy:
+        changes.destacado_hoy === undefined ? base.destacado_hoy : changes.destacado_hoy ? 1 : 0,
+      tipo_hoy: changes.tipo_hoy ?? base.tipo_hoy,
+      guarniciones_hoy: changes.guarniciones_hoy ?? base.guarniciones_hoy,
+      ofrece_postre_hoy:
+        changes.ofrece_postre_hoy === undefined
+          ? base.ofrece_postre_hoy
+          : changes.ofrece_postre_hoy
+            ? 1
+            : 0,
+      ofrece_bebida_postre_hoy:
+        changes.ofrece_bebida_postre_hoy === undefined
+          ? base.ofrece_bebida_postre_hoy
+          : changes.ofrece_bebida_postre_hoy
+            ? 1
+            : 0,
+    };
+  });
+
+  persistMenuDiaItems(items);
+  db.prepare('UPDATE productos SET nombre = ?, tiempo_preparacion = ? WHERE id = ?').run(
+    nextName,
+    roundStock(nextTime),
+    id
+  );
+  return buildMenuDiaManagerPayload().items.find((item) => Number(item.id) === id);
+}
+
+function archiveMenuDiaProduct(productId) {
+  const id = Number(productId);
+  const product = db.prepare('SELECT id, nombre FROM productos WHERE id = ?').get(id);
+  if (!product) throw new Error('El plato no existe.');
+  db.prepare(
+    `UPDATE productos
+        SET activo = 0,
+            menu_dia_disponible_hoy = 0
+      WHERE id = ?`
+  ).run(id);
+  return product;
+}
+
 function loadBaseInsumos() {
   const placeholders = BASE_INSUMOS.map(() => '?').join(',');
   return db
@@ -886,20 +976,12 @@ router.post('/menu-dia/copiar-ayer', requirePermission('productos.edit'), (_req,
  * en la carta pública si se archiva estando activo.
  */
 router.delete('/menu-dia/:productoId', requirePermission('productos.edit'), (req, res) => {
-  const producto = db
-    .prepare('SELECT id, nombre FROM productos WHERE id = ?')
-    .get(req.params.productoId);
-
-  if (!producto) {
-    return res.status(404).json({ error: 'El plato no existe' });
+  let producto;
+  try {
+    producto = archiveMenuDiaProduct(req.params.productoId);
+  } catch (error) {
+    return res.status(404).json({ error: error.message });
   }
-
-  db.prepare(
-    `UPDATE productos
-        SET activo = 0,
-            menu_dia_disponible_hoy = 0
-      WHERE id = ?`
-  ).run(producto.id);
 
   return res.json({
     success: true,
@@ -1037,3 +1119,6 @@ module.exports = router;
 module.exports.persistMenuDiaItems = persistMenuDiaItems;
 module.exports.loadMenuDiaLibrary = loadMenuDiaLibrary;
 module.exports.createMenuDiaProduct = createMenuDiaProduct;
+module.exports.buildMenuDiaManagerPayload = buildMenuDiaManagerPayload;
+module.exports.updateMenuDiaProduct = updateMenuDiaProduct;
+module.exports.archiveMenuDiaProduct = archiveMenuDiaProduct;
