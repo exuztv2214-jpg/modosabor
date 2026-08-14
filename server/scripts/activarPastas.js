@@ -33,6 +33,16 @@ const APLICAR = process.argv.includes('--aplicar');
 
 // En centavos. El comentario de al lado es lo que ve el cliente.
 const PRECIOS = [
+  /*
+    El canelón no estaba en esta lista al principio, porque en la base local ya
+    existía con su precio puesto y el script lo saltea solo.
+
+    En producción no existe, así que cargarPastas.js lo crea en $0 y
+    desactivado. Sin esta línea se quedaba así para siempre: un plato fantasma
+    que nadie ve y que nadie activa. Hernán confirmó que va a $5.000, igual que
+    en el menú del día.
+  */
+  { nombre: 'Canelones', centavos: 500000 }, //  $5.000
   { nombre: 'Lasaña', centavos: 700000 }, //  $7.000
   { nombre: 'Ñoquis', centavos: 500000 }, //  $5.000
   { nombre: 'Fideos caseros', centavos: 500000 }, //  $5.000
