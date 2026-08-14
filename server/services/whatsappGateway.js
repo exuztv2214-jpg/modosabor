@@ -288,7 +288,7 @@ function claimsOrderWasCreated(output) {
   );
 }
 
-function usesExternalAgentCatalog(webhook) {
+function usesExternalAgentCatalog() {
   const configuredApi = configValue(
     'whatsapp_agente_catalogo_url',
     String(process.env.WHATSAPP_AGENT_CATALOG_URL || '')
@@ -426,7 +426,7 @@ async function handleIncoming(message) {
     const businessConfig = getConfigMap(db);
     const currentShift = getCurrentShiftInfo(businessConfig);
     const previousOrder = getLastOrderByPhone(db, telefono);
-    const externalCatalog = usesExternalAgentCatalog(config.webhook);
+    const externalCatalog = usesExternalAgentCatalog();
     // Es deliberadamente no bloqueante: si la consulta externa no está
     // disponible, el flujo conserva las validaciones locales y n8n devolverá
     // su propio error al intentar crear un pedido.
