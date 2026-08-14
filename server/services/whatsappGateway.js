@@ -106,6 +106,16 @@ function gatewayConfig() {
   };
 }
 
+function closedBusinessMessage(turnos = []) {
+  const horarios = turnos
+    .filter((turno) => turno?.desde && turno?.hasta)
+    .map((turno) => `${turno.nombre || 'Turno'}: ${turno.desde} a ${turno.hasta}`)
+    .join(' · ');
+  return horarios
+    ? `Ahora estamos cerrados. Nuestros horarios son: ${horarios}. Cuando abramos, escribinos y te atendemos.`
+    : 'Ahora estamos cerrados. Escribinos más tarde y te atendemos.';
+}
+
 function textFromMessage(message) {
   let content = message?.message || {};
   if (content.ephemeralMessage?.message) content = content.ephemeralMessage.message;
@@ -415,6 +425,21 @@ async function handleIncoming(message) {
 
   try {
     await conexion.enviarPresencia(jid, 'composing');
+    const businessConfig = getConfigMap(db);
+    const currentShift = getCurrentShiftInfo(businessConfig);
+    if (!currentShift.abierto_ahora) {
+      const closedReply = closedBusinessMessage(currentShift.turnos);
+      await conexion.enviarTexto(jid, closedReply);
+      saveMessage(conversation.id, telefono, 'saliente', 'texto', closedReply, {
+        origen: 'sistema',
+        motivo: 'fuera_de_horario',
+      });
+      await conexion.enviarPresencia(jid, 'paused');
+      respondidos += 1;
+      ultimoError = '';
+      ultimaActividad = `Horario informado a ${telefono}`;
+      return;
+    }
     if (type === 'texto' && asksForCarta(usableText)) {
       await sendCarta(jid, conversation, telefono);
       await conexion.enviarPresencia(jid, 'paused');
@@ -423,8 +448,6 @@ async function handleIncoming(message) {
       ultimaActividad = `Carta enviada a ${telefono}`;
       return;
     }
-    const businessConfig = getConfigMap(db);
-    const currentShift = getCurrentShiftInfo(businessConfig);
     const previousOrder = getLastOrderByPhone(db, telefono);
     const externalCatalog = usesExternalAgentCatalog();
     // Es deliberadamente no bloqueante: si la consulta externa no está
@@ -684,4 +707,5 @@ module.exports = {
   enqueueIncoming,
   serializeByKey,
   safeWebhookUrl,
+  closedBusinessMessage,
 };

@@ -7,6 +7,7 @@ const {
   usableWhatsappName,
   claimsOrderWasCreated,
   safeWebhookUrl,
+  closedBusinessMessage,
 } = require('../../services/whatsappGateway');
 
 function run() {
@@ -28,6 +29,13 @@ function run() {
     safeWebhookUrl('https://n8n.example/webhook/principal', 'https://fallback.example'),
     'https://n8n.example/webhook/principal'
   );
+  const cierre = closedBusinessMessage([
+    { nombre: 'Turno mañana', desde: '10:00', hasta: '15:00' },
+    { nombre: 'Turno noche', desde: '20:30', hasta: '02:00' },
+  ]);
+  assert.match(cierre, /10:00 a 15:00/);
+  assert.match(cierre, /20:30 a 02:00/);
+  assert.doesNotMatch(cierre, /avis|notific|emoji|👋/i);
   process.env.NODE_ENV = previousNodeEnv;
   const agentRoute = fs.readFileSync(
     path.join(__dirname, '..', '..', 'routes', 'agente.js'),
