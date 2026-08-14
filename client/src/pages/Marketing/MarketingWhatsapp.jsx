@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
+import { useNavigate } from 'react-router-dom';
 import {
   Activity,
   CheckCircle2,
@@ -155,6 +156,7 @@ function Confirmar({ previa, enviando, onCancelar, onConfirmar }) {
 }
 
 export default function MarketingWhatsapp() {
+  const navigate = useNavigate();
   const [estado, setEstado] = useState(null);
   const [cargando, setCargando] = useState(true);
   const [mensaje, setMensaje] = useState('');
@@ -261,9 +263,7 @@ export default function MarketingWhatsapp() {
             </p>
             <button
               type="button"
-              onClick={() => {
-                window.location.href = '/admin/configuracion?tab=whatsapp';
-              }}
+              onClick={() => navigate('/admin/configuracion?tab=whatsapp')}
               style={{ background: BRAND }}
               className="h-11 rounded-xl px-5 text-[13px] font-semibold text-white transition hover:brightness-110"
             >
@@ -405,9 +405,7 @@ export default function MarketingWhatsapp() {
             </p>
             <button
               type="button"
-              onClick={() => {
-                window.location.href = '/admin/configuracion?tab=whatsapp';
-              }}
+              onClick={() => navigate('/admin/configuracion?tab=whatsapp')}
               className="h-9 rounded-xl bg-gray-100 px-4 text-[12px] font-semibold text-gray-700"
             >
               Abrir Configuración
