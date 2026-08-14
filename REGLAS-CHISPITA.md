@@ -119,9 +119,9 @@ molesta y se nota que es una máquina.
 
 ---
 
-## Lo que hace falta cargar en la carta
+## Las pastas — hecho el 14/8/2026
 
-Los clientes pidieron, y el sistema no los tiene como productos:
+Los clientes las pedían y el sistema no las tenía como productos:
 
 ```
                  te los piden        estuvieron en el menú del día
@@ -134,5 +134,20 @@ El menú del día tiene **cuatro días cargados en toda su historia**. Los fideo
 y los ñoquis nunca estuvieron. Si el bot sólo ofrece el menú del día, dice "no
 hay" casi siempre.
 
-Van como productos fijos, con una lista compartida **Salsas** —salsa de pollo,
-de carne, roja, blanca, mixta— asignada a los tres.
+Ya están cargadas como productos fijos:
+
+| Plato          | Precio | Salsa (hay que elegir)              |
+| -------------- | ------ | ----------------------------------- |
+| Canelones      | $5.000 | blanca · roja · mixta               |
+| Lasaña         | $7.000 | blanca · roja · mixta               |
+| Ñoquis         | $5.000 | fileto con pollo · fileto con carne |
+| Fideos caseros | $5.000 | fileto con pollo · fileto con carne |
+| Ravioles       | $7.000 | fileto con pollo · fileto con carne |
+
+Son **dos** listas compartidas, no una: las salsas de los canelones y la lasaña
+no son las mismas que las de los ñoquis, los fideos y los ravioles. Meterlas
+todas juntas dejaría ofrecer fileto con pollo en un canelón, que no se vende
+así.
+
+En las cinco la salsa es obligatoria: una pasta sin salsa no se puede cocinar,
+y si el grupo fuera opcional saldría una comanda incompleta.
