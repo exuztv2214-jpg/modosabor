@@ -1,21 +1,13 @@
 const fs = require('fs');
 const path = require('path');
-const db = require('../../server/db');
 
 const prompt = fs.readFileSync(path.join(__dirname, '..', 'prompt-agente.md'), 'utf8');
 const workflowId = process.env.N8N_AGENT_WORKFLOW_ID || 'wviWYBeihJt3v4Xh';
-// La atención prioriza el modelo que mejor cumplió horarios y reglas en la
-// prueba operativa. NVIDIA queda como respaldo independiente ante cortes o
-// límites del proveedor principal.
-const credentialId = process.env.N8N_MODEL_CREDENTIAL_ID || 'GeminiModoSabor1';
+// NVIDIA es el proveedor principal definido por Hernán. Gemini usa un
+// workflow separado y queda como respaldo ante límites o cortes de NVIDIA.
+const credentialId = process.env.N8N_MODEL_CREDENTIAL_ID || 'HEzjBau3FRO3uLk9';
 const fallbackWorkflowId = process.env.N8N_AGENT_FALLBACK_WORKFLOW_ID || 'ModoSaborFallbackNvidia1';
-const fallbackCredentialId = process.env.N8N_FALLBACK_CREDENTIAL_ID || 'ModoSaborEmergencyOpenAi1';
-const fallbackProvider =
-  db.prepare("SELECT valor FROM configuracion WHERE clave = 'whatsapp_emergencia_proveedor'").get()
-    ?.valor || 'NVIDIA';
-const fallbackModel =
-  db.prepare("SELECT valor FROM configuracion WHERE clave = 'whatsapp_emergencia_modelo'").get()
-    ?.valor || 'z-ai/glm-5.2';
+const fallbackCredentialId = process.env.N8N_FALLBACK_CREDENTIAL_ID || 'GeminiModoSabor1';
 
 const fixedHeader = {
   sendHeaders: true,
@@ -64,16 +56,17 @@ const workflow = {
     },
     {
       id: 'model-atencion',
-      name: 'Google Gemini Flash Lite',
-      type: '@n8n/n8n-nodes-langchain.lmChatGoogleGemini',
-      typeVersion: 1.1,
+      name: 'NVIDIA GLM 5.2',
+      type: '@n8n/n8n-nodes-langchain.lmChatOpenAi',
+      typeVersion: 1.3,
       position: [-380, 420],
       parameters: {
-        modelName: 'models/gemini-3.1-flash-lite',
+        model: { __rl: true, value: 'z-ai/glm-5.2', mode: 'id' },
+        responsesApiEnabled: false,
         options: {},
       },
       credentials: {
-        googlePalmApi: { id: credentialId, name: 'Gemini Modo Sabor' },
+        openAiApi: { id: credentialId, name: 'OpenAI account' },
       },
     },
     tool('tool-estado', 'consultar_estado', [80, -120], {
@@ -221,7 +214,7 @@ const workflow = {
     'Entrada WhatsApp Web': {
       main: [[{ node: 'Chispita - Agente de pedidos', type: 'main', index: 0 }]],
     },
-    'Google Gemini Flash Lite': {
+    'NVIDIA GLM 5.2': {
       ai_languageModel: [
         [{ node: 'Chispita - Agente de pedidos', type: 'ai_languageModel', index: 0 }],
       ],
@@ -264,23 +257,22 @@ fs.writeFileSync(
 
 const fallback = JSON.parse(JSON.stringify(workflow));
 fallback.id = fallbackWorkflowId;
-fallback.name = `Agente WhatsApp - Respaldo ${String(fallbackProvider).slice(0, 40)}`;
+fallback.name = 'Agente WhatsApp - Respaldo Gemini';
 const webhook = fallback.nodes.find((node) => node.id === 'webhook-atencion');
 webhook.webhookId = 'modosabor-atencion-web-fallback';
 webhook.parameters.path = 'modosabor-atencion-web-fallback';
 const model = fallback.nodes.find((node) => node.id === 'model-atencion');
-model.name = `${String(fallbackProvider).slice(0, 40)} - Emergencia`;
-model.type = '@n8n/n8n-nodes-langchain.lmChatOpenAi';
-model.typeVersion = 1.3;
+model.name = 'Google Gemini Flash Lite - Respaldo';
+model.type = '@n8n/n8n-nodes-langchain.lmChatGoogleGemini';
+model.typeVersion = 1.1;
 model.parameters = {
-  model: { __rl: true, value: String(fallbackModel), mode: 'id' },
-  responsesApiEnabled: false,
+  modelName: 'models/gemini-3.1-flash-lite',
   options: {},
 };
 model.credentials = {
-  openAiApi: { id: fallbackCredentialId, name: 'WhatsApp Emergencia' },
+  googlePalmApi: { id: fallbackCredentialId, name: 'Gemini Modo Sabor' },
 };
-delete fallback.connections['Google Gemini Flash Lite'];
+delete fallback.connections['NVIDIA GLM 5.2'];
 fallback.connections[model.name] = {
   ai_languageModel: [
     [{ node: 'Chispita - Agente de pedidos', type: 'ai_languageModel', index: 0 }],
