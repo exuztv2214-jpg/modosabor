@@ -39,9 +39,62 @@ function esConsultaMenuDelDia(pregunta) {
     .toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '');
+  if (/\bno\s+(?:en|del?)\s+(?:el\s+)?menu\s*(?:del?\s*)?dia\b/.test(normalizada)) {
+    return false;
+  }
   return /\bmenu\s*(?:del?\s*)?dia\b|\bmenu\s+hoy\b|\bque\s+(?:hay|tenes)\s+(?:de\s+)?menu\b/.test(
     normalizada
   );
+}
+
+function accionesParaPregunta(pregunta, puedeReparar = false) {
+  const normalizada = String(pregunta || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  const cambio =
+    /\b(agrega|agregar|suma|sumar|resta|restar|carga|cargar|crea|crear|edita|editar|modifica|modificar|activa|activar|desactiva|desactivar|archiva|archivar|cancela|cancelar|anula|anular|marca|marcar|ajusta|ajustar|registra|registrar)\b/;
+  if (!cambio.test(normalizada)) return [];
+
+  const nombres = new Set();
+  if (/\b(stock|inventario|insumo|producto)\b/.test(normalizada)) {
+    nombres.add('proponer_cambio_de_stock');
+    nombres.add('proponer_stock_de_producto');
+  }
+  if (/\breceta\b/.test(normalizada)) nombres.add('proponer_receta_de_producto');
+  if (/\b(menu|plato)\b/.test(normalizada)) {
+    nombres.add('proponer_menu_del_dia');
+    nombres.add('proponer_nuevo_plato_menu_del_dia');
+    nombres.add('proponer_editar_plato_menu_del_dia');
+    nombres.add('proponer_archivar_plato_menu_del_dia');
+  }
+  if (/\b(compra|proveedor|remito|factura)\b/.test(normalizada)) {
+    nombres.add('proponer_compra');
+  }
+  if (/\b(promo|promocion|descuento|cupon)\b/.test(normalizada)) nombres.add('proponer_promo');
+  if (/\bpedido\b/.test(normalizada)) nombres.add('proponer_pedido');
+
+  if (puedeReparar) {
+    if (
+      /\b(cancelar|cancela|anular|anula)\b.*\bpedido\b|\bpedido\b.*\b(cancelar|cancela|anular|anula)\b/.test(
+        normalizada
+      )
+    ) {
+      nombres.add('proponer_cancelar_pedido');
+    }
+    if (/\bstock\s+negativo\b/.test(normalizada)) {
+      nombres.add('proponer_ajustar_stock_negativo');
+    }
+    if (
+      /\b(pagado|pagar|cobrado)\b.*\bpedido\b|\bpedido\b.*\b(pagado|pagar|cobrado)\b/.test(
+        normalizada
+      )
+    ) {
+      nombres.add('proponer_marcar_pagado');
+    }
+  }
+
+  return catalogoDeAcciones().filter((accion) => nombres.has(accion.nombre));
 }
 
 function responderMenuDelDia() {
@@ -370,10 +423,7 @@ router.post(
     const puedeReparar = hasPermission(req.user, 'config.manage');
     let acciones = [];
     if (puedeModificar) {
-      acciones = catalogoDeAcciones();
-      if (!puedeReparar) {
-        acciones = acciones.filter((a) => !esAccionReparacion(a.nombre));
-      }
+      acciones = accionesParaPregunta(pregunta, puedeReparar);
     }
     const herramientas = [...catalogoParaModelo(), ...acciones];
     // Se registra qué consultó para poder auditarlo después.
@@ -665,3 +715,4 @@ module.exports.sanearHistorial = sanearHistorial;
 module.exports.INSTRUCCIONES = INSTRUCCIONES;
 module.exports.redactarAuditoriaIa = redactarAuditoriaIa;
 module.exports.esConsultaMenuDelDia = esConsultaMenuDelDia;
+module.exports.accionesParaPregunta = accionesParaPregunta;

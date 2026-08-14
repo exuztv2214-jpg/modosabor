@@ -6,7 +6,11 @@ const {
   ejecutarHerramienta,
   catalogoParaModelo,
 } = require('../../services/asistenteHerramientas');
-const { sanearHistorial, esConsultaMenuDelDia } = require('../../routes/asistente');
+const {
+  sanearHistorial,
+  esConsultaMenuDelDia,
+  accionesParaPregunta,
+} = require('../../routes/asistente');
 const { catalogoDeProveedores, PROVEEDORES } = require('../../services/iaProveedor');
 const { firmarPropuesta, verificarPropuesta } = require('../../utils/firmaPropuesta');
 
@@ -160,7 +164,28 @@ function testConsultaDirectaDeMenuDelDia() {
   assert.ok(esConsultaMenuDelDia('mostrame el menú del día'));
   assert.ok(!esConsultaMenuDelDia('¿Cuánto vendí hoy?'));
   assert.ok(!esConsultaMenuDelDia('agregá una milanesa al stock'));
+  assert.ok(!esConsultaMenuDelDia('stock de milanesa, no en el menú del día'));
   console.log('  OK el menú del día se detecta sin depender de IA');
+}
+
+function testAccionesSeOfrecenSoloCuandoCorresponde() {
+  assert.deepStrictEqual(
+    accionesParaPregunta('¿cuánto stock tiene la milanesa?', true),
+    [],
+    'una consulta de stock no debe cargar el prompt con acciones de escritura'
+  );
+  const stock = accionesParaPregunta('sumá 30 al stock de pollo', true).map((a) => a.nombre);
+  assert.deepStrictEqual(stock.sort(), ['proponer_cambio_de_stock', 'proponer_stock_de_producto']);
+  const pedido = accionesParaPregunta('cargá un pedido para Juan', true).map((a) => a.nombre);
+  assert.deepStrictEqual(pedido, ['proponer_pedido']);
+  const cancelar = accionesParaPregunta('cancelá el pedido 123', true).map((a) => a.nombre);
+  assert.ok(cancelar.includes('proponer_cancelar_pedido'));
+  assert.ok(
+    !accionesParaPregunta('cancelá el pedido 123', false).some(
+      (a) => a.nombre === 'proponer_cancelar_pedido'
+    )
+  );
+  console.log('  OK cada consulta recibe sólo las acciones que pidió el usuario');
 }
 
 function testInstruccionesTraenElBlindaje() {
@@ -662,6 +687,7 @@ async function run() {
   testCatalogoEsSoloLectura();
   testHistorialSaneado();
   testConsultaDirectaDeMenuDelDia();
+  testAccionesSeOfrecenSoloCuandoCorresponde();
   testElModeloNoPuedeFijarPrecios();
   testInstruccionesTraenElBlindaje();
   testProveedores();
