@@ -26,20 +26,32 @@ function pythonCandidates() {
 function runPython(python, audioPath) {
   return new Promise((resolve, reject) => {
     const args = python === 'py' ? ['-3.12', SCRIPT, audioPath] : [SCRIPT, audioPath];
+
+    /*
+      Ver el comentario largo en scripts/transcribe-whatsapp-audio.py.
+
+      En resumen: con "base" los audios salían mal transcriptos —"cuánto cueste
+      lo mito" por "cuánto cuesta el lomito"— y la IA contestaba sobre algo que
+      el cliente nunca dijo. "small" lo arregla y se baja solo la primera vez.
+    */
+    const modelo = String(process.env.WHISPER_MODEL || 'small').trim();
+
+    /*
+      Este log existe para poder responder una pregunta concreta: después de
+      reiniciar el servidor, ¿está usando el modelo nuevo o quedó el viejo?
+
+      Whisper no se carga al arrancar sino recién cuando llega el primer audio,
+      así que el arranque no dice nada. Sin esta línea la única forma de saberlo
+      era mandar un audio y adivinar por la calidad de la transcripción.
+    */
+    logger.info(`Transcribiendo audio de WhatsApp con Whisper "${modelo}"`);
+
     const child = spawn(python, args, {
       windowsHide: true,
       env: {
         ...process.env,
         PYTHONUTF8: '1',
-        /*
-          Ver el comentario largo en scripts/transcribe-whatsapp-audio.py.
-
-          En resumen: con "base" los audios salían mal transcriptos —"cuánto
-          cueste lo mito" por "cuánto cuesta el lomito"— y la IA contestaba
-          sobre algo que el cliente nunca dijo. "small" lo arregla y se baja
-          solo la primera vez.
-        */
-        WHISPER_MODEL: String(process.env.WHISPER_MODEL || 'small').trim(),
+        WHISPER_MODEL: modelo,
         WHISPER_CACHE_DIR:
           String(process.env.WHISPER_CACHE_DIR || '').trim() ||
           (fs.existsSync(BUNDLED_MODEL_DIR)
