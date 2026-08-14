@@ -7,6 +7,7 @@ const { createDatabaseBackup, listBackups } = require('../utils/backupManager');
 const { insertInventoryMovement, roundStock } = require('../utils/inventory');
 const { summarizePaymentRows } = require('../utils/paymentStatus');
 const { recalculateClienteStats } = require('../utils/loyalty');
+const { logAudit, actorFromRequest } = require('../utils/audit');
 
 const { fechaLocal, hoyArgentina } = require('../utils/fechaLocal');
 const {
@@ -264,7 +265,8 @@ function loadMenuDiaSnapshot(fecha) {
   return db
     .prepare(
       `
-    SELECT fecha, producto_id, disponible, precio, stock_directo, descripcion, destacado, orden
+    SELECT fecha, producto_id, disponible, precio, precio_economico, precio_ejecutivo,
+           stock_directo, descripcion, destacado, orden
     FROM menu_dia_historial
     WHERE fecha = ?
     ORDER BY orden ASC, id ASC
@@ -276,6 +278,13 @@ function loadMenuDiaSnapshot(fecha) {
       producto_id: Number(item.producto_id),
       disponible: Number(item.disponible) === 1 ? 1 : 0,
       precio: roundStock(item.precio || 0),
+      /*
+        Sin traerlos acá, la pantalla los recibía vacíos y al guardar se
+        pisaban con cero: los dos tamaños se borraban solos en cada vuelta,
+        sin que nadie tocara nada.
+      */
+      precio_economico: roundStock(item.precio_economico || 0),
+      precio_ejecutivo: roundStock(item.precio_ejecutivo || 0),
       stock_directo: roundStock(item.stock_directo || 0),
       destacado: Number(item.destacado) === 1 ? 1 : 0,
       orden: Number(item.orden || 0),
@@ -308,6 +317,10 @@ function buildMenuDiaManagerPayload() {
       guarniciones_hoy: guarniciones,
       ofrece_postre_hoy: extrasFlags.ofrecePostre ? 1 : 0,
       ofrece_bebida_postre_hoy: extrasFlags.ofreceBebidaPostre ? 1 : 0,
+      // Los dos tamaños del día, si se cargaron. En cero significan "este
+      // plato hoy no se vende en esa porción".
+      precio_economico_hoy: snapshot?.precio_economico || 0,
+      precio_ejecutivo_hoy: snapshot?.precio_ejecutivo || 0,
     };
   });
 
@@ -363,11 +376,13 @@ function persistMenuDiaItems(items = [], fecha = today()) {
        OR COALESCE(menu_dia_base, 0) = 1
   `);
   const upsertSnapshot = db.prepare(`
-    INSERT INTO menu_dia_historial (fecha, producto_id, disponible, precio, stock_directo, descripcion, destacado, orden, actualizado_en)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    INSERT INTO menu_dia_historial (fecha, producto_id, disponible, precio, precio_economico, precio_ejecutivo, stock_directo, descripcion, destacado, orden, actualizado_en)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     ON CONFLICT(fecha, producto_id) DO UPDATE SET
       disponible = excluded.disponible,
       precio = excluded.precio,
+      precio_economico = excluded.precio_economico,
+      precio_ejecutivo = excluded.precio_ejecutivo,
       stock_directo = excluded.stock_directo,
       descripcion = excluded.descripcion,
       destacado = excluded.destacado,
@@ -428,11 +443,28 @@ function persistMenuDiaItems(items = [], fecha = today()) {
         extras,
         id
       );
+      /*
+        ── Los dos tamaños del mismo plato ────────────────────────────────────
+
+        La misma suprema puede salir a $5.000 en porción chica y a $7.000 en
+        grande, el mismo día. `menu_dia_tipo` guarda un solo valor, así que eso
+        no se podía decir: la única salida era cargar el plato dos veces, y de
+        ahí salen los duplicados que hay en la carta.
+
+        Si no vienen, quedan en NULL y todo funciona como siempre, con `precio`
+        y `menu_dia_tipo`. Sólo se guardan los que valen algo: un cero acá
+        querría decir "se vende gratis en ese tamaño".
+      */
+      const precioEconomico = roundStock(Math.max(0, Number(rawItem?.precio_economico_hoy || 0)));
+      const precioEjecutivo = roundStock(Math.max(0, Number(rawItem?.precio_ejecutivo_hoy || 0)));
+
       upsertSnapshot.run(
         fecha,
         id,
         disponible,
         precio,
+        precioEconomico || null,
+        precioEjecutivo || null,
         stock,
         descripcion,
         destacado,
@@ -1029,6 +1061,23 @@ router.put('/menu-dia/config', requirePermission('productos.edit'), (req, res) =
       obligatorio: 1,
     });
   }
+  const actor = actorFromRequest(req);
+  logAudit(db, {
+    modulo: 'operacion',
+    accion: 'actualizar_menu_dia_config',
+    entidad: 'configuracion',
+    actor_id: actor.actor_id,
+    actor_nombre: actor.actor_nombre,
+    detalle: {
+      claves: [
+        body.precioEconomico !== undefined && 'menu_dia_precio_economico',
+        body.precioEjecutivo !== undefined && 'menu_dia_precio_ejecutivo',
+        body.extraPostrePrecio !== undefined && 'menu_dia_extra_postre_precio',
+        body.extraBebidaPostrePrecio !== undefined && 'menu_dia_extra_bebida_postre_precio',
+        Array.isArray(body.guarnicionesLista) && 'menu_dia_guarniciones_lista',
+      ].filter(Boolean),
+    },
+  });
   res.json(loadMenuDiaSettings());
 });
 

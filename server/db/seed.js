@@ -70,6 +70,10 @@ function runSeed(db) {
     ['whatsapp_atencion_ia_activa', '0'],
     ['whatsapp_masivos_activo', '0'],
     ['whatsapp_agente_webhook_url', 'http://127.0.0.1:5678/webhook/modosabor-atencion-web'],
+    ['whatsapp_emergencia_activa', '1'],
+    ['whatsapp_emergencia_proveedor', 'NVIDIA'],
+    ['whatsapp_emergencia_base_url', 'https://integrate.api.nvidia.com/v1'],
+    ['whatsapp_emergencia_modelo', 'z-ai/glm-5.2'],
     ['whatsapp_agente_nombre', 'Chispita'],
     [
       'whatsapp_agente_estilo',

@@ -21,11 +21,52 @@ class SocketManager {
     this.riderJoined = false;
     this.hasConnectedOnce = false;
     this.reconnectAttempts = 0;
-    this.maxReconnectAttempts = 5;
     this.persistentConnections = 0;
+    this.despertadorPuesto = false;
+  }
+
+  /**
+   * Vuelve a intentar cuando la computadora despierta o vuelve la red.
+   *
+   * ── Por qué hace falta ────────────────────────────────────────────────────
+   *
+   * El panel avisa los pedidos nuevos y las entregas por este socket. Si la
+   * conexión se cae y no vuelve, la pantalla se ve perfecta y **no suena nunca
+   * más**: no hay error, no hay cartel, simplemente dejan de llegar pedidos.
+   *
+   * Pasaba seguido con el panel abierto en otra pestaña. Una siesta de la
+   * notebook o un parpadeo del wifi alcanzaban. La única pantalla que se
+   * recuperaba era Pedidos, porque tiene su propio repaso cada quince
+   * segundos — por eso había que entrar ahí para que volviera a sonar.
+   */
+  ponerDespertador() {
+    if (this.despertadorPuesto || typeof window === 'undefined') return;
+    this.despertadorPuesto = true;
+
+    const revivir = () => {
+      // Sólo si alguien todavía quiere la conexión: si nadie la retiene, el
+      // panel está cerrado y no hay nada que revivir.
+      if (this.persistentConnections <= 0) return;
+      if (this.socket?.connected) return;
+      if (this.authToken) {
+        this.connectAuthenticated(this.authToken).catch(() => {});
+        return;
+      }
+      this.connect();
+    };
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') revivir();
+    });
+    window.addEventListener('online', revivir);
+    window.addEventListener('focus', revivir);
+    // Y un repaso de fondo, porque hay caídas que no disparan ningún evento:
+    // el navegador cree que sigue conectado y el servidor ya lo soltó.
+    window.setInterval(revivir, 20000);
   }
 
   connect() {
+    this.ponerDespertador();
     if (this.socket?.connected) return this.socket;
     if (this.socket) {
       this.socket.connect();
@@ -35,8 +76,19 @@ class SocketManager {
     this.socket = io(SOCKET_URL, {
       transports: ['websocket', 'polling'],
       reconnection: true,
-      reconnectionAttempts: this.maxReconnectAttempts,
+      /*
+        Antes eran cinco intentos, uno por segundo: a los cinco segundos de red
+        mala socket.io se rendía **para siempre** y nadie lo volvía a levantar.
+
+        Un panel de cocina tiene que reconectar toda la noche, no cinco veces.
+        La espera crece sola hasta diez segundos y se le suma un desvío al azar
+        para que veinte pantallas no golpeen el servidor todas juntas cuando
+        vuelve.
+      */
+      reconnectionAttempts: Infinity,
       reconnectionDelay: 1000,
+      reconnectionDelayMax: 10000,
+      randomizationFactor: 0.5,
       withCredentials: true,
     });
 
@@ -276,10 +328,15 @@ class SocketManager {
     });
 
     this.socket.on('connect_error', () => {
+      /*
+        Acá había un `this.socket.disconnect()` al quinto error, que además de
+        rendirse apagaba el reintento propio de socket.io. Después de eso la
+        pestaña quedaba muda hasta recargarla.
+
+        Ahora sólo se cuenta, para poder mirarlo si hace falta. Reintentar es
+        trabajo de socket.io, que ya sabe esperar cada vez un poco más.
+      */
       this.reconnectAttempts += 1;
-      if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-        this.socket?.disconnect();
-      }
     });
 
     this.socket.on('authenticated', (response) => {

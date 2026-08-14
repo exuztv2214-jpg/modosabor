@@ -379,8 +379,38 @@ function getRoomStats(io) {
   return stats;
 }
 
+/**
+ * Un chat de WhatsApp que la IA no pudo seguir y necesita una persona.
+ *
+ * ── Por qué hace falta ─────────────────────────────────────────────────────
+ *
+ * Cuando la IA se traba, escribía una marca en la base y le decía al cliente
+ * "ya te atiende una persona del local"… y no le avisaba a nadie. No había
+ * sonido, ni cartel, ni pantalla de conversaciones: lo único que existe es una
+ * lista de las últimas doce adentro de Configuración, donde nadie entra en
+ * pleno servicio.
+ *
+ * Hubo un cliente que escribió "Confirmar", quedó **42 minutos sin respuesta**
+ * y escribió "Hola" tres veces mientras esperaba.
+ *
+ * La salida de emergencia existía pero no tenía a nadie del otro lado.
+ */
+function emitAtencionHumana(io, datos) {
+  emitToBackOffice(io, 'whatsapp_necesita_persona', {
+    telefono: datos?.telefono || '',
+    nombre: datos?.nombre || '',
+    motivo: datos?.motivo || '',
+    conversacion_id: datos?.conversacionId || null,
+    en: new Date().toISOString(),
+  });
+  logger.warn(
+    `[socket] WhatsApp pide una persona para ${datos?.telefono} (${datos?.motivo || 'sin motivo'})`
+  );
+}
+
 module.exports = {
   initSocketSecurity,
+  emitAtencionHumana,
   generateTrackingToken,
   validateTrackingToken,
   clearTrackingToken,

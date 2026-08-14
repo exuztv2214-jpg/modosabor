@@ -275,6 +275,7 @@ export default function Layout() {
       '/admin/compras': 'Compras',
       '/admin/categorias': 'Categorías',
       '/admin/listas-opciones': 'Listas de opciones',
+      '/admin/menu-del-dia': 'Menú del día',
       '/admin/clientes': 'Clientes',
       '/admin/marketing': 'Marketing Digital',
       '/admin/reportes': 'Reportes',

@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 
 import { useAuth } from '../context/AuthContext.jsx';
@@ -28,6 +29,7 @@ function wasCreatedRecently(value) {
 export default function GlobalOrderAlerts() {
   const { isAuth, token } = useAuth();
   const { config } = useAppConfig();
+  const navigate = useNavigate();
   const { audioContextRef, voiceRef, fallbackAudioRef } = useOrderAlertPlayback();
   const seenOrdersRef = useRef(new Set());
   const deliveredSeenRef = useRef(new Set());
@@ -168,6 +170,76 @@ export default function GlobalOrderAlerts() {
       await announceOrder(pedido, 'pedido_actualizado_admin');
     };
 
+    const announceWhatsappHumanHandoff = async (event = {}) => {
+      const conversationId = event?.conversacion_id;
+      const phone = String(event?.telefono || '').trim();
+      const name = String(event?.nombre || '').trim();
+      const reason = String(event?.motivo || '').trim() || 'Chispita necesita ayuda';
+      const identity = name || (phone ? `+${phone}` : 'Un cliente de WhatsApp');
+      const eventKey = `${conversationId || phone || 'sin-id'}:${event?.en || reason}`;
+      if (!claimAlertKey(`whatsapp-persona:${eventKey}`, 10 * 60 * 1000)) return;
+
+      try {
+        await runOrderAlert({
+          pedido: {
+            id: `whatsapp-persona-${conversationId || phone || Date.now()}`,
+            numero: 'WhatsApp',
+            cliente_nombre: identity,
+          },
+          config,
+          audioContextRef,
+          voiceRef,
+          fallbackAudioRef,
+        });
+      } catch (error) {
+        console.warn('[GlobalOrderAlerts] no se pudo reproducir la alerta de WhatsApp', error);
+      }
+
+      const query = new URLSearchParams({ tab: 'whatsapp' });
+      if (conversationId) query.set('conversacion', String(conversationId));
+      const destination = `/admin/configuracion?${query.toString()}`;
+
+      toast.custom(
+        (currentToast) => (
+          <button
+            type="button"
+            onClick={() => {
+              toast.dismiss(currentToast.id);
+              /*
+                Navegación de la aplicación, no `window.location.assign`.
+
+                Este aviso aparece en todas las pantallas, el TPV incluido. Con
+                una recarga completa, el cajero que está armando un pedido y
+                toca el aviso **pierde el carrito**: sólo se guarda si aparcó el
+                pedido a mano, y nadie aparca antes de atender una urgencia.
+
+                Perder seis ítems cargados por atender un aviso es peor que el
+                problema que el aviso venía a resolver.
+              */
+              navigate(destination);
+            }}
+            className="flex w-[min(92vw,430px)] items-start gap-3 rounded-2xl border border-red-100 bg-white p-4 text-left shadow-xl"
+            aria-label={`Abrir conversación de WhatsApp de ${identity}`}
+          >
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-red-50 text-xl">
+              💬
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-[13px] font-bold text-gray-900">
+                WhatsApp necesita una persona
+              </span>
+              <span className="mt-1 block text-[12px] font-semibold text-gray-700">{identity}</span>
+              <span className="mt-1 block text-[12px] leading-relaxed text-gray-500">{reason}</span>
+              <span className="mt-2 block text-[11px] font-semibold text-red-600">
+                Abrir conversación
+              </span>
+            </span>
+          </button>
+        ),
+        { duration: 20000, id: `whatsapp-persona-${eventKey}` }
+      );
+    };
+
     socketManager.retainAuthenticated(token).catch(() => {});
     const unsubscribeNuevo = socketManager.on('nuevo_pedido', (pedido) =>
       announceOrder(pedido, 'nuevo_pedido')
@@ -179,10 +251,15 @@ export default function GlobalOrderAlerts() {
       'pedido_actualizado_admin',
       announceFromAdminUpdate
     );
+    const unsubscribeWhatsappHuman = socketManager.on(
+      'whatsapp_necesita_persona',
+      announceWhatsappHumanHandoff
+    );
     unsubscribe = () => {
       unsubscribeNuevo();
       unsubscribeSystemNuevo();
       unsubscribeAdminUpdate();
+      unsubscribeWhatsappHuman();
     };
 
     return () => {
@@ -192,7 +269,7 @@ export default function GlobalOrderAlerts() {
         socketManager.releaseAuthenticated();
       }
     };
-  }, [audioContextRef, config, fallbackAudioRef, isAuth, token, voiceRef]);
+  }, [audioContextRef, config, fallbackAudioRef, isAuth, navigate, token, voiceRef]);
 
   return null;
 }

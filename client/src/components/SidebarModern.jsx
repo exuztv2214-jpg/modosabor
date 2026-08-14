@@ -5,6 +5,7 @@ import {
   BarChart3,
   Bike,
   Boxes,
+  CalendarDays,
   ChefHat,
   ClipboardCheck,
   ClipboardList,
@@ -32,6 +33,7 @@ import {
 
 import { useAuth } from '../context/AuthContext.jsx';
 import { useAppConfig } from '../context/AppConfigContext.jsx';
+import api from '../lib/api.js';
 import { resolveAssetUrl } from '../lib/assets.js';
 import { socketManager } from '../lib/socket.js';
 import { APP_BG, BRAND, STROKE } from '../lib/theme.js';
@@ -113,6 +115,12 @@ const GRUPOS = [
   {
     label: 'Catálogo',
     items: [
+      {
+        to: '/admin/menu-del-dia',
+        icon: CalendarDays,
+        label: 'Menú del día',
+        permission: 'productos.edit',
+      },
       { to: '/admin/productos', icon: Package, label: 'Productos', permission: 'productos.edit' },
       { to: '/admin/categorias', icon: Tag, label: 'Categorías', permission: 'productos.edit' },
       {
@@ -232,6 +240,7 @@ export default function SidebarModern({ onCloseMobile }) {
   const location = useLocation();
   const navigate = useNavigate();
   const [pedidosBadge, setPedidosBadge] = useState(0);
+  const [chatsEsperando, setChatsEsperando] = useState(0);
 
   const logoUrl = resolveAssetUrl(branding.negocio_logo);
 
@@ -239,15 +248,52 @@ export default function SidebarModern({ onCloseMobile }) {
     if (location.pathname === '/admin/pedidos') setPedidosBadge(0);
   }, [location.pathname]);
 
+  // Al entrar a configuración con tab whatsapp, el badge se limpia porque
+  // ya está viendo los chats.
+  useEffect(() => {
+    if (
+      location.pathname === '/admin/configuracion' &&
+      new URLSearchParams(location.search).get('tab') === 'whatsapp'
+    ) {
+      setChatsEsperando(0);
+    }
+  }, [location.pathname, location.search]);
+
   useEffect(() => {
     if (!user) return undefined;
-    // Se suscribía al socket sin pedir la conexión: el contador de pedidos
-    // nuevos sólo funcionaba si alguna otra pantalla ya la había abierto.
     socketManager.connect();
     const unsub = socketManager.on('nuevo_pedido', () => {
       if (location.pathname !== '/admin/pedidos') setPedidosBadge((n) => n + 1);
     });
-    return unsub;
+    // Cuando la IA deriva un chat, el badge aparece en Configuración.
+    const unsubWa = socketManager.on('whatsapp_necesita_persona', () => {
+      setChatsEsperando((n) => n + 1);
+    });
+    /*
+      Estado inicial: cuántos chats están esperando persona ahora.
+
+      Va por el cliente `api` y no por un `fetch` con la ruta escrita a mano.
+      Dos motivos, y los dos ya rompieron algo antes en este proyecto:
+
+        - `api` usa `API_BASE_URL`. Una ruta pelada como "/api/..." apunta al
+          lugar equivocado cuando el panel corre en otro origen que la API o
+          dentro de la app nativa. Está documentado en lib/orderAlerts.js,
+          donde el audio no llegaba nunca por exactamente esto.
+
+        - `api` manda las cookies de sesión (`withCredentials`). Un `fetch`
+          pelado no, así que el pedido volvía sin sesión.
+
+      Y el error se traga a propósito: si falla, el badge no aparece y ya. No
+      vale la pena molestar a nadie por un contador.
+    */
+    api
+      .get('/whatsapp/conversaciones/esperando-persona')
+      .then((data) => setChatsEsperando(Number(data?.cantidad) || 0))
+      .catch(() => {});
+    return () => {
+      unsub();
+      unsubWa();
+    };
   }, [user, location.pathname]);
 
   const grupos = GRUPOS.map((grupo) => ({
@@ -315,7 +361,12 @@ export default function SidebarModern({ onCloseMobile }) {
 
             {grupo.items.map((item) => {
               const Icon = item.icon;
-              const badge = item.to === '/admin/pedidos' ? pedidosBadge : 0;
+              const badge =
+                item.to === '/admin/pedidos'
+                  ? pedidosBadge
+                  : item.to === '/admin/configuracion'
+                    ? chatsEsperando
+                    : 0;
 
               return (
                 <NavLink

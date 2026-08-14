@@ -63,3 +63,14 @@ server/db/*.db-journal
 server/db/*.db-shm
 server/db/*.db-wal
 server/uploads/logo-prueba.*
+
+# Las bases de n8n. Quedan sueltas en la raiz al depurar el workflow del
+# agente y NO pueden entrar a git: cada una guarda 4 credenciales adentro.
+# La regla de mas arriba (agente-whatsapp/n8n/n8n-debug.sqlite*) solo tapaba
+# las de esa carpeta; estas viven en la raiz y estaban quedando afuera.
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+
+# El workflow activo exportado: sale de n8n con los datos de conexion puestos.
+agente-whatsapp/n8n/.active-workflow.json

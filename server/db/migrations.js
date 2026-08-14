@@ -1001,6 +1001,7 @@ function runMigrations(db) {
   // Va después de `db.exec(tableStatements)` en db/index.js, así que
   // `opcion_listas` ya existe cuando esto corre.
   migrarGuarnicionesAListaCompartida(db);
+  migrarTamanosDelMenuDia(db);
 }
 
 /**
@@ -1136,6 +1137,32 @@ function migrarUmbralesDeNivel(db) {
  * Tampoco toca las guarniciones ya elegidas en cada plato: eso es una decisión
  * por plato —la Costillita ofrece siete y las Albóndigas seis— y no una copia.
  */
+/**
+ * Un plato del menú del día puede venderse en los dos tamaños el mismo día.
+ *
+ * ── Por qué ────────────────────────────────────────────────────────────────
+ *
+ * `productos.menu_dia_tipo` guarda **un solo valor**: o económico o ejecutivo.
+ * Pero la misma suprema puede salir a $5.000 en porción chica y a $7.000 en
+ * grande, el mismo día. Con un solo campo eso no se puede decir, y la única
+ * salida era cargar el plato dos veces —que es de donde salen los duplicados
+ * que hay en la carta: "Canelón" y "Canelones", "Suprema a la napolitana" y
+ * "Suprema napolitana".
+ *
+ * Estas dos columnas van en el historial y no en el producto porque el precio
+ * del menú del día es del día, no del plato: mañana el ejecutivo puede valer
+ * otra cosa.
+ *
+ * ── Compatible con lo que ya está ──────────────────────────────────────────
+ *
+ * Si las dos quedan en NULL, se usa `precio` y `menu_dia_tipo` como siempre.
+ * Los 46 renglones que ya existen siguen leyéndose igual.
+ */
+function migrarTamanosDelMenuDia(db) {
+  ensureColumn(db, 'menu_dia_historial', 'precio_economico', 'INTEGER DEFAULT NULL');
+  ensureColumn(db, 'menu_dia_historial', 'precio_ejecutivo', 'INTEGER DEFAULT NULL');
+}
+
 function migrarGuarnicionesAListaCompartida(db) {
   try {
     const yaExiste = db

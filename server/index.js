@@ -394,7 +394,10 @@ app.use((error, _req, res, next) => {
 io.on('connection', () => {});
 
 startAutomaticBackups(db);
-require('./services/whatsappGateway').iniciarWhatsappGateway();
+// Se le pasa `io` para que pueda avisarle al panel cuando un chat de WhatsApp
+// necesita que lo atienda una persona. Antes eso sólo dejaba una marca en la
+// base y nadie se enteraba.
+require('./services/whatsappGateway').iniciarWhatsappGateway(io);
 
 // One-time catalog import: if catalog-export.json exists inside the
 // container, import it into the database and delete the file so it only

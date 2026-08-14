@@ -11,6 +11,7 @@ const { logAudit, actorFromRequest } = require('../utils/audit');
 const { quoteDelivery, serializeZones } = require('../utils/deliveryZones');
 const { buildPrintTestDocument } = require('../utils/printTemplates');
 const { obtenerAudio, vozIaHabilitada } = require('../services/vozIa');
+const { createRateLimiter, createSqliteRateLimitStore } = require('../utils/rateLimit');
 const { getCurrentShiftInfo } = require('../utils/shifts');
 const { mergeRuntimeConfig } = require('../utils/runtimeConfig');
 const {
@@ -125,6 +126,9 @@ const SENSITIVE_KEYS = new Set([
   // claves separadas a propósito, para poder usar Gemini en la voz y otro
   // proveedor en el asistente sin que se pisen.
   'ia_api_key',
+  // Respaldo exclusivo de Chispita. No comparte la clave con el asistente
+  // interno ni con la voz para poder rotarlo sin afectar otros módulos.
+  'whatsapp_emergencia_api_key',
 ]);
 const SENSITIVE_PLACEHOLDER = '__CONFIGURED__';
 
@@ -182,6 +186,7 @@ function getPublicConfig() {
   config.mercadopago_token_configured = Boolean(full.mercadopago_token);
   config.gemini_api_key_configured = Boolean(full.gemini_api_key);
   config.ia_api_key_configured = Boolean(full.ia_api_key);
+  config.whatsapp_emergencia_api_key_configured = Boolean(full.whatsapp_emergencia_api_key);
   return config;
 }
 
@@ -279,6 +284,36 @@ function normalizeConfigUpdates(rawUpdates = {}) {
     updates.ia_fallback_activo = String(updates.ia_fallback_activo) === '1' ? '1' : '0';
   }
 
+  if (updates.whatsapp_emergencia_activa !== undefined) {
+    updates.whatsapp_emergencia_activa =
+      String(updates.whatsapp_emergencia_activa) === '1' ? '1' : '0';
+  }
+
+  if (updates.whatsapp_emergencia_base_url !== undefined) {
+    const url = String(updates.whatsapp_emergencia_base_url || '')
+      .trim()
+      .replace(/\/+$/, '');
+    const esLocalDeDesarrollo =
+      String(process.env.NODE_ENV || '').trim() !== 'production' &&
+      /^http:\/\/(localhost|127\.0\.0\.1)(?::\d+)?(?:\/|$)/i.test(url);
+    if (url && !/^https:\/\//i.test(url) && !esLocalDeDesarrollo) {
+      throw new Error(
+        'La API de emergencia debe usar HTTPS. HTTP sólo se permite para localhost en desarrollo.'
+      );
+    }
+    updates.whatsapp_emergencia_base_url = url;
+  }
+
+  for (const [key, max] of [
+    ['whatsapp_emergencia_proveedor', 80],
+    ['whatsapp_emergencia_modelo', 160],
+  ]) {
+    if (updates[key] === undefined) continue;
+    const value = String(updates[key] || '').trim();
+    if (value.length > max) throw new Error(`${key} supera el máximo de ${max} caracteres`);
+    updates[key] = value;
+  }
+
   if (updates.ia_base_url !== undefined) {
     const url = String(updates.ia_base_url || '').trim();
     const esLocalDeDesarrollo =
@@ -330,7 +365,7 @@ function persistConfigUpdates(rawUpdates, req) {
   const stmt = db.prepare('INSERT OR REPLACE INTO configuracion (clave, valor) VALUES (?, ?)');
 
   // Claves sensibles que deben encriptarse antes de guardar en la base.
-  const ENCRYPTED_KEYS = new Set(['ia_api_key', 'gemini_api_key']);
+  const ENCRYPTED_KEYS = new Set(['ia_api_key', 'gemini_api_key', 'whatsapp_emergencia_api_key']);
 
   Object.entries(updates).forEach(([key, value]) => {
     // Asegurar que guardamos strings para evitar errores en SQLite
@@ -366,7 +401,33 @@ function persistConfigUpdates(rawUpdates, req) {
  * en una tablet de cocina sin sesión iniciada. Igual no expone nada — sólo
  * convierte a audio un texto corto que el propio sistema arma.
  */
-router.post('/voz', (req, res) => {
+/*
+  ── Por qué esta ruta tiene freno ──────────────────────────────────────────
+
+  Está abierta a propósito: la usan el panel, la cocina y **la app del rider**,
+  que no tiene sesión de admin —se identifica con su código en la URL—. Cerrarla
+  con login dejaría al rider sin los avisos hablados.
+
+  Pero cada texto nuevo que entra dispara una generación de voz contra la API de
+  Google, que se paga. Los audios se guardan por texto, así que repetir "pedido
+  nuevo" no cuesta nada; mandar texto distinto cada vez, sí.
+
+  Sin freno, cualquiera que encontrara la dirección podía dejarla llamando en
+  bucle con texto al azar y quemar el crédito de la cuenta. No rompe el sistema
+  ni roba datos: gasta plata, en silencio, hasta que la API deja de responder y
+  el local se queda sin voz sin saber por qué.
+
+  El techo es holgado para el uso real —un aviso por pedido— y ridículo para un
+  bucle.
+*/
+const vozRateLimit = createRateLimiter({
+  windowMs: 10 * 60 * 1000,
+  max: 60,
+  message: 'Demasiados pedidos de voz desde este origen.',
+  store: createSqliteRateLimitStore(db, 'voz-ia'),
+});
+
+router.post('/voz', vozRateLimit, (req, res) => {
   const texto = String(req.body?.texto || '').trim();
   if (!texto) return res.json({ url: null });
 

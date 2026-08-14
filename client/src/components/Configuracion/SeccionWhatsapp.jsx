@@ -10,11 +10,19 @@ import {
   Unplug,
   UserRound,
   RotateCcw,
+  ShieldCheck,
+  Save,
 } from 'lucide-react';
 
 import api from '../../lib/api.js';
 import { BRAND, STROKE } from '../../lib/theme.js';
-import { InputField, SectionCard, TextareaField } from './ConfigComponents.jsx';
+import {
+  InputField,
+  SectionCard,
+  TextareaField,
+  SECRET_PLACEHOLDER,
+  limpiarSecretoAlEnfocar,
+} from './ConfigComponents.jsx';
 
 function parseShiftRules(value) {
   try {
@@ -67,6 +75,9 @@ export default function SeccionWhatsapp({ config, setConfig }) {
   const [ocupado, setOcupado] = useState(false);
   const [conversaciones, setConversaciones] = useState([]);
   const [metricas, setMetricas] = useState(null);
+  const [probandoEmergencia, setProbandoEmergencia] = useState(false);
+  const [aplicandoEmergencia, setAplicandoEmergencia] = useState(false);
+  const [resultadoEmergencia, setResultadoEmergencia] = useState(null);
 
   const cargar = useCallback(async () => {
     try {
@@ -151,6 +162,19 @@ export default function SeccionWhatsapp({ config, setConfig }) {
   const conectado = wa.estado === 'conectado';
   const turnos = parseShifts(config?.turnos_negocio || config?.negocio_horarios);
   const reglasTurnos = parseShiftRules(config?.whatsapp_agente_reglas_turnos);
+  const conversacionDestacada = Number(
+    new URLSearchParams(window.location.search).get('conversacion') || 0
+  );
+
+  useEffect(() => {
+    if (!conversacionDestacada || !conversaciones.length) return undefined;
+    const timer = window.setTimeout(() => {
+      document
+        .getElementById(`whatsapp-conversacion-${conversacionDestacada}`)
+        ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [conversacionDestacada, conversaciones]);
 
   const editar = (clave, valor) => {
     setConfig((prev) => ({ ...prev, [clave]: valor }));
@@ -158,6 +182,34 @@ export default function SeccionWhatsapp({ config, setConfig }) {
 
   const editarTurno = (turnoId, valor) => {
     editar('whatsapp_agente_reglas_turnos', JSON.stringify({ ...reglasTurnos, [turnoId]: valor }));
+  };
+
+  const probarEmergencia = async () => {
+    setProbandoEmergencia(true);
+    setResultadoEmergencia(null);
+    try {
+      const result = await api.post('/whatsapp/emergencia/probar');
+      setResultadoEmergencia(result);
+      toast.success(`Respondió ${result.proveedor} en ${result.duracion_ms} ms`);
+    } catch (error) {
+      setResultadoEmergencia({ ok: false, error: error?.error || 'No se pudo probar la API' });
+    } finally {
+      setProbandoEmergencia(false);
+    }
+  };
+
+  const aplicarEmergencia = async () => {
+    setAplicandoEmergencia(true);
+    setResultadoEmergencia(null);
+    try {
+      const result = await api.post('/whatsapp/emergencia/aplicar');
+      setResultadoEmergencia(result);
+      toast.success('Proveedor de emergencia aplicado en n8n');
+    } catch (error) {
+      setResultadoEmergencia({ ok: false, error: error?.error || 'No se pudo aplicar en n8n' });
+    } finally {
+      setAplicandoEmergencia(false);
+    }
   };
 
   return (
@@ -321,6 +373,107 @@ export default function SeccionWhatsapp({ config, setConfig }) {
         </div>
       </SectionCard>
 
+      <SectionCard
+        icon={ShieldCheck}
+        title="IA de emergencia"
+        subtitle="Responde si el proveedor principal está caído, lento o sin cuota"
+      >
+        <Switch
+          checked={String(config?.whatsapp_emergencia_activa ?? '0') === '1'}
+          disabled={ocupado}
+          label="Usar respaldo automático"
+          description="Si Chispita no obtiene respuesta del proveedor principal, intenta esta API una sola vez."
+          icon={ShieldCheck}
+          onChange={(value) => editar('whatsapp_emergencia_activa', value ? '1' : '0')}
+        />
+
+        <div className="mt-4 grid gap-4 lg:grid-cols-2">
+          <InputField
+            label="Nombre del proveedor"
+            description="Sólo sirve para identificarlo en el estado y los registros."
+            value={config?.whatsapp_emergencia_proveedor || ''}
+            onChange={(event) => editar('whatsapp_emergencia_proveedor', event.target.value)}
+            placeholder="NVIDIA, Groq, OpenRouter..."
+          />
+          <InputField
+            label="Modelo"
+            description="Nombre exacto que usa la API."
+            value={config?.whatsapp_emergencia_modelo || ''}
+            onChange={(event) => editar('whatsapp_emergencia_modelo', event.target.value)}
+            placeholder="z-ai/glm-5.2"
+          />
+        </div>
+
+        <div className="mt-4">
+          <InputField
+            label="Dirección de la API"
+            description="Debe ser compatible con OpenAI y terminar normalmente en /v1."
+            value={config?.whatsapp_emergencia_base_url || ''}
+            onChange={(event) => editar('whatsapp_emergencia_base_url', event.target.value)}
+            placeholder="https://api.proveedor.com/v1"
+          />
+        </div>
+
+        <div className="mt-4">
+          <InputField
+            label="Clave de la API"
+            type="password"
+            value={config?.whatsapp_emergencia_api_key || ''}
+            onChange={(event) => editar('whatsapp_emergencia_api_key', event.target.value)}
+            onFocus={limpiarSecretoAlEnfocar(setConfig, 'whatsapp_emergencia_api_key')}
+            placeholder="..."
+            hint={
+              config?.whatsapp_emergencia_api_key_configured &&
+              config?.whatsapp_emergencia_api_key === SECRET_PLACEHOLDER
+                ? 'Ya hay una clave cifrada. Pegá otra solamente si querés reemplazarla.'
+                : 'Se guarda cifrada y nunca vuelve a mostrarse en el navegador.'
+            }
+          />
+        </div>
+
+        <div className="mt-4 flex flex-wrap items-center gap-3 rounded-xl bg-gray-50 p-4">
+          <button
+            type="button"
+            onClick={probarEmergencia}
+            disabled={probandoEmergencia || aplicandoEmergencia}
+            className="inline-flex h-11 items-center gap-2 rounded-xl bg-gray-900 px-5 text-[13px] font-semibold text-white disabled:opacity-50"
+          >
+            {probandoEmergencia ? (
+              <Loader2 size={15} className="animate-spin" />
+            ) : (
+              <ShieldCheck size={15} />
+            )}
+            Probar API guardada
+          </button>
+          <button
+            type="button"
+            onClick={aplicarEmergencia}
+            disabled={probandoEmergencia || aplicandoEmergencia}
+            style={{ background: BRAND }}
+            className="inline-flex h-11 items-center gap-2 rounded-xl px-5 text-[13px] font-semibold text-white disabled:opacity-50"
+          >
+            {aplicandoEmergencia ? (
+              <Loader2 size={15} className="animate-spin" />
+            ) : (
+              <Save size={15} />
+            )}
+            Aplicar en n8n
+          </button>
+          <p className="w-full text-[11px] leading-relaxed text-gray-500">
+            Primero guardá los cambios generales. Después probá y, si responde, aplicala en n8n.
+          </p>
+          {resultadoEmergencia ? (
+            <p
+              className={`w-full text-[12px] ${resultadoEmergencia.ok ? 'text-emerald-700' : 'text-red-600'}`}
+            >
+              {resultadoEmergencia.ok
+                ? `${resultadoEmergencia.proveedor} listo · ${resultadoEmergencia.modelo}${resultadoEmergencia.duracion_ms ? ` · ${resultadoEmergencia.duracion_ms} ms` : ''}`
+                : resultadoEmergencia.error}
+            </p>
+          ) : null}
+        </div>
+      </SectionCard>
+
       <div className="rounded-2xl bg-white p-4 text-[12px] text-gray-500 shadow-[0_1px_2px_rgba(15,23,42,0.06)]">
         Recibidos por IA: <b className="text-gray-800">{gateway.recibidos || 0}</b> · Respondidos:{' '}
         <b className="text-gray-800">{gateway.respondidos || 0}</b>
@@ -353,7 +506,8 @@ export default function SeccionWhatsapp({ config, setConfig }) {
             return (
               <div
                 key={chat.id}
-                className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-100 p-3"
+                id={`whatsapp-conversacion-${chat.id}`}
+                className={`flex flex-wrap items-center justify-between gap-3 rounded-xl border p-3 transition ${Number(chat.id) === conversacionDestacada ? 'border-red-300 bg-red-50 ring-2 ring-red-100' : 'border-gray-100'}`}
               >
                 <div className="min-w-0">
                   <p className="text-[13px] font-semibold text-gray-900">

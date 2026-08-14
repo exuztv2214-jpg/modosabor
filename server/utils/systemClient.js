@@ -950,15 +950,62 @@ function quoteProduct(db, query) {
 
 function buildProductPreview(product) {
   const variantGroups = parseJsonArray(product.variantes);
+  const base = Number(product.precio || 0);
+
+  /*
+    ── Cada opción con su precio, no sólo su nombre ───────────────────────────
+
+    Antes esto mandaba únicamente los nombres:
+
+        "Presentacion: Media Cremoso, Entera Cremoso, Media Muzza, Entera Muzza"
+
+    Y aparte un solo `precio_desde`, que es el del producto base — o sea **el de
+    la opción más barata**. Con eso, la IA sabía que la entera con muzza existe
+    pero no tenía idea de cuánto sale: el único número que veía era el de la
+    media.
+
+    El resultado se vio en conversaciones reales: listaba "Común ($4.500)"
+    cuando la entera vale $8.000. No es que mintiera, es que le dimos un solo
+    precio y era el equivocado.
+
+    Ahora cada opción viaja con su precio final ya calculado, en texto y en
+    número. La IA no tiene que sumar nada ni adivinar: lee el precio de lo que
+    el cliente pidió.
+  */
+  const precioDeOpcion = (option) => base + Number(option?.precio_extra || 0);
+
   const optionsSummary = variantGroups
     .map((group) => {
       const options = parseJsonArray(group?.opciones)
-        .map((option) => option?.nombre || '')
-        .filter(Boolean);
+        .filter((option) => option?.nombre)
+        .map((option) => `${option.nombre} ${formatMoney(precioDeOpcion(option))}`);
       if (!options.length) return '';
-      return `${group?.nombre || 'Opciones'}: ${options.join(', ')}`;
+      return `${group?.nombre || 'Opciones'}: ${options.join(' · ')}`;
     })
     .filter(Boolean);
+
+  // La misma información, ya separada, para que no haya que interpretar texto.
+  const opcionesDetalle = variantGroups
+    .map((group) => ({
+      grupo: group?.nombre || 'Opciones',
+      obligatorio: Number(group?.obligatorio) === 1 || !group?.lista_id ? 1 : 0,
+      opciones: parseJsonArray(group?.opciones)
+        .filter((option) => option?.nombre)
+        .map((option) => ({
+          nombre: option.nombre,
+          precio: precioDeOpcion(option),
+          precio_texto: formatMoney(precioDeOpcion(option)),
+        })),
+    }))
+    .filter((group) => group.opciones.length > 0);
+
+  const extrasDetalle = parseJsonArray(product.extras)
+    .filter((extra) => extra?.nombre)
+    .map((extra) => ({
+      nombre: extra.nombre,
+      precio: Number(extra.precio || 0),
+      precio_texto: formatMoney(extra.precio),
+    }));
 
   let displayPrice = Number(product.precio || 0);
   let priceLabel = 'Precio';
@@ -986,6 +1033,17 @@ function buildProductPreview(product) {
     disponible_para_venta: product.disponible_para_venta,
     stock_disponible: Number(product.stock_disponible || 0),
     opciones: optionsSummary,
+    opciones_detalle: opcionesDetalle,
+    extras_detalle: extrasDetalle,
+    /*
+      Que quede dicho con todas las letras que `precio_desde` es un piso y no
+      el precio de la cosa. Sin esta aclaración, un modelo que ve un número
+      solo lo canta como si fuera el precio final — que es lo que venía
+      pasando con las pizzas.
+    */
+    aviso_precio: opcionesDetalle.length
+      ? 'precio_desde es el más barato de las opciones. Para cotizar usá el precio de la opción que pidió el cliente, en opciones_detalle.'
+      : '',
   };
 }
 
@@ -1000,6 +1058,8 @@ function getMenuDiaToday(db) {
     .prepare(
       `SELECT p.*, c.nombre AS categoria_nombre,
               h.precio AS precio_hoy,
+              h.precio_economico AS precio_economico_hoy,
+              h.precio_ejecutivo AS precio_ejecutivo_hoy,
               h.stock_directo AS stock_hoy,
               h.descripcion AS descripcion_hoy,
               h.destacado AS destacado_hoy,
@@ -1023,7 +1083,52 @@ function getMenuDiaToday(db) {
     }));
   return decorateProducts(db, rows)
     .filter((product) => product.disponible_para_venta)
-    .map(buildProductPreview);
+    .map((product) => {
+      const vista = buildProductPreview(product);
+      /*
+        El mismo plato puede salir en las dos porciones el mismo día: económico
+        $5.000 y ejecutivo $7.000. Cuando están cargadas las dos, se mandan las
+        dos con su precio, igual que cualquier otra opción del catálogo.
+
+        Sin esto, la IA veía un solo número y cantaba ése para las dos porciones
+        — el mismo problema que teníamos con la pizza entera y la media.
+      */
+      const economico = Number(product.precio_economico_hoy || 0);
+      const ejecutivo = Number(product.precio_ejecutivo_hoy || 0);
+      if (!economico && !ejecutivo) return vista;
+
+      const tamanos = [];
+      if (economico) {
+        tamanos.push({
+          nombre: 'Económico',
+          precio: economico,
+          precio_texto: formatMoney(economico),
+        });
+      }
+      if (ejecutivo) {
+        tamanos.push({
+          nombre: 'Ejecutivo',
+          precio: ejecutivo,
+          precio_texto: formatMoney(ejecutivo),
+        });
+      }
+
+      return {
+        ...vista,
+        precio_desde: Math.min(...tamanos.map((t) => t.precio)),
+        precio_desde_texto: formatMoney(Math.min(...tamanos.map((t) => t.precio))),
+        opciones: [
+          `Tamaño: ${tamanos.map((t) => `${t.nombre} ${t.precio_texto}`).join(' · ')}`,
+          ...vista.opciones,
+        ],
+        opciones_detalle: [
+          { grupo: 'Tamaño', obligatorio: 1, opciones: tamanos },
+          ...vista.opciones_detalle,
+        ],
+        aviso_precio:
+          'precio_desde es el más barato de las opciones. Para cotizar usá el precio de la opción que pidió el cliente, en opciones_detalle.',
+      };
+    });
 }
 
 function getMenuOverview(db, options = {}) {

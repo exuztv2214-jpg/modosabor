@@ -9,7 +9,23 @@ def main():
     if len(sys.argv) != 2:
         raise ValueError("Falta la ruta del audio")
 
-    model_name = os.environ.get("WHISPER_MODEL", "base").strip() or "base"
+    # "small" y no "base". Con base, los audios de los clientes salían así:
+    #
+    #     "¿Cuánto cueste lo mito modo sabor?"   ← el lomito Modo Sabor
+    #     "Tiene mil pesos cual está el fico"    ← el chico
+    #     "¿Cuál es el estado de mi periodo?"    ← mi pedido
+    #
+    # La IA recibe eso y contesta cualquier cosa. Es la diferencia entre un
+    # audio que sirve y uno que hace perder al cliente.
+    #
+    # Se pone acá como valor por defecto y no como variable de entorno a
+    # propósito: el gateway de WhatsApp corre en la máquina del local, no en
+    # el servidor, así que una variable puesta en el lugar equivocado no hace
+    # nada y nadie se entera. Con el valor bueno por defecto no hay nada que
+    # configurar.
+    #
+    # Cuesta unos segundos más por audio. Frente a contestar mal, sobra.
+    model_name = os.environ.get("WHISPER_MODEL", "small").strip() or "small"
     cache_dir = os.environ.get("WHISPER_CACHE_DIR", "").strip() or None
     model = WhisperModel(
         model_name,

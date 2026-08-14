@@ -31,7 +31,15 @@ function runPython(python, audioPath) {
       env: {
         ...process.env,
         PYTHONUTF8: '1',
-        WHISPER_MODEL: String(process.env.WHISPER_MODEL || 'base').trim(),
+        /*
+          Ver el comentario largo en scripts/transcribe-whatsapp-audio.py.
+
+          En resumen: con "base" los audios salían mal transcriptos —"cuánto
+          cueste lo mito" por "cuánto cuesta el lomito"— y la IA contestaba
+          sobre algo que el cliente nunca dijo. "small" lo arregla y se baja
+          solo la primera vez.
+        */
+        WHISPER_MODEL: String(process.env.WHISPER_MODEL || 'small').trim(),
         WHISPER_CACHE_DIR:
           String(process.env.WHISPER_CACHE_DIR || '').trim() ||
           (fs.existsSync(BUNDLED_MODEL_DIR)

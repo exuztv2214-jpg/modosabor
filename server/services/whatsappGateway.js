@@ -9,8 +9,40 @@ const { buildAgentTraining } = require('./whatsappAgentTraining');
 const { getCurrentShiftInfo } = require('../utils/shifts');
 const { getConfigMap } = require('../utils/mercadoPago');
 const { uploadsDir } = require('../utils/storagePaths');
-const { findClienteByPhone, getLastOrderByPhone, cleanText } = require('../utils/systemClient');
+const {
+  findClienteByPhone,
+  getCustomerSnapshot,
+  getLastOrderByPhone,
+  cleanText,
+} = require('../utils/systemClient');
 const { transcribeWhatsappAudio } = require('./whatsappAudioTranscription');
+const { emitAtencionHumana } = require('../utils/socketRooms');
+
+/*
+  El socket del panel, para poder avisar cuando un chat necesita una persona.
+
+  Lo guarda `iniciarWhatsappGateway` al arrancar. Si por lo que sea no está, se
+  sigue atendiendo igual: el aviso es un extra, no una condición para responder.
+*/
+let socketDelPanel = null;
+
+/** Avisa al panel que este chat quedó esperando a una persona. */
+function pedirUnaPersona(conversation, telefono, motivo) {
+  if (!socketDelPanel) return;
+  try {
+    emitAtencionHumana(socketDelPanel, {
+      telefono,
+      nombre: conversation?.nombre || '',
+      conversacionId: conversation?.id || null,
+      motivo,
+    });
+  } catch (error) {
+    // Que falle el aviso no puede tumbar la atención del chat.
+    logger.warn('WhatsApp Gateway: no pudo avisar que hace falta una persona', {
+      message: error.message,
+    });
+  }
+}
 
 const DEFAULT_WEBHOOK = 'http://127.0.0.1:5678/webhook/modosabor-atencion-web';
 const DEFAULT_FALLBACK_WEBHOOK = 'http://127.0.0.1:5678/webhook/modosabor-atencion-web-fallback';
@@ -39,6 +71,7 @@ function enabled(key, fallback = false) {
 }
 
 function gatewayConfig() {
+  const emergencyEnabled = enabled('whatsapp_emergencia_activa', true);
   return {
     pausaTotal: enabled('whatsapp_gateway_pausa_total', false),
     atencionIa: enabled('whatsapp_atencion_ia_activa', false),
@@ -46,9 +79,10 @@ function gatewayConfig() {
     webhook:
       String(process.env.WHATSAPP_AGENT_WEBHOOK_URL || '').trim() ||
       configValue('whatsapp_agente_webhook_url', DEFAULT_WEBHOOK),
-    fallbackWebhook:
-      String(process.env.WHATSAPP_AGENT_FALLBACK_WEBHOOK_URL || '').trim() ||
-      configValue('whatsapp_agente_fallback_webhook_url', DEFAULT_FALLBACK_WEBHOOK),
+    fallbackWebhook: emergencyEnabled
+      ? String(process.env.WHATSAPP_AGENT_FALLBACK_WEBHOOK_URL || '').trim() ||
+        configValue('whatsapp_agente_fallback_webhook_url', DEFAULT_FALLBACK_WEBHOOK)
+      : '',
   };
 }
 
@@ -99,7 +133,11 @@ function upsertConversation(telefono, nombre = '') {
   const conversation = db
     .prepare(
       `SELECT *,
-              CASE WHEN bot_silenciado_hasta > CURRENT_TIMESTAMP THEN 1 ELSE 0 END AS pausa_humana
+              CASE
+                WHEN bot_silenciado = 1 AND bot_silenciado_hasta IS NULL THEN 1
+                WHEN bot_silenciado_hasta > CURRENT_TIMESTAMP THEN 1
+                ELSE 0
+              END AS pausa_humana
          FROM whatsapp_conversaciones WHERE telefono = ?`
     )
     .get(telefono);
@@ -184,52 +222,40 @@ function historyFor(conversationId) {
       `SELECT direccion, contenido, creado_en
          FROM whatsapp_mensajes
         WHERE conversacion_id = ?
-        ORDER BY id DESC LIMIT 30`
+          AND datetime(creado_en) >= datetime(
+                (SELECT MAX(creado_en) FROM whatsapp_mensajes WHERE conversacion_id = ?),
+                '-45 minutes'
+              )
+        -- Doce turnos alcanzan para un pedido completo y evitan que pruebas o
+        -- conversaciones viejas contradigan lo que el cliente está pidiendo
+        -- ahora. El contexto técnico se valida siempre contra el catálogo.
+        ORDER BY id DESC LIMIT 12`
     )
-    .all(conversationId)
+    .all(conversationId, conversationId)
     .reverse()
     .map((item) => `${item.direccion === 'entrante' ? 'Cliente' : 'Chispita'}: ${item.contenido}`)
     .join('\n');
 }
 
 async function callAgent(payload, webhook) {
-  let lastError;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    if (attempt > 0) {
-      await new Promise((resolve) => setTimeout(resolve, attempt * 2500));
-    }
-    try {
-      const response = await fetch(webhook, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(90000),
-      });
-      const raw = await response.text();
-      if (!response.ok) {
-        const error = new Error(`n8n ${response.status}: ${raw.slice(0, 240)}`);
-        error.transient = response.status === 429 || response.status >= 500;
-        throw error;
-      }
-      const data = JSON.parse(raw);
-      const output = String(data.output || data.text || '').trim();
-      if (!output) throw new Error('n8n no devolvio una respuesta');
-      return output;
-    } catch (error) {
-      lastError = error;
-      const transient =
-        error.transient ||
-        /\b(?:429|500|502|503|504)\b|high demand|service unavailable|timeout/i.test(
-          String(error.message || '')
-        );
-      if (!transient || attempt === 2) throw error;
-      logger.warn('WhatsApp Gateway: reintentando proveedor de IA', {
-        intento: attempt + 2,
-        message: error.message,
-      });
-    }
+  // n8n y el SDK del modelo ya reintentan internamente. Repetir además desde
+  // el gateway convertía un límite de cuota en varios minutos sin respuesta.
+  // Ante cualquier falla, handleIncoming pasa de inmediato al proveedor real
+  // de respaldo.
+  const response = await fetch(webhook, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(90000),
+  });
+  const raw = await response.text();
+  if (!response.ok) {
+    throw new Error(`n8n ${response.status}: ${raw.slice(0, 240)}`);
   }
-  throw lastError;
+  const data = JSON.parse(raw);
+  const output = String(data.output || data.text || '').trim();
+  if (!output) throw new Error('n8n no devolvio una respuesta');
+  return output;
 }
 
 function claimsOrderWasCreated(output) {
@@ -240,6 +266,47 @@ function claimsOrderWasCreated(output) {
   return /(pedido (?:fue |ha sido )?(?:cargado|creado|tomado|confirmado)|pedido esta en camino|listo.{0,30}pedido|sale en \d+)/i.test(
     normalized
   );
+}
+
+function usesExternalAgentCatalog(webhook) {
+  const configuredApi = configValue(
+    'whatsapp_agente_catalogo_url',
+    String(process.env.WHATSAPP_AGENT_CATALOG_URL || '')
+  ).trim();
+  if (configuredApi) return !/127\.0\.0\.1|localhost|host\.docker\.internal/i.test(configuredApi);
+  return false;
+}
+
+function externalAgentBaseUrl() {
+  return configValue(
+    'whatsapp_agente_catalogo_url',
+    String(process.env.WHATSAPP_AGENT_CATALOG_URL || '')
+  )
+    .trim()
+    .replace(/\/+$/, '');
+}
+
+/**
+ * La sesión de WhatsApp puede estar en una PC de prueba mientras que n8n usa
+ * el catálogo publicado. En ese caso el pedido no aparecerá en la SQLite local
+ * y validar sólo contra ella bloqueaba una venta real. Consultamos la misma API
+ * que usa el agente, sin exponer su clave ni asumir que un texto del modelo es
+ * suficiente evidencia.
+ */
+async function getExternalLastOrderByPhone(telefono) {
+  const baseUrl = externalAgentBaseUrl();
+  const key = String(process.env.AGENT_API_KEY || '').trim();
+  if (!baseUrl || !key) return null;
+  const response = await fetch(
+    `${baseUrl}/api/agente/pedido-actual?telefono=${encodeURIComponent(telefono)}`,
+    {
+      headers: { 'x-agent-key': key },
+      signal: AbortSignal.timeout(8000),
+    }
+  );
+  if (!response.ok) throw new Error(`No se pudo verificar el pedido remoto (${response.status})`);
+  const body = await response.json();
+  return body?.encontrado && body?.pedido ? body.pedido : null;
 }
 
 function createdWhatsappOrderAfter(telefono, previousOrderId) {
@@ -277,6 +344,17 @@ async function handleIncoming(message) {
   const knownName = customer?.nombre || message?.pushName || '';
   const conversation = upsertConversation(telefono, knownName);
   const direction = message?.key?.fromMe ? 'saliente' : 'entrante';
+  if (direction === 'entrante') {
+    const duplicate = db
+      .prepare(
+        `SELECT id FROM whatsapp_mensajes
+          WHERE telefono = ? AND direccion = 'entrante' AND contenido = ?
+            AND datetime(creado_en) >= datetime('now', '-4 seconds')
+          ORDER BY id DESC LIMIT 1`
+      )
+      .get(telefono, usableText);
+    if (duplicate) return;
+  }
   saveMessage(conversation.id, telefono, direction, type, usableText, {
     whatsapp_id: id,
     transcripto: type === 'audio' && !transcriptionError,
@@ -328,6 +406,21 @@ async function handleIncoming(message) {
     const businessConfig = getConfigMap(db);
     const currentShift = getCurrentShiftInfo(businessConfig);
     const previousOrder = getLastOrderByPhone(db, telefono);
+    const externalCatalog = usesExternalAgentCatalog(config.webhook);
+    // Es deliberadamente no bloqueante: si la consulta externa no está
+    // disponible, el flujo conserva las validaciones locales y n8n devolverá
+    // su propio error al intentar crear un pedido.
+    let previousExternalOrder = null;
+    if (externalCatalog) {
+      try {
+        previousExternalOrder = await getExternalLastOrderByPhone(telefono);
+      } catch (error) {
+        logger.warn('WhatsApp Gateway: no pudo leer pedido remoto previo', {
+          telefono,
+          message: error.message,
+        });
+      }
+    }
     const agentPayload = {
       // Versionar la memoria descarta las reglas viejas de conversaciones
       // abiertas antes de este cambio operativo.
@@ -338,6 +431,34 @@ async function handleIncoming(message) {
       tipo: type,
       texto: usableText,
       historial: historyFor(conversation.id),
+      /*
+        ── Quién es el que escribe ────────────────────────────────────────────
+
+        Esto ya existía como herramienta que la IA *podía* pedir, pero no
+        viajaba con el mensaje. O sea que arrancaba cada charla a ciegas: sin
+        saber si era un cliente de años o alguien que escribe por primera vez,
+        sin su dirección, sin lo que pidió la última vez.
+
+        Un mozo no consulta si te conoce: te conoce cuando entrás. Por eso va
+        en el mensaje y no como una herramienta que quizás se llame.
+
+        Trae el nombre, cuántos pedidos hizo, sus direcciones guardadas con la
+        etiqueta que les pusieron —"Casa", "Trabajo"— y el último pedido. Con
+        eso puede saludar por el nombre, dar por sabida la dirección de siempre
+        y ofrecer lo que suele pedir.
+      */
+      cliente: (() => {
+        try {
+          return getCustomerSnapshot(db, telefono);
+        } catch (error) {
+          // Sin la ficha se atiende igual, como se venía atendiendo hasta hoy.
+          logger.warn('WhatsApp Gateway: no pudo leer la ficha del cliente', {
+            telefono,
+            message: error.message,
+          });
+          return null;
+        }
+      })(),
       abierto_ahora: currentShift.abierto_ahora,
       turno_actual: currentShift.turno_actual,
       atencion: buildAgentTraining(businessConfig, currentShift.turno_actual),
@@ -354,19 +475,68 @@ async function handleIncoming(message) {
     }
 
     const createdOrder = createdWhatsappOrderAfter(telefono, previousOrder?.id);
+    let createdExternalOrder = null;
+    if (externalCatalog && claimsOrderWasCreated(output)) {
+      try {
+        const externalOrder = await getExternalLastOrderByPhone(telefono);
+        if (
+          externalOrder &&
+          String(externalOrder.id || '') !== String(previousExternalOrder?.id || '')
+        ) {
+          createdExternalOrder = externalOrder;
+        }
+      } catch (error) {
+        logger.warn('WhatsApp Gateway: no pudo validar pedido remoto creado', {
+          telefono,
+          message: error.message,
+        });
+      }
+    }
     let integrityError = '';
-    if (claimsOrderWasCreated(output) && !createdOrder) {
+    /*
+      ── Por qué se sacó el permiso por "trae un número" ─────────────────────
+
+      Acá había una condición más:
+
+          (!externalCatalog || !includesOrderNumber(output))
+
+      Con el catálogo externo configurado —que es el caso, `whatsapp_agente_
+      catalogo_url` apunta al sitio— eso apagaba el control **cada vez que el
+      modelo escribía un número**. Le alcanzaba con decir "es el #243" para
+      pasar de largo.
+
+      O sea que el número inventado por el modelo se usaba como prueba de que
+      el pedido existía, tres líneas debajo de un comentario que dice que la
+      frase del modelo no es evidencia.
+
+      Se vio en una conversación real: "Pedido confirmado, es el #243. Va en
+      camino", dos veces seguidas, sin ninguna llamada a la herramienta de
+      crear pedido registrada.
+
+      La prueba de que el pedido existe es una sola: haberlo encontrado en la
+      base local (`createdOrder`) o en la remota (`createdExternalOrder`). Si
+      la verificación remota falla por red, se prefiere pecar de prudente:
+      decirle al cliente que todavía no quedó confirmado y pasarle el chat a
+      una persona. Molesta, pero no deja a nadie esperando una comida que
+      nadie está cocinando.
+    */
+    if (claimsOrderWasCreated(output) && !createdOrder && !createdExternalOrder) {
       // La frase del modelo no es evidencia: el pedido debe existir realmente.
       // Si no existe, nunca se confirma al cliente y se entrega el chat a una
       // persona para evitar pérdida de ventas o preparación fantasma.
+      // Sin tiempo límite: una persona tiene que intervenir sí o sí.
+      // Antes se ponía +30 minutos y el bot volvía solo aunque nadie
+      // hubiera contestado. Un cliente esperó 42 minutos por esto.
       db.prepare(
         `UPDATE whatsapp_conversaciones
             SET bot_silenciado = 1,
                 escalado_humano = 1,
-                bot_silenciado_hasta = datetime('now', '+30 minutes'),
+                bot_silenciado_hasta = NULL,
+                ultimo_estado = 'esperando_humano',
                 actualizado_en = CURRENT_TIMESTAMP
           WHERE id = ?`
       ).run(conversation.id);
+      pedirUnaPersona(conversation, telefono, 'La IA dijo que creó un pedido que no existe');
       output =
         'Todavía no pude registrar el pedido en el sistema. No quedó confirmado; ya te atiende una persona del local para cargarlo bien.';
       integrityError = `La IA afirmo crear un pedido inexistente para ${telefono}`;
@@ -416,14 +586,19 @@ async function handleIncoming(message) {
     // alcanzado a crear el pedido y fallar al devolver la respuesta. Nunca
     // reintentamos automáticamente porque duplicaría pedidos. En su lugar,
     // avisamos al cliente y entregamos el chat a una persona del local.
+    // Sin tiempo límite: la persona tiene que devolver el chat a mano.
+    // Si el bot vuelve solo sin que nadie haya contestado, el cliente
+    // queda entre dos silencios.
     db.prepare(
       `UPDATE whatsapp_conversaciones
           SET bot_silenciado = 1,
               escalado_humano = 1,
-              bot_silenciado_hasta = datetime('now', '+30 minutes'),
+              bot_silenciado_hasta = NULL,
+              ultimo_estado = 'esperando_humano',
               actualizado_en = CURRENT_TIMESTAMP
         WHERE id = ?`
     ).run(conversation.id);
+    pedirUnaPersona(conversation, telefono, `Falló la atención automática: ${error.message}`);
     const fallback =
       'Tuve un problema al terminar de cargarlo. Ya te atiende una persona del local para verificar el pedido.';
     try {
@@ -461,9 +636,10 @@ function enqueueIncoming(message) {
   return serializeByKey(key, () => handleIncoming(message));
 }
 
-function iniciarWhatsappGateway() {
+function iniciarWhatsappGateway(io = null) {
   if (iniciado) return;
   iniciado = true;
+  socketDelPanel = io;
   conexion.on('mensaje', (message) => {
     enqueueIncoming(message).catch((error) => {
       ultimoError = error.message;

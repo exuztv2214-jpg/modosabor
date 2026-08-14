@@ -10,6 +10,10 @@ const { motor, registrarRespuesta } = require('../services/whatsappMasivo/motor'
 const { normalizarTelefono, formatearTelefono } = require('../services/whatsappMasivo/telefono');
 const reglas = require('../services/whatsappMasivo/reglas');
 const { resumenGateway, gatewayConfig } = require('../services/whatsappGateway');
+const {
+  testEmergencyProvider,
+  applyEmergencyProvider,
+} = require('../services/whatsappEmergencyProvider');
 
 const router = express.Router();
 
@@ -22,6 +26,29 @@ const router = express.Router();
  * número del local. No es una pantalla de consulta: es la que más daño puede
  * hacer del panel entero, así que va detrás del mismo permiso que marketing.
  */
+/**
+ * Cuántos chats están esperando a una persona ahora mismo.
+ *
+ * Va **antes** del permiso de marketing y con `auth` solo, a propósito. El
+ * badge del menú lo pide quien está atendiendo —el cajero—, y el rol `caja` no
+ * tiene `marketing.edit`: detrás de ese permiso el pedido devolvía 403, el
+ * error se tragaba con un `.catch(() => {})` y **el badge no aparecía nunca**,
+ * justo para la persona que tiene que verlo.
+ *
+ * Devuelve un número y nada más. No expone teléfonos, mensajes ni nombres, así
+ * que no hay motivo para esconderlo detrás del permiso que protege el envío
+ * masivo.
+ */
+router.get('/conversaciones/esperando-persona', auth, (_req, res) => {
+  const { cantidad } = db
+    .prepare(
+      `SELECT COUNT(*) AS cantidad FROM whatsapp_conversaciones
+        WHERE escalado_humano = 1 AND bot_silenciado = 1`
+    )
+    .get();
+  res.json({ cantidad });
+});
+
 router.use(auth, requirePermission('marketing.edit'));
 
 /**
@@ -106,6 +133,24 @@ router.put('/gateway', (req, res) => {
   });
   if (req.body?.pausaTotal === true || req.body?.masivos === false) motor.pausar();
   res.json({ ok: true, gateway: resumenGateway() });
+});
+
+router.post('/emergencia/probar', async (_req, res) => {
+  try {
+    res.json(await testEmergencyProvider());
+  } catch (error) {
+    logger.warn('No se pudo probar la IA de emergencia', { message: error.message });
+    res.status(400).json({ error: error.message });
+  }
+});
+
+router.post('/emergencia/aplicar', (_req, res) => {
+  try {
+    res.json(applyEmergencyProvider());
+  } catch (error) {
+    logger.error('No se pudo aplicar la IA de emergencia', { message: error.message });
+    res.status(400).json({ error: error.message });
+  }
 });
 
 router.get('/conversaciones', (req, res) => {
