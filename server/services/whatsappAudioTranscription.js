@@ -43,8 +43,12 @@ function runPython(python, audioPath) {
       Whisper no se carga al arrancar sino recién cuando llega el primer audio,
       así que el arranque no dice nada. Sin esta línea la única forma de saberlo
       era mandar un audio y adivinar por la calidad de la transcripción.
+
+      Va como "notice" y no como "info" porque la IA de WhatsApp corre en
+      producción, y ahí los "info" se descartan: el log habría quedado mudo
+      justo donde hace falta leerlo.
     */
-    logger.info(`Transcribiendo audio de WhatsApp con Whisper "${modelo}"`);
+    logger.notice(`Transcribiendo audio de WhatsApp con Whisper "${modelo}"`);
 
     const child = spawn(python, args, {
       windowsHide: true,

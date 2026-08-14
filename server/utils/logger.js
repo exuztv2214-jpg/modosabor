@@ -23,6 +23,23 @@ function log(level, message, meta = {}) {
     return;
   }
 
+  /*
+    "notice" es para lo que hay que poder ver en producción sin que sea un
+    problema: qué modelo de Whisper se cargó, qué versión arrancó, cosas que
+    uno va a buscar al log cuando algo anda raro.
+
+    Hacía falta porque `info` se descarta en producción y `warn` miente: pinta
+    de amarillo algo que está funcionando bien. Sin este nivel, la única forma
+    de verificar el modelo de Whisper era mandar un audio y adivinar por la
+    calidad de la transcripción.
+
+    Es para eventos ocasionales, no para el pulso de cada request.
+  */
+  if (level === 'notice') {
+    console.log(output);
+    return;
+  }
+
   // En producción omitimos logs informativos para reducir ruido.
   if (isProduction()) return;
 
@@ -31,6 +48,7 @@ function log(level, message, meta = {}) {
 
 module.exports = {
   info: (message, meta) => log('info', message, meta),
+  notice: (message, meta) => log('notice', message, meta),
   warn: (message, meta) => log('warn', message, meta),
   error: (message, meta) => log('error', message, meta),
 };
