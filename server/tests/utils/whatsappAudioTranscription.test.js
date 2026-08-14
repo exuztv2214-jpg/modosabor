@@ -11,7 +11,10 @@ function run() {
   assert.ok(
     fs.existsSync(path.join(__dirname, '..', '..', 'scripts', 'transcribe-whatsapp-audio.py'))
   );
-  console.log('  ✓ transcriptor local presente y duración acotada');
+  const dockerfile = fs.readFileSync(path.join(__dirname, '..', '..', '..', 'Dockerfile'), 'utf8');
+  assert.match(dockerfile, /WhisperModel\('small'/);
+  assert.doesNotMatch(dockerfile, /WhisperModel\('base'/);
+  console.log('  ✓ transcriptor presente, duración acotada y modelo small precargado');
   console.log('✅ Base de audios de WhatsApp verificada\n');
 }
 

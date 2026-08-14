@@ -18,11 +18,9 @@ def main():
     # La IA recibe eso y contesta cualquier cosa. Es la diferencia entre un
     # audio que sirve y uno que hace perder al cliente.
     #
-    # Se pone acá como valor por defecto y no como variable de entorno a
-    # propósito: el gateway de WhatsApp corre en la máquina del local, no en
-    # el servidor, así que una variable puesta en el lugar equivocado no hace
-    # nada y nadie se entera. Con el valor bueno por defecto no hay nada que
-    # configurar.
+    # Se pone acá como valor por defecto y también se precarga en la imagen de
+    # Railway. Así el gateway no depende de una PC del local ni intenta bajar
+    # cientos de MB mientras un cliente espera la respuesta al primer audio.
     #
     # Cuesta unos segundos más por audio. Frente a contestar mal, sobra.
     model_name = os.environ.get("WHISPER_MODEL", "small").strip() or "small"
