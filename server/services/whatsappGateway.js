@@ -44,8 +44,12 @@ function pedirUnaPersona(conversation, telefono, motivo) {
   }
 }
 
-const DEFAULT_WEBHOOK = 'http://127.0.0.1:5678/webhook/modosabor-atencion-web';
-const DEFAULT_FALLBACK_WEBHOOK = 'http://127.0.0.1:5678/webhook/modosabor-atencion-web-fallback';
+// Estos valores deben funcionar dentro de Railway aunque no exista ninguna PC
+// del local encendida. Las variables de entorno pueden reemplazarlos, pero el
+// servidor nunca debe caer silenciosamente a localhost en producción.
+const DEFAULT_WEBHOOK = 'https://n8n-production-f8ed.up.railway.app/webhook/modosabor-atencion-web';
+const DEFAULT_FALLBACK_WEBHOOK =
+  'https://n8n-production-f8ed.up.railway.app/webhook/modosabor-atencion-web-fallback';
 const seen = new Set();
 const processingByChat = new Map();
 let iniciado = false;
@@ -70,18 +74,34 @@ function enabled(key, fallback = false) {
   return configValue(key, fallback ? '1' : '0') === '1';
 }
 
+function safeWebhookUrl(value, fallback) {
+  const candidate = String(value || '').trim() || fallback;
+  if (
+    process.env.NODE_ENV === 'production' &&
+    /^(?:https?:\/\/)?(?:127\.0\.0\.1|localhost|host\.docker\.internal)(?::|\/|$)/i.test(candidate)
+  ) {
+    return fallback;
+  }
+  return candidate;
+}
+
 function gatewayConfig() {
   const emergencyEnabled = enabled('whatsapp_emergencia_activa', true);
   return {
     pausaTotal: enabled('whatsapp_gateway_pausa_total', false),
     atencionIa: enabled('whatsapp_atencion_ia_activa', false),
     masivos: enabled('whatsapp_masivos_activo', false),
-    webhook:
+    webhook: safeWebhookUrl(
       String(process.env.WHATSAPP_AGENT_WEBHOOK_URL || '').trim() ||
-      configValue('whatsapp_agente_webhook_url', DEFAULT_WEBHOOK),
+        configValue('whatsapp_agente_webhook_url', DEFAULT_WEBHOOK),
+      DEFAULT_WEBHOOK
+    ),
     fallbackWebhook: emergencyEnabled
-      ? String(process.env.WHATSAPP_AGENT_FALLBACK_WEBHOOK_URL || '').trim() ||
-        configValue('whatsapp_agente_fallback_webhook_url', DEFAULT_FALLBACK_WEBHOOK)
+      ? safeWebhookUrl(
+          String(process.env.WHATSAPP_AGENT_FALLBACK_WEBHOOK_URL || '').trim() ||
+            configValue('whatsapp_agente_fallback_webhook_url', DEFAULT_FALLBACK_WEBHOOK),
+          DEFAULT_FALLBACK_WEBHOOK
+        )
       : '',
   };
 }
@@ -663,4 +683,5 @@ module.exports = {
   claimsOrderWasCreated,
   enqueueIncoming,
   serializeByKey,
+  safeWebhookUrl,
 };

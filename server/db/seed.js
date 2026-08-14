@@ -69,7 +69,15 @@ function runSeed(db) {
     ['whatsapp_gateway_pausa_total', '0'],
     ['whatsapp_atencion_ia_activa', '0'],
     ['whatsapp_masivos_activo', '0'],
-    ['whatsapp_agente_webhook_url', 'http://127.0.0.1:5678/webhook/modosabor-atencion-web'],
+    [
+      'whatsapp_agente_webhook_url',
+      'https://n8n-production-f8ed.up.railway.app/webhook/modosabor-atencion-web',
+    ],
+    [
+      'whatsapp_agente_fallback_webhook_url',
+      'https://n8n-production-f8ed.up.railway.app/webhook/modosabor-atencion-web-fallback',
+    ],
+    ['whatsapp_agente_catalogo_url', 'https://modosabor.com.ar'],
     ['whatsapp_emergencia_activa', '1'],
     ['whatsapp_emergencia_proveedor', 'NVIDIA'],
     ['whatsapp_emergencia_base_url', 'https://integrate.api.nvidia.com/v1'],
