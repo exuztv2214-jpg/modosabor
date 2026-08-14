@@ -58,7 +58,7 @@ const workflow = {
         responseMode: 'lastNode',
         responseData: 'firstEntryJson',
         options: {
-          allowedOrigins: 'http://127.0.0.1:3045,http://localhost:3045',
+          allowedOrigins: 'https://modosabor.com.ar',
         },
       },
     },
