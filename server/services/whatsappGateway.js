@@ -9,6 +9,7 @@ const {
   findClienteByPhone,
   getCustomerSnapshot,
   getLastOrderByPhone,
+  getMenuDiaToday,
   cleanText,
 } = require('../utils/systemClient');
 const { emitAtencionHumana } = require('../utils/socketRooms');
@@ -212,6 +213,113 @@ function asksForCarta(text) {
     .replace(/[\u0300-\u036f]/g, '');
   if (/menu\s+del\s+dia/.test(normalized)) return false;
   return /\b(carta|menu completo|menu de la carta|ver el menu)\b/.test(normalized);
+}
+
+function normalizeIntentText(value) {
+  return String(value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9$\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function shouldAnswerMenuDayDirectly(text, recentHistory = '') {
+  const current = normalizeIntentText(text);
+  const history = normalizeIntentText(recentHistory);
+  const asksGeneralMenu =
+    /\b(?:q|que|cual|cuales|lista|mostrar|mostrame|ver)\b.*\bmenu\b/.test(current) ||
+    /\bmenu(?:s)?\s+(?:del\s+dia|de\s+hoy|economico|economicos|ejecutivo|ejecutivos)\b/.test(
+      current
+    );
+  const asksPrices = /\b(?:cuanto|cuantos|precio|precios|vale|valen|sale|salen)\b/.test(current);
+  const recentMenuContext =
+    /\bmenu(?:s)?\s+(?:del\s+dia|de\s+hoy|economico|economicos|ejecutivo|ejecutivos)\b/.test(
+      history
+    );
+  const affirmative = /^(?:si|dale|bueno|ok|okay|por favor)$/.test(current);
+  const offeredAllPrices = /(?:precio|precios).{0,80}(?:demas|todos).{0,80}menu\s+del\s+dia/.test(
+    history
+  );
+  const correctsWrongMenu = /^(?:eso\s+no|no\s+son|esos\s+no|esta\s+mal)/.test(current);
+
+  return (
+    asksGeneralMenu ||
+    (asksPrices && recentMenuContext) ||
+    (affirmative && offeredAllPrices) ||
+    (correctsWrongMenu && recentMenuContext)
+  );
+}
+
+function requestedMenuDayKind(text, recentHistory = '') {
+  const current = normalizeIntentText(text);
+  if (/\beconomico(?:s)?\b/.test(current)) return 'economico';
+  if (/\bejecutivo(?:s)?\b/.test(current)) return 'ejecutivo';
+
+  // Sólo heredamos el grupo ante una corrección explícita. En "cuánto valen"
+  // o "sí" corresponde mostrar ambos, aunque el historial mencione primero
+  // económicos y después ejecutivos.
+  if (/^(?:eso\s+no|no\s+son|esos\s+no|esta\s+mal)/.test(current)) {
+    const history = normalizeIntentText(recentHistory);
+    const economicIndex = Math.max(
+      history.lastIndexOf('economico'),
+      history.lastIndexOf('economicos')
+    );
+    const executiveIndex = Math.max(
+      history.lastIndexOf('ejecutivo'),
+      history.lastIndexOf('ejecutivos')
+    );
+    if (economicIndex > executiveIndex) return 'economico';
+    if (executiveIndex > economicIndex) return 'ejecutivo';
+  }
+  return '';
+}
+
+function buildMenuDayReply(products = [], requestedKind = '') {
+  if (!products.length) return 'Hoy no quedan platos disponibles del menú del día.';
+
+  const groups = new Map();
+  const add = (label, priceText, productName) => {
+    const key = `${label}|${priceText}`;
+    if (!groups.has(key)) groups.set(key, { label, priceText, names: [] });
+    const group = groups.get(key);
+    if (!group.names.includes(productName)) group.names.push(productName);
+  };
+
+  products.forEach((product) => {
+    const sizes = (product.opciones_detalle || []).find(
+      (group) => normalizeIntentText(group?.grupo) === 'tamano'
+    )?.opciones;
+    if (Array.isArray(sizes) && sizes.length) {
+      sizes.forEach((size) => {
+        const executive = normalizeIntentText(size?.nombre).includes('ejecutivo');
+        const kind = executive ? 'ejecutivo' : 'economico';
+        if (requestedKind && requestedKind !== kind) return;
+        add(executive ? 'Ejecutivos' : 'Económicos', size.precio_texto, product.nombre);
+      });
+      return;
+    }
+    if (requestedKind && requestedKind !== product.tipo_menu_dia) return;
+    add(
+      product.tipo_menu_dia === 'ejecutivo' ? 'Ejecutivos' : 'Económicos',
+      product.precio_desde_texto,
+      product.nombre
+    );
+  });
+
+  if (!groups.size) {
+    const label = requestedKind === 'ejecutivo' ? 'ejecutivos' : 'económicos';
+    return `Hoy no quedan menús ${label} disponibles.`;
+  }
+
+  const lines = ['El menú disponible hoy es:'];
+  for (const group of groups.values()) {
+    lines.push(`\n*${group.label} (${group.priceText}):*`);
+    group.names.forEach((name) => lines.push(`- ${name}`));
+  }
+  lines.push('\nDecime cuál querés y, si lleva salsa o guarnición, te paso las opciones.');
+  return lines.join('\n');
 }
 
 async function sendCarta(jid, conversation, telefono) {
@@ -454,6 +562,27 @@ async function handleIncoming(message) {
       ultimaActividad = `Carta enviada a ${telefono}`;
       return;
     }
+    const recentHistory = historyFor(conversation.id);
+    if (
+      type === 'texto' &&
+      currentShift.turno_actual?.id === 'manana' &&
+      shouldAnswerMenuDayDirectly(usableText, recentHistory)
+    ) {
+      const menuDayReply = buildMenuDayReply(
+        getMenuDiaToday(db),
+        requestedMenuDayKind(usableText, recentHistory)
+      );
+      await conexion.enviarTexto(jid, menuDayReply);
+      await conexion.enviarPresencia(jid, 'paused');
+      saveMessage(conversation.id, telefono, 'saliente', 'texto', menuDayReply, {
+        origen: 'sistema',
+        motivo: 'menu_dia_vigente',
+      });
+      respondidos += 1;
+      ultimoError = '';
+      ultimaActividad = `Menú del día informado a ${telefono}`;
+      return;
+    }
     const externalCatalog = usesExternalAgentCatalog();
     // Es deliberadamente no bloqueante: si la consulta externa no está
     // disponible, el flujo conserva las validaciones locales y n8n devolverá
@@ -478,7 +607,7 @@ async function handleIncoming(message) {
       nombre: knownName || conversation.nombre || '',
       tipo: type,
       texto: usableText,
-      historial: historyFor(conversation.id),
+      historial: recentHistory,
       /*
         ── Quién es el que escribe ────────────────────────────────────────────
 
@@ -710,6 +839,9 @@ module.exports = {
   textFromMessage,
   phoneFromMessage,
   asksForCarta,
+  shouldAnswerMenuDayDirectly,
+  requestedMenuDayKind,
+  buildMenuDayReply,
   usableWhatsappName,
   claimsOrderWasCreated,
   enqueueIncoming,

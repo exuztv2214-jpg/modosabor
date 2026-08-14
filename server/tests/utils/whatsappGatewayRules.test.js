@@ -4,6 +4,9 @@ const path = require('path');
 
 const {
   asksForCarta,
+  shouldAnswerMenuDayDirectly,
+  requestedMenuDayKind,
+  buildMenuDayReply,
   usableWhatsappName,
   claimsOrderWasCreated,
   safeWebhookUrl,
@@ -15,6 +18,70 @@ function run() {
   assert.strictEqual(asksForCarta('Hola, me pasás la carta?'), true);
   assert.strictEqual(asksForCarta('quiero ver el menu'), true);
   assert.strictEqual(asksForCarta('qué hay de menú del día?'), false);
+  assert.strictEqual(shouldAnswerMenuDayDirectly('Q hay de menu'), true);
+  assert.strictEqual(
+    shouldAnswerMenuDayDirectly('Cuánto valen', 'Chispita: Te paso el menú del día'),
+    true
+  );
+  assert.strictEqual(
+    shouldAnswerMenuDayDirectly(
+      'Si',
+      'Chispita: Si querés ver el precio de todos los demás platos del menú del día, decime.'
+    ),
+    true
+  );
+  assert.strictEqual(
+    shouldAnswerMenuDayDirectly(
+      'Eso no son',
+      'Chispita: Los menús económicos del día son Bombita y Albóndigas.'
+    ),
+    true
+  );
+  assert.strictEqual(shouldAnswerMenuDayDirectly('Quiero un canelón'), false);
+  assert.strictEqual(requestedMenuDayKind('precio de los económicos'), 'economico');
+  assert.strictEqual(requestedMenuDayKind('precio ejecutivo'), 'ejecutivo');
+  assert.strictEqual(
+    requestedMenuDayKind('Eso no son', 'Chispita: Los menús económicos del día son otros.'),
+    'economico'
+  );
+  const menuReply = buildMenuDayReply([
+    {
+      nombre: 'Wok de verduras y pollo',
+      tipo_menu_dia: 'economico',
+      precio_desde_texto: '$5.000',
+      opciones_detalle: [],
+    },
+    {
+      nombre: 'Lasaña',
+      tipo_menu_dia: 'ejecutivo',
+      precio_desde_texto: '$7.000',
+      opciones_detalle: [],
+    },
+  ]);
+  assert.match(menuReply, /Económicos \(\$5\.000\)/);
+  assert.match(menuReply, /Wok de verduras y pollo/);
+  assert.match(menuReply, /Ejecutivos \(\$7\.000\)/);
+  assert.match(menuReply, /Lasaña/);
+  assert.doesNotMatch(menuReply, /Bombita|Albóndigas/);
+  const economicReply = buildMenuDayReply(
+    [
+      {
+        nombre: 'Wok',
+        tipo_menu_dia: 'economico',
+        precio_desde_texto: '$5.000',
+        opciones_detalle: [],
+      },
+      {
+        nombre: 'Lasaña',
+        tipo_menu_dia: 'ejecutivo',
+        precio_desde_texto: '$7.000',
+        opciones_detalle: [],
+      },
+    ],
+    'economico'
+  );
+  assert.match(economicReply, /Wok/);
+  assert.doesNotMatch(economicReply, /Lasaña|Ejecutivos/);
   assert.strictEqual(usableWhatsappName('  Juan Pérez  '), 'Juan Pérez');
   assert.strictEqual(usableWhatsappName('+5493863000000'), '');
   assert.strictEqual(claimsOrderWasCreated('¡Listo! Pedido cargado con éxito.'), true);

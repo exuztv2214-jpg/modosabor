@@ -1101,6 +1101,7 @@ function getMenuDiaToday(db) {
     .filter((product) => product.disponible_para_venta)
     .map((product) => {
       const vista = buildProductPreview(product);
+      const tipoMenuDia = product.menu_dia_tipo === 'ejecutivo' ? 'ejecutivo' : 'economico';
       /*
         El mismo plato puede salir en las dos porciones el mismo día: económico
         $5.000 y ejecutivo $7.000. Cuando están cargadas las dos, se mandan las
@@ -1111,7 +1112,9 @@ function getMenuDiaToday(db) {
       */
       const economico = Number(product.precio_economico_hoy || 0);
       const ejecutivo = Number(product.precio_ejecutivo_hoy || 0);
-      if (!economico && !ejecutivo) return vista;
+      if (!economico && !ejecutivo) {
+        return { ...vista, tipo_menu_dia: tipoMenuDia };
+      }
 
       const tamanos = [];
       if (economico) {
@@ -1131,6 +1134,7 @@ function getMenuDiaToday(db) {
 
       return {
         ...vista,
+        tipo_menu_dia: tipoMenuDia,
         precio_desde: Math.min(...tamanos.map((t) => t.precio)),
         precio_desde_texto: formatMoney(Math.min(...tamanos.map((t) => t.precio))),
         opciones: [
