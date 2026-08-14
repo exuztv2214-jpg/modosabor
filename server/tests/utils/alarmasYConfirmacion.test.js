@@ -130,6 +130,28 @@ function run() {
   );
   console.log('  ✓ cuando se bloquea, el chat pasa a una persona\n');
 
+  // Un error de red o del modelo antes de crear un pedido no debe apagar al
+  // bot para siempre. La conversación queda disponible para reintentar; sólo
+  // se deriva cuando apareció un pedido durante la llamada fallida.
+  const bloqueErrorAgente = gateway.slice(
+    gateway.indexOf("logger.error('WhatsApp Gateway: fallo la atencion IA'")
+  );
+  assert.ok(
+    /createdWhatsappOrderAfter\(telefono, previousOrder\?\.id\)/.test(bloqueErrorAgente),
+    'un error del agente no comprueba si alcanzó a crear un pedido'
+  );
+  assert.ok(
+    bloqueErrorAgente.includes('error_agente_reintentable') &&
+      bloqueErrorAgente.includes('escalado_humano = 1'),
+    'falta alguna de las dos salidas: reintento seguro o derivación humana'
+  );
+  assert.ok(
+    bloqueErrorAgente.indexOf('error_agente_reintentable') <
+      bloqueErrorAgente.indexOf('escalado_humano = 1'),
+    'un error común vuelve a silenciar el bot antes de permitir el reintento'
+  );
+  console.log('  ✓ un error sin pedido creado no silencia a Chispita para siempre\n');
+
   console.log('✅ Alarmas y confirmaciones: nadie se queda esperando en silencio\n');
 }
 

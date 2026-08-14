@@ -201,13 +201,15 @@ router.put('/conversaciones/:id/control', (req, res) => {
       ? db
           .prepare(
             `UPDATE whatsapp_conversaciones SET bot_silenciado = 1, escalado_humano = 1,
-                    bot_silenciado_hasta = NULL, actualizado_en = CURRENT_TIMESTAMP WHERE id = ?`
+                    bot_silenciado_hasta = NULL, ultimo_estado = 'esperando_humano',
+                    actualizado_en = CURRENT_TIMESTAMP WHERE id = ?`
           )
           .run(id)
       : db
           .prepare(
             `UPDATE whatsapp_conversaciones SET bot_silenciado = 0, escalado_humano = 0,
-                    bot_silenciado_hasta = NULL, actualizado_en = CURRENT_TIMESTAMP WHERE id = ?`
+                    bot_silenciado_hasta = NULL, ultimo_estado = 'atencion',
+                    actualizado_en = CURRENT_TIMESTAMP WHERE id = ?`
           )
           .run(id);
   if (!result.changes) return res.status(404).json({ error: 'Conversación no encontrada' });

@@ -423,6 +423,12 @@ async function handleIncoming(message) {
     return;
   }
 
+  // Guardamos el último pedido antes de llamar al agente. Si algo falla,
+  // esto permite distinguir un error común de una respuesta ambigua después
+  // de haber creado un pedido. Sólo el segundo caso necesita intervención
+  // humana para evitar que un reintento duplique la venta.
+  const previousOrder = getLastOrderByPhone(db, telefono);
+
   try {
     await conexion.enviarPresencia(jid, 'composing');
     const businessConfig = getConfigMap(db);
@@ -448,7 +454,6 @@ async function handleIncoming(message) {
       ultimaActividad = `Carta enviada a ${telefono}`;
       return;
     }
-    const previousOrder = getLastOrderByPhone(db, telefono);
     const externalCatalog = usesExternalAgentCatalog();
     // Es deliberadamente no bloqueante: si la consulta externa no está
     // disponible, el flujo conserva las validaciones locales y n8n devolverá
@@ -601,23 +606,26 @@ async function handleIncoming(message) {
     ultimoError = error.message;
     ultimaActividad = `Error atendiendo a ${telefono}`;
     logger.error('WhatsApp Gateway: fallo la atencion IA', { message: error.message, telefono });
+    const orderCreatedDuringFailure = createdWhatsappOrderAfter(telefono, previousOrder?.id);
     const transientProviderError =
       /\b(?:429|500|502|503|504)\b|high demand|service unavailable|timeout/i.test(
         String(error.message || '')
       );
-    if (transientProviderError) {
-      const fallback =
-        'Estoy con mucha demora ahora. Mandame el mensaje otra vez en un momento y seguimos desde donde quedamos.';
+
+    if (!orderCreatedDuringFailure) {
+      const fallback = transientProviderError
+        ? 'Estoy con mucha demora ahora. Mandame el mensaje otra vez en un momento y seguimos desde donde quedamos.'
+        : 'Tuve un problema para responder ahora. Mandame el mensaje otra vez y seguimos; no se perdió ningún pedido.';
       try {
         await conexion.enviarPresencia(jid, 'paused');
         await conexion.enviarTexto(jid, fallback);
         saveMessage(conversation.id, telefono, 'saliente', 'texto', fallback, {
           origen: 'sistema',
-          motivo: 'proveedor_ia_temporal',
+          motivo: transientProviderError ? 'proveedor_ia_temporal' : 'error_agente_reintentable',
         });
-        ultimaActividad = `Demora temporal de IA avisada a ${telefono}`;
+        ultimaActividad = `Error recuperable de IA avisado a ${telefono}`;
       } catch (sendError) {
-        logger.error('WhatsApp Gateway: no pudo avisar demora temporal', {
+        logger.error('WhatsApp Gateway: no pudo avisar error recuperable', {
           message: sendError.message,
           telefono,
         });
@@ -625,8 +633,8 @@ async function handleIncoming(message) {
       return;
     }
 
-    // Un error después de la confirmación es ambiguo: la tool podría haber
-    // alcanzado a crear el pedido y fallar al devolver la respuesta. Nunca
+    // Si apareció un pedido nuevo durante la llamada, el resultado es ambiguo:
+    // la tool alcanzó a crearlo pero falló al devolver la respuesta. Nunca
     // reintentamos automáticamente porque duplicaría pedidos. En su lugar,
     // avisamos al cliente y entregamos el chat a una persona del local.
     // Sin tiempo límite: la persona tiene que devolver el chat a mano.
