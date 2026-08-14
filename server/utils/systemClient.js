@@ -767,8 +767,22 @@ function resolveSelectionsFromText(db, product, query) {
       missingGroups.push({
         grupo: group?.nombre || '',
         opciones: parseJsonArray(group?.opciones)
-          .map((option) => option?.nombre || '')
-          .filter(Boolean),
+          .filter((option) => option?.nombre)
+          .map((option) => {
+            const precio =
+              Number(product.precio || 0) +
+              Object.values(selectedVariants).reduce(
+                (total, seleccion) => total + Number(seleccion?.precio_extra || 0),
+                0
+              ) +
+              Number(option.precio_extra || 0);
+            return {
+              nombre: option.nombre,
+              precio_total: precio,
+              precio_total_pesos: precio / 100,
+              precio_texto: formatMoney(precio),
+            };
+          }),
       });
     }
   });
@@ -825,7 +839,8 @@ function summarizeProduct(product) {
     id: product.id,
     nombre: product.nombre,
     categoria: product.categoria_nombre || '',
-    precio_base: Number(product.precio || 0),
+    precio_base_pesos: Number(product.precio || 0) / 100,
+    precio_base_texto: formatMoney(product.precio),
     disponible_para_venta: product.disponible_para_venta,
     stock_disponible: Number(product.stock_disponible || 0),
   };
@@ -917,6 +932,7 @@ function quoteProduct(db, query) {
     status: 'ok',
     product: summarizeProduct(product),
     price_total: price,
+    price_total_pesos: price / 100,
     money_text: formatMoney(price),
     item_name: configuredItemName(
       product,
