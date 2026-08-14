@@ -92,7 +92,11 @@ export default function VariantModal({ modal, setModal, colorPrimario, onClose, 
                               },
                             }))
                           }
-                          className={`flex flex-col items-center justify-center gap-1 rounded-xl border-2 px-3 py-3 transition-all ${selected ? 'shadow-md' : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300'}`}
+                          className={`flex flex-col items-center justify-center gap-1 rounded-xl border-2 px-3 py-3 transition-all ${
+                            selected
+                              ? 'shadow-md'
+                              : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300'
+                          }`}
                           style={
                             selected
                               ? {
@@ -116,9 +120,9 @@ export default function VariantModal({ modal, setModal, colorPrimario, onClose, 
 
               {modal.extras.length > 0 && (
                 <div className="space-y-3">
-                  <label className="text-xs font-semibold text-gray-500">
+                  <p className="text-xs font-semibold text-gray-500">
                     Extras <span className="font-normal text-gray-300">(opcional)</span>
-                  </label>
+                  </p>
                   <div className="space-y-2">
                     {modal.extras.map((extra) => {
                       const extraNombre = extra.nombre || extra;
@@ -142,7 +146,11 @@ export default function VariantModal({ modal, setModal, colorPrimario, onClose, 
                                   ],
                             }))
                           }
-                          className={`flex w-full items-center justify-between rounded-xl border-2 px-4 py-3 transition-all ${isSelected ? 'shadow-sm' : 'border-gray-200 bg-white hover:border-gray-300'}`}
+                          className={`flex w-full items-center justify-between rounded-xl border-2 px-4 py-3 transition-all ${
+                            isSelected
+                              ? 'shadow-sm'
+                              : 'border-gray-200 bg-white hover:border-gray-300'
+                          }`}
                           style={
                             isSelected
                               ? {
@@ -164,10 +172,14 @@ export default function VariantModal({ modal, setModal, colorPrimario, onClose, 
               )}
 
               <div className="space-y-2">
-                <label className="text-xs font-semibold text-gray-500">
+                <label
+                  htmlFor="field-VariantModal-jsx-167-0"
+                  className="text-xs font-semibold text-gray-500"
+                >
                   Nota <span className="font-normal text-gray-300">(opcional)</span>
                 </label>
                 <textarea
+                  id="field-VariantModal-jsx-167-0"
                   value={modal.notas || ''}
                   onChange={(event) => setModal((prev) => ({ ...prev, notas: event.target.value }))}
                   placeholder="Ej: sin aceituna, bien cocida, sin picante..."

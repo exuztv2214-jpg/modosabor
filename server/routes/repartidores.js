@@ -1,11 +1,11 @@
-const express = require('express');
-const router = express.Router();
-const db = require('../db');
-const auth = require('../middleware/auth');
 const crypto = require('crypto');
 const fs = require('fs');
-const multer = require('multer');
 const path = require('path');
+const express = require('express');
+const router = express.Router();
+const multer = require('multer');
+const db = require('../db');
+const auth = require('../middleware/auth');
 const { requirePermission, hasPermission } = require('../utils/permissions');
 const { fechaLocal, hoyLocal } = require('../utils/fechaLocal');
 
@@ -37,7 +37,7 @@ const {
   PHOTO_MIME_TYPES,
 } = require('../utils/uploadValidation');
 const { getPedidoHydratedById } = require('../services/pedidoService');
-const { registrarEvento, calcularDuraciones } = require('../services/pedidoTrazabilidad');
+const { registrarEvento } = require('../services/pedidoTrazabilidad');
 const { syncPersonalFromDeliveryRepartidor } = require('../utils/deliveryPersonnelSync');
 const { checkAndNotifyLlegando } = require('../utils/deliveryNotifications');
 const { getConfigMap } = require('../utils/mercadoPago');
@@ -734,8 +734,9 @@ router.post('/soporte/:id/resolver', auth, requirePermission('delivery.manage'),
       "UPDATE rider_solicitudes_soporte SET estado = 'resuelta', resuelto_en = CURRENT_TIMESTAMP WHERE id = ? AND estado = 'abierta'"
     )
     .run(req.params.id);
-  if (!result.changes)
+  if (!result.changes) {
     return res.status(404).json({ error: 'Solicitud no encontrada o ya resuelta' });
+  }
   res.json({ success: true });
 });
 

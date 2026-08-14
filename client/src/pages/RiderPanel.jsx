@@ -1,18 +1,8 @@
-import React, { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import toast from 'react-hot-toast';
 
-import AnimatedNumber from '../components/AnimatedNumber.jsx';
-import { fireRiderConfetti, speakRider } from '../lib/riderCelebration.js';
-import {
-  enqueueRiderAction,
-  processRiderQueue,
-  readQueue as readRiderQueue,
-  readFailedActions,
-  clearFailedActions,
-  clearRiderQueue,
-} from '../lib/riderOfflineQueue.js';
 import {
   Truck,
   MapPin,
@@ -37,9 +27,7 @@ import {
   History,
   PhoneCall,
   Star,
-  List,
   Route,
-  Flag,
   DollarSign,
   TrendingUp,
   Eye,
@@ -51,14 +39,20 @@ import {
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
+import AnimatedNumber from '../components/AnimatedNumber.jsx';
+import { fireRiderConfetti, speakRider } from '../lib/riderCelebration.js';
+import {
+  enqueueRiderAction,
+  processRiderQueue,
+  readQueue as readRiderQueue,
+  readFailedActions,
+  clearFailedActions,
+  clearRiderQueue,
+} from '../lib/riderOfflineQueue.js';
 
 import { paymentMethodLabel, paymentStatusLabel, paymentStatusTone } from '../lib/paymentStatus.js';
 import { normalizePedidoItems } from '../lib/pedidoItems.js';
-import {
-  buildGoogleMapsDirectionsUrl,
-  buildGoogleMapsEmbedUrl,
-  buildWazeUrl,
-} from '../lib/maps.js';
+import { buildGoogleMapsDirectionsUrl, buildWazeUrl } from '../lib/maps.js';
 import { filterRiderGpsPosition } from '../lib/riderGps.js';
 import { resolveAssetUrl } from '../lib/assets.js';
 import {
@@ -175,19 +169,6 @@ function destinationUrl(pedido, config = {}) {
   );
 }
 
-function destinationEmbedUrl(pedido, config = {}) {
-  return buildGoogleMapsEmbedUrl(
-    {
-      latitud: pedido?.cliente_latitud,
-      longitud: pedido?.cliente_longitud,
-      direccion: pedido?.cliente_direccion,
-      ubicacionExacta: Boolean(pedido?.cliente_ubicacion_exacta),
-    },
-    config,
-    { zoom: 16 }
-  );
-}
-
 // NOTA: `haversine` y `sortByDistance` se movieron a lib/riderUx.js como
 // `distanciaMetros` y `ordenarPorCercania`. El nuevo ordenamiento usa
 // vecino mas proximo en vez de simple distancia al rider, y ademas NO
@@ -255,6 +236,11 @@ function PinModal({ pedidoNumero, onConfirm, onClose }) {
 
   return (
     <div
+      role="button"
+      tabIndex={0}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') event.currentTarget.click();
+      }}
       style={{
         position: 'fixed',
         inset: 0,
@@ -267,6 +253,11 @@ function PinModal({ pedidoNumero, onConfirm, onClose }) {
       onClick={onClose}
     >
       <div
+        role="button"
+        tabIndex={0}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') event.currentTarget.click();
+        }}
         style={{
           width: '100%',
           background: 'white',
@@ -412,6 +403,17 @@ function SwipeButton({ onComplete, disabled }) {
   return (
     <div
       ref={containerRef}
+      role="button"
+      tabIndex={disabled ? -1 : 0}
+      aria-disabled={disabled || done}
+      aria-label={done ? 'Entrega confirmada' : 'Confirmar entrega'}
+      onKeyDown={(event) => {
+        if ((event.key === 'Enter' || event.key === ' ') && !disabled && !done) {
+          event.preventDefault();
+          setDone(true);
+          onComplete();
+        }
+      }}
       onTouchStart={(e) => onStart(e.touches[0].clientX)}
       onTouchMove={(e) => {
         e.preventDefault();
@@ -547,6 +549,7 @@ export default function RiderPanel() {
   const [lastPositionAt, setLastPositionAt] = useState('');
   const locationWatcherRef = useRef(null);
   const trackedPedidoIdRef = useRef(null);
+  const startTrackingRef = useRef(null);
 
   // PWA install
   const [deferredInstallPrompt, setDeferredInstallPrompt] = useState(null);
@@ -899,7 +902,7 @@ export default function RiderPanel() {
     const active = data?.pedidos?.find((p) => p.estado === 'en_camino');
     if (active && trackedPedidoIdRef.current !== active.id) {
       stopTracking();
-      startTracking(active.id);
+      startTrackingRef.current?.(active.id);
     } else if (!active && locationWatcherRef.current) {
       stopTracking();
     }
@@ -948,7 +951,9 @@ export default function RiderPanel() {
       const cliente = String(pedido?.cliente_nombre || 'sin nombre').split(' ')[0];
       const direccion = String(pedido?.cliente_direccion || '').split(',')[0];
       const total = Number(pedido?.total || 0);
-      const textoVoz = `Nuevo pedido para ${cliente}${direccion ? ` en ${direccion}` : ''}. Monto ${Math.round(total)} pesos.`;
+      const textoVoz = `Nuevo pedido para ${cliente}${
+        direccion ? ` en ${direccion}` : ''
+      }. Monto ${Math.round(total)} pesos.`;
       if (vozActiva) {
         try {
           if (isNativeRiderApp()) await announceRiderOrder(textoVoz);
@@ -1212,6 +1217,7 @@ export default function RiderPanel() {
       setLocationError('Este celular no permite compartir ubicación.');
     }
   };
+  startTrackingRef.current = startTracking;
 
   const stopTracking = () => {
     if (locationWatcherRef.current) {
@@ -1572,36 +1578,31 @@ export default function RiderPanel() {
       return;
     }
 
+    await api.post(endpoint, payload);
+    deliveredSeenRef.current.add(pedidoId);
     try {
-      await api.post(endpoint, payload);
-      deliveredSeenRef.current.add(pedidoId);
-      try {
-        await runDeliveredAlert({
-          pedido: { ...pedidoActual, estado: 'entregado' },
-          config: data?.settings || configRef.current || {},
-          audioContextRef,
-          voiceRef,
-          fallbackAudioRef,
-          scope: 'rider',
-        });
-      } catch {}
-      // ── NEW: registrar en historial de sesión
-      if (pedidoActual) {
-        setHistorialSesion((prev) => [
-          { ...pedidoActual, entregado_en: new Date().toISOString() },
-          ...prev,
-        ]);
-      }
-      setPinModal({ open: false, pedidoId: null });
-      toast.success('¡Entregado! 🎉');
-      // Habilitar la ventana para deshacer si fue por error.
-      if (pedidoActual) setEntregaReciente(pedidoActual);
-      setSelectedPedido(null);
-      fetchData();
-    } catch (err) {
-      // Re-throw so PinModal can catch and show error
-      throw err;
+      await runDeliveredAlert({
+        pedido: { ...pedidoActual, estado: 'entregado' },
+        config: data?.settings || configRef.current || {},
+        audioContextRef,
+        voiceRef,
+        fallbackAudioRef,
+        scope: 'rider',
+      });
+    } catch {}
+    // ── NEW: registrar en historial de sesión
+    if (pedidoActual) {
+      setHistorialSesion((prev) => [
+        { ...pedidoActual, entregado_en: new Date().toISOString() },
+        ...prev,
+      ]);
     }
+    setPinModal({ open: false, pedidoId: null });
+    toast.success('¡Entregado! 🎉');
+    // Habilitar la ventana para deshacer si fue por error.
+    if (pedidoActual) setEntregaReciente(pedidoActual);
+    setSelectedPedido(null);
+    fetchData();
   };
 
   // ── PIN confirm handler ────────────────────────────────────────
@@ -1668,7 +1669,9 @@ export default function RiderPanel() {
         const entregas = perdidas.filter((accion) => accion.kind === 'mark_delivered');
         toast.error(
           entregas.length
-            ? `No se pudo registrar ${entregas.length === 1 ? 'una entrega' : `${entregas.length} entregas`}. Avisá en el local antes de cerrar el turno.`
+            ? `No se pudo registrar ${
+                entregas.length === 1 ? 'una entrega' : `${entregas.length} entregas`
+              }. Avisá en el local antes de cerrar el turno.`
             : `Quedaron ${perdidas.length} acciones sin enviar. Avisá en el local.`,
           { duration: Infinity, id: 'acciones-perdidas' }
         );
@@ -1894,9 +1897,9 @@ export default function RiderPanel() {
                 </button>
               )}
               <p className="mt-2 text-center text-[13px] font-bold text-gray-400 leading-relaxed">
-                Se abrirá el descargador de Android. Tocá "Instalar" cuando termine.
+                Se abrirá el descargador de Android. Tocá “Instalar” cuando termine.
                 <br />
-                La primera vez podés necesitar permitir "instalar apps de esta fuente".
+                La primera vez podés necesitar permitir “instalar apps de esta fuente”.
               </p>
             </div>
           </motion.div>
@@ -2122,11 +2125,15 @@ export default function RiderPanel() {
               </div>
               <div className="space-y-4">
                 <div>
-                  <label className="mb-1.5 flex items-center gap-2 text-[13px] font-semibold text-gray-500">
+                  <label
+                    htmlFor="field-RiderPanel-jsx-2125-0"
+                    className="mb-1.5 flex items-center gap-2 text-[13px] font-semibold text-gray-500"
+                  >
                     <User size={12} />
                     ID de repartidor
                   </label>
                   <input
+                    id="field-RiderPanel-jsx-2125-0"
                     type="text"
                     inputMode="numeric"
                     value={loginForm.id}
@@ -2137,12 +2144,16 @@ export default function RiderPanel() {
                   />
                 </div>
                 <div>
-                  <label className="mb-1.5 flex items-center gap-2 text-[13px] font-semibold text-gray-500">
+                  <label
+                    htmlFor="field-RiderPanel-jsx-2140-1"
+                    className="mb-1.5 flex items-center gap-2 text-[13px] font-semibold text-gray-500"
+                  >
                     <LocateFixed size={12} />
                     Código de acceso
                   </label>
                   <div className="relative">
                     <input
+                      id="field-RiderPanel-jsx-2140-1"
                       type={showAccessCode ? 'text' : 'password'}
                       value={loginForm.code}
                       onChange={(e) => setLoginForm({ ...loginForm, code: e.target.value })}
@@ -2530,7 +2541,9 @@ export default function RiderPanel() {
                           }`}
                         >
                           <div
-                            className={`h-8 w-8 rounded-full ${stopColors[idx % stopColors.length]} flex items-center justify-center text-white text-xs font-semibold shrink-0`}
+                            className={`h-8 w-8 rounded-full ${
+                              stopColors[idx % stopColors.length]
+                            } flex items-center justify-center text-white text-xs font-semibold shrink-0`}
                           >
                             {idx + 1}
                           </div>
@@ -2605,7 +2618,9 @@ export default function RiderPanel() {
                 </p>
                 <div className="mt-4 flex flex-wrap items-center gap-3">
                   <div
-                    className={`h-2.5 w-2.5 rounded-full ${trackingActive ? 'bg-emerald-500 animate-pulse' : 'bg-gray-300'}`}
+                    className={`h-2.5 w-2.5 rounded-full ${
+                      trackingActive ? 'bg-emerald-500 animate-pulse' : 'bg-gray-300'
+                    }`}
                   />
                   <span className="text-[12px] font-medium text-gray-400">
                     {trackingActive ? 'GPS activo' : 'Sin reparto activo'}
@@ -2788,7 +2803,9 @@ export default function RiderPanel() {
                               >
                                 {hasMultipleDeliveries && stopNumber ? (
                                   <span
-                                    className={`h-7 w-7 rounded-full ${stopColors[(stopNumber - 1) % stopColors.length]} flex items-center justify-center text-white text-[13px] font-semibold`}
+                                    className={`h-7 w-7 rounded-full ${
+                                      stopColors[(stopNumber - 1) % stopColors.length]
+                                    } flex items-center justify-center text-white text-[13px] font-semibold`}
                                   >
                                     {stopNumber}
                                   </span>
@@ -3079,7 +3096,7 @@ export default function RiderPanel() {
                         <div className="flex flex-wrap gap-2">
                           {sortedPedidos
                             .filter((p) => p.id !== selectedPedido.id)
-                            .map((p, idx) => {
+                            .map((p) => {
                               const stopColors = [
                                 'bg-emerald-500',
                                 'bg-amber-500',
@@ -3095,7 +3112,9 @@ export default function RiderPanel() {
                                   className="inline-flex items-center gap-1.5 rounded-xl bg-white border border-gray-200 px-3 py-2 text-xs font-bold text-gray-700 shadow-sm hover:shadow-md transition-all"
                                 >
                                   <span
-                                    className={`h-5 w-5 rounded-full ${stopColors[globalIdx % stopColors.length]} flex items-center justify-center text-white text-[12px] font-semibold`}
+                                    className={`h-5 w-5 rounded-full ${
+                                      stopColors[globalIdx % stopColors.length]
+                                    } flex items-center justify-center text-white text-[12px] font-semibold`}
                                   >
                                     {globalIdx + 1}
                                   </span>
@@ -3146,7 +3165,10 @@ export default function RiderPanel() {
                       </a>
                       {selectedPedido.cliente_telefono ? (
                         <a
-                          href={`https://wa.me/${String(selectedPedido.cliente_telefono).replace(/\D/g, '')}`}
+                          href={`https://wa.me/${String(selectedPedido.cliente_telefono).replace(
+                            /\D/g,
+                            ''
+                          )}`}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="flex h-14 flex-col items-center justify-center gap-1 rounded-2xl bg-gradient-to-br from-emerald-500 to-emerald-600 text-[13px] font-semibold text-white shadow-md shadow-emerald-200 transition-all active:scale-95"
@@ -3198,7 +3220,9 @@ export default function RiderPanel() {
                             Resumen del pedido
                           </span>
                           <span
-                            className={`rounded-lg px-2.5 py-1 text-[13px] font-semibold ${paymentStatusTone(selectedPedido.pago_estado)}`}
+                            className={`rounded-lg px-2.5 py-1 text-[13px] font-semibold ${paymentStatusTone(
+                              selectedPedido.pago_estado
+                            )}`}
                           >
                             {paymentMethodLabel(selectedPedido.metodo_pago)} ·{' '}
                             {paymentStatusLabel(selectedPedido.pago_estado)}
@@ -3403,8 +3427,13 @@ export default function RiderPanel() {
                     problema, etc.). Mucho más práctico que llamar y esperar. */}
                   {telefonoLocal ? (
                     <a
-                      href={`https://wa.me/${String(telefonoLocal).replace(/\D/g, '')}?text=${encodeURIComponent(
-                        `Hola, sobre el pedido #${selectedPedido.numero} de ${selectedPedido.cliente_nombre || 'S/N'}: `
+                      href={`https://wa.me/${String(telefonoLocal).replace(
+                        /\D/g,
+                        ''
+                      )}?text=${encodeURIComponent(
+                        `Hola, sobre el pedido #${selectedPedido.numero} de ${
+                          selectedPedido.cliente_nombre || 'S/N'
+                        }: `
                       )}`}
                       target="_blank"
                       rel="noopener noreferrer"
@@ -3499,8 +3528,13 @@ export default function RiderPanel() {
                                 // número configurado.
                                 if (telefonoLocal) {
                                   window.open(
-                                    `https://wa.me/${String(telefonoLocal).replace(/\D/g, '')}?text=${encodeURIComponent(
-                                      `Pedido #${selectedPedido.numero} (${selectedPedido.cliente_nombre || 'S/N'}): ${label}`
+                                    `https://wa.me/${String(telefonoLocal).replace(
+                                      /\D/g,
+                                      ''
+                                    )}?text=${encodeURIComponent(
+                                      `Pedido #${selectedPedido.numero} (${
+                                        selectedPedido.cliente_nombre || 'S/N'
+                                      }): ${label}`
                                     )}`,
                                     '_blank'
                                   );

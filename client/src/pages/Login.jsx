@@ -74,12 +74,18 @@ export default function Login() {
           <form onSubmit={handleSubmit} className="space-y-6">
             {/* Input Email */}
             <div className="space-y-2">
-              <label className="text-xs font-bold text-gray-700 ml-1">Email</label>
+              <label
+                htmlFor="field-Login-jsx-77-0"
+                className="text-xs font-bold text-gray-700 ml-1"
+              >
+                Email
+              </label>
               <div className="relative">
                 <div className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">
                   <Mail size={18} />
                 </div>
                 <input
+                  id="field-Login-jsx-77-0"
                   type="email"
                   autoComplete="username"
                   value={form.email}
@@ -94,13 +100,16 @@ export default function Login() {
             {/* Input Password */}
             <div className="space-y-2">
               <div className="flex justify-between items-center ml-1">
-                <label className="text-xs font-bold text-gray-700">Contraseña</label>
+                <label htmlFor="field-Login-jsx-97-1" className="text-xs font-bold text-gray-700">
+                  Contraseña
+                </label>
               </div>
               <div className="relative">
                 <div className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">
                   <Lock size={18} />
                 </div>
                 <input
+                  id="field-Login-jsx-97-1"
                   type={showPw ? 'text' : 'password'}
                   autoComplete="current-password"
                   value={form.password}

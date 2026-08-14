@@ -110,7 +110,9 @@ function LocationPreview({ direccion, appConfig, label = 'Ubicación', compact =
         </div>
         <p className="mt-3 text-[12px] text-gray-500">{label}</p>
         <p
-          className={`${compact ? 'text-[13px]' : 'text-[15px]'} mt-1 font-medium leading-snug text-gray-900`}
+          className={`${
+            compact ? 'text-[13px]' : 'text-[15px]'
+          } mt-1 font-medium leading-snug text-gray-900`}
         >
           {safeAddress}
         </p>
@@ -487,6 +489,8 @@ export default function Delivery() {
 
   useEffect(() => {
     cargar();
+    // La pantalla realiza una carga inicial; las siguientes llegan por socket o acciones explícitas.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const repartidoresActivos = useMemo(
@@ -777,7 +781,9 @@ export default function Delivery() {
             <p className="mt-0.5 text-[13px] text-gray-500">
               {activos.length === 0
                 ? 'No hay envíos en curso'
-                : `${activos.length} ${activos.length === 1 ? 'envío activo' : 'envíos activos'} · ${ridersReady} de ${repartidoresActivos.length} riders libres`}
+                : `${activos.length} ${
+                    activos.length === 1 ? 'envío activo' : 'envíos activos'
+                  } · ${ridersReady} de ${repartidoresActivos.length} riders libres`}
             </p>
           </div>
           <div className="flex gap-2">
@@ -836,7 +842,9 @@ export default function Delivery() {
             {
               label: 'GPS a revisar',
               value: ridersGpsStale,
-              helper: `${ridersBusy} ${ridersBusy === 1 ? 'rider ocupado' : 'riders ocupados'} en reparto`,
+              helper: `${ridersBusy} ${
+                ridersBusy === 1 ? 'rider ocupado' : 'riders ocupados'
+              } en reparto`,
               alerta: ridersGpsStale > 0,
             },
           ].map((metrica) => (
@@ -1203,14 +1211,22 @@ export default function Delivery() {
               <button
                 type="button"
                 onClick={() => setTab('activos')}
-                className={`rounded-lg px-4 py-1.5 text-[13px] font-semibold transition ${tab === 'activos' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                className={`rounded-lg px-4 py-1.5 text-[13px] font-semibold transition ${
+                  tab === 'activos'
+                    ? 'bg-white text-gray-900 shadow-sm'
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
               >
                 Activos ({activos.length})
               </button>
               <button
                 type="button"
                 onClick={() => setTab('historial')}
-                className={`rounded-lg px-4 py-1.5 text-[13px] font-semibold transition ${tab === 'historial' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                className={`rounded-lg px-4 py-1.5 text-[13px] font-semibold transition ${
+                  tab === 'historial'
+                    ? 'bg-white text-gray-900 shadow-sm'
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
               >
                 Historial ({historial.length})
               </button>
@@ -1295,11 +1311,21 @@ export default function Delivery() {
       {/* ── MODAL FICHA REPARTIDOR (CREATE/EDIT) ── */}
       {modal && (
         <div
+          role="button"
+          tabIndex={0}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') event.currentTarget.click();
+          }}
           className="fixed inset-0 flex items-center justify-center bg-slate-900/35 p-4 backdrop-blur-sm"
           style={{ zIndex: Z.modal }}
           onClick={() => setModal(null)}
         >
           <div
+            role="button"
+            tabIndex={0}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') event.currentTarget.click();
+            }}
             className="flex max-h-[90vh] w-full max-w-3xl flex-col rounded-2xl bg-white shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
@@ -1346,8 +1372,14 @@ export default function Delivery() {
 
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                   <div className="md:col-span-2">
-                    <label className="text-[12px] font-medium text-gray-600">Nombre completo</label>
+                    <label
+                      htmlFor="field-Delivery-jsx-1349-0"
+                      className="text-[12px] font-medium text-gray-600"
+                    >
+                      Nombre completo
+                    </label>
                     <input
+                      id="field-Delivery-jsx-1349-0"
                       value={form.nombre}
                       onChange={(e) => setForm({ ...form, nombre: e.target.value })}
                       className={CONTROL + ' mt-1'}
@@ -1355,10 +1387,14 @@ export default function Delivery() {
                     />
                   </div>
                   <div>
-                    <label className="text-[12px] font-medium text-gray-600">
+                    <label
+                      htmlFor="field-Delivery-jsx-1358-1"
+                      className="text-[12px] font-medium text-gray-600"
+                    >
                       WhatsApp / celular
                     </label>
                     <input
+                      id="field-Delivery-jsx-1358-1"
                       value={form.telefono}
                       onChange={(e) => setForm({ ...form, telefono: e.target.value })}
                       className={CONTROL + ' mt-1'}
@@ -1366,8 +1402,14 @@ export default function Delivery() {
                     />
                   </div>
                   <div>
-                    <label className="text-[12px] font-medium text-gray-600">Vehículo</label>
+                    <label
+                      htmlFor="field-Delivery-jsx-1369-2"
+                      className="text-[12px] font-medium text-gray-600"
+                    >
+                      Vehículo
+                    </label>
                     <input
+                      id="field-Delivery-jsx-1369-2"
                       value={form.vehiculo}
                       onChange={(e) => setForm({ ...form, vehiculo: e.target.value })}
                       className={CONTROL + ' mt-1'}
@@ -1375,10 +1417,14 @@ export default function Delivery() {
                     />
                   </div>
                   <div className="md:col-span-2">
-                    <label className="text-[12px] font-medium text-gray-600">
+                    <label
+                      htmlFor="field-Delivery-jsx-1378-3"
+                      className="text-[12px] font-medium text-gray-600"
+                    >
                       PIN de acceso a la app
                     </label>
                     <input
+                      id="field-Delivery-jsx-1378-3"
                       value={form.codigo_acceso || ''}
                       onChange={(e) => setForm({ ...form, codigo_acceso: e.target.value })}
                       className={CONTROL + ' mt-1 font-mono tracking-widest'}
@@ -1401,9 +1447,15 @@ export default function Delivery() {
                 <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-2">
                   <div className="space-y-4">
                     <div>
-                      <label className="text-[12px] font-medium text-gray-600">Dirección</label>
+                      <label
+                        htmlFor="field-Delivery-jsx-1404-4"
+                        className="text-[12px] font-medium text-gray-600"
+                      >
+                        Dirección
+                      </label>
                       <div className="relative mt-1">
                         <input
+                          id="field-Delivery-jsx-1404-4"
                           value={form.direccion}
                           onChange={(e) => setForm({ ...form, direccion: e.target.value })}
                           className={CONTROL + ' pl-9'}
@@ -1418,10 +1470,14 @@ export default function Delivery() {
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <label className="text-[12px] font-medium text-gray-600">
+                        <label
+                          htmlFor="field-Delivery-jsx-1421-5"
+                          className="text-[12px] font-medium text-gray-600"
+                        >
                           Zona preferida
                         </label>
                         <input
+                          id="field-Delivery-jsx-1421-5"
                           value={form.zona_preferida}
                           onChange={(e) => setForm({ ...form, zona_preferida: e.target.value })}
                           className={CONTROL + ' mt-1'}
@@ -1429,10 +1485,14 @@ export default function Delivery() {
                         />
                       </div>
                       <div>
-                        <label className="text-[12px] font-medium text-gray-600">
+                        <label
+                          htmlFor="field-Delivery-jsx-1432-6"
+                          className="text-[12px] font-medium text-gray-600"
+                        >
                           Fecha de ingreso
                         </label>
                         <input
+                          id="field-Delivery-jsx-1432-6"
                           type="date"
                           value={form.fecha_ingreso}
                           onChange={(e) => setForm({ ...form, fecha_ingreso: e.target.value })}
@@ -1496,11 +1556,21 @@ export default function Delivery() {
       {/* ── MODAL DETALLE (VIEW MODE) ── */}
       {detailModal && (
         <div
+          role="button"
+          tabIndex={0}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') event.currentTarget.click();
+          }}
           className="fixed inset-0 flex items-center justify-center bg-slate-900/30 p-4 backdrop-blur-sm"
           style={{ zIndex: Z.modal }}
           onClick={() => setDetailModal(null)}
         >
           <div
+            role="button"
+            tabIndex={0}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') event.currentTarget.click();
+            }}
             className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
@@ -1727,11 +1797,21 @@ export default function Delivery() {
       */}
       {asignarModal && (
         <div
+          role="button"
+          tabIndex={0}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') event.currentTarget.click();
+          }}
           className="fixed inset-0 flex items-center justify-center bg-slate-900/35 p-4 backdrop-blur-sm"
           style={{ zIndex: Z.modal }}
           onClick={() => setAsignarModal(null)}
         >
           <div
+            role="button"
+            tabIndex={0}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') event.currentTarget.click();
+            }}
             className="flex max-h-[80vh] w-full max-w-lg flex-col rounded-2xl bg-white shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >

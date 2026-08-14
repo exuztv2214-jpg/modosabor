@@ -83,7 +83,6 @@ function ensureMenuDiaCategory() {
 const EXTRA_POSTRE_NOMBRE = 'Postre';
 const EXTRA_BEBIDA_POSTRE_NOMBRE = 'Bebida + Postre';
 const VARIANTE_GUARNICION_NOMBRE = 'Guarnición';
-const LEGACY_PROMO_NOMBRE = 'Jugo + Postre'; // se ignora al leer, para retrocompat.
 /* En centavos, igual que lo que guarda `configuracion`. Estaba en pesos, asi
    que si la clave faltaba el menu economico salia a $50. */
 const MENU_DIA_PRECIO_SUGERIDO_FALLBACK = { economico: 500000, ejecutivo: 700000 };
@@ -97,7 +96,6 @@ function parseJsonList(raw, fallback = []) {
     return fallback;
   }
 }
-const parseExtrasList = parseJsonList; // alias por compatibilidad
 
 /**
  * Lee los settings del menú del día (precios base + precios de extras +

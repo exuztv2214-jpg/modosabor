@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { animate, useMotionValue, useTransform, motion } from 'framer-motion';
+import { animate, useMotionValue, motion } from 'framer-motion';
 
 /**
  * AnimatedNumber: cuenta desde el valor anterior hasta el nuevo con

@@ -1,16 +1,16 @@
 import { useState } from 'react';
 
 import { APP_BG } from '../../lib/theme.js';
-import { useClientes } from './useClientes.jsx';
-import ClientesHeader from './ClientesHeader.jsx';
 import ClientesGrid from '../../components/Clientes/ClientesGrid.jsx';
 import ClientesCampaignsSection from '../../components/Clientes/ClientesCampaignsSection.jsx';
+import ActionDialog from '../../components/ActionDialog.jsx';
+import { useClientes } from './useClientes.jsx';
+import ClientesHeader from './ClientesHeader.jsx';
 import FidelizacionConfigModal from './FidelizacionConfigModal.jsx';
 import ClienteFormModal from './ClienteFormModal.jsx';
 import ClienteDetailModal from './ClienteDetailModal.jsx';
 // `DeleteDialog` era un wrapper que recibía ocho props y las pasaba tal cual
 // a `ActionDialog`, sin agregar nada. Se usa el componente directo.
-import ActionDialog from '../../components/ActionDialog.jsx';
 
 export default function Clientes() {
   const hook = useClientes();

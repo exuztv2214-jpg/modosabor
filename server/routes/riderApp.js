@@ -158,7 +158,7 @@ router.get('/version', (req, res) => {
   if (fs.existsSync(MANIFEST_PATH)) {
     try {
       manifest = JSON.parse(fs.readFileSync(MANIFEST_PATH, 'utf8'));
-    } catch (error) {
+    } catch (_error) {
       // manifest corrupto: caemos al fallback pero avisamos
       manifest = null;
     }
@@ -240,7 +240,7 @@ router.post(
       }
       const result = await sendRiderUpdatePush(db, manifest);
       return res.json({ success: true, ...result });
-    } catch (error) {
+    } catch (_error) {
       return res.status(500).json({ error: 'No se pudo enviar el aviso de actualización.' });
     }
   }

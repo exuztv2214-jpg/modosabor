@@ -1,4 +1,4 @@
-import { createElement, useEffect, useMemo, useState, useRef } from 'react';
+import { createElement, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { format, parseISO } from 'date-fns';
@@ -223,14 +223,14 @@ export function useClientes() {
    * filtro y cada tarjeta tenían que acordarse de chequear las dos formas, y
    * más de una se olvidaba. Ahora sale una sola clave canónica.
    */
-  const getClienteEstado = (cliente) => {
+  const getClienteEstado = useCallback((cliente) => {
     if (cliente?.estado_segmento) return normalizarSegmento(cliente.estado_segmento);
     const dias = getDaysSince(cliente?.ultima_compra);
     if (dias == null) return 'nuevo';
     if (dias >= 30) return 'riesgo';
     if (dias >= 15) return 'por-reactivar';
     return 'activo';
-  };
+  }, []);
 
   const getPrimaryPhoneLink = (telefono) => `tel:${String(telefono || '').replace(/\D/g, '')}`;
   const getWhatsAppLink = (telefono, mensaje = '') => {
@@ -247,7 +247,9 @@ export function useClientes() {
       items.push({
         id: 'reward-ready',
         title: 'Premio disponible',
-        subtitle: `${cliente.recompensas_pendientes} recompensa${cliente.recompensas_pendientes > 1 ? 's' : ''} lista${cliente.recompensas_pendientes > 1 ? 's' : ''} para canjear`,
+        subtitle: `${cliente.recompensas_pendientes} recompensa${
+          cliente.recompensas_pendientes > 1 ? 's' : ''
+        } lista${cliente.recompensas_pendientes > 1 ? 's' : ''} para canjear`,
         tone: 'emerald',
       });
     }
@@ -257,7 +259,9 @@ export function useClientes() {
       items.push({
         id: 'last-order',
         title: 'Última compra',
-        subtitle: `${formatPedidoDate(cliente.ultima_compra)}${dias != null ? ` · hace ${dias} día${dias === 1 ? '' : 's'}` : ''}`,
+        subtitle: `${formatPedidoDate(cliente.ultima_compra)}${
+          dias != null ? ` · hace ${dias} día${dias === 1 ? '' : 's'}` : ''
+        }`,
         tone: 'blue',
       });
     }
@@ -297,18 +301,28 @@ export function useClientes() {
     if (!cliente) return '';
     const estado = getClienteEstado(cliente);
     if (estado === 'en-riesgo') {
-      return `Hola ${cliente.nombre || ''}, te extrañamos en ${branding.negocio_nombre || 'Modo Sabor'}. Queremos invitarte a volver con un beneficio especial.`;
+      return `Hola ${cliente.nombre || ''}, te extrañamos en ${
+        branding.negocio_nombre || 'Modo Sabor'
+      }. Queremos invitarte a volver con un beneficio especial.`;
     }
     if (estado === 'por-reactivar') {
-      return `Hola ${cliente.nombre || ''}, hace unos días que no te vemos por ${branding.negocio_nombre || 'Modo Sabor'}. Si quieres, te reservamos tu promo favorita.`;
+      return `Hola ${cliente.nombre || ''}, hace unos días que no te vemos por ${
+        branding.negocio_nombre || 'Modo Sabor'
+      }. Si quieres, te reservamos tu promo favorita.`;
     }
     if (estado === 'premio-listo') {
-      return `Hola ${cliente.nombre || ''}, ya tienes un premio listo para canjear en ${branding.negocio_nombre || 'Modo Sabor'}. Cuando quieras, te ayudamos a aprovecharlo.`;
+      return `Hola ${cliente.nombre || ''}, ya tienes un premio listo para canjear en ${
+        branding.negocio_nombre || 'Modo Sabor'
+      }. Cuando quieras, te ayudamos a aprovecharlo.`;
     }
     if (estado === 'vip') {
-      return `Hola ${cliente.nombre || ''}, gracias por ser parte de nuestros clientes VIP en ${branding.negocio_nombre || 'Modo Sabor'}. Tenemos un beneficio especial preparado para ti.`;
+      return `Hola ${cliente.nombre || ''}, gracias por ser parte de nuestros clientes VIP en ${
+        branding.negocio_nombre || 'Modo Sabor'
+      }. Tenemos un beneficio especial preparado para ti.`;
     }
-    return `Hola ${cliente.nombre || ''}, gracias por seguir eligiendo ${branding.negocio_nombre || 'Modo Sabor'}. Tenemos novedades y beneficios para ti.`;
+    return `Hola ${cliente.nombre || ''}, gracias por seguir eligiendo ${
+      branding.negocio_nombre || 'Modo Sabor'
+    }. Tenemos novedades y beneficios para ti.`;
   };
 
   const getClienteCardCode = (cliente) => {
@@ -333,7 +347,9 @@ export function useClientes() {
     if (!cliente) return '';
     const negocio = branding.negocio_nombre || 'Modo Sabor';
     const clubUrl = getClienteClubUrl(cliente);
-    return `Hola ${cliente.nombre || ''}, esta es tu tarjeta virtual de fidelidad de ${negocio}: ${clubUrl}`;
+    return `Hola ${
+      cliente.nombre || ''
+    }, esta es tu tarjeta virtual de fidelidad de ${negocio}: ${clubUrl}`;
   };
 
   const openWhatsAppCardShare = (cliente) => {
@@ -888,7 +904,7 @@ export function useClientes() {
 
       return matchesTerm && matchesNivel && matchesEstado && matchesBeneficio;
     });
-  }, [clientes, search, filtroNivel, filtroEstado, filtroBeneficio]);
+  }, [clientes, search, filtroNivel, filtroEstado, filtroBeneficio, getClienteEstado]);
 
   const stats = useMemo(() => {
     const conPremio = clientes.filter((c) => Number(c.recompensas_pendientes || 0) > 0).length;
@@ -903,7 +919,7 @@ export function useClientes() {
       conPremio,
       sinTelefono,
     };
-  }, [clientes]);
+  }, [clientes, getClienteEstado]);
 
   const segmentHighlights = useMemo(
     () => [
@@ -940,7 +956,7 @@ export function useClientes() {
         cta: 'Dar bienvenida',
       },
     ],
-    [clientes]
+    [clientes, getClienteEstado]
   );
 
   const getSegmentMessage = (segmento) => {

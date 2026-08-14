@@ -90,7 +90,7 @@ export default function GlobalOrderAlerts() {
       }
     };
 
-    const announceOrder = async (pedido, source = 'nuevo_pedido') => {
+    const announceOrder = async (pedido, _source = 'nuevo_pedido') => {
       if (!pedido?.id || seenOrdersRef.current.has(pedido.id)) return;
       if (!claimAlertKey(`nuevo:${pedido.id}`)) return;
 
@@ -107,11 +107,6 @@ export default function GlobalOrderAlerts() {
           audioContextRef,
           voiceRef,
           fallbackAudioRef,
-        });
-        console.info('[GlobalOrderAlerts] alerta lanzada', {
-          source,
-          pedidoId: pedido.id,
-          numero: pedido.numero,
         });
       } catch (error) {
         console.warn('[GlobalOrderAlerts] no se pudo reproducir la alerta', error);

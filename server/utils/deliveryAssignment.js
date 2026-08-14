@@ -119,10 +119,12 @@ function pickBestAvailableRepartidor(db, pedido = null) {
 function assignPedidoToRepartidor(db, pedidoId, repartidorId, options = {}) {
   const pedido = getPedidoById(db, pedidoId);
   if (!pedido) throw new Error('Pedido no encontrado');
-  if (pedido.tipo_entrega !== 'delivery')
+  if (pedido.tipo_entrega !== 'delivery') {
     throw new Error('Solo se puede asignar repartidor a pedidos delivery');
-  if (['entregado', 'cancelado'].includes(pedido.estado))
+  }
+  if (['entregado', 'cancelado'].includes(pedido.estado)) {
     throw new Error('El pedido ya no admite asignacion');
+  }
 
   const repartidor = getRepartidorById(db, repartidorId);
   if (!repartidor || !repartidor.activo) throw new Error('Repartidor no encontrado');

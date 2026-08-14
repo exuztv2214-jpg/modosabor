@@ -1,3 +1,4 @@
+import { Users, RefreshCw } from 'lucide-react';
 import { usePersonal } from './usePersonal.js';
 import { PersonalHeader } from './PersonalHeader.jsx';
 import { PersonalList } from './PersonalList.jsx';
@@ -16,7 +17,6 @@ import { DeleteDialog } from './modals/DeleteDialog.jsx';
 import { ReconocimientoModal } from './modals/ReconocimientoModal.jsx';
 import { PremiosModal } from './modals/PremiosModal.jsx';
 import { AvatarPickerModal } from './modals/AvatarPickerModal.jsx';
-import { Users, RefreshCw } from 'lucide-react';
 
 export default function Personal() {
   const p = usePersonal();

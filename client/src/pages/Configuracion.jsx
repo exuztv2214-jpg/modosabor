@@ -127,6 +127,8 @@ export default function Configuracion() {
   useEffect(() => {
     fetchConfig();
     fetchAuditLogs();
+    // La configuración inicial se consulta una vez al montar la pantalla.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -439,7 +441,9 @@ export default function Configuracion() {
                 disabled={saving || !sucio}
                 style={sucio ? { background: BRAND, color: '#FFFFFF' } : undefined}
                 title={sucio ? 'Guardar los cambios' : 'No hay cambios pendientes'}
-                className={`flex h-11 items-center justify-center gap-2 rounded-xl px-5 text-[13px] font-semibold transition disabled:cursor-default ${sucio ? 'hover:brightness-110' : 'bg-gray-100 text-gray-400'}`}
+                className={`flex h-11 items-center justify-center gap-2 rounded-xl px-5 text-[13px] font-semibold transition disabled:cursor-default ${
+                  sucio ? 'hover:brightness-110' : 'bg-gray-100 text-gray-400'
+                }`}
               >
                 {sucio ? (
                   <Save size={16} strokeWidth={STROKE} />
@@ -463,7 +467,11 @@ export default function Configuracion() {
                     onClick={() => setActiveTab(tab.id)}
                     title={tab.hint}
                     style={activo ? { background: BRAND, color: '#FFFFFF' } : undefined}
-                    className={`flex h-10 shrink-0 items-center gap-2 whitespace-nowrap rounded-xl px-3.5 text-[13px] transition ${activo ? 'font-semibold' : 'font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-800'}`}
+                    className={`flex h-10 shrink-0 items-center gap-2 whitespace-nowrap rounded-xl px-3.5 text-[13px] transition ${
+                      activo
+                        ? 'font-semibold'
+                        : 'font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-800'
+                    }`}
                   >
                     <Icon size={16} strokeWidth={STROKE} />
                     {tab.label}

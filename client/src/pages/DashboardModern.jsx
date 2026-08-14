@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { format, parseISO, subDays } from 'date-fns';
+import { format, subDays } from 'date-fns';
 import { es } from 'date-fns/locale';
 import {
   Area,
@@ -160,7 +160,9 @@ function Metric({
           <p className="mt-1.5 text-[11px]">
             {hasComparison ? (
               <span
-                className={`inline-flex items-center gap-1 ${trendUp ? 'text-emerald-600' : 'text-rose-600'}`}
+                className={`inline-flex items-center gap-1 ${
+                  trendUp ? 'text-emerald-600' : 'text-rose-600'
+                }`}
               >
                 {trendUp ? (
                   <ArrowUpRight size={12} strokeWidth={STROKE} />
@@ -369,6 +371,8 @@ export default function DashboardModern() {
       unsubscribeNuevo();
       unsubscribeActualizado();
     };
+    // El efecto se reinicia sólo si cambia el acceso a Personal; las recargas usan el estado vigente.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [personalVisible]);
 
   const ticketPromedio = useMemo(() => {
@@ -917,7 +921,9 @@ export default function DashboardModern() {
                     key={`${cli.id || cli.nombre}-${idx}`}
                     position={idx + 1}
                     title={cli.nombre}
-                    subtitle={`${fmtNumber(cli.total_pedidos || 0)} pedidos${cli.nivel ? ` · ${cli.nivel}` : ''}`}
+                    subtitle={`${fmtNumber(cli.total_pedidos || 0)} pedidos${
+                      cli.nivel ? ` · ${cli.nivel}` : ''
+                    }`}
                     value={fmtMoney(cli.total_gastado)}
                     footnote={safeFormat(cli.ultima_compra, 'dd/MM', 'Sin fecha')}
                     onClick={() => navigate('/admin/clientes')}
@@ -997,7 +1003,9 @@ export default function DashboardModern() {
             helper={
               puntosConProblema.length === 0
                 ? 'Operación, stock, riders, backups e impresión: todo en orden'
-                : `${puntosConProblema.length} ${puntosConProblema.length === 1 ? 'punto necesita' : 'puntos necesitan'} atención`
+                : `${puntosConProblema.length} ${
+                    puntosConProblema.length === 1 ? 'punto necesita' : 'puntos necesitan'
+                  } atención`
             }
             action={
               <LinkAction label="Centro operativo" onClick={() => navigate('/admin/operacion')} />

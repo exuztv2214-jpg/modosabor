@@ -12,11 +12,7 @@ const {
   roundStock,
   applyInventoryToItems,
 } = require('../utils/inventory');
-const {
-  parseLocalizedNumber,
-  roundLocalizedNumber,
-  pesosACentavos,
-} = require('../utils/numberInput');
+const { parseLocalizedNumber, pesosACentavos } = require('../utils/numberInput');
 
 const { syncDeliveryRepartidor } = require('../utils/deliveryPersonnelSync');
 const { getOperationalShiftContext } = require('../utils/operationalCaja');

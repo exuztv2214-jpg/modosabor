@@ -12,6 +12,7 @@ export default function Tooltip({ children, text, position = 'top' }) {
 
   return (
     <div
+      role="group"
       className="relative inline-flex"
       onMouseEnter={() => setVisible(true)}
       onMouseLeave={() => setVisible(false)}

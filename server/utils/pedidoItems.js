@@ -82,8 +82,9 @@ function inferVariantsFromItem(base = {}) {
   else if (nombre.includes('docena')) variants.Presentacion = 'Docena';
 
   if (descripcion.includes('tipo: pollo')) variants.Tipo = 'Pollo';
-  else if (descripcion.includes('tipo: ternera') || descripcion.includes('tipo: carne'))
+  else if (descripcion.includes('tipo: ternera') || descripcion.includes('tipo: carne')) {
     variants.Tipo = 'Ternera';
+  }
 
   return variants;
 }

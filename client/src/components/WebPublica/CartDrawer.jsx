@@ -259,10 +259,14 @@ export default function CartDrawer({
 
                 <div className="space-y-5">
                   <div>
-                    <label className="text-xs font-medium text-gray-500 block mb-2">
+                    <label
+                      htmlFor="field-CartDrawer-jsx-262-0"
+                      className="text-xs font-medium text-gray-500 block mb-2"
+                    >
                       Tu nombre
                     </label>
                     <input
+                      id="field-CartDrawer-jsx-262-0"
                       value={form.nombre}
                       onChange={(e) => setForm({ ...form, nombre: e.target.value })}
                       className="h-12 w-full rounded-xl bg-gray-50 border border-gray-200 px-4 text-sm font-semibold focus:ring-2 outline-none focus:border-transparent transition"
@@ -271,8 +275,14 @@ export default function CartDrawer({
                     />
                   </div>
                   <div>
-                    <label className="text-xs font-medium text-gray-500 block mb-2">Teléfono</label>
+                    <label
+                      htmlFor="field-CartDrawer-jsx-274-1"
+                      className="text-xs font-medium text-gray-500 block mb-2"
+                    >
+                      Teléfono
+                    </label>
                     <input
+                      id="field-CartDrawer-jsx-274-1"
                       type="tel"
                       inputMode="tel"
                       value={form.telefono}
@@ -290,7 +300,11 @@ export default function CartDrawer({
                       {deliveryActivo && (
                         <button
                           onClick={() => setForm({ ...form, tipo_entrega: 'delivery' })}
-                          className={`h-12 rounded-xl flex items-center justify-center gap-2 text-xs font-semibold border-2 transition-all ${form.tipo_entrega === 'delivery' ? 'border-current' : 'border-gray-200 text-gray-400'}`}
+                          className={`h-12 rounded-xl flex items-center justify-center gap-2 text-xs font-semibold border-2 transition-all ${
+                            form.tipo_entrega === 'delivery'
+                              ? 'border-current'
+                              : 'border-gray-200 text-gray-400'
+                          }`}
                           style={
                             form.tipo_entrega === 'delivery'
                               ? { color: colorPrimario, backgroundColor: `${colorPrimario}12` }
@@ -303,7 +317,11 @@ export default function CartDrawer({
                       {retiroActivo && (
                         <button
                           onClick={() => setForm({ ...form, tipo_entrega: 'retiro' })}
-                          className={`h-12 rounded-xl flex items-center justify-center gap-2 text-xs font-semibold border-2 transition-all ${form.tipo_entrega === 'retiro' ? 'border-current' : 'border-gray-200 text-gray-400'}`}
+                          className={`h-12 rounded-xl flex items-center justify-center gap-2 text-xs font-semibold border-2 transition-all ${
+                            form.tipo_entrega === 'retiro'
+                              ? 'border-current'
+                              : 'border-gray-200 text-gray-400'
+                          }`}
                           style={
                             form.tipo_entrega === 'retiro'
                               ? { color: colorPrimario, backgroundColor: `${colorPrimario}12` }
@@ -334,7 +352,10 @@ export default function CartDrawer({
                   {form.tipo_entrega === 'delivery' && (
                     <div className="space-y-4">
                       <div>
-                        <label className="text-xs font-medium text-gray-500 block mb-2">
+                        <label
+                          htmlFor="field-CartDrawer-jsx-337-2"
+                          className="text-xs font-medium text-gray-500 block mb-2"
+                        >
                           Dirección
                         </label>
                         {zonasCobertura.length > 0 && (
@@ -343,6 +364,7 @@ export default function CartDrawer({
                           </p>
                         )}
                         <input
+                          id="field-CartDrawer-jsx-337-2"
                           value={form.direccion}
                           onChange={(e) => setForm({ ...form, direccion: e.target.value })}
                           className="h-12 w-full rounded-xl bg-gray-50 border border-gray-200 px-4 text-sm font-semibold focus:ring-2 outline-none focus:border-transparent transition"
@@ -357,7 +379,9 @@ export default function CartDrawer({
                           !deliveryQuote.pending &&
                           deliveryQuote.message && (
                             <p
-                              className={`text-xs font-semibold mt-1 ${deliveryQuote.available ? 'text-green-600' : 'text-red-500'}`}
+                              className={`text-xs font-semibold mt-1 ${
+                                deliveryQuote.available ? 'text-green-600' : 'text-red-500'
+                              }`}
                             >
                               {deliveryQuote.message}
                             </p>
@@ -400,17 +424,25 @@ export default function CartDrawer({
 
                   {metodosDisponibles.length > 0 && (
                     <div>
-                      <label className="text-xs font-medium text-gray-500 block mb-2">
-                        Forma de pago
-                      </label>
+                      <p className="mb-2 block text-xs font-medium text-gray-500">Forma de pago</p>
                       <div
-                        className={`grid gap-2 ${metodosDisponibles.length === 1 ? 'grid-cols-1' : metodosDisponibles.length === 2 ? 'grid-cols-2' : 'grid-cols-3'}`}
+                        className={`grid gap-2 ${
+                          metodosDisponibles.length === 1
+                            ? 'grid-cols-1'
+                            : metodosDisponibles.length === 2
+                              ? 'grid-cols-2'
+                              : 'grid-cols-3'
+                        }`}
                       >
                         {metodosDisponibles.map(({ key, label }) => (
                           <button
                             key={key}
                             onClick={() => setForm({ ...form, metodo_pago: key })}
-                            className={`h-11 rounded-xl text-xs font-semibold border-2 transition-all ${form.metodo_pago === key ? 'border-current shadow-sm' : 'border-gray-200 text-gray-400'}`}
+                            className={`h-11 rounded-xl text-xs font-semibold border-2 transition-all ${
+                              form.metodo_pago === key
+                                ? 'border-current shadow-sm'
+                                : 'border-gray-200 text-gray-400'
+                            }`}
                             style={
                               form.metodo_pago === key
                                 ? { color: colorPrimario, backgroundColor: `${colorPrimario}12` }
@@ -425,7 +457,10 @@ export default function CartDrawer({
                   )}
 
                   <div>
-                    <label className="text-xs font-medium text-gray-500 block mb-2">
+                    <label
+                      htmlFor="field-CartDrawer-jsx-428-3"
+                      className="text-xs font-medium text-gray-500 block mb-2"
+                    >
                       Cupón de descuento
                     </label>
                     {cupon.aplicado ? (
@@ -448,6 +483,7 @@ export default function CartDrawer({
                     ) : (
                       <div className="flex gap-2">
                         <input
+                          id="field-CartDrawer-jsx-428-3"
                           value={cupon.codigo}
                           onChange={(e) =>
                             setCupon((prev) => ({

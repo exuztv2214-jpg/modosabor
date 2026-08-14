@@ -26,7 +26,6 @@ const PREFIX = 'enc:';
 const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 16;
 const AUTH_TAG_LENGTH = 16;
-const KEY_LENGTH = 32;
 
 function deriveKey() {
   const secret = getJwtSecret();

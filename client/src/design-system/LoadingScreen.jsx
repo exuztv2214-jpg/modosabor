@@ -1,7 +1,7 @@
 import { motion } from 'framer-motion';
-import Skeleton from './Skeleton.jsx';
 import { resolveAssetUrl } from '../lib/assets.js';
 import { DEFAULT_BRAND_LOGO } from '../lib/webPublicaHelpers.js';
+import Skeleton from './Skeleton.jsx';
 
 export default function LoadingScreen({ message = 'Cargando...' }) {
   const logoUrl = resolveAssetUrl(DEFAULT_BRAND_LOGO);

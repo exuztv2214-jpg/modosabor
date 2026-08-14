@@ -899,10 +899,20 @@ export default function Categorias() {
       {/* ── Modal ── */}
       {modal && (
         <div
+          role="button"
+          tabIndex={0}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') event.currentTarget.click();
+          }}
           className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/35 p-4 backdrop-blur-sm"
           onClick={cerrarModal}
         >
           <div
+            role="button"
+            tabIndex={0}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') event.currentTarget.click();
+            }}
             className="flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
             onClick={(event) => event.stopPropagation()}
           >
@@ -928,8 +938,14 @@ export default function Categorias() {
             <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-5">
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="sm:col-span-2">
-                  <label className="block text-[12px] font-medium text-gray-600">Nombre</label>
+                  <label
+                    htmlFor="field-Categorias-jsx-931-0"
+                    className="block text-[12px] font-medium text-gray-600"
+                  >
+                    Nombre
+                  </label>
                   <input
+                    id="field-Categorias-jsx-931-0"
                     value={form.nombre}
                     onChange={(event) => setForm({ ...form, nombre: event.target.value })}
                     placeholder="Ej: Pizzas"
@@ -938,8 +954,14 @@ export default function Categorias() {
                 </div>
 
                 <div>
-                  <label className="block text-[12px] font-medium text-gray-600">Se ve en</label>
+                  <label
+                    htmlFor="field-Categorias-jsx-941-1"
+                    className="block text-[12px] font-medium text-gray-600"
+                  >
+                    Se ve en
+                  </label>
                   <select
+                    id="field-Categorias-jsx-941-1"
                     value={form.turno_id || ''}
                     onChange={(event) => setForm({ ...form, turno_id: event.target.value })}
                     className={CONTROL + ' mt-1 font-medium'}
@@ -957,10 +979,14 @@ export default function Categorias() {
                 </div>
 
                 <div>
-                  <label className="block text-[12px] font-medium text-gray-600">
+                  <label
+                    htmlFor="field-Categorias-jsx-960-2"
+                    className="block text-[12px] font-medium text-gray-600"
+                  >
                     Orden en la carta
                   </label>
                   <input
+                    id="field-Categorias-jsx-960-2"
                     type="number"
                     min="0"
                     value={form.orden}
@@ -974,7 +1000,7 @@ export default function Categorias() {
               </div>
 
               <div>
-                <label className="block text-[12px] font-medium text-gray-600">Ícono</label>
+                <p className="block text-[12px] font-medium text-gray-600">Ícono</p>
                 <div className="mt-1.5 flex flex-wrap gap-1.5">
                   {ICONOS.map((icono) => (
                     <button
@@ -995,7 +1021,12 @@ export default function Categorias() {
               </div>
 
               <div>
-                <label className="block text-[12px] font-medium text-gray-600">Color</label>
+                <label
+                  htmlFor="field-Categorias-jsx-998-3"
+                  className="block text-[12px] font-medium text-gray-600"
+                >
+                  Color
+                </label>
                 <p className="mt-0.5 text-[11px] leading-4 text-gray-400">
                   Es el color con el que se agrupan sus productos en el listado.
                 </p>
@@ -1013,6 +1044,7 @@ export default function Categorias() {
                     />
                   ))}
                   <input
+                    id="field-Categorias-jsx-998-3"
                     type="color"
                     value={form.color}
                     onChange={(event) => setForm({ ...form, color: event.target.value })}
@@ -1023,7 +1055,12 @@ export default function Categorias() {
               </div>
 
               <div>
-                <label className="block text-[12px] font-medium text-gray-600">Foto</label>
+                <label
+                  htmlFor="field-Categorias-jsx-1026-4"
+                  className="block text-[12px] font-medium text-gray-600"
+                >
+                  Foto
+                </label>
                 <div className="mt-1.5 flex items-start gap-3">
                   <label className="flex h-24 w-24 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-xl border border-dashed border-gray-300 transition hover:border-gray-400">
                     {imagePreview ? (
@@ -1032,6 +1069,7 @@ export default function Categorias() {
                       <ImagePlus size={20} strokeWidth={STROKE} className="text-gray-400" />
                     )}
                     <input
+                      id="field-Categorias-jsx-1026-4"
                       type="file"
                       accept="image/*"
                       className="hidden"
@@ -1057,7 +1095,10 @@ export default function Categorias() {
 
               <div>
                 <div className="flex items-center justify-between gap-3">
-                  <label className="block text-[12px] font-medium text-gray-600">
+                  <label
+                    htmlFor="field-Categorias-jsx-1060-5"
+                    className="block text-[12px] font-medium text-gray-600"
+                  >
                     Subcategorías
                   </label>
                   <button
@@ -1079,6 +1120,7 @@ export default function Categorias() {
                     {form.subcategorias.map((sub, index) => (
                       <div key={index} className="flex items-center gap-2">
                         <input
+                          id="field-Categorias-jsx-1060-5"
                           value={sub.nombre}
                           onChange={(event) => setSub(index, event.target.value)}
                           placeholder={`Subcategoría ${index + 1}`}
@@ -1142,7 +1184,9 @@ export default function Categorias() {
         title={deleteDialog ? `Eliminar ${deleteDialog.nombre}` : ''}
         description={
           deleteDialog?.productosTotal > 0
-            ? `Esta categoría tiene ${deleteDialog.productosTotal} producto${deleteDialog.productosTotal === 1 ? '' : 's'}. Si la borrás, esos productos quedan sin categoría. Conviene ocultarla en vez de borrarla.`
+            ? `Esta categoría tiene ${deleteDialog.productosTotal} producto${
+                deleteDialog.productosTotal === 1 ? '' : 's'
+              }. Si la borrás, esos productos quedan sin categoría. Conviene ocultarla en vez de borrarla.`
             : 'Se elimina la categoría del sistema. No se puede deshacer.'
         }
         confirmLabel="Eliminar categoría"

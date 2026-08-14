@@ -373,11 +373,21 @@ export default function Usuarios() {
       {/* Modal Form */}
       {modal && (
         <div
+          role="button"
+          tabIndex={0}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') event.currentTarget.click();
+          }}
           className="fixed inset-0 flex items-center justify-center bg-[#2A3547]/40 p-4 backdrop-blur-sm"
           style={{ zIndex: Z.modal }}
           onClick={() => setModal(null)}
         >
           <div
+            role="button"
+            tabIndex={0}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') event.currentTarget.click();
+            }}
             className="w-full max-w-xl rounded-2xl bg-white shadow-2xl animate-in zoom-in-95 duration-200"
             onClick={(e) => e.stopPropagation()}
           >
@@ -400,10 +410,14 @@ export default function Usuarios() {
 
             <div className="grid gap-5 p-8 md:grid-cols-2">
               <div className="md:col-span-2">
-                <label className="mb-1.5 block text-xs font-bold text-gray-700">
+                <label
+                  htmlFor="field-Usuarios-jsx-403-0"
+                  className="mb-1.5 block text-xs font-bold text-gray-700"
+                >
                   Nombre de Usuario
                 </label>
                 <input
+                  id="field-Usuarios-jsx-403-0"
                   value={form.nombre}
                   onChange={(e) => setForm((prev) => ({ ...prev, nombre: e.target.value }))}
                   className={CONTROL}
@@ -411,10 +425,14 @@ export default function Usuarios() {
                 />
               </div>
               <div>
-                <label className="mb-1.5 block text-xs font-bold text-gray-700">
+                <label
+                  htmlFor="field-Usuarios-jsx-414-1"
+                  className="mb-1.5 block text-xs font-bold text-gray-700"
+                >
                   Correo Electrónico
                 </label>
                 <input
+                  id="field-Usuarios-jsx-414-1"
                   type="email"
                   value={form.email}
                   onChange={(e) => setForm((prev) => ({ ...prev, email: e.target.value }))}
@@ -423,10 +441,14 @@ export default function Usuarios() {
                 />
               </div>
               <div>
-                <label className="mb-1.5 block text-xs font-bold text-gray-700">
+                <label
+                  htmlFor="field-Usuarios-jsx-426-2"
+                  className="mb-1.5 block text-xs font-bold text-gray-700"
+                >
                   Rol de Acceso
                 </label>
                 <select
+                  id="field-Usuarios-jsx-426-2"
                   value={form.rol}
                   onChange={(e) => setForm((prev) => ({ ...prev, rol: e.target.value }))}
                   className={CONTROL}

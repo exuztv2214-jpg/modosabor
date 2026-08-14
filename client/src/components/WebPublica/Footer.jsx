@@ -6,7 +6,7 @@ import {
 } from '../../lib/webPublicaHelpers.js';
 import { resolveAssetUrl } from '../../lib/assets.js';
 
-export default function Footer({ config, colorPrimario, theme }) {
+export default function Footer({ config, theme }) {
   const nombre = config?.negocio_nombre || 'Modo Sabor';
   const proxima = getProximaAperturaText(config);
   const logoUrl = resolveAssetUrl(config?.negocio_logo || DEFAULT_BRAND_LOGO);

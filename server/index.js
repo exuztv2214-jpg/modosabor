@@ -1,12 +1,12 @@
 require('dotenv').config({ path: require('path').join(__dirname, '.env') });
+const http = require('http');
+const fs = require('fs');
+const path = require('path');
 const express = require('express');
 const compression = require('compression');
 const cookieParser = require('cookie-parser');
 const cors = require('cors');
 const helmet = require('helmet');
-const http = require('http');
-const fs = require('fs');
-const path = require('path');
 const { Server } = require('socket.io');
 
 const db = require('./db');
@@ -41,9 +41,9 @@ const server = http.createServer(app);
 // ============================================
 // MONEY CONVERSION HELPERS
 // ============================================
-const { isMoneyKey, pesosToCents, centsToPesos } = require('./utils/moneyConversion');
+const { pesosToCents, centsToPesos } = require('./utils/moneyConversion');
 
-// pesosToCents/centsToPesos ahora respetan isMoneyKey (antes ese chequeo estaba
+// pesosToCents/centsToPesos ahora respetan las claves monetarias (antes ese chequeo estaba
 // sin usar y se convertía CUALQUIER número, lo que corrompía ids en JSON con
 // arrays de objetos). /api/operacion/menu-dia se verificó end-to-end
 // (comparando contra /api/productos, que sí pasa por el middleware) y ya

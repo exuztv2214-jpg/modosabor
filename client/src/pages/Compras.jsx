@@ -14,8 +14,8 @@ import {
 
 import api from '../lib/api.js';
 import { APP_BG, BRAND, STROKE } from '../lib/theme.js';
-import { Stat as StatCard } from './Clientes/clientesUi.jsx';
 import NuevaCompraModal from '../components/Compras/NuevaCompraModal.jsx';
+import { Stat as StatCard } from './Clientes/clientesUi.jsx';
 
 const fmtMoney = (v) => `$${Number(v || 0).toLocaleString('es-AR', { minimumFractionDigits: 0 })}`;
 

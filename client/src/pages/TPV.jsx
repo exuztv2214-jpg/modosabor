@@ -70,7 +70,10 @@ function getLocalDateInputValue(date = new Date()) {
 }
 
 function formatTimeValue(date) {
-  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(
+    2,
+    '0'
+  )}`;
 }
 
 function buildSuggestedHoraEntrega(tipoEntrega, config = {}) {
@@ -254,6 +257,8 @@ export default function TPV() {
       console.warn('No se pudo reproducir el sonido:', e);
     }
   };
+
+  const keyboardActionsRef = useRef({});
 
   useEffect(() => {
     if (cartItemsRef.current && items.length > 0) {
@@ -500,13 +505,7 @@ export default function TPV() {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [
-    tipoEntrega,
-    cliente.direccion,
-    config.costo_envio_base,
-    config.tiempo_delivery,
-    config.tiempo_retiro,
-  ]);
+  }, [tipoEntrega, cliente.direccion, config]);
 
   useEffect(() => {
     if (tipoEntrega === 'mesa' && clientePickerOpen) {
@@ -795,7 +794,11 @@ export default function TPV() {
         detail:
           splitPaymentEntries.length > 0 && Math.abs(splitRemaining) <= 0.5
             ? 'Cobro mixto completo'
-            : `Faltan ${Math.abs(splitRemaining).toLocaleString('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 })}`,
+            : `Faltan ${Math.abs(splitRemaining).toLocaleString('es-AR', {
+                style: 'currency',
+                currency: 'ARS',
+                maximumFractionDigits: 0,
+              })}`,
       });
     } else if (metodoPago === 'efectivo') {
       const efectivoCargado =
@@ -1174,7 +1177,9 @@ export default function TPV() {
     if (
       items.length > 0 &&
       !window.confirm(
-        `Tenes un pedido cargado (${totalItems} item${totalItems === 1 ? '' : 's'}) sin guardar. Si volves al panel se pierde. ¿Volver igual?`
+        `Tenes un pedido cargado (${totalItems} item${
+          totalItems === 1 ? '' : 's'
+        }) sin guardar. Si volves al panel se pierde. ¿Volver igual?`
       )
     ) {
       return;
@@ -1191,7 +1196,9 @@ export default function TPV() {
     playBeep();
     const notas = String(options.notas || '').trim();
     const noteKey = notas ? `nota:${notas.toLowerCase()}` : 'sin-nota';
-    const cartKey = `${buildCartKey(variantes, extras)}::${noteKey}::${options.cartKeySuffix || 'normal'}`;
+    const cartKey = `${buildCartKey(variantes, extras)}::${noteKey}::${
+      options.cartKeySuffix || 'normal'
+    }`;
     const precioExtra =
       Object.values(variantes).reduce((sum, option) => sum + Number(option?.precio_extra || 0), 0) +
       extras.reduce((sum, extra) => sum + Number(extra.precio || 0), 0);
@@ -1263,14 +1270,19 @@ export default function TPV() {
     }
 
     const nextItems = pedido.items.map((item) => ({
-      id: `${item.producto_id || item.id || 'pedido'}-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
+      id: `${item.producto_id || item.id || 'pedido'}-${Date.now()}-${Math.random()
+        .toString(16)
+        .slice(2, 6)}`,
       producto_id: item.producto_id || item.id || null,
       nombre: item.nombre || 'Producto',
       precio_unitario: Number(item.precio_unitario || item.precio || 0),
       cantidad: Number(item.cantidad || 1),
       variantes: item.variantes || {},
       extras: Array.isArray(item.extras) ? item.extras : [],
-      cartKey: `${buildCartKey(item.variantes || {}, Array.isArray(item.extras) ? item.extras : [])}::repeat-${pedido.id}-${Math.random().toString(16).slice(2, 5)}`,
+      cartKey: `${buildCartKey(
+        item.variantes || {},
+        Array.isArray(item.extras) ? item.extras : []
+      )}::repeat-${pedido.id}-${Math.random().toString(16).slice(2, 5)}`,
       descripcion: item.descripcion || '',
     }));
 
@@ -1677,6 +1689,14 @@ export default function TPV() {
     );
   };
 
+  keyboardActionsRef.current = {
+    confirmar,
+    volverAlPanel,
+    saveCurrentAsParked,
+    restoreParkedOrder,
+    repetirUltimoPedidoCliente,
+  };
+
   useEffect(() => {
     const onKeyDown = (event) => {
       const key = event.key.toLowerCase();
@@ -1716,13 +1736,13 @@ export default function TPV() {
 
       if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
         event.preventDefault();
-        confirmar(Boolean(event.shiftKey));
+        keyboardActionsRef.current.confirmar(Boolean(event.shiftKey));
         return;
       }
 
       if (event.altKey && key === 'p') {
         event.preventDefault();
-        volverAlPanel();
+        keyboardActionsRef.current.volverAlPanel();
         return;
       }
 
@@ -1734,20 +1754,21 @@ export default function TPV() {
 
       if (event.altKey && key === 'g') {
         event.preventDefault();
-        saveCurrentAsParked();
+        keyboardActionsRef.current.saveCurrentAsParked();
         return;
       }
 
       if (event.altKey && key === 'r') {
         event.preventDefault();
-        if (parkedOrders[0]?.id) restoreParkedOrder(parkedOrders[0].id);
-        else toast.error('No hay pedidos en espera para recuperar');
+        if (parkedOrders[0]?.id) {
+          keyboardActionsRef.current.restoreParkedOrder(parkedOrders[0].id);
+        } else toast.error('No hay pedidos en espera para recuperar');
         return;
       }
 
       if (event.altKey && key === 'h') {
         event.preventDefault();
-        repetirUltimoPedidoCliente();
+        keyboardActionsRef.current.repetirUltimoPedidoCliente();
         return;
       }
 
@@ -1861,7 +1882,9 @@ export default function TPV() {
               if (
                 items.length > 0 &&
                 !window.confirm(
-                  `¿Vaciar el pedido? Se van a perder los ${totalItems} item${totalItems === 1 ? '' : 's'} cargados.`
+                  `¿Vaciar el pedido? Se van a perder los ${totalItems} item${
+                    totalItems === 1 ? '' : 's'
+                  } cargados.`
                 )
               ) {
                 return;

@@ -8,7 +8,6 @@ const {
   updateConfig,
   acumularPuntos,
   canjearPuntos,
-  procesarFidelidadPedido,
   canjearRecompensa,
   getSaldoPuntos,
   getHistorialPuntos,
@@ -290,7 +289,7 @@ router.post('/club/registro', (req, res) => {
     }
 
     let cliente = byCode || byPhone || null;
-    let yaExistia = Boolean(cliente);
+    const yaExistia = Boolean(cliente);
 
     db.exec('BEGIN');
     try {

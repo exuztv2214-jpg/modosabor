@@ -75,7 +75,9 @@ export function Popover({
     <div
       ref={ref}
       role="dialog"
-      className={`absolute z-40 w-[300px] rounded-2xl border border-gray-100 bg-white p-4 shadow-[0_12px_36px_rgba(15,23,42,0.12)] ${placement === 'top' ? 'bottom-[calc(100%+8px)]' : 'top-[calc(100%+8px)]'} ${align === 'right' ? 'right-0' : 'left-0'} ${className}`}
+      className={`absolute z-40 w-[300px] rounded-2xl border border-gray-100 bg-white p-4 shadow-[0_12px_36px_rgba(15,23,42,0.12)] ${
+        placement === 'top' ? 'bottom-[calc(100%+8px)]' : 'top-[calc(100%+8px)]'
+      } ${align === 'right' ? 'right-0' : 'left-0'} ${className}`}
     >
       {children}
     </div>
@@ -110,7 +112,9 @@ export function UtilityButton({ icon: Icon, label, badge, active, onClick }) {
       <Icon size={17} strokeWidth={STROKE} />
       {hasBadge ? (
         <span
-          className={`absolute right-1.5 top-1 flex h-[15px] min-w-[15px] items-center justify-center rounded-full px-1 text-[9px] font-bold tabular-nums ${active ? 'bg-white text-gray-900' : 'bg-brand-500 text-white'}`}
+          className={`absolute right-1.5 top-1 flex h-[15px] min-w-[15px] items-center justify-center rounded-full px-1 text-[9px] font-bold tabular-nums ${
+            active ? 'bg-white text-gray-900' : 'bg-brand-500 text-white'
+          }`}
         >
           {badge}
         </span>
@@ -131,6 +135,7 @@ export function BlockedHint({ reason, children }) {
 
   return (
     <div
+      role="group"
       className="relative min-w-0 flex-1"
       onMouseEnter={() => setVisible(true)}
       onMouseLeave={() => setVisible(false)}

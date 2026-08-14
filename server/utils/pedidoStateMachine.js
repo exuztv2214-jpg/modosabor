@@ -167,34 +167,39 @@ function canUserTransitionWithContext(user, fromState, toState, tipoEntrega, con
       fromState === PedidoState.LISTO &&
       tipoEntrega !== 'delivery' &&
       toState === PedidoState.ENTREGADO
-    )
+    ) {
       return true;
+    }
     if (
       fromState === PedidoState.LISTO &&
       tipoEntrega === 'delivery' &&
       toState === PedidoState.EN_CAMINO
-    )
+    ) {
       return true;
+    }
     if (
       isSimpleFlow(context) &&
       fromState === PedidoState.NUEVO &&
       toState === PedidoState.PREPARANDO
-    )
+    ) {
       return true;
+    }
     if (
       isSimpleFlow(context) &&
       fromState === PedidoState.PREPARANDO &&
       tipoEntrega === 'delivery' &&
       toState === PedidoState.EN_CAMINO
-    )
+    ) {
       return true;
+    }
     if (
       isSimpleFlow(context) &&
       fromState === PedidoState.PREPARANDO &&
       tipoEntrega !== 'delivery' &&
       toState === PedidoState.ENTREGADO
-    )
+    ) {
       return true;
+    }
     return false;
   }
 
@@ -206,8 +211,9 @@ function canUserTransitionWithContext(user, fromState, toState, tipoEntrega, con
       isSimpleFlow(context) &&
       fromState === PedidoState.PREPARANDO &&
       toState === PedidoState.EN_CAMINO
-    )
+    ) {
       return true;
+    }
     return false;
   }
 

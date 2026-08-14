@@ -20,10 +20,20 @@ export default function ClienteFormModal({
 
   return (
     <div
+      role="button"
+      tabIndex={0}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') event.currentTarget.click();
+      }}
       className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/35 p-4 backdrop-blur-sm"
       onClick={onClose}
     >
       <div
+        role="button"
+        tabIndex={0}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') event.currentTarget.click();
+        }}
         className="flex max-h-[90vh] w-full max-w-2xl flex-col rounded-2xl bg-white shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
@@ -104,8 +114,14 @@ export default function ClienteFormModal({
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="sm:col-span-2">
-                <label className="text-[12px] font-medium text-gray-600">Nombre completo</label>
+                <label
+                  htmlFor="field-ClienteFormModal-jsx-107-0"
+                  className="text-[12px] font-medium text-gray-600"
+                >
+                  Nombre completo
+                </label>
                 <input
+                  id="field-ClienteFormModal-jsx-107-0"
                   value={form.nombre}
                   onChange={set('nombre')}
                   placeholder="Ej: Juan Pérez"
@@ -113,8 +129,14 @@ export default function ClienteFormModal({
                 />
               </div>
               <div>
-                <label className="text-[12px] font-medium text-gray-600">Teléfono</label>
+                <label
+                  htmlFor="field-ClienteFormModal-jsx-116-1"
+                  className="text-[12px] font-medium text-gray-600"
+                >
+                  Teléfono
+                </label>
                 <input
+                  id="field-ClienteFormModal-jsx-116-1"
                   type="tel"
                   value={form.telefono}
                   onChange={set('telefono')}
@@ -126,8 +148,14 @@ export default function ClienteFormModal({
                 </p>
               </div>
               <div>
-                <label className="text-[12px] font-medium text-gray-600">Cumpleaños</label>
+                <label
+                  htmlFor="field-ClienteFormModal-jsx-129-2"
+                  className="text-[12px] font-medium text-gray-600"
+                >
+                  Cumpleaños
+                </label>
                 <input
+                  id="field-ClienteFormModal-jsx-129-2"
                   type="date"
                   value={form.fecha_nacimiento}
                   onChange={set('fecha_nacimiento')}
@@ -135,8 +163,14 @@ export default function ClienteFormModal({
                 />
               </div>
               <div className="sm:col-span-2">
-                <label className="text-[12px] font-medium text-gray-600">Dirección</label>
+                <label
+                  htmlFor="field-ClienteFormModal-jsx-138-3"
+                  className="text-[12px] font-medium text-gray-600"
+                >
+                  Dirección
+                </label>
                 <input
+                  id="field-ClienteFormModal-jsx-138-3"
                   value={form.direccion}
                   onChange={set('direccion')}
                   placeholder="Ej: San Martín 123"
@@ -144,8 +178,14 @@ export default function ClienteFormModal({
                 />
               </div>
               <div className="sm:col-span-2">
-                <label className="text-[12px] font-medium text-gray-600">Notas internas</label>
+                <label
+                  htmlFor="field-ClienteFormModal-jsx-147-4"
+                  className="text-[12px] font-medium text-gray-600"
+                >
+                  Notas internas
+                </label>
                 <textarea
+                  id="field-ClienteFormModal-jsx-147-4"
                   value={form.notas}
                   onChange={set('notas')}
                   placeholder="Gustos, referencias de la dirección, observaciones…"

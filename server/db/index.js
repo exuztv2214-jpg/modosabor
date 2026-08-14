@@ -1,6 +1,6 @@
-const Database = require('better-sqlite3');
 const fs = require('fs');
 const path = require('path');
+const Database = require('better-sqlite3');
 const { dbFile, ensureStoragePaths } = require('../utils/storagePaths');
 const { runMigrations } = require('./migrations');
 const { runSeed } = require('./seed');

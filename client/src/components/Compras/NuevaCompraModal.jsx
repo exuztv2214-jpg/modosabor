@@ -124,10 +124,20 @@ export default function NuevaCompraModal({
 
   return (
     <div
+      role="button"
+      tabIndex={0}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') event.currentTarget.click();
+      }}
       className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/35 p-4 backdrop-blur-sm"
       onClick={onClose}
     >
       <div
+        role="button"
+        tabIndex={0}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') event.currentTarget.click();
+        }}
         className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
         onClick={(event) => event.stopPropagation()}
       >
@@ -207,7 +217,12 @@ export default function NuevaCompraModal({
 
           <div>
             <div className="mb-1.5 flex items-center justify-between gap-3">
-              <label className="text-[12px] font-medium text-gray-600">Qué se compró</label>
+              <label
+                htmlFor="field-NuevaCompraModal-jsx-210-0"
+                className="text-[12px] font-medium text-gray-600"
+              >
+                Qué se compró
+              </label>
               <button
                 type="button"
                 onClick={addItem}
@@ -227,6 +242,7 @@ export default function NuevaCompraModal({
                   <div key={idx} className="rounded-xl bg-gray-50 p-2.5">
                     <div className="flex items-center gap-2">
                       <select
+                        id="field-NuevaCompraModal-jsx-210-0"
                         value={item.insumo_id}
                         onChange={(e) => updateItem(idx, 'insumo_id', e.target.value)}
                         className={`${CONTROL} flex-1`}

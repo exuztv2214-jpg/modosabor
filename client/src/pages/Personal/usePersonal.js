@@ -91,6 +91,8 @@ export function usePersonal() {
 
   useEffect(() => {
     cargar();
+    // Carga inicial del módulo; las operaciones actualizan la lista explícitamente.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   /**
@@ -130,6 +132,8 @@ export function usePersonal() {
 
   useEffect(() => {
     cargarAnaliticaAsistencia();
+    // El rango inicial se consulta una vez; cambios posteriores usan la acción del filtro.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const cargarPlanillaSemanal = async (desde = hoyIso()) => {
@@ -594,7 +598,9 @@ export function usePersonal() {
         impacta_caja: settlementForm.impacta_caja,
       });
       toast.success(
-        `Liquidación automática registrada por ${result.sugerencia?.unidades_sugeridas || 0} jornadas`
+        `Liquidación automática registrada por ${
+          result.sugerencia?.unidades_sugeridas || 0
+        } jornadas`
       );
       setSettlementModal(false);
       await cargarDetalle(selectedId);

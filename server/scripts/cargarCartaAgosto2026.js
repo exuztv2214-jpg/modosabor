@@ -405,7 +405,7 @@ function guardarProducto(categoriaId, producto) {
     .prepare('SELECT id FROM productos WHERE categoria_id = ? AND LOWER(nombre) = LOWER(?)')
     .get(categoriaId, producto.nombre);
   if (!existente) {
-    if (aplicar)
+    if (aplicar) {
       db.prepare(
         'INSERT INTO productos (nombre, descripcion, precio, categoria_id, variantes, extras, activo) VALUES (?, ?, ?, ?, ?, ?, 1)'
       ).run(
@@ -416,9 +416,10 @@ function guardarProducto(categoriaId, producto) {
         producto.variantes,
         producto.extras
       );
+    }
     return 'nuevo';
   }
-  if (aplicar)
+  if (aplicar) {
     db.prepare(
       'UPDATE productos SET nombre = ?, descripcion = ?, precio = ?, variantes = ?, extras = ?, activo = 1 WHERE id = ?'
     ).run(
@@ -429,6 +430,7 @@ function guardarProducto(categoriaId, producto) {
       producto.extras,
       existente.id
     );
+  }
   return 'actualizado';
 }
 

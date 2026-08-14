@@ -17,14 +17,13 @@ const { restoreInventoryForPedido } = require('../utils/inventory');
 const { createRateLimiter, createSqliteRateLimitStore } = require('../utils/rateLimit');
 const logger = require('../utils/logger');
 const { validateBody } = require('../middleware/validate');
-const { createPedidoSchema, updatePedidoSchema } = require('../schemas');
+const { createPedidoSchema } = require('../schemas');
 const { centsToPesos } = require('../utils/moneyConversion');
 const { fechaLocal } = require('../utils/fechaLocal');
 const {
   emitPedidoActualizado,
   emitDeliveryAssignment,
   emitNuevoPedido,
-  emitRepartidorUbicacion,
   clearTrackingToken,
 } = require('../utils/socketRooms');
 
@@ -39,13 +38,11 @@ const {
   createPedidoWithInventory,
   getActiveCaja,
   buildPedidoPayload,
-  splitPedidoMesa,
   mergeMesaPedidosIntoTarget,
   updatePedidoPaymentStatus,
   logMercadoPagoEvent,
   syncPedidoMercadoPago,
   PedidoState,
-  ESTADO_LABELS,
 } = require('../services/pedidoService');
 const {
   normalizeMetodoPago,
@@ -56,8 +53,6 @@ const {
 
 const {
   validateTransition,
-  canUserTransition,
-  getValidTransitions,
   getAvailableTransitions,
   canUserTransitionWithContext,
 } = require('../utils/pedidoStateMachine');
@@ -717,7 +712,7 @@ router.get('/:id', async (req, res) => {
       const token = authHeader.split(' ')[1];
       jwt.verify(token, getJwtSecret());
       isAuthenticated = true;
-    } catch (err) {
+    } catch (_err) {
       isAuthenticated = false;
     }
   }
@@ -835,8 +830,6 @@ router.post(
         if (synced.ok) {
           const io = req.app.get('io');
           if (io) emitPedidoActualizado(io, synced.pedido);
-          if (pedido.estado !== synced.pedido.estado) {
-          }
         }
       } catch (error) {
         results.push({
@@ -937,8 +930,9 @@ router.post(
   requirePermission('pedidos.edit'),
   async (req, res) => {
     const pedido = getPedidoOr404(req.params.id, res);
-    if (!pedido || pedido.metodo_pago !== 'mercadopago')
+    if (!pedido || pedido.metodo_pago !== 'mercadopago') {
       return res.status(400).json({ error: 'Invalido' });
+    }
 
     const config = getConfigMap(db);
     try {
@@ -960,8 +954,6 @@ router.post(
       if (synced.ok) {
         const io = req.app.get('io');
         if (io) emitPedidoActualizado(io, synced.pedido);
-        if (pedido.estado !== synced.pedido.estado) {
-        }
       }
       res.json(synced);
     } catch (error) {
@@ -972,8 +964,9 @@ router.post(
 
 router.post('/checkout/mercadopago', publicOrderRateLimit, async (req, res) => {
   const config = getConfigMap(db);
-  if (!config.mercadopago_token)
+  if (!config.mercadopago_token) {
     return res.status(400).json({ error: 'MercadoPago no configurado' });
+  }
   if (!req.body?.items) return res.status(400).json({ error: 'Items requeridos' });
 
   let pedido = null;
@@ -1303,8 +1296,9 @@ router.put('/:id/estado', auth, async (req, res) => {
       WHERE id = ?
     `
     ).run(nuevoEstado, settleOnEntrega ? 1 : 0, settleOnEntrega ? 1 : 0, req.params.id);
-    if (nuevoEstado === PedidoState.CANCELADO)
+    if (nuevoEstado === PedidoState.CANCELADO) {
       restoreInventoryForPedido(db, existing, { motivo: 'Cancelacion' });
+    }
     db.exec('COMMIT');
   } catch (error) {
     db.exec('ROLLBACK');

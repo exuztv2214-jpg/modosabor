@@ -164,6 +164,8 @@ export default function Reportes() {
 
   useEffect(() => {
     cargar();
+    // El rango inicial se consulta al montar; el usuario aplica los cambios desde el filtro.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const aplicarPreset = (preset) => {
@@ -413,8 +415,14 @@ export default function Reportes() {
         <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             <div>
-              <label className="mb-1.5 block text-[12px] text-gray-500">Desde</label>
+              <label
+                htmlFor="field-Reportes-jsx-416-0"
+                className="mb-1.5 block text-[12px] text-gray-500"
+              >
+                Desde
+              </label>
               <input
+                id="field-Reportes-jsx-416-0"
                 type="date"
                 value={desde}
                 onChange={(e) => setDesde(e.target.value)}
@@ -422,8 +430,14 @@ export default function Reportes() {
               />
             </div>
             <div>
-              <label className="mb-1.5 block text-[12px] text-gray-500">Hasta</label>
+              <label
+                htmlFor="field-Reportes-jsx-425-1"
+                className="mb-1.5 block text-[12px] text-gray-500"
+              >
+                Hasta
+              </label>
               <input
+                id="field-Reportes-jsx-425-1"
                 type="date"
                 value={hasta}
                 onChange={(e) => setHasta(e.target.value)}
@@ -690,7 +704,9 @@ export default function Reportes() {
           <div className="grid gap-6 xl:grid-cols-2">
             <SectionCard
               title="Ventas por día"
-              subtitle={`Del ${format(toDate(data.rango.desde), 'dd/MM', { locale: es })} al ${format(toDate(data.rango.hasta), 'dd/MM', { locale: es })}`}
+              subtitle={`Del ${format(toDate(data.rango.desde), 'dd/MM', {
+                locale: es,
+              })} al ${format(toDate(data.rango.hasta), 'dd/MM', { locale: es })}`}
             >
               <div className="h-80">
                 <ResponsiveContainer width="100%" height="100%">
@@ -1335,7 +1351,9 @@ export default function Reportes() {
 
             <SectionCard
               title="Salón / mesas"
-              subtitle={`${data.salon.totalPedidos} tickets - ticket promedio ${fmt(data.salon.ticketPromedio)}`}
+              subtitle={`${data.salon.totalPedidos} tickets - ticket promedio ${fmt(
+                data.salon.ticketPromedio
+              )}`}
             >
               {data.salon.topMesas.length === 0 ? (
                 <EmptyState message="Sin consumo de salón en este rango." />

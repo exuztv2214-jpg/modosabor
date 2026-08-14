@@ -12,6 +12,8 @@ export function useAuthenticatedSocket(events = {}) {
   const [connected, setConnected] = useState(false);
   const [authenticated, setAuthenticated] = useState(false);
   const unsubscribersRef = useRef([]);
+  const eventsRef = useRef(events);
+  eventsRef.current = events;
 
   useEffect(() => {
     if (!isAuth || !token) return;
@@ -27,16 +29,21 @@ export function useAuthenticatedSocket(events = {}) {
         setAuthenticated(true);
 
         // Registrar listeners de eventos
-        Object.entries(events).forEach(([event, callback]) => {
-          const unsubscribe = socketManager.on(event, callback);
+        Object.keys(eventsRef.current).forEach((event) => {
+          const unsubscribe = socketManager.on(event, (...args) => {
+            eventsRef.current[event]?.(...args);
+          });
           unsubscribersRef.current.push(unsubscribe);
         });
 
-        // Listener de conexión/desconexión con optional chaining
-        socketManager.socket?.on('connect', () => setConnected(true));
-        socketManager.socket?.on('disconnect', () => setConnected(false));
-        socketManager.socket.on('connect', () => setConnected(true));
-        socketManager.socket.on('disconnect', () => setConnected(false));
+        const handleConnect = () => setConnected(true);
+        const handleDisconnect = () => setConnected(false);
+        socketManager.socket?.on('connect', handleConnect);
+        socketManager.socket?.on('disconnect', handleDisconnect);
+        unsubscribersRef.current.push(() => {
+          socketManager.socket?.off('connect', handleConnect);
+          socketManager.socket?.off('disconnect', handleDisconnect);
+        });
       } catch (error) {
         console.error('Error conectando socket:', error);
         setConnected(false);

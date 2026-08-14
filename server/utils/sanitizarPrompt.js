@@ -1,6 +1,3 @@
-const crypto = require('crypto');
-const { getJwtSecret } = require('./authConfig');
-
 /**
  * Sanitización de texto para prompts de IA.
  *

@@ -56,7 +56,7 @@ function cargarBuildProductPreview() {
       if (c.includes('pizza') || n.includes('pizza')) return 'pizza';
       return 'general'; }
   `;
-  // eslint-disable-next-line no-new-func
+
   return new Function(`${ayudantes}\n${cuerpo}\nreturn buildProductPreview;`)();
 }
 

@@ -57,6 +57,8 @@ export default function useInventario() {
 
   useEffect(() => {
     cargar();
+    // La primera carga se hace al montar; las mutaciones llaman cargar de forma explícita.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const selectedProduct = useMemo(

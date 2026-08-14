@@ -192,8 +192,9 @@ router.get('/resumen', auth, requirePermission('reportes.view'), (req, res) => {
   for (const f of filas) {
     const dia = String(f.creado_en || '').slice(0, 10);
     if (!dia) continue;
-    if (!porDiaMap.has(dia))
+    if (!porDiaMap.has(dia)) {
       porDiaMap.set(dia, { fecha: dia, pedidos: 0, entregados: 0, totales: [] });
+    }
     const d = porDiaMap.get(dia);
     d.pedidos += 1;
     if (f.ts_entregado) {

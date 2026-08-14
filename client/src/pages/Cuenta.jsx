@@ -334,8 +334,14 @@ export default function Cuenta() {
 
                 <form onSubmit={guardarPerfil} className="grid gap-6 md:grid-cols-2">
                   <div className="space-y-2">
-                    <label className="text-[10px] font-semibold text-gray-400 ml-1">Nombre</label>
+                    <label
+                      htmlFor="field-Cuenta-jsx-337-0"
+                      className="text-[10px] font-semibold text-gray-400 ml-1"
+                    >
+                      Nombre
+                    </label>
                     <input
+                      id="field-Cuenta-jsx-337-0"
                       value={profileForm.nombre}
                       onChange={(e) =>
                         setProfileForm((prev) => ({ ...prev, nombre: e.target.value }))
@@ -345,8 +351,14 @@ export default function Cuenta() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <label className="text-[10px] font-semibold text-gray-400 ml-1">Email</label>
+                    <label
+                      htmlFor="field-Cuenta-jsx-348-1"
+                      className="text-[10px] font-semibold text-gray-400 ml-1"
+                    >
+                      Email
+                    </label>
                     <input
+                      id="field-Cuenta-jsx-348-1"
                       type="email"
                       value={profileForm.email}
                       onChange={(e) =>
@@ -427,10 +439,14 @@ export default function Cuenta() {
               <h3 className="text-xl font-semibold text-gray-900 mb-8">Seguridad de la cuenta</h3>
               <form onSubmit={guardarPassword} className="space-y-6 max-w-md">
                 <div className="space-y-2">
-                  <label className="text-[10px] font-semibold text-gray-400 ml-1">
+                  <label
+                    htmlFor="field-Cuenta-jsx-430-2"
+                    className="text-[10px] font-semibold text-gray-400 ml-1"
+                  >
                     Contraseña actual
                   </label>
                   <input
+                    id="field-Cuenta-jsx-430-2"
                     type="password"
                     value={passwordActual}
                     onChange={(e) => setPasswordActual(e.target.value)}
@@ -439,10 +455,14 @@ export default function Cuenta() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-[10px] font-semibold text-gray-400 ml-1">
+                  <label
+                    htmlFor="field-Cuenta-jsx-442-3"
+                    className="text-[10px] font-semibold text-gray-400 ml-1"
+                  >
                     Nueva contraseña
                   </label>
                   <input
+                    id="field-Cuenta-jsx-442-3"
                     type="password"
                     value={passwordNuevo}
                     onChange={(e) => setPasswordNuevo(e.target.value)}
@@ -451,10 +471,14 @@ export default function Cuenta() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-[10px] font-semibold text-gray-400 ml-1">
+                  <label
+                    htmlFor="field-Cuenta-jsx-454-4"
+                    className="text-[10px] font-semibold text-gray-400 ml-1"
+                  >
                     Confirmar nueva
                   </label>
                   <input
+                    id="field-Cuenta-jsx-454-4"
                     type="password"
                     value={passwordConfirmacion}
                     onChange={(e) => setPasswordConfirmacion(e.target.value)}

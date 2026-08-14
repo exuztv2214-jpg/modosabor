@@ -131,8 +131,14 @@ export default function ClientesCampaignsSection({
         >
           <div className="grid gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
             <div>
-              <label className="text-[12px] font-medium text-gray-600">Mensaje</label>
+              <label
+                htmlFor="field-ClientesCampaignsSection-jsx-134-0"
+                className="text-[12px] font-medium text-gray-600"
+              >
+                Mensaje
+              </label>
               <textarea
+                id="field-ClientesCampaignsSection-jsx-134-0"
                 value={campaignMessage}
                 onChange={(e) => setCampaignMessage(e.target.value)}
                 className="mt-1 min-h-[180px] w-full resize-none rounded-xl border border-gray-200 bg-white p-3 text-[14px] leading-6 text-gray-800 outline-none transition focus:border-gray-400 focus:ring-2 focus:ring-gray-900/5"
@@ -208,7 +214,7 @@ export default function ClientesCampaignsSection({
 
             <div>
               <div className="flex items-center justify-between">
-                <label className="text-[12px] font-medium text-gray-600">Destinatarios</label>
+                <p className="text-[12px] font-medium text-gray-600">Destinatarios</p>
                 <button
                   type="button"
                   onClick={() =>

@@ -1,10 +1,10 @@
+const fs = require('fs');
+const path = require('path');
 const express = require('express');
+const multer = require('multer');
 const router = express.Router();
 const db = require('../db');
 const auth = require('../middleware/auth');
-const multer = require('multer');
-const fs = require('fs');
-const path = require('path');
 const { requirePermission } = require('../utils/permissions');
 const {
   uploadsDir,

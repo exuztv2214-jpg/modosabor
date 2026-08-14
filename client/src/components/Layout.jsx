@@ -1,7 +1,6 @@
-import { useState, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { AnimatePresence } from 'framer-motion';
-import { PageTransition } from '../design-system';
 import {
   Menu,
   Bell,
@@ -14,6 +13,7 @@ import {
   MessageSquareMore,
   Download,
 } from 'lucide-react';
+import { PageTransition } from '../design-system';
 
 import { useAuth } from '../context/AuthContext.jsx';
 import { useAppConfig } from '../context/AppConfigContext.jsx';
@@ -147,7 +147,9 @@ export default function Layout() {
           items.push({
             id: 'pedidos-activos',
             title: `Pedidos activos: ${dashboardData.pedidosActivos}`,
-            description: `${Number(dashboardData?.pedidosEnDelivery || 0)} en delivery ahora mismo.`,
+            description: `${Number(
+              dashboardData?.pedidosEnDelivery || 0
+            )} en delivery ahora mismo.`,
             tone: 'blue',
             icon: ShoppingBag,
             action: () => navigate('/admin/pedidos'),
@@ -259,7 +261,7 @@ export default function Layout() {
     setInstallReady(false);
   };
 
-  const getPageTitle = () => {
+  const getPageTitle = useCallback(() => {
     const titles = {
       '/admin/dashboard': 'Dashboard',
       '/admin/operacion': 'Control Diario',
@@ -289,12 +291,12 @@ export default function Layout() {
       '/admin/auditoria': 'Auditoría del sistema',
     };
     return titles[location.pathname] || 'Panel de Control';
-  };
+  }, [location.pathname]);
 
   useEffect(() => {
     const pageTitle = getPageTitle();
     document.title = `${pageTitle} · Modo Sabor`;
-  }, [location.pathname]);
+  }, [getPageTitle]);
 
   if (isTpvRoute) {
     return (
@@ -316,6 +318,11 @@ export default function Layout() {
       {/* Mobile Overlay */}
       {mobileMenuOpen && (
         <div
+          role="button"
+          tabIndex={0}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') event.currentTarget.click();
+          }}
           className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[60] lg:hidden transition-all duration-300"
           onClick={() => setMobileMenuOpen(false)}
         />

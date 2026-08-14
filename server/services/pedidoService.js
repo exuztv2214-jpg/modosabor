@@ -1,37 +1,18 @@
 const db = require('../db');
-const { recalculateClienteStats } = require('../utils/loyalty');
-const { buildPrintDocument, buildMesaPrecuentaDocument } = require('../utils/printTemplates');
-const {
-  getConfigMap,
-  createPreference,
-  getPayment,
-  searchPayments,
-} = require('../utils/mercadoPago');
-const { logAudit, actorFromRequest } = require('../utils/audit');
-const { requirePermission, hasPermission } = require('../utils/permissions');
+const { getConfigMap, getPayment, searchPayments } = require('../utils/mercadoPago');
+const { hasPermission } = require('../utils/permissions');
 const { quoteDelivery } = require('../utils/deliveryZones');
 const { autoAssignPedido, assignPedidoToRepartidor } = require('../utils/deliveryAssignment');
 const { estimateDeliveryEta } = require('../utils/deliveryEta');
 const { getShiftForDate } = require('../utils/shifts');
-const { applyInventoryToPedido, restoreInventoryForPedido } = require('../utils/inventory');
+const { applyInventoryToPedido } = require('../utils/inventory');
 const {
   getActiveCaja: getActiveCajaFromDb,
   getConfigMap: getOperationalConfigMap,
   getOperationalShiftContext,
 } = require('../utils/operationalCaja');
-const {
-  generateTrackingToken,
-  emitPedidoActualizado,
-  emitNuevoPedido,
-  clearTrackingToken,
-} = require('../utils/socketRooms');
-const {
-  validateTransition,
-  canUserTransition,
-  getValidTransitions,
-  isTerminal,
-  PedidoState,
-} = require('../utils/pedidoStateMachine');
+const { generateTrackingToken } = require('../utils/socketRooms');
+const { PedidoState } = require('../utils/pedidoStateMachine');
 const { ensureClienteDireccion } = require('../utils/clienteAddresses');
 const {
   normalizeMetodoPago,
@@ -304,14 +285,16 @@ function canTransitionPedido(user, pedido, nextEstado) {
       pedido.estado === 'listo' &&
       pedido.tipo_entrega === 'delivery' &&
       nextEstado === 'en_camino'
-    )
+    ) {
       return true;
+    }
     if (
       pedido.estado === 'listo' &&
       pedido.tipo_entrega !== 'delivery' &&
       nextEstado === 'entregado'
-    )
+    ) {
       return true;
+    }
     return false;
   }
 
@@ -367,7 +350,6 @@ function createPedidoRecord(payload) {
     entrega_foto = '',
     entrega_foto_en = null,
     cupon_id = null,
-    cupon_codigo = null,
     repartidor_id = null,
     marketing_campana_id = null,
     marketing_promo_id = null,
@@ -731,8 +713,9 @@ function validateAndApplyCupon(codigo, subtotal, clienteId, clienteTelefono) {
     .prepare('SELECT * FROM cupones WHERE codigo = ? AND activo = 1')
     .get(codigo.trim().toUpperCase());
 
-  if (!cupon)
+  if (!cupon) {
     return { valido: false, error: 'Cupón no válido o inactivo', descuento: 0, cupon: null };
+  }
 
   const now = new Date().toISOString();
   if (cupon.fecha_inicio && now < cupon.fecha_inicio) {
@@ -999,7 +982,7 @@ async function buildPedidoPayload(body, options = {}) {
         clienteGeocodificado = 1;
         clienteGeocodingPrecision = geo.precision || geo.type || 'geocoding';
       }
-    } catch (e) {
+    } catch (_e) {
       // Silencioso: si falla la geocodificación, el pedido se crea sin coordenadas
     }
   }

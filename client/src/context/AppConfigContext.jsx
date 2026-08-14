@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 
 import api from '../lib/api.js';
 import { applyBranding } from '../lib/branding.js';
@@ -19,8 +19,10 @@ export function AppConfigProvider({ children }) {
   const [loading, setLoading] = useState(true);
   const [configError, setConfigError] = useState('');
   const refreshPromiseRef = useRef(null);
+  const configRef = useRef(config);
+  configRef.current = config;
 
-  const refreshConfig = async (nextConfig = null) => {
+  const refreshConfig = useCallback(async (nextConfig = null) => {
     if (nextConfig) {
       setConfig(nextConfig);
       applyBranding(nextConfig);
@@ -52,7 +54,8 @@ export function AppConfigProvider({ children }) {
       })
       .catch((error) => {
         const message = error?.error || 'No se pudo cargar la configuración general';
-        const hasCachedConfig = config && Object.keys(config).length > 0;
+        const cachedConfig = configRef.current;
+        const hasCachedConfig = cachedConfig && Object.keys(cachedConfig).length > 0;
         if (!hasCachedConfig) {
           setConfigError(message);
         }
@@ -63,14 +66,17 @@ export function AppConfigProvider({ children }) {
       });
 
     return refreshPromiseRef.current;
-  };
+  }, []);
 
   useEffect(() => {
     applyBranding(config || {});
+  }, [config]);
+
+  useEffect(() => {
     refreshConfig()
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, []);
+  }, [refreshConfig]);
 
   return (
     <AppConfigContext.Provider

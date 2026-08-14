@@ -3,7 +3,7 @@ const { fechaLocal, hoyArgentina } = require('../utils/fechaLocal');
 const { buildCajaResumen } = require('../routes/caja');
 const { buildMenuDiaManagerPayload } = require('../routes/operacion');
 const { normalizePagoEstado, normalizeMetodoPago } = require('../utils/paymentStatus');
-const { envolverDato, envolverDatoInline } = require('../utils/sanitizarPrompt');
+const { envolverDatoInline } = require('../utils/sanitizarPrompt');
 const { decorateProductsWithInventory } = require('../utils/inventory');
 
 /**

@@ -1,11 +1,7 @@
-const db = require('../db');
 const fs = require('fs');
 const path = require('path');
+const db = require('../db');
 const logger = require('../utils/logger');
-const { conexion } = require('./whatsappMasivo/conexion');
-const { deJid } = require('./whatsappMasivo/telefono');
-const { registrarRespuesta } = require('./whatsappMasivo/motor');
-const { buildAgentTraining } = require('./whatsappAgentTraining');
 const { getCurrentShiftInfo } = require('../utils/shifts');
 const { getConfigMap } = require('../utils/mercadoPago');
 const { uploadsDir } = require('../utils/storagePaths');
@@ -15,8 +11,12 @@ const {
   getLastOrderByPhone,
   cleanText,
 } = require('../utils/systemClient');
-const { transcribeWhatsappAudio } = require('./whatsappAudioTranscription');
 const { emitAtencionHumana } = require('../utils/socketRooms');
+const { transcribeWhatsappAudio } = require('./whatsappAudioTranscription');
+const { buildAgentTraining } = require('./whatsappAgentTraining');
+const { registrarRespuesta } = require('./whatsappMasivo/motor');
+const { deJid } = require('./whatsappMasivo/telefono');
+const { conexion } = require('./whatsappMasivo/conexion');
 
 /*
   El socket del panel, para poder avisar cuando un chat necesita una persona.

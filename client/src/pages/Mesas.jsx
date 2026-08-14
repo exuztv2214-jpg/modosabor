@@ -165,7 +165,6 @@ export default function Mesas() {
   const [reservaAccion, setReservaAccion] = useState('');
   const [cancelReservaTarget, setCancelReservaTarget] = useState(null);
 
-  const canUseTpv = hasPermission('tpv.use');
   const canEdit = hasPermission('pedidos.edit');
 
   const cargar = async () => {
@@ -645,11 +644,21 @@ export default function Mesas() {
       {/* Modal reserva */}
       {reservationOpen && (
         <div
+          role="button"
+          tabIndex={0}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') event.currentTarget.click();
+          }}
           className="fixed inset-0 flex items-center justify-center bg-slate-900/30 p-4 backdrop-blur-sm"
           style={{ zIndex: Z.modal }}
           onClick={() => setReservationOpen(false)}
         >
           <div
+            role="button"
+            tabIndex={0}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') event.currentTarget.click();
+            }}
             className="w-full max-w-xl rounded-2xl bg-white p-6 shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
@@ -668,8 +677,14 @@ export default function Mesas() {
 
             <div className="grid grid-cols-2 gap-3">
               <div className="col-span-2 sm:col-span-1">
-                <label className="ml-1 text-[12px] font-medium text-gray-400">Mesa</label>
+                <label
+                  htmlFor="field-Mesas-jsx-671-0"
+                  className="ml-1 text-[12px] font-medium text-gray-400"
+                >
+                  Mesa
+                </label>
                 <select
+                  id="field-Mesas-jsx-671-0"
                   value={reservationForm.mesa}
                   onChange={(e) => setReservationForm({ ...reservationForm, mesa: e.target.value })}
                   className="mt-1 h-11 w-full rounded-xl border-none bg-gray-50 px-4 text-[14px] font-medium outline-none focus:ring-2"
@@ -684,8 +699,14 @@ export default function Mesas() {
                 </select>
               </div>
               <div className="col-span-2 sm:col-span-1">
-                <label className="ml-1 text-[12px] font-medium text-gray-400">Horario</label>
+                <label
+                  htmlFor="field-Mesas-jsx-687-1"
+                  className="ml-1 text-[12px] font-medium text-gray-400"
+                >
+                  Horario
+                </label>
                 <input
+                  id="field-Mesas-jsx-687-1"
                   type="datetime-local"
                   value={reservationForm.horario_reserva}
                   onChange={(e) =>
@@ -751,11 +772,21 @@ export default function Mesas() {
       {/* Modal mover pedido */}
       {moveState && (
         <div
+          role="button"
+          tabIndex={0}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') event.currentTarget.click();
+          }}
           className="fixed inset-0 flex items-center justify-center bg-slate-900/30 p-4 backdrop-blur-sm"
           style={{ zIndex: Z.modal }}
           onClick={() => setMoveState(null)}
         >
           <div
+            role="button"
+            tabIndex={0}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') event.currentTarget.click();
+            }}
             className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
@@ -775,8 +806,14 @@ export default function Mesas() {
               </button>
             </div>
 
-            <label className="ml-1 text-[12px] font-medium text-gray-400">Mesa destino</label>
+            <label
+              htmlFor="field-Mesas-jsx-778-2"
+              className="ml-1 text-[12px] font-medium text-gray-400"
+            >
+              Mesa destino
+            </label>
             <select
+              id="field-Mesas-jsx-778-2"
               value={moveDestination}
               onChange={(e) => setMoveDestination(e.target.value)}
               className="mt-1 h-11 w-full rounded-xl border-none bg-gray-50 px-4 text-[14px] font-medium outline-none"

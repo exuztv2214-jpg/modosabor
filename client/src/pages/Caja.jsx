@@ -581,10 +581,14 @@ export default function Caja() {
                     <h3 className="text-[15px] font-semibold text-gray-900">Cerrar turno</h3>
                   </div>
 
-                  <label className="text-[12px] font-medium text-gray-600">
+                  <label
+                    htmlFor="field-Caja-jsx-584-0"
+                    className="text-[12px] font-medium text-gray-600"
+                  >
                     Efectivo contado en caja
                   </label>
                   <input
+                    id="field-Caja-jsx-584-0"
                     type="text"
                     inputMode="decimal"
                     value={closing.monto_final_declarado}
@@ -663,10 +667,14 @@ export default function Caja() {
                     </div>
                   ) : null}
 
-                  <label className="mt-4 block text-[12px] font-medium text-gray-600">
+                  <label
+                    htmlFor="field-Caja-jsx-666-1"
+                    className="mt-4 block text-[12px] font-medium text-gray-600"
+                  >
                     Notas de cierre
                   </label>
                   <textarea
+                    id="field-Caja-jsx-666-1"
                     value={closing.notas}
                     onChange={(e) => setClosing((p) => ({ ...p, notas: e.target.value }))}
                     placeholder="Diferencias, retiros, observaciones…"
@@ -702,10 +710,14 @@ export default function Caja() {
                 </div>
               </div>
 
-              <label className="mt-5 block text-[12px] font-medium text-gray-600">
+              <label
+                htmlFor="field-Caja-jsx-705-2"
+                className="mt-5 block text-[12px] font-medium text-gray-600"
+              >
                 Fondo de apertura
               </label>
               <input
+                id="field-Caja-jsx-705-2"
                 type="text"
                 inputMode="decimal"
                 value={opening.monto_inicial}
@@ -919,10 +931,20 @@ export default function Caja() {
       {/* ── Modal de movimiento ── */}
       {showMovimientoModal && (
         <div
+          role="button"
+          tabIndex={0}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') event.currentTarget.click();
+          }}
           className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/35 p-4 backdrop-blur-sm"
           onClick={() => setShowMovimientoModal(false)}
         >
           <div
+            role="button"
+            tabIndex={0}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') event.currentTarget.click();
+            }}
             className="w-full max-w-md rounded-2xl bg-white shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
@@ -969,8 +991,14 @@ export default function Caja() {
               </div>
 
               <div>
-                <label className="text-[12px] font-medium text-gray-600">Monto</label>
+                <label
+                  htmlFor="field-Caja-jsx-972-3"
+                  className="text-[12px] font-medium text-gray-600"
+                >
+                  Monto
+                </label>
                 <input
+                  id="field-Caja-jsx-972-3"
                   type="text"
                   inputMode="decimal"
                   required
@@ -994,8 +1022,14 @@ export default function Caja() {
               </div>
 
               <div>
-                <label className="text-[12px] font-medium text-gray-600">Motivo</label>
+                <label
+                  htmlFor="field-Caja-jsx-997-4"
+                  className="text-[12px] font-medium text-gray-600"
+                >
+                  Motivo
+                </label>
                 <input
+                  id="field-Caja-jsx-997-4"
                   type="text"
                   required
                   value={movimiento.motivo}

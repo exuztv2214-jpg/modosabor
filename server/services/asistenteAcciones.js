@@ -1,5 +1,4 @@
 const db = require('../db');
-const marketingService = require('./marketingService');
 const {
   restoreInventoryForPedido,
   insertInventoryMovement,
@@ -15,9 +14,10 @@ const {
   archiveMenuDiaProduct,
 } = require('../routes/operacion');
 const { registrarCompra } = require('../routes/compras');
-const { buildPedidoPayload, createPedidoWithInventory, hydratePedido } = require('./pedidoService');
 const { resolveInitialPagoEstado } = require('../utils/paymentStatus');
 const { emitNuevoPedido, emitPedidoActualizado } = require('../utils/socketRooms');
+const { buildPedidoPayload, createPedidoWithInventory, hydratePedido } = require('./pedidoService');
+const marketingService = require('./marketingService');
 
 /**
  * Lo que el asistente puede MODIFICAR.
@@ -545,8 +545,9 @@ function prepararEditarPlatoMenuDia(args = {}) {
   }
   if (args.stock !== undefined) {
     const stock = roundStock(args.stock);
-    if (!Number.isFinite(stock) || stock < 0)
+    if (!Number.isFinite(stock) || stock < 0) {
       throw new ErrorDeAccion('El stock no puede ser negativo.');
+    }
     cambios.stock_hoy = stock;
     agregar('Stock de hoy', String(roundStock(plato.stock_directo)), String(stock));
   }
@@ -565,8 +566,9 @@ function prepararEditarPlatoMenuDia(args = {}) {
     );
   }
   if (args.guarniciones !== undefined) {
-    if (!Array.isArray(args.guarniciones))
+    if (!Array.isArray(args.guarniciones)) {
       throw new ErrorDeAccion('Las guarniciones tienen que ser una lista.');
+    }
     cambios.guarniciones_hoy = args.guarniciones
       .map((item) => String(item || '').trim())
       .filter(Boolean);
@@ -764,8 +766,9 @@ async function prepararPedido(args = {}) {
     valor: '',
   }));
   detalles.push({ etiqueta: 'Cliente', valor: nombre });
-  if (args.cliente_telefono)
+  if (args.cliente_telefono) {
     detalles.push({ etiqueta: 'Teléfono', valor: String(args.cliente_telefono) });
+  }
   detalles.push({
     etiqueta: 'Entrega',
     valor: tipoEntrega === 'delivery' ? `Delivery a ${args.direccion}` : 'Retira en el local',
@@ -850,8 +853,9 @@ function ejecutarCancelarPedido(argumentos, contexto = {}) {
   const pedido = db.prepare('SELECT * FROM pedidos WHERE id = ?').get(argumentos.pedido_id);
   if (!pedido) throw new ErrorDeAccion('El pedido ya no existe.');
   if (pedido.estado === 'cancelado') throw new ErrorDeAccion('El pedido ya está cancelado.');
-  if (pedido.estado === 'entregado')
+  if (pedido.estado === 'entregado') {
     throw new ErrorDeAccion('No se puede cancelar un pedido entregado.');
+  }
 
   const aplicar = db.transaction(() => {
     db.prepare(
@@ -965,8 +969,9 @@ function prepararMarcarPagado(args = {}) {
 function ejecutarMarcarPagado(argumentos) {
   const pedido = db.prepare('SELECT * FROM pedidos WHERE id = ?').get(argumentos.pedido_id);
   if (!pedido) throw new ErrorDeAccion('El pedido ya no existe.');
-  if (pedido.estado === 'cancelado')
+  if (pedido.estado === 'cancelado') {
     throw new ErrorDeAccion('No se puede marcar como pagado un pedido cancelado.');
+  }
   if (pedido.pago_estado === 'pagado') throw new ErrorDeAccion('El pedido ya figura como pagado.');
 
   db.prepare(

@@ -8,15 +8,12 @@ import {
   Clock,
   User,
   Activity,
-  Filter,
   ChevronDown,
   AlertCircle,
   FileText,
   Bot,
   Zap,
   AlertTriangle,
-  BarChart3,
-  MessageSquare,
   Cpu,
   Timer,
 } from 'lucide-react';
@@ -410,7 +407,9 @@ function SistemaSection({
                     <td className="px-4 py-3">
                       {log.modulo ? (
                         <span
-                          className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold ${getModuleColor(log.modulo)}`}
+                          className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold ${getModuleColor(
+                            log.modulo
+                          )}`}
                         >
                           {log.modulo}
                         </span>
@@ -421,7 +420,9 @@ function SistemaSection({
                     <td className="px-4 py-3">
                       {log.accion ? (
                         <span
-                          className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold ${getActionColor(log.accion)}`}
+                          className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold ${getActionColor(
+                            log.accion
+                          )}`}
                         >
                           {log.accion}
                         </span>
@@ -649,7 +650,9 @@ function IaSection({
                     <td className="px-4 py-3 whitespace-nowrap">
                       <div className="flex items-center gap-1.5">
                         <span
-                          className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold ${getIaTipoColor(log.tipo)}`}
+                          className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold ${getIaTipoColor(
+                            log.tipo
+                          )}`}
                         >
                           {log.tipo || '—'}
                         </span>
@@ -756,9 +759,15 @@ function FiltrosBar({
           />
         </div>
         <div className="relative">
-          <label className="mb-1 block text-[10px] font-semibold text-gray-400">Registros</label>
+          <label
+            htmlFor="field-Auditoria-jsx-759-0"
+            className="mb-1 block text-[10px] font-semibold text-gray-400"
+          >
+            Registros
+          </label>
           <div className="relative">
             <select
+              id="field-Auditoria-jsx-759-0"
               value={limit}
               onChange={(e) => setLimit(Number(e.target.value))}
               className="appearance-none rounded-2xl border border-gray-200 bg-gray-50 px-4 py-2.5 pr-8 text-sm font-semibold text-gray-700 outline-none transition focus:border-[#DC1F2D] focus:ring-2 focus:ring-[#DC1F2D]/20"
@@ -776,8 +785,14 @@ function FiltrosBar({
           </div>
         </div>
         <div>
-          <label className="mb-1 block text-[10px] font-semibold text-gray-400">Desde</label>
+          <label
+            htmlFor="field-Auditoria-jsx-779-1"
+            className="mb-1 block text-[10px] font-semibold text-gray-400"
+          >
+            Desde
+          </label>
           <input
+            id="field-Auditoria-jsx-779-1"
             type="date"
             value={dateFrom}
             onChange={(e) => setDateFrom(e.target.value)}
@@ -785,8 +800,14 @@ function FiltrosBar({
           />
         </div>
         <div>
-          <label className="mb-1 block text-[10px] font-semibold text-gray-400">Hasta</label>
+          <label
+            htmlFor="field-Auditoria-jsx-788-2"
+            className="mb-1 block text-[10px] font-semibold text-gray-400"
+          >
+            Hasta
+          </label>
           <input
+            id="field-Auditoria-jsx-788-2"
             type="date"
             value={dateTo}
             onChange={(e) => setDateTo(e.target.value)}
@@ -845,7 +866,7 @@ function EmptyRow({ colSpan = 6, search, error }) {
           {error ? 'No se pudieron cargar los registros' : 'No hay registros de auditoría'}
         </p>
         {search && (
-          <p className="text-xs text-gray-400 mt-1">No coincide ningún resultado con "{search}"</p>
+          <p className="mt-1 text-xs text-gray-400">No coincide ningún resultado con “{search}”</p>
         )}
       </td>
     </tr>
@@ -932,11 +953,6 @@ export default function Auditoria() {
       setIaLoading(false);
     }
   }, [iaLimit, iaDateFrom, iaDateTo]);
-
-  useEffect(() => {
-    loadSistema();
-    loadIa();
-  }, []);
 
   // Recargar automáticamente cuando cambian filtros de fecha/límite
   useEffect(() => {

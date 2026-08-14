@@ -41,8 +41,9 @@ function waitForHealth(port, timeoutMs = 20000) {
       request.setTimeout(1500, () => request.destroy());
     };
     const retry = () => {
-      if (Date.now() >= deadline)
+      if (Date.now() >= deadline) {
         return reject(new Error('El servidor temporal no respondió /api/health'));
+      }
       setTimeout(attempt, 200);
     };
     attempt();

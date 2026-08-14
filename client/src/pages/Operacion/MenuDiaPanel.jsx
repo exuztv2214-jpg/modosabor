@@ -38,7 +38,7 @@ export default function MenuDiaPanel({
     });
   };
 
-  const items = menuDia.items || [];
+  const items = useMemo(() => menuDia.items || [], [menuDia.items]);
   const activos = useMemo(() => items.filter((item) => Number(item.disponible_hoy) === 1), [items]);
 
   const guardados = useMemo(() => {
@@ -67,7 +67,9 @@ export default function MenuDiaPanel({
         title="Menú del día"
         subtitle={
           activos.length > 0
-            ? `${activos.length} ${activos.length === 1 ? 'plato sale' : 'platos salen'} hoy · ${menuDia.fecha || ''}`
+            ? `${activos.length} ${activos.length === 1 ? 'plato sale' : 'platos salen'} hoy · ${
+                menuDia.fecha || ''
+              }`
             : `No hay un menú publicado para hoy · ${menuDia.fecha || ''}`
         }
         action={
@@ -100,7 +102,9 @@ export default function MenuDiaPanel({
               onClick={onGuardar}
               disabled={guardando}
               style={sucio ? { background: BRAND, color: '#FFFFFF' } : undefined}
-              className={`flex h-10 items-center gap-2 rounded-xl px-4 text-[12px] font-semibold transition disabled:opacity-50 ${sucio ? '' : 'bg-gray-100 text-gray-500'}`}
+              className={`flex h-10 items-center gap-2 rounded-xl px-4 text-[12px] font-semibold transition disabled:opacity-50 ${
+                sucio ? '' : 'bg-gray-100 text-gray-500'
+              }`}
             >
               <Save size={15} strokeWidth={STROKE} />
               {guardando ? 'Publicando…' : sucio ? 'Guardar y publicar hoy' : 'Publicado hoy'}

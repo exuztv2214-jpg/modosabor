@@ -87,6 +87,11 @@ export default function ProductoCard({
       }}
     >
       <div
+        role="button"
+        tabIndex={0}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') event.currentTarget.click();
+        }}
         className={`relative aspect-[4/3] overflow-hidden bg-gray-100 rounded-t-[24px] ${
           disponible ? 'cursor-pointer' : ''
         }`}

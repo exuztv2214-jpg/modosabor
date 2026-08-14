@@ -122,7 +122,7 @@ export default function LiveTrackingMap({
   // recta cada vez que el rider avanza unos metros.
   const rutaPorCallesRef = useRef(false);
   const [mapLoaded, setMapLoaded] = useState(false);
-  const [loadError, setLoadError] = useState('');
+  const [loadError] = useState('');
   const [distance, setDistance] = useState(null);
   const [isArriving, setIsArriving] = useState(false);
   const prevRiderRef = useRef({ lat: null, lng: null });

@@ -113,7 +113,6 @@ export default function ActionDialog({
             ) : null}
             <input
               id="action-dialog-input"
-              autoFocus
               value={inputValue}
               onChange={(event) => onInputChange(event.target.value)}
               placeholder={inputPlaceholder}

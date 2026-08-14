@@ -590,6 +590,11 @@ export default function Cupones() {
       {/* ── Modal ── */}
       {modalOpen && (
         <div
+          role="button"
+          tabIndex={0}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') event.currentTarget.click();
+          }}
           className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/35 p-4 backdrop-blur-sm"
           onClick={fondoModal(cerrarModal)}
         >

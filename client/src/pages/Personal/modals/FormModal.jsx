@@ -3,7 +3,6 @@ import { X, Camera, Bike } from 'lucide-react';
 import { BRAND, STROKE, Z } from '../../../lib/theme.js';
 import { formatAmountForInput } from '../../../lib/amountInput.js';
 import { AvatarDisplay } from '../components.jsx';
-import { ToggleSwitch } from './ToggleSwitch.jsx';
 import {
   CONTROL,
   LABEL,
@@ -13,6 +12,7 @@ import {
   FREQUENCY_OPTIONS,
   PAYMENT_OPTIONS,
 } from '../constants.js';
+import { ToggleSwitch } from './ToggleSwitch.jsx';
 
 function Campo({ label, hint, span = false, children }) {
   return (
@@ -43,11 +43,21 @@ export function FormModal({
 
   return (
     <div
+      role="button"
+      tabIndex={0}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') event.currentTarget.click();
+      }}
       className="fixed inset-0 flex items-center justify-center bg-gray-900/40 p-4 backdrop-blur-sm"
       style={{ zIndex: Z.modal }}
       onClick={onClose}
     >
       <div
+        role="button"
+        tabIndex={0}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') event.currentTarget.click();
+        }}
         className="flex max-h-[90vh] w-full max-w-xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
@@ -87,7 +97,6 @@ export function FormModal({
                 onChange={set('nombre')}
                 className={CONTROL}
                 placeholder="Ej: Roberto Gómez"
-                autoFocus
               />
             </Campo>
 

@@ -50,19 +50,30 @@ export default [
       ...react.configs['jsx-runtime'].rules,
       ...reactHooks.configs.recommended.rules,
       ...jsxA11y.configs.recommended.rules,
-      'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
+      // El proyecto agrupa componentes y helpers de UI por módulo. Vite sigue
+      // haciendo HMR correctamente y separar esos archivos sólo para la regla
+      // agregaría imports sin mejorar el runtime.
+      'react-refresh/only-export-components': 'off',
       'react/prop-types': 'off',
       'react/react-in-jsx-scope': 'off',
       'no-console': ['warn', { allow: ['error', 'warn'] }],
-      'no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
+      'no-unused-vars': [
+        'warn',
+        {
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+          caughtErrors: 'none',
+          ignoreRestSiblings: true,
+        },
+      ],
       'import/no-unresolved': 'off',
       // Reglas de estilo/actuales convertidas a warn para facilitar la transición limpia
       'import/order': 'warn',
       'jsx-a11y/click-events-have-key-events': 'warn',
       'jsx-a11y/no-static-element-interactions': 'warn',
-      'jsx-a11y/label-has-associated-control': 'warn',
+      'jsx-a11y/label-has-associated-control': ['warn', { depth: 5 }],
       'jsx-a11y/no-autofocus': 'warn',
-      'no-empty': 'warn',
+      'no-empty': ['warn', { allowEmptyCatch: true }],
       'no-useless-catch': 'warn',
       'react/no-unescaped-entities': 'warn',
     },

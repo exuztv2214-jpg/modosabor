@@ -26,8 +26,9 @@ function parseJson(value, fallback) {
   if (
     Array.isArray(value) ||
     (typeof fallback === 'object' && !Array.isArray(fallback) && typeof value === 'object')
-  )
+  ) {
     return value;
+  }
   try {
     const parsed = JSON.parse(value);
     if (parsed === null || parsed === undefined) return fallback;

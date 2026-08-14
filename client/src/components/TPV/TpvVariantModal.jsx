@@ -2,8 +2,8 @@ import { useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { Check, X } from 'lucide-react';
 
-import { BRAND, fmt, STROKE } from './tpvUi.jsx';
 import { faltaElegirGrupo, grupoEsObligatorio } from '../../lib/variantesObligatorias.js';
+import { BRAND, fmt, STROKE } from './tpvUi.jsx';
 
 /**
  * Modal de armado de producto.
@@ -87,6 +87,11 @@ export default function TpvVariantModal({
 
   return (
     <div
+      role="button"
+      tabIndex={0}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') event.currentTarget.click();
+      }}
       className="fixed inset-0 z-[70] flex items-center justify-center bg-gray-900/40 p-4 backdrop-blur-[2px]"
       onClick={onClose}
     >

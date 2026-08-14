@@ -378,11 +378,21 @@ export default function KDS() {
     <div className="py-6">
       {opcionesModal && (
         <div
+          role="button"
+          tabIndex={0}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') event.currentTarget.click();
+          }}
           className="fixed inset-0 flex items-end justify-center bg-gray-900/40 p-4 backdrop-blur-sm sm:items-center"
           style={{ zIndex: Z.modal }}
           onClick={() => setOpcionesModal(null)}
         >
           <div
+            role="button"
+            tabIndex={0}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') event.currentTarget.click();
+            }}
             className="w-full max-w-xs overflow-hidden rounded-2xl bg-white shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >

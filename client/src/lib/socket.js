@@ -1,5 +1,5 @@
 import { io } from 'socket.io-client';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 
 import { SOCKET_URL } from './runtime';
 
@@ -355,11 +355,14 @@ class SocketManager {
 
 export const socketManager = new SocketManager();
 
-export function useSocket(event, callback, deps = []) {
+export function useSocket(event, callback, _deps = []) {
+  const callbackRef = useRef(callback);
+  callbackRef.current = callback;
+
   useEffect(() => {
-    const unsubscribe = socketManager.on(event, callback);
+    const unsubscribe = socketManager.on(event, (...args) => callbackRef.current(...args));
     return () => {
       unsubscribe();
     };
-  }, deps);
+  }, [event]);
 }

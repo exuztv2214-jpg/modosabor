@@ -110,7 +110,6 @@ export default function NuevoPlatoModal({ menuDia, onClose, onCreado }) {
               Nombre del plato
             </span>
             <input
-              autoFocus
               value={form.nombre}
               onChange={(event) => setForm((prev) => ({ ...prev, nombre: event.target.value }))}
               placeholder="Ej: Guiso de lentejas"
@@ -127,7 +126,11 @@ export default function NuevoPlatoModal({ menuDia, onClose, onCreado }) {
                 key={opcion.value}
                 type="button"
                 onClick={() => cambiarTipo(opcion.value)}
-                className={`h-9 flex-1 rounded-lg text-[12px] transition ${form.tipo === opcion.value ? 'bg-white font-semibold text-gray-900 shadow-sm' : 'font-medium text-gray-500'}`}
+                className={`h-9 flex-1 rounded-lg text-[12px] transition ${
+                  form.tipo === opcion.value
+                    ? 'bg-white font-semibold text-gray-900 shadow-sm'
+                    : 'font-medium text-gray-500'
+                }`}
               >
                 {opcion.label}
               </button>
@@ -188,7 +191,11 @@ export default function NuevoPlatoModal({ menuDia, onClose, onCreado }) {
                         }))
                       }
                       style={activa ? { background: BRAND, color: '#FFFFFF' } : undefined}
-                      className={`rounded-lg px-3 py-1.5 text-[12px] transition ${activa ? 'font-semibold' : 'bg-gray-100 font-medium text-gray-600 hover:bg-gray-200'}`}
+                      className={`rounded-lg px-3 py-1.5 text-[12px] transition ${
+                        activa
+                          ? 'font-semibold'
+                          : 'bg-gray-100 font-medium text-gray-600 hover:bg-gray-200'
+                      }`}
                     >
                       {guarnicion}
                     </button>

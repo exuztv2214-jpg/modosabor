@@ -18,7 +18,7 @@ async function fetch(url, options = {}) {
           try {
             const body = data ? JSON.parse(data) : null;
             resolve({ status: res.statusCode, body });
-          } catch (e) {
+          } catch (_e) {
             resolve({ status: res.statusCode, body: data });
           }
         });

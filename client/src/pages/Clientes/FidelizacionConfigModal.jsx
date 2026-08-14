@@ -20,10 +20,20 @@ export default function FidelizacionConfigModal({
 
   return (
     <div
+      role="button"
+      tabIndex={0}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') event.currentTarget.click();
+      }}
       className="fixed inset-0 z-[10000] flex items-center justify-center bg-slate-900/35 p-4 backdrop-blur-sm"
       onClick={onClose}
     >
       <div
+        role="button"
+        tabIndex={0}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') event.currentTarget.click();
+        }}
         className="w-full max-w-lg rounded-2xl bg-white shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
@@ -61,8 +71,14 @@ export default function FidelizacionConfigModal({
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="text-[12px] font-medium text-gray-600">Compra mínima</label>
+              <label
+                htmlFor="field-FidelizacionConfigModal-jsx-64-0"
+                className="text-[12px] font-medium text-gray-600"
+              >
+                Compra mínima
+              </label>
               <input
+                id="field-FidelizacionConfigModal-jsx-64-0"
                 type="number"
                 min="0"
                 value={fidelidadConfig.monto_minimo_sello}
@@ -72,8 +88,14 @@ export default function FidelizacionConfigModal({
               <p className="mt-1 text-[11px] text-gray-400">Para que la compra cuente un sello</p>
             </div>
             <div>
-              <label className="text-[12px] font-medium text-gray-600">Sellos por premio</label>
+              <label
+                htmlFor="field-FidelizacionConfigModal-jsx-75-1"
+                className="text-[12px] font-medium text-gray-600"
+              >
+                Sellos por premio
+              </label>
               <input
+                id="field-FidelizacionConfigModal-jsx-75-1"
                 type="number"
                 // Sin mínimo se podía guardar 0 y el cálculo del progreso
                 // quedaba dividiendo por cero.
@@ -89,8 +111,14 @@ export default function FidelizacionConfigModal({
           </div>
 
           <div>
-            <label className="text-[12px] font-medium text-gray-600">Qué se gana</label>
+            <label
+              htmlFor="field-FidelizacionConfigModal-jsx-92-2"
+              className="text-[12px] font-medium text-gray-600"
+            >
+              Qué se gana
+            </label>
             <textarea
+              id="field-FidelizacionConfigModal-jsx-92-2"
               value={fidelidadConfig.premio_descripcion}
               onChange={(e) => set('premio_descripcion', e.target.value)}
               className={CONTROL + ' mt-1 h-20 resize-none py-2.5'}

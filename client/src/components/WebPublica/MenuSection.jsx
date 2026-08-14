@@ -162,9 +162,13 @@ export default function MenuSection({
           </p>
           <p className="mt-1.5 text-base font-medium text-gray-500">
             {busqueda
-              ? `${productosFiltrados.length} resultado${productosFiltrados.length === 1 ? '' : 's'} para "${busqueda}"`
+              ? `${productosFiltrados.length} resultado${
+                  productosFiltrados.length === 1 ? '' : 's'
+                } para "${busqueda}"`
               : catActiva
-                ? `${productosFiltrados.length} opciones en ${categorias.find((cat) => cat.id === catActiva)?.nombre || 'esta categoría'}`
+                ? `${productosFiltrados.length} opciones en ${
+                    categorias.find((cat) => cat.id === catActiva)?.nombre || 'esta categoría'
+                  }`
                 : quickFilter !== 'all'
                   ? `${activeQuickFilter.count} opciones en ${activeQuickFilter.label.toLowerCase()}`
                   : `${totalDisponibles} productos disponibles ahora`}
@@ -324,7 +328,7 @@ export default function MenuSection({
           </div>
           {busqueda ? (
             <>
-              <p className="text-xl font-bold text-gray-400">No encontramos "{busqueda}"</p>
+              <p className="text-xl font-bold text-gray-400">No encontramos “{busqueda}”</p>
               <button
                 onClick={() => setBusqueda('')}
                 className="mt-4 text-sm font-bold hover:underline"

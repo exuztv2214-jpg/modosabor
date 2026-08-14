@@ -12,8 +12,8 @@ import {
   buildWhatsAppUrl,
 } from '../lib/webPublicaHelpers';
 
-import TarjetaFidelidad from './ClubFidelidad/TarjetaFidelidad.jsx';
 import TarjetaFidelidadFisica from '../components/TarjetaFidelidadFisica.jsx';
+import TarjetaFidelidad from './ClubFidelidad/TarjetaFidelidad.jsx';
 import FormularioCliente from './ClubFidelidad/FormularioCliente.jsx';
 import StatsCliente from './ClubFidelidad/StatsCliente.jsx';
 import ComoFunciona from './ClubFidelidad/ComoFunciona.jsx';
@@ -129,6 +129,8 @@ export default function ClubFidelidad() {
 
   useEffect(() => {
     loadCard();
+    // La carga depende del código público; loadCard se recrea sólo para usar el estado actual.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [codigo]);
 
   useEffect(() => {

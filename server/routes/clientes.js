@@ -84,7 +84,7 @@ function buildCampaignMessage(template, payload) {
     .trim();
 }
 
-function buildCampaignPayload(cliente, config = {}) {
+function _buildCampaignPayload(cliente, config = {}) {
   const codigo = cliente?.codigo_tarjeta || `MS-${String(cliente?.id || '').padStart(6, '0')}`;
   const telefono = normalizePhone(cliente?.telefono);
   const pedidoUrl = String(config.public_app_url || config.crm_link_campanas || '').replace(
@@ -270,9 +270,9 @@ function classifyCliente(cliente) {
     totalPedidos >= 10 ||
     ['Oro', 'Platino'].includes(cliente.nivel) ||
     totalGastado >= 120000
-  )
+  ) {
     estado = 'vip';
-  else if (diasInactivo !== null && diasInactivo >= 60) estado = 'perdido';
+  } else if (diasInactivo !== null && diasInactivo >= 60) estado = 'perdido';
   else if (diasInactivo !== null && diasInactivo >= 30) estado = 'riesgo';
   else if (totalPedidos <= 1 || !cliente.ultima_compra) estado = 'nuevo';
   else if (totalPedidos >= 5 && (diasInactivo === null || diasInactivo < 30)) estado = 'recurrente';
@@ -300,7 +300,7 @@ function getClienteRow(clienteId) {
     .get(clienteId);
 }
 
-function getClientesByIds(clienteIds = []) {
+function _getClientesByIds(clienteIds = []) {
   if (!Array.isArray(clienteIds) || !clienteIds.length) return [];
   const placeholders = clienteIds.map(() => '?').join(', ');
   return db
@@ -540,8 +540,9 @@ router.get('/segmentos', auth, requirePermission('clientes.view'), (req, res) =>
         cliente.cumpleEsteMes ||
         (cliente.fecha_nacimiento &&
           String(cliente.fecha_nacimiento).slice(5, 7) === new Date().toISOString().slice(5, 7))
-      )
+      ) {
         acc.cumpleMes += 1;
+      }
       return acc;
     },
     {

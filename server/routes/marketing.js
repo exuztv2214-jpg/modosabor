@@ -1,11 +1,9 @@
-const express = require('express');
 const path = require('path');
+const express = require('express');
 const multer = require('multer');
 const auth = require('../middleware/auth');
 const { requirePermission } = require('../utils/permissions');
-const db = require('../db');
 const { uploadsDir, ensureDir } = require('../utils/storagePaths');
-const { getConfigMap } = require('../utils/mercadoPago');
 const {
   autopublishFacebookGroup,
   autopublishFacebookQueue,

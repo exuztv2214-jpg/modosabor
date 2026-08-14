@@ -227,7 +227,7 @@ function asegurarCodigoTarjeta(clienteId) {
   try {
     db.prepare('UPDATE clientes SET codigo_tarjeta = ? WHERE id = ?').run(nuevoCodigo, clienteId);
     return nuevoCodigo;
-  } catch (e) {
+  } catch (_e) {
     // Si falla por unicidad, reintentar una vez
     nuevoCodigo = generarCodigoTarjeta();
     db.prepare('UPDATE clientes SET codigo_tarjeta = ? WHERE id = ?').run(nuevoCodigo, clienteId);

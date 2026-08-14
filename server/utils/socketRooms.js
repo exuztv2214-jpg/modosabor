@@ -20,8 +20,8 @@
  * que la conversión se hace acá una vez y no en cada `emit`.
  */
 const jwt = require('jsonwebtoken');
-const { getJwtSecret } = require('./authConfig');
 const db = require('../db');
+const { getJwtSecret } = require('./authConfig');
 const { parsePedidoItems } = require('./pedidoItems');
 const { centsToPesos } = require('./moneyConversion');
 const logger = require('./logger');
@@ -123,7 +123,7 @@ function initSocketSecurity(io) {
         socket.user = null;
       }
       next();
-    } catch (error) {
+    } catch (_error) {
       socket.authenticated = false;
       socket.user = null;
       next();
@@ -148,7 +148,7 @@ function initSocketSecurity(io) {
         if (user.rol === 'mozo') socket.join(`mozo_${user.id}`);
         socket.join('authenticated');
         socket.emit('authenticated', { success: true, rol: user.rol });
-      } catch (error) {
+      } catch (_error) {
         socket.emit('authenticated', { success: false, error: 'Token invalido' });
       }
     });

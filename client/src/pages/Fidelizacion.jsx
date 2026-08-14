@@ -17,7 +17,6 @@ import {
   TrendingUp,
   Crown,
   ChevronRight,
-  AlertCircle,
   CheckCircle,
   Pencil,
   X,
@@ -1277,10 +1276,14 @@ export default function Fidelizacion() {
               </p>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="mb-1.5 block text-[12px] font-medium text-gray-600">
+                  <label
+                    htmlFor="field-Fidelizacion-jsx-1280-0"
+                    className="mb-1.5 block text-[12px] font-medium text-gray-600"
+                  >
                     Δ Puntos
                   </label>
                   <input
+                    id="field-Fidelizacion-jsx-1280-0"
                     type="number"
                     value={ajusteForm.delta_puntos}
                     onChange={(e) => setAjusteForm((f) => ({ ...f, delta_puntos: e.target.value }))}
@@ -1289,10 +1292,14 @@ export default function Fidelizacion() {
                   />
                 </div>
                 <div>
-                  <label className="mb-1.5 block text-[12px] font-medium text-gray-600">
+                  <label
+                    htmlFor="field-Fidelizacion-jsx-1292-1"
+                    className="mb-1.5 block text-[12px] font-medium text-gray-600"
+                  >
                     Δ Sellos
                   </label>
                   <input
+                    id="field-Fidelizacion-jsx-1292-1"
                     type="number"
                     value={ajusteForm.delta_sellos}
                     onChange={(e) => setAjusteForm((f) => ({ ...f, delta_sellos: e.target.value }))}
@@ -1302,10 +1309,14 @@ export default function Fidelizacion() {
                 </div>
               </div>
               <div>
-                <label className="mb-1.5 block text-[12px] font-medium text-gray-600">
+                <label
+                  htmlFor="field-Fidelizacion-jsx-1305-2"
+                  className="mb-1.5 block text-[12px] font-medium text-gray-600"
+                >
                   Motivo (para el historial)
                 </label>
                 <input
+                  id="field-Fidelizacion-jsx-1305-2"
                   type="text"
                   required
                   value={ajusteForm.motivo}

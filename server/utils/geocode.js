@@ -69,7 +69,7 @@ function nominatimRequest(path) {
           try {
             const json = JSON.parse(data);
             resolve(json);
-          } catch (e) {
+          } catch (_e) {
             reject(new Error('Respuesta inválida de Nominatim'));
           }
         });
@@ -123,8 +123,8 @@ async function geocodeAddress(address, options = {}) {
     }
 
     const result = results[0];
-    let lat = Number(result.lat);
-    let lng = Number(result.lon);
+    const lat = Number(result.lat);
+    const lng = Number(result.lon);
 
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
       logger.warn('[geocode] Coordenadas inválidas para:', cleanAddress);

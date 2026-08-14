@@ -98,7 +98,6 @@ async function optimizeWebImage(file) {
   const qualities = [0.9, 0.84, 0.76, 0.68, 0.58];
   let bestBlob = null;
   for (const quality of qualities) {
-    // eslint-disable-next-line no-await-in-loop
     const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality));
     if (!blob) continue;
     if (!bestBlob || blob.size < bestBlob.size) {

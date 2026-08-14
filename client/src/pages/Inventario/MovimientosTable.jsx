@@ -52,8 +52,14 @@ export default function MovimientosTable({
 
       <div className="grid grid-cols-2 gap-2">
         <div>
-          <label className="block text-[11px] text-gray-500">Desde</label>
+          <label
+            htmlFor="field-MovimientosTable-jsx-55-0"
+            className="block text-[11px] text-gray-500"
+          >
+            Desde
+          </label>
           <input
+            id="field-MovimientosTable-jsx-55-0"
             type="date"
             value={movFechaDesde}
             onChange={(e) => onSetMovFechaDesde(e.target.value)}
@@ -61,8 +67,14 @@ export default function MovimientosTable({
           />
         </div>
         <div>
-          <label className="block text-[11px] text-gray-500">Hasta</label>
+          <label
+            htmlFor="field-MovimientosTable-jsx-64-1"
+            className="block text-[11px] text-gray-500"
+          >
+            Hasta
+          </label>
           <input
+            id="field-MovimientosTable-jsx-64-1"
             type="date"
             value={movFechaHasta}
             onChange={(e) => onSetMovFechaHasta(e.target.value)}

@@ -1,6 +1,5 @@
 import {
   Gift,
-  Star,
   Coffee,
   Croissant,
   IceCream,

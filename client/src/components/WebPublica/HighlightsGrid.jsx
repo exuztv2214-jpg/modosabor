@@ -2,7 +2,7 @@ export default function HighlightsGrid({ heroHighlights, colorPrimario, theme })
   return (
     <section className="px-4 py-6 md:px-6">
       <div className="mx-auto grid max-w-[1400px] gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {heroHighlights.map((item, index) => {
+        {heroHighlights.map((item) => {
           const Icon = item.icon;
           return (
             <div

@@ -392,8 +392,9 @@ function buildClientAnalytics(rows, desde, hasta) {
     (acc, cliente) => {
       const ultima = cliente.ultima_compra ? new Date(cliente.ultima_compra).getTime() : 0;
       const diasInactivo = ultima ? Math.max(0, Math.floor((Date.now() - ultima) / 86400000)) : 999;
-      if (['Oro', 'Platino'].includes(cliente.nivel) || Number(cliente.total_pedidos || 0) >= 10)
+      if (['Oro', 'Platino'].includes(cliente.nivel) || Number(cliente.total_pedidos || 0) >= 10) {
         acc.vip += 1;
+      }
       if (diasInactivo >= 30) acc.inactivos += 1;
       if (diasInactivo >= 30 && diasInactivo < 60) acc.riesgo += 1;
       if (diasInactivo >= 60) acc.perdidos += 1;
@@ -401,8 +402,9 @@ function buildClientAnalytics(rows, desde, hasta) {
       if (
         Number(cliente.total_gastado || 0) >= totalGastadoPromedio &&
         Number(cliente.total_pedidos || 0) >= 2
-      )
+      ) {
         acc.altoValor += 1;
+      }
       if (
         cliente.fecha_nacimiento &&
         String(cliente.fecha_nacimiento).slice(5, 7) === new Date().toISOString().slice(5, 7)
@@ -434,7 +436,7 @@ function buildClientAnalytics(rows, desde, hasta) {
   return { topClientes: clientesPeriodo, clientesInactivos, activosUnicos, segmentos, recompraPct };
 }
 
-function buildDeliveryAnalytics(rows, desde, hasta) {
+function buildDeliveryAnalytics(rows) {
   const deliveryRows = rows.filter((row) => row.tipo_entrega === 'delivery');
   const tiempos = deliveryRows
     .filter((row) => row.estado === 'entregado')

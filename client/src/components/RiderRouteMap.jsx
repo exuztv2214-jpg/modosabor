@@ -56,10 +56,12 @@ export default function RiderRouteMap({
   const routeLineRef = useRef(null);
   const deliveryZoneRef = useRef(null);
   const [mapLoaded, setMapLoaded] = useState(false);
-  const [loadError, setLoadError] = useState('');
+  const [loadError] = useState('');
   const [distance, setDistance] = useState(null);
   const [isArriving, setIsArriving] = useState(false);
   const prevRiderRef = useRef({ lat: null, lng: null });
+  const latestRiderRef = useRef({ lat: riderLat, lng: riderLng });
+  latestRiderRef.current = { lat: riderLat, lng: riderLng };
   const arrivingNotifiedRef = useRef(false);
   // Aceptamos tanto el punto exacto que comparte el cliente como el
   // aproximado que resolvio el geocoding. Un mapa con destino aproximado
@@ -114,10 +116,11 @@ export default function RiderRouteMap({
   useEffect(() => {
     if (!mapLoaded || !mapRef.current) return;
     if (mapInstanceRef.current) return;
+    const { lat: initialRiderLat, lng: initialRiderLng } = latestRiderRef.current;
 
     const center =
-      riderLat && riderLng
-        ? [riderLat, riderLng]
+      initialRiderLat && initialRiderLng
+        ? [initialRiderLat, initialRiderLng]
         : [effectiveClientLat || -27.16471, effectiveClientLng || -65.496712];
 
     const map = L.map(mapRef.current, {
@@ -168,18 +171,18 @@ export default function RiderRouteMap({
       clientMarkerRef.current = clientMarker;
     }
 
-    if (riderLat && riderLng) {
-      const riderMarker = L.marker([riderLat, riderLng], { icon: riderIcon })
+    if (initialRiderLat && initialRiderLng) {
+      const riderMarker = L.marker([initialRiderLat, initialRiderLng], { icon: riderIcon })
         .addTo(map)
         .bindPopup('Tu ubicación');
       riderMarkerRef.current = riderMarker;
     }
 
-    if (riderLat && riderLng && effectiveClientLat && effectiveClientLng) {
+    if (initialRiderLat && initialRiderLng && effectiveClientLat && effectiveClientLng) {
       // Intentar ruta real por OSRM, fallback a línea recta
       obtenerRutaPorCalles({
-        desdeLat: riderLat,
-        desdeLng: riderLng,
+        desdeLat: initialRiderLat,
+        desdeLng: initialRiderLng,
         hastaLat: effectiveClientLat,
         hastaLng: effectiveClientLng,
         urlBase: mapConfig?.ruteo_url,
@@ -204,15 +207,15 @@ export default function RiderRouteMap({
           // Fallback: línea recta
           const routeLine = drawStraightLine(
             L,
-            riderLat,
-            riderLng,
+            initialRiderLat,
+            initialRiderLng,
             effectiveClientLat,
             effectiveClientLng
           ).addTo(map);
           routeLineRef.current = routeLine;
 
           const bounds = L.latLngBounds(
-            [riderLat, riderLng],
+            [initialRiderLat, initialRiderLng],
             [effectiveClientLat, effectiveClientLng]
           );
           map.fitBounds(bounds, { padding: [80, 80] });
@@ -226,7 +229,7 @@ export default function RiderRouteMap({
         deliveryZoneRef.current = null;
       }
     };
-  }, [mapLoaded, effectiveClientLat, effectiveClientLng, clientAddress]);
+  }, [mapLoaded, effectiveClientLat, effectiveClientLng, clientAddress, mapConfig?.ruteo_url]);
 
   useEffect(() => {
     if (!mapInstanceRef.current || !riderMarkerRef.current) return;
@@ -328,7 +331,7 @@ export default function RiderRouteMap({
         }
       }
     }
-  }, [riderLat, riderLng, effectiveClientLat, effectiveClientLng]);
+  }, [riderLat, riderLng, effectiveClientLat, effectiveClientLng, mapConfig?.ruteo_url]);
 
   if (!hasClientCoordinates && clientAddress) {
     return (

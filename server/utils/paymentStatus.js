@@ -175,8 +175,9 @@ function shouldAutoSettleOnEntrega(pedido) {
     String(pedido.tipo_entrega || '')
       .trim()
       .toLowerCase() === 'mesa'
-  )
+  ) {
     return false;
+  }
   /*
     Se pasa el tipo de entrega porque un pedido viejo puede tener la columna
     `pago_estado` vacía, y en ese caso el estado se deduce. Sin este dato un

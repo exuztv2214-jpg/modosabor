@@ -28,10 +28,20 @@ export default function AjusteStockModal({
 
   return (
     <div
+      role="button"
+      tabIndex={0}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') event.currentTarget.click();
+      }}
       className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/35 p-4 backdrop-blur-sm"
       onClick={onCloseMovementModal}
     >
       <div
+        role="button"
+        tabIndex={0}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') event.currentTarget.click();
+        }}
         className="w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-2xl"
         onClick={(event) => event.stopPropagation()}
       >
@@ -82,8 +92,14 @@ export default function AjusteStockModal({
           </div>
 
           <div>
-            <label className="block text-[12px] font-medium text-gray-600">Cantidad</label>
+            <label
+              htmlFor="field-AjusteStockModal-jsx-85-0"
+              className="block text-[12px] font-medium text-gray-600"
+            >
+              Cantidad
+            </label>
             <input
+              id="field-AjusteStockModal-jsx-85-0"
               type="number"
               min="0"
               value={movementForm.cantidad}
@@ -115,8 +131,14 @@ export default function AjusteStockModal({
           ) : null}
 
           <div>
-            <label className="block text-[12px] font-medium text-gray-600">Motivo</label>
+            <label
+              htmlFor="field-AjusteStockModal-jsx-118-1"
+              className="block text-[12px] font-medium text-gray-600"
+            >
+              Motivo
+            </label>
             <input
+              id="field-AjusteStockModal-jsx-118-1"
               value={movementForm.motivo}
               onChange={(e) => onSetMovementForm((prev) => ({ ...prev, motivo: e.target.value }))}
               placeholder="Por qué se ajusta"

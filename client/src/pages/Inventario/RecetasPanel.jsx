@@ -69,8 +69,14 @@ export default function RecetasPanel({
 
       <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_180px]">
         <div>
-          <label className="block text-[12px] font-medium text-gray-600">Producto</label>
+          <label
+            htmlFor="field-RecetasPanel-jsx-72-0"
+            className="block text-[12px] font-medium text-gray-600"
+          >
+            Producto
+          </label>
           <select
+            id="field-RecetasPanel-jsx-72-0"
             value={selectedProductId}
             onChange={(e) => onSetSelectedProductId(e.target.value)}
             className={CONTROL + ' mt-1'}
@@ -84,8 +90,14 @@ export default function RecetasPanel({
         </div>
 
         <div>
-          <label className="block text-[12px] font-medium text-gray-600">Cómo lleva el stock</label>
+          <label
+            htmlFor="field-RecetasPanel-jsx-87-1"
+            className="block text-[12px] font-medium text-gray-600"
+          >
+            Cómo lleva el stock
+          </label>
           <select
+            id="field-RecetasPanel-jsx-87-1"
             value={productConfig.stock_mode}
             onChange={(e) => onSetProductConfig((p) => ({ ...p, stock_mode: e.target.value }))}
             className={CONTROL + ' mt-1 font-medium'}
@@ -225,8 +237,14 @@ export default function RecetasPanel({
           </p>
           <div className="mt-3 flex flex-wrap items-end gap-2">
             <div className="w-40">
-              <label className="block text-[12px] font-medium text-gray-600">Stock actual</label>
+              <label
+                htmlFor="field-RecetasPanel-jsx-228-2"
+                className="block text-[12px] font-medium text-gray-600"
+              >
+                Stock actual
+              </label>
               <input
+                id="field-RecetasPanel-jsx-228-2"
                 type="number"
                 min="0"
                 value={productConfig.stock_directo}

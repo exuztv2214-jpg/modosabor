@@ -216,13 +216,16 @@ router.post('/movimiento', auth, requirePermission('caja.manage'), (req, res) =>
   if (!activa) return res.status(400).json({ error: 'Debes abrir la caja primero' });
 
   const { tipo, monto, motivo } = req.body;
-  if (!['entrada', 'salida'].includes(tipo))
+  if (!['entrada', 'salida'].includes(tipo)) {
     return res.status(400).json({ error: 'Tipo invalido' });
+  }
   const montoNormalizado = parseMoneyInput(monto);
-  if (Number.isNaN(montoNormalizado) || montoNormalizado <= 0)
+  if (Number.isNaN(montoNormalizado) || montoNormalizado <= 0) {
     return res.status(400).json({ error: 'Monto debe ser mayor a 0' });
-  if (!String(motivo || '').trim())
+  }
+  if (!String(motivo || '').trim()) {
     return res.status(400).json({ error: 'Debes indicar un motivo' });
+  }
 
   const actor = actorFromRequest(req);
   const result = db
