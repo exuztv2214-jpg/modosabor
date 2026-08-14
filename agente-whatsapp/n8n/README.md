@@ -24,7 +24,7 @@ En n8n crear una credencial **OpenAI API** con:
 - API key: `NVIDIA_API_KEY`.
 - Base URL: `https://integrate.api.nvidia.com/v1`.
 
-En el nodo de chat elegir el modelo `z-ai/glm-5.2`, que es el modelo NVIDIA
+En el nodo de chat elegir el modelo `nvidia/nemotron-3.5-lightning-30b-a3b`, que es el modelo NVIDIA
 actualmente usado por Modo Sabor. La credencial debe ser de tipo OpenAI y usar
 `https://integrate.api.nvidia.com/v1` como Base URL.
 Esta API usa el formato compatible con OpenAI, por lo que no necesita un nodo

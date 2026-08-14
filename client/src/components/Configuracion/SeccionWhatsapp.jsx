@@ -400,7 +400,7 @@ export default function SeccionWhatsapp({ config, setConfig }) {
             description="Nombre exacto que usa la API."
             value={config?.whatsapp_emergencia_modelo || ''}
             onChange={(event) => editar('whatsapp_emergencia_modelo', event.target.value)}
-            placeholder="z-ai/glm-5.2"
+            placeholder="nvidia/nemotron-3.5-lightning-30b-a3b"
           />
         </div>
 

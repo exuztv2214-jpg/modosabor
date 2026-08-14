@@ -56,12 +56,16 @@ const workflow = {
     },
     {
       id: 'model-atencion',
-      name: 'NVIDIA GLM 5.2',
+      name: 'NVIDIA Nemotron 3.5 Lightning',
       type: '@n8n/n8n-nodes-langchain.lmChatOpenAi',
       typeVersion: 1.3,
       position: [-380, 420],
       parameters: {
-        model: { __rl: true, value: 'z-ai/glm-5.2', mode: 'id' },
+        model: {
+          __rl: true,
+          value: 'nvidia/nemotron-3.5-lightning-30b-a3b',
+          mode: 'id',
+        },
         responsesApiEnabled: false,
         options: {},
       },
@@ -214,7 +218,7 @@ const workflow = {
     'Entrada WhatsApp Web': {
       main: [[{ node: 'Chispita - Agente de pedidos', type: 'main', index: 0 }]],
     },
-    'NVIDIA GLM 5.2': {
+    'NVIDIA Nemotron 3.5 Lightning': {
       ai_languageModel: [
         [{ node: 'Chispita - Agente de pedidos', type: 'ai_languageModel', index: 0 }],
       ],
@@ -272,7 +276,7 @@ model.parameters = {
 model.credentials = {
   googlePalmApi: { id: fallbackCredentialId, name: 'Gemini Modo Sabor' },
 };
-delete fallback.connections['NVIDIA GLM 5.2'];
+delete fallback.connections['NVIDIA Nemotron 3.5 Lightning'];
 fallback.connections[model.name] = {
   ai_languageModel: [
     [{ node: 'Chispita - Agente de pedidos', type: 'ai_languageModel', index: 0 }],

@@ -73,7 +73,7 @@ function runSeed(db) {
     ['whatsapp_emergencia_activa', '1'],
     ['whatsapp_emergencia_proveedor', 'NVIDIA'],
     ['whatsapp_emergencia_base_url', 'https://integrate.api.nvidia.com/v1'],
-    ['whatsapp_emergencia_modelo', 'z-ai/glm-5.2'],
+    ['whatsapp_emergencia_modelo', 'nvidia/nemotron-3.5-lightning-30b-a3b'],
     ['whatsapp_agente_nombre', 'Chispita'],
     [
       'whatsapp_agente_estilo',

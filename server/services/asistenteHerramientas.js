@@ -4,6 +4,7 @@ const { buildCajaResumen } = require('../routes/caja');
 const { buildMenuDiaManagerPayload } = require('../routes/operacion');
 const { normalizePagoEstado, normalizeMetodoPago } = require('../utils/paymentStatus');
 const { envolverDato, envolverDatoInline } = require('../utils/sanitizarPrompt');
+const { decorateProductsWithInventory } = require('../utils/inventory');
 
 /**
  * Lo que el asistente puede consultar.
@@ -200,6 +201,86 @@ function stockBajo() {
       stock_actual: f.stock_actual,
       stock_minimo: f.stock_minimo,
       unidad: f.unidad,
+    })),
+  };
+}
+
+function normalizarBusqueda(valor) {
+  return String(valor || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+}
+
+/**
+ * Busca productos de la carta y devuelve el stock efectivo. Para los platos
+ * por receta no informa el stock_directo (que no representa unidades
+ * vendibles), sino lo que realmente se puede preparar con los insumos.
+ */
+function consultarProductos(args = {}) {
+  const termino = normalizarBusqueda(args.producto || args.nombre || '');
+  const filas = db
+    .prepare(
+      `SELECT p.id, p.nombre, p.descripcion, p.precio, p.activo, p.stock_mode,
+              p.stock_directo, p.menu_dia_base, c.nombre AS categoria
+         FROM productos p
+         LEFT JOIN categorias c ON c.id = p.categoria_id
+        ORDER BY p.activo DESC, p.nombre ASC`
+    )
+    .all()
+    .filter((fila) => !termino || normalizarBusqueda(fila.nombre).includes(termino))
+    .slice(0, 20);
+
+  return {
+    busqueda: envolverDatoInline(args.producto || args.nombre || ''),
+    cantidad: filas.length,
+    productos: decorateProductsWithInventory(db, filas).map((fila) => ({
+      id: Number(fila.id),
+      nombre: envolverDatoInline(fila.nombre),
+      categoria: envolverDatoInline(fila.categoria || ''),
+      descripcion: envolverDatoInline(String(fila.descripcion || '').slice(0, 300)),
+      precio_pesos: aPesos(fila.precio),
+      activo: Number(fila.activo) === 1,
+      es_menu_del_dia: Number(fila.menu_dia_base) === 1,
+      stock_tipo: fila.stock_mode === 'recipe' ? 'receta' : 'directo',
+      stock_disponible: Number(fila.stock_disponible || 0),
+      disponible_para_venta: Boolean(fila.disponible_para_venta) && Number(fila.activo) === 1,
+      receta: (fila.receta_resumen || []).map((item) => ({
+        insumo: envolverDatoInline(item.insumo_nombre),
+        cantidad: Number(item.cantidad || 0),
+        unidad: item.unidad,
+        condicion: item.condicion_tipo,
+        grupo: envolverDatoInline(item.condicion_grupo || ''),
+        opcion: envolverDatoInline(item.condicion_valor || ''),
+      })),
+    })),
+  };
+}
+
+function consultarInsumos(args = {}) {
+  const termino = normalizarBusqueda(args.insumo || args.nombre || '');
+  const filas = db
+    .prepare(
+      `SELECT id, nombre, rubro, unidad, stock_actual, stock_minimo, activo
+         FROM inventario_insumos
+        ORDER BY activo DESC, nombre ASC`
+    )
+    .all()
+    .filter((fila) => !termino || normalizarBusqueda(fila.nombre).includes(termino))
+    .slice(0, 30);
+
+  return {
+    busqueda: envolverDatoInline(args.insumo || args.nombre || ''),
+    cantidad: filas.length,
+    insumos: filas.map((fila) => ({
+      id: Number(fila.id),
+      nombre: envolverDatoInline(fila.nombre),
+      rubro: envolverDatoInline(fila.rubro || ''),
+      unidad: fila.unidad,
+      stock_actual: Number(fila.stock_actual || 0),
+      stock_minimo: Number(fila.stock_minimo || 0),
+      activo: Number(fila.activo) === 1,
     })),
   };
 }
@@ -676,6 +757,32 @@ const HERRAMIENTAS = [
     ejecutar: stockBajo,
   },
   {
+    nombre: 'consultar_productos',
+    descripcion:
+      'Busca productos de la carta por nombre y devuelve categoría, precio, estado y stock vendible real. Usala para preguntas sobre un producto, su precio, disponibilidad, receta o stock. No uses consultar_menu_del_dia salvo que la persona hable específicamente del menú del día.',
+    parametros: {
+      type: 'object',
+      properties: {
+        producto: { type: 'string', description: 'Nombre o parte del nombre del producto.' },
+      },
+      required: ['producto'],
+    },
+    ejecutar: consultarProductos,
+  },
+  {
+    nombre: 'consultar_insumos',
+    descripcion:
+      'Busca insumos de inventario por nombre y devuelve unidad, stock actual, mínimo y estado. Usala cuando pregunten por carne, pollo, queso u otro insumo, o antes de proponer un ajuste de stock de inventario.',
+    parametros: {
+      type: 'object',
+      properties: {
+        insumo: { type: 'string', description: 'Nombre o parte del nombre del insumo.' },
+      },
+      required: ['insumo'],
+    },
+    ejecutar: consultarInsumos,
+  },
+  {
     nombre: 'consultar_menu_del_dia',
     descripcion:
       'Biblioteca y menú actual: platos, si están activos hoy, precio, stock, descripción, tipo, guarniciones, extras, destacado y tiempo de preparación. Usala antes de editar, activar, desactivar o archivar un plato.',
@@ -828,6 +935,8 @@ module.exports = {
   ejecutarHerramienta,
   resolverRango,
   aPesos,
+  consultarProductos,
+  consultarInsumos,
   menuDelDiaActual,
   // Exportar diagnósticos para uso externo (ej: endpoint de revisión automática)
   revisionAutomatica,

@@ -376,6 +376,25 @@ function testAccionesOperativasCompletas() {
   console.log('  OK el chat cubre pedidos, stocks, recetas y menú del día');
 }
 
+function testConsultasBasicasDeCatalogoEInventario() {
+  const {
+    HERRAMIENTAS,
+    consultarProductos,
+    consultarInsumos,
+  } = require('../../services/asistenteHerramientas');
+  const nombres = new Set(HERRAMIENTAS.map((herramienta) => herramienta.nombre));
+  assert.ok(nombres.has('consultar_productos'), 'el chat debe poder consultar un producto puntual');
+  assert.ok(nombres.has('consultar_insumos'), 'el chat debe poder consultar un insumo puntual');
+
+  const productos = consultarProductos({ producto: '__NO_EXISTE__' });
+  const insumos = consultarInsumos({ insumo: '__NO_EXISTE__' });
+  assert.strictEqual(productos.cantidad, 0);
+  assert.deepStrictEqual(productos.productos, []);
+  assert.strictEqual(insumos.cantidad, 0);
+  assert.deepStrictEqual(insumos.insumos, []);
+  console.log('  OK el chat puede distinguir productos, insumos y menú del día');
+}
+
 async function testAccionesOperativasEjecutan() {
   const db = require('../../db');
   const { prepararAccion, ejecutarAccion } = require('../../services/asistenteAcciones');
@@ -651,6 +670,7 @@ async function run() {
   testFirmaDePropuestas();
   testAccionesNoEjecutanAlPrepararse();
   testAccionesOperativasCompletas();
+  testConsultasBasicasDeCatalogoEInventario();
   if (process.env.ISOLATED_OPERATIONAL_TEST === '1') {
     await testAccionesOperativasEjecutan();
   }
