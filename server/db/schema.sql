@@ -473,6 +473,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_pedidos_mozo_idempotency
 CREATE UNIQUE INDEX IF NOT EXISTS idx_pedidos_whatsapp_idempotency
   ON pedidos(idempotency_key)
   WHERE origen = 'whatsapp' AND idempotency_key <> '';
+CREATE UNIQUE INDEX IF NOT EXISTS idx_pedidos_idempotency
+  ON pedidos(idempotency_key)
+  WHERE TRIM(COALESCE(idempotency_key,'')) != '';
 
 -- Una mesa puede tener muchas comandas, pero la operación se asigna a un
 -- único mozo mientras esté abierta. Evita cargas simultáneas sin contexto.

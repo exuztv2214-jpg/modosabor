@@ -1421,7 +1421,14 @@ function enrichOrderItemsWithCatalog(db, items = []) {
   });
 }
 
-async function createRealOrder(db, body = {}) {
+async function createRealOrder(db, body = {}, dependencias = {}) {
+  const idempotencyKey = cleanText(body.idempotencyKey || body.idempotency_key || '');
+  if (idempotencyKey) {
+    const existente = db
+      .prepare("SELECT * FROM pedidos WHERE TRIM(COALESCE(idempotency_key, '')) = ?")
+      .get(idempotencyKey);
+    if (existente) return (dependencias.hydratePedido || hydratePedido)(existente);
+  }
   const existingCustomer = findClienteByPhone(db, body.cliente_telefono || '');
   const enrichedItems = enrichOrderItemsWithCatalog(db, body.items || []);
   const menuDiaIds = enrichedItems
@@ -1451,17 +1458,21 @@ async function createRealOrder(db, body = {}) {
     metodo_pago: normalizeText(body.metodo_pago).includes('transfer')
       ? 'transferencia'
       : 'efectivo',
+    idempotency_key: idempotencyKey,
   };
 
-  const payload = await buildPedidoPayload(normalizedBody, { config: getConfigMap(db) });
-  const pedido = createPedidoWithInventory({
+  const construirPayload = dependencias.buildPedidoPayload || buildPedidoPayload;
+  const crearPedido = dependencias.createPedidoWithInventory || createPedidoWithInventory;
+  const hidratar = dependencias.hydratePedido || hydratePedido;
+  const payload = await construirPayload(normalizedBody, { config: getConfigMap(db) });
+  const pedido = crearPedido({
     ...payload,
     pago_estado: resolveInitialPagoEstado({
       metodoPago: payload.metodo_pago,
       origen: payload.origen,
     }),
   });
-  return hydratePedido(pedido);
+  return hidratar(pedido);
 }
 
 module.exports = {

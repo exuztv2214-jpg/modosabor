@@ -20,6 +20,14 @@ function textoOpciones(variantes = {}, extras = [], notas = '') {
 }
 
 function crearCarritoWhatsapp(db = defaultDb) {
+  function ultimoBorrador(telefono) {
+    return db
+      .prepare(
+        'SELECT * FROM whatsapp_pedidos_borrador WHERE telefono = ? ORDER BY id DESC LIMIT 1'
+      )
+      .get(String(telefono));
+  }
+
   function borradorAbierto(telefono) {
     return db
       .prepare(
@@ -200,7 +208,78 @@ function crearCarritoWhatsapp(db = defaultDb) {
     return verCarrito(telefono);
   }
 
-  return { verCarrito, agregarItem, quitarItem, modificarItem, vaciarCarrito };
+  async function confirmarCarrito(telefono, datos = {}, dependencias = {}) {
+    const borrador = ultimoBorrador(telefono);
+    if (!borrador) throw new Error('No hay un carrito para confirmar');
+    if (borrador.pedido_id) {
+      return db.prepare('SELECT * FROM pedidos WHERE id = ?').get(borrador.pedido_id);
+    }
+    exigirEditable(borrador);
+    const items = db
+      .prepare('SELECT * FROM whatsapp_pedidos_borrador_items WHERE borrador_id = ? ORDER BY id')
+      .all(borrador.id)
+      .map((item) => ({
+        producto_id: item.producto_id,
+        nombre: item.nombre,
+        cantidad: item.cantidad,
+        descripcion: item.descripcion,
+        variantes: json(item.variantes, {}),
+        extras: json(item.extras, []),
+      }));
+    if (!items.length) throw new Error('El carrito está vacío');
+
+    const mensajeId = String(datos.whatsappMessageId || '').trim();
+    if (!mensajeId) throw new Error('Falta el identificador del mensaje de confirmación');
+    const idempotencyKey = `whatsapp:${mensajeId}:${borrador.id}`;
+    const crearPedido =
+      dependencias.createRealOrder || require('../utils/systemClient').createRealOrder;
+    const administraTransaccion = !db.inTransaction;
+    try {
+      if (administraTransaccion) db.exec('BEGIN IMMEDIATE');
+      const pedido = await crearPedido(
+        db,
+        {
+          cliente_nombre: borrador.cliente_nombre,
+          cliente_telefono: String(telefono),
+          cliente_direccion: borrador.cliente_direccion,
+          tipo_entrega: borrador.tipo_entrega,
+          metodo_pago: borrador.metodo_pago,
+          notas: borrador.notas,
+          items,
+          origen: 'whatsapp',
+          idempotencyKey,
+        },
+        dependencias
+      );
+      dependencias.antesDeCerrar?.({ borrador, pedido });
+      const cierre = db
+        .prepare(
+          `UPDATE whatsapp_pedidos_borrador
+              SET pedido_id = ?, estado = 'confirmado', actualizado_en = CURRENT_TIMESTAMP
+            WHERE id = ? AND pedido_id IS NULL AND estado = 'abierto'`
+        )
+        .run(pedido.id, borrador.id);
+      if (!cierre.changes) throw new Error('El carrito ya fue confirmado');
+      if (administraTransaccion) db.exec('COMMIT');
+      return pedido;
+    } catch (error) {
+      if (administraTransaccion) {
+        try {
+          db.exec('ROLLBACK');
+        } catch {}
+      }
+      throw error;
+    }
+  }
+
+  return {
+    verCarrito,
+    agregarItem,
+    quitarItem,
+    modificarItem,
+    vaciarCarrito,
+    confirmarCarrito,
+  };
 }
 
 module.exports = { crearCarritoWhatsapp, ...crearCarritoWhatsapp(defaultDb) };

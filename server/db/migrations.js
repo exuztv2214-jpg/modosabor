@@ -128,6 +128,11 @@ function runMigrations(db) {
   ensureColumn(db, 'pedidos', 'mozo_nombre', "TEXT DEFAULT ''");
   ensureColumn(db, 'pedidos', 'idempotency_key', "TEXT DEFAULT ''");
   db.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_pedidos_idempotency
+      ON pedidos(idempotency_key)
+      WHERE TRIM(COALESCE(idempotency_key, '')) != ''
+  `);
+  db.exec(`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_pedidos_mozo_idempotency
       ON pedidos(mozo_usuario_id, idempotency_key)
       WHERE mozo_usuario_id IS NOT NULL AND idempotency_key <> ''

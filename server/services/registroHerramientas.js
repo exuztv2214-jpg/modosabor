@@ -10,7 +10,6 @@ const {
   getDeliveryInfo,
   getCustomerSnapshot,
   getCurrentOrderSnapshot,
-  createRealOrder,
   comparablePhone,
 } = require('../utils/systemClient');
 const {
@@ -225,22 +224,15 @@ const HERRAMIENTAS_BASE = [
   },
   {
     nombre: 'crear_pedido',
-    descripcion: 'Crea una sola vez el pedido confirmado con precios del servidor.',
-    parametros: {
-      type: 'object',
-      properties: { pedido: { type: 'object' } },
-      required: ['pedido'],
-    },
+    descripcion: 'Confirma una sola vez el carrito actual con precios del servidor.',
+    parametros: schemaVacio,
     permiso: 'CREATE_ORDER',
     escribe: true,
-    ejecutar: (args, contexto = {}) => {
-      const telefono = telefonoSeguro(args?.pedido || {}, contexto);
-      return createRealOrder(contexto.db || defaultDb, {
-        ...(args?.pedido || {}),
-        cliente_telefono: telefono,
-        origen: 'whatsapp',
-      });
-    },
+    ejecutar: (_args, contexto = {}) =>
+      crearCarritoWhatsapp(contexto.db || defaultDb).confirmarCarrito(
+        telefonoSeguro({}, contexto),
+        { whatsappMessageId: contexto.mensajeId }
+      ),
   },
 ];
 

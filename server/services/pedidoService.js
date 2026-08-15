@@ -642,8 +642,9 @@ function createPedidoWithInventory(payload) {
     if (existing) return existing;
   }
 
+  const administraTransaccion = !db.inTransaction;
   try {
-    db.exec('BEGIN');
+    if (administraTransaccion) db.exec('BEGIN');
     const safePayload = sanitizePedidoReferences(payload);
     let pedido = createPedidoRecord(safePayload);
 
@@ -682,12 +683,14 @@ function createPedidoWithInventory(payload) {
       }
     }
 
-    db.exec('COMMIT');
+    if (administraTransaccion) db.exec('COMMIT');
     return db.prepare('SELECT * FROM pedidos WHERE id = ?').get(pedido.id);
   } catch (error) {
-    try {
-      db.exec('ROLLBACK');
-    } catch {}
+    if (administraTransaccion) {
+      try {
+        db.exec('ROLLBACK');
+      } catch {}
+    }
     if (idempotencyKey && (mozoUserId || whatsappIdempotency)) {
       const existing = db
         .prepare(
