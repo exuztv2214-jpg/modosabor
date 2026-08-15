@@ -185,6 +185,8 @@ function runMigrations(db) {
   ensureColumn(db, 'whatsapp_pedidos_borrador', 'marketing_content', "TEXT DEFAULT ''");
   ensureColumn(db, 'whatsapp_conversaciones', 'bot_silenciado', 'INTEGER DEFAULT 0');
   ensureColumn(db, 'whatsapp_conversaciones', 'bot_silenciado_hasta', 'DATETIME');
+  ensureColumn(db, 'whatsapp_conversaciones', 'resumen_texto', "TEXT DEFAULT ''");
+  ensureColumn(db, 'whatsapp_conversaciones', 'resumen_hasta_mensaje_id', 'INTEGER DEFAULT 0');
   ensureColumn(db, 'whatsapp_conversaciones', 'marketing_campana_id', 'INTEGER');
   ensureColumn(db, 'whatsapp_conversaciones', 'marketing_promo_id', 'INTEGER');
   ensureColumn(db, 'whatsapp_conversaciones', 'marketing_origen', "TEXT DEFAULT ''");

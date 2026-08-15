@@ -3,6 +3,7 @@ const { getConfigMap } = require('../utils/mercadoPago');
 const { getCurrentShiftInfo } = require('../utils/shifts');
 const { getCustomerSnapshot } = require('../utils/systemClient');
 const { ejecutarAgente } = require('./motorAgente');
+const { crearMemoriaConversacion } = require('./memoriaConversacion');
 const { buildAgentTraining } = require('./whatsappAgentTraining');
 const { catalogoParaPerfil, ejecutarRegistrada } = require('./registroHerramientas');
 
@@ -48,6 +49,7 @@ ${atencion.regla_catalogo || ''}`;
 async function atenderConMotorPropio(payload, dependencias = {}) {
   const db = dependencias.db || defaultDb;
   const ejecutarMotor = dependencias.ejecutarAgente || ejecutarAgente;
+  const memoria = dependencias.memoria || crearMemoriaConversacion(db);
   const config = getConfigMap(db);
   const turno = payload?.turno_actual || getCurrentShiftInfo(config).turno_actual;
   const atencion = payload?.atencion || buildAgentTraining(config, turno);
@@ -60,7 +62,10 @@ async function atenderConMotorPropio(payload, dependencias = {}) {
   }
   const contexto = { db, telefono, cliente, turno, mensajeId: payload?.mensaje_id || '' };
   const herramientas = catalogoParaPerfil('cliente', contexto);
-  const historial = historialAMensajes(payload?.historial);
+  const memoriaActual = await memoria.obtenerContexto(telefono);
+  const historial = memoriaActual.mensajes?.length
+    ? memoriaActual.mensajes.map(({ rol, texto }) => ({ rol, texto }))
+    : historialAMensajes(payload?.historial);
   const textoActual = String(payload?.texto || '').slice(0, 8000);
   const ultimo = historial[historial.length - 1];
   const mensajes =
@@ -68,7 +73,11 @@ async function atenderConMotorPropio(payload, dependencias = {}) {
       ? historial
       : [...historial, { rol: 'usuario', texto: textoActual }];
   const resultado = await ejecutarMotor({
-    sistema: instruccionesCliente(atencion),
+    sistema: `${instruccionesCliente(atencion)}${
+      memoriaActual.resumen
+        ? `\n\nResumen guardado de la conversación:\n${memoriaActual.resumen}`
+        : ''
+    }`,
     mensajes,
     herramientas,
     ejecutar: (nombre, argumentos) => ejecutarRegistrada(nombre, argumentos, contexto, 'cliente'),
