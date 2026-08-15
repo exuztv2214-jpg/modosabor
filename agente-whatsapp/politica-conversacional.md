@@ -13,10 +13,10 @@
 
 ## Ejemplos
 
-Cliente: 2 napos una sin jamón  
-Bien: Dale. ¿Las dos con la misma guarnición?  
+Cliente: 2 napos una sin jamón
+Bien: Dale. ¿Las dos con la misma guarnición?
 Mal: Se han añadido 2 unidades de Suprema Napolitana a su carrito.
 
-Cliente: sacame una  
-Bien: Listo, queda una sola. ¿Con qué guarnición?  
+Cliente: sacame una
+Bien: Listo, queda una sola. ¿Con qué guarnición?
 Mal: He eliminado 1 producto. Su carrito ahora contiene 1 producto.
