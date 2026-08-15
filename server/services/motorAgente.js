@@ -16,12 +16,15 @@ async function ejecutarAgente({
   _conversar = conversar,
 }) {
   const contexto = Array.isArray(mensajes) ? [...mensajes] : [];
+  const uso = { entrada: 0, salida: 0 };
 
   for (let vuelta = 0; vuelta < maxVueltas; vuelta += 1) {
     const respuesta = await _conversar({ sistema, mensajes: contexto, herramientas });
+    uso.entrada += Number(respuesta?.uso?.entrada || 0);
+    uso.salida += Number(respuesta?.uso?.salida || 0);
     const llamadas = Array.isArray(respuesta.llamadas) ? respuesta.llamadas : [];
     if (!llamadas.length) {
-      return { respuesta, mensajes: contexto, vueltas: vuelta + 1, agotado: false };
+      return { respuesta, mensajes: contexto, vueltas: vuelta + 1, agotado: false, uso };
     }
 
     contexto.push({ rol: 'asistente', texto: respuesta.texto, llamadas });
@@ -43,6 +46,7 @@ async function ejecutarAgente({
           vueltas: vuelta + 1,
           agotado: false,
           detenido: resultado.valor,
+          uso,
         };
       }
 
@@ -55,7 +59,7 @@ async function ejecutarAgente({
     }
   }
 
-  return { respuesta: null, mensajes: contexto, vueltas: maxVueltas, agotado: true };
+  return { respuesta: null, mensajes: contexto, vueltas: maxVueltas, agotado: true, uso };
 }
 
 module.exports = { ejecutarAgente, detenerAgente };

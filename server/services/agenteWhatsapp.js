@@ -8,6 +8,7 @@ const { ejecutarAgente } = require('./motorAgente');
 const { crearMemoriaConversacion } = require('./memoriaConversacion');
 const { buildAgentTraining } = require('./whatsappAgentTraining');
 const { catalogoParaPerfil, ejecutarRegistrada } = require('./registroHerramientas');
+const { registrarMetricaAgente } = require('./metricasAgente');
 
 function historialAMensajes(historial = '') {
   return String(historial || '')
@@ -60,6 +61,7 @@ function leerPoliticaConversacional() {
 }
 
 async function atenderConMotorPropio(payload, dependencias = {}) {
+  const inicio = Date.now();
   const db = dependencias.db || defaultDb;
   const ejecutarMotor = dependencias.ejecutarAgente || ejecutarAgente;
   const memoria = dependencias.memoria || crearMemoriaConversacion(db);
@@ -92,24 +94,61 @@ async function atenderConMotorPropio(payload, dependencias = {}) {
     ultimo?.rol === 'usuario' && ultimo.texto === textoActual
       ? historial
       : [...historial, { rol: 'usuario', texto: textoActual }];
-  const resultado = await ejecutarMotor({
-    sistema: `${instruccionesCliente(atencion)}\n\n${leerPoliticaConversacional()}${
-      memoriaActual.resumen
-        ? `\n\nResumen guardado de la conversación:\n${memoriaActual.resumen}`
-        : ''
-    }`,
-    mensajes,
-    herramientas,
-    ejecutar: (nombre, argumentos) => ejecutarRegistrada(nombre, argumentos, contexto, 'cliente'),
-    onPaso: dependencias.onPaso,
-  });
+  const herramientasUsadas = [];
+  const guardarMetrica = dependencias.registrarMetrica || registrarMetricaAgente;
+  try {
+    const resultado = await ejecutarMotor({
+      sistema: `${instruccionesCliente(atencion)}\n\n${leerPoliticaConversacional()}${
+        memoriaActual.resumen
+          ? `\n\nResumen guardado de la conversación:\n${memoriaActual.resumen}`
+          : ''
+      }`,
+      mensajes,
+      herramientas,
+      ejecutar: (nombre, argumentos) => ejecutarRegistrada(nombre, argumentos, contexto, 'cliente'),
+      onPaso: async (paso) => {
+        herramientasUsadas.push(paso.llamada.nombre);
+        await dependencias.onPaso?.(paso);
+      },
+    });
 
-  const texto = String(resultado?.respuesta?.texto || resultado?.detenido?.texto || '').trim();
-  if (!texto) {
-    if (resultado?.agotado) throw new Error('La IA agotó sus intentos sin responder');
-    throw new Error('La IA no devolvió una respuesta');
+    const texto = String(resultado?.respuesta?.texto || resultado?.detenido?.texto || '').trim();
+    if (!texto) {
+      if (resultado?.agotado) throw new Error('La IA agotó sus intentos sin responder');
+      throw new Error('La IA no devolvió una respuesta');
+    }
+    const meta = resultado?.respuesta?._meta || {};
+    guardarMetrica(
+      {
+        telefono,
+        mensajeId: contexto.mensajeId,
+        latenciaMs: Date.now() - inicio,
+        tokensEntrada: resultado?.uso?.entrada,
+        tokensSalida: resultado?.uso?.salida,
+        proveedor: meta.proveedor,
+        modelo: meta.modelo,
+        herramientas: herramientasUsadas,
+        handoff: herramientasUsadas.includes('derivar_a_persona'),
+        pedidoCreado: herramientasUsadas.includes('crear_pedido'),
+      },
+      db
+    );
+    return texto;
+  } catch (error) {
+    guardarMetrica(
+      {
+        telefono,
+        mensajeId: contexto.mensajeId,
+        latenciaMs: Date.now() - inicio,
+        herramientas: herramientasUsadas,
+        error: error.message,
+        handoff: herramientasUsadas.includes('derivar_a_persona'),
+        pedidoCreado: herramientasUsadas.includes('crear_pedido'),
+      },
+      db
+    );
+    throw error;
   }
-  return texto;
 }
 
 async function elegirMotorWhatsapp({ usarMotorPropio, payload, llamarN8n, llamarMotor }) {

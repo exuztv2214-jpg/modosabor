@@ -517,6 +517,48 @@ export default function SeccionWhatsapp({ config, setConfig }) {
             </div>
           ))}
         </div>
+        {metricas?.agente ? (
+          <div className="mb-5 border-t border-gray-100 pt-5">
+            <p className="text-[14px] font-semibold text-gray-900">Rendimiento del motor propio</p>
+            <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4">
+              {[
+                ['Conversión', `${Number(metricas.agente.conversion_pct || 0)}%`],
+                ['Latencia media', `${Number(metricas.agente.latencia_promedio_ms || 0)} ms`],
+                ['Derivaciones', Number(metricas.agente.handoffs || 0)],
+                [
+                  'Herramienta principal',
+                  metricas.agente.herramientas_mas_usadas?.[0]?.nombre || 'Sin datos',
+                ],
+              ].map(([label, value]) => (
+                <div key={label} className="rounded-xl bg-gray-50 p-3">
+                  <p className="text-[11px] text-gray-500">{label} · 7 días</p>
+                  <p className="mt-1 truncate text-[14px] font-bold text-gray-900">{value}</p>
+                </div>
+              ))}
+            </div>
+            <div className="mt-3 space-y-2">
+              {(metricas.agente.trazas || []).map((traza) => (
+                <details key={traza.id} className="rounded-xl border border-gray-100 px-3 py-2">
+                  <summary className="cursor-pointer text-[12px] font-medium text-gray-700">
+                    {traza.nombre || `+${traza.telefono}`} · {Number(traza.latencia_ms || 0)} ms
+                    {traza.error ? ' · error' : traza.pedido_creado ? ' · pedido creado' : ''}
+                  </summary>
+                  <p className="mt-2 break-words text-[11px] text-gray-500">
+                    {traza.proveedor || 'Proveedor sin informar'} ·{' '}
+                    {traza.modelo || 'modelo sin informar'} · {Number(traza.tokens_entrada || 0)}{' '}
+                    entrada / {Number(traza.tokens_salida || 0)} salida
+                  </p>
+                  <p className="mt-1 break-words text-[11px] text-gray-500">
+                    Herramientas: {traza.herramientas?.join(' → ') || 'ninguna'}
+                  </p>
+                  {traza.error ? (
+                    <p className="mt-1 text-[11px] text-red-600">{traza.error}</p>
+                  ) : null}
+                </details>
+              ))}
+            </div>
+          </div>
+        ) : null}
         <div className="space-y-2">
           {conversaciones.map((chat) => {
             const humano = Number(chat.bot_silenciado || 0) === 1;

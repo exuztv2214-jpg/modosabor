@@ -293,6 +293,29 @@ function runMigrations(db) {
     ON auditoria_ia(tipo, creado_en DESC)
   `);
 
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agente_metricas (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      conversacion_id INTEGER REFERENCES whatsapp_conversaciones(id) ON DELETE SET NULL,
+      telefono TEXT DEFAULT '',
+      mensaje_id TEXT DEFAULT '',
+      latencia_ms INTEGER DEFAULT 0,
+      tokens_entrada INTEGER DEFAULT 0,
+      tokens_salida INTEGER DEFAULT 0,
+      proveedor TEXT DEFAULT '',
+      modelo TEXT DEFAULT '',
+      herramientas TEXT DEFAULT '[]',
+      error TEXT DEFAULT '',
+      handoff INTEGER DEFAULT 0,
+      pedido_creado INTEGER DEFAULT 0,
+      creado_en DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_agente_metricas_conversacion
+      ON agente_metricas(conversacion_id, creado_en DESC);
+    CREATE INDEX IF NOT EXISTS idx_agente_metricas_fecha
+      ON agente_metricas(creado_en DESC);
+  `);
+
   // Limpieza automática de auditoría vieja (más de 90 días)
   db.exec(`
     DELETE FROM auditoria_ia

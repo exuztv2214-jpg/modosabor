@@ -342,6 +342,10 @@ async function conversarGemini({ clave, baseUrl, modelo, sistema, mensajes, herr
     llamadas: partes
       .filter((p) => p.functionCall)
       .map((p) => ({ nombre: p.functionCall.name, argumentos: p.functionCall.args || {} })),
+    uso: {
+      entrada: Number(datos?.usageMetadata?.promptTokenCount || 0),
+      salida: Number(datos?.usageMetadata?.candidatesTokenCount || 0),
+    },
   };
 }
 
@@ -415,6 +419,10 @@ async function conversarOpenAI({
       nombre: l.function?.name,
       argumentos: parsearArgumentos(l.function?.arguments),
     })),
+    uso: {
+      entrada: Number(datos?.usage?.prompt_tokens || 0),
+      salida: Number(datos?.usage?.completion_tokens || 0),
+    },
   };
 }
 
@@ -488,6 +496,10 @@ async function conversarAnthropic({ clave, baseUrl, modelo, sistema, mensajes, h
     llamadas: bloques
       .filter((b) => b.type === 'tool_use')
       .map((b) => ({ id: b.id, nombre: b.name, argumentos: b.input || {} })),
+    uso: {
+      entrada: Number(datos?.usage?.input_tokens || 0),
+      salida: Number(datos?.usage?.output_tokens || 0),
+    },
   };
 }
 

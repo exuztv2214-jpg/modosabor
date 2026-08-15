@@ -30,13 +30,18 @@ async function run() {
     sistema: 'test',
     mensajes: [],
     herramientas: [],
-    _conversar: async () => ({ texto: 'listo', llamadas: [] }),
+    _conversar: async () => ({
+      texto: 'listo',
+      llamadas: [],
+      uso: { entrada: 12, salida: 4 },
+    }),
     ejecutar: async () => {
       ejecuciones += 1;
     },
   });
   assert.strictEqual(directo.respuesta.texto, 'listo');
   assert.strictEqual(ejecuciones, 0);
+  assert.deepStrictEqual(directo.uso, { entrada: 12, salida: 4 });
 
   let pasos = 0;
   let vuelta = 0;

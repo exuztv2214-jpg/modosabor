@@ -236,7 +236,58 @@ router.get('/metricas-atencion', (_req, res) => {
         WHERE origen = 'whatsapp' AND datetime(creado_en) >= datetime('now', '-7 days')`
     )
     .get()?.total;
-  res.json({ periodo_dias: 7, ...totals, pedidos: Number(pedidos || 0) });
+  const agenteResumen = db
+    .prepare(
+      `SELECT COUNT(DISTINCT conversacion_id) conversaciones,
+              COUNT(DISTINCT CASE WHEN pedido_creado = 1 THEN conversacion_id END) completadas,
+              ROUND(AVG(latencia_ms)) latencia_promedio_ms,
+              SUM(handoff) handoffs,
+              SUM(tokens_entrada) tokens_entrada,
+              SUM(tokens_salida) tokens_salida
+         FROM agente_metricas
+        WHERE datetime(creado_en) >= datetime('now', '-7 days')`
+    )
+    .get();
+  const trazas = db
+    .prepare(
+      `SELECT m.*, c.nombre
+         FROM agente_metricas m
+         LEFT JOIN whatsapp_conversaciones c ON c.id = m.conversacion_id
+        ORDER BY m.id DESC LIMIT 20`
+    )
+    .all()
+    .map((item) => ({
+      ...item,
+      herramientas: (() => {
+        try {
+          return JSON.parse(item.herramientas || '[]');
+        } catch {
+          return [];
+        }
+      })(),
+    }));
+  const usoHerramientas = {};
+  trazas.forEach((traza) => {
+    traza.herramientas.forEach((nombre) => {
+      usoHerramientas[nombre] = (usoHerramientas[nombre] || 0) + 1;
+    });
+  });
+  const conversaciones = Number(agenteResumen?.conversaciones || 0);
+  const completadas = Number(agenteResumen?.completadas || 0);
+  res.json({
+    periodo_dias: 7,
+    ...totals,
+    pedidos: Number(pedidos || 0),
+    agente: {
+      ...agenteResumen,
+      conversion_pct: conversaciones ? Math.round((completadas / conversaciones) * 100) : 0,
+      herramientas_mas_usadas: Object.entries(usoHerramientas)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([nombre, cantidad]) => ({ nombre, cantidad })),
+      trazas,
+    },
+  });
 });
 
 // ── Destinatarios ─────────────────────────────────────────────────────────
