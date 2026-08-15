@@ -46,8 +46,9 @@ async function run() {
     herramientas: [],
     _conversar: async ({ mensajes }) => {
       vuelta += 1;
-      if (vuelta === 1)
+      if (vuelta === 1) {
         return { texto: '', llamadas: [{ id: 'x', nombre: 'falla', argumentos: {} }] };
+      }
       assert.match(mensajes.at(-1).resultado, /boom/);
       return { texto: 'recuperado', llamadas: [] };
     },
