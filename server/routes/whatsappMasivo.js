@@ -126,6 +126,7 @@ router.put('/gateway', (req, res) => {
     pausaTotal: 'whatsapp_gateway_pausa_total',
     atencionIa: 'whatsapp_atencion_ia_activa',
     masivos: 'whatsapp_masivos_activo',
+    motorPropio: 'whatsapp_motor_propio',
   };
   Object.entries(mapa).forEach(([campo, clave]) => {
     if (!Object.prototype.hasOwnProperty.call(req.body || {}, campo)) return;

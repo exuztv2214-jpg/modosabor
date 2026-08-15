@@ -280,7 +280,7 @@ export default function SeccionWhatsapp({ config, setConfig }) {
         ) : null}
       </div>
 
-      <div className="grid gap-3 md:grid-cols-3">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <Switch
           checked={gateway.pausaTotal === true}
           disabled={ocupado}
@@ -304,6 +304,14 @@ export default function SeccionWhatsapp({ config, setConfig }) {
           description="Autoriza campañas. Cada envío sigue requiriendo preparación y confirmación humana."
           icon={Megaphone}
           onChange={(value) => cambiar('masivos', value)}
+        />
+        <Switch
+          checked={gateway.motorPropio === true}
+          disabled={ocupado || !conectado || gateway.pausaTotal}
+          label="Motor de IA propio (experimental)"
+          description="Si lo apagás, vuelve a atender por n8n."
+          icon={Bot}
+          onChange={(value) => cambiar('motorPropio', value)}
         />
       </div>
 

@@ -15,6 +15,7 @@ const {
 const { emitAtencionHumana } = require('../utils/socketRooms');
 const { transcribeWhatsappAudio } = require('./whatsappAudioTranscription');
 const { buildAgentTraining } = require('./whatsappAgentTraining');
+const { atenderConMotorPropio, elegirMotorWhatsapp } = require('./agenteWhatsapp');
 const { registrarRespuesta } = require('./whatsappMasivo/motor');
 const { deJid } = require('./whatsappMasivo/telefono');
 const { conexion } = require('./whatsappMasivo/conexion');
@@ -92,6 +93,9 @@ function gatewayConfig() {
     pausaTotal: enabled('whatsapp_gateway_pausa_total', false),
     atencionIa: enabled('whatsapp_atencion_ia_activa', false),
     masivos: enabled('whatsapp_masivos_activo', false),
+    // Experimental y apagado por defecto. Si se apaga, n8n sigue atendiendo
+    // exactamente por el mismo webhook que se usaba antes.
+    motorPropio: enabled('whatsapp_motor_propio', false),
     webhook: safeWebhookUrl(
       String(process.env.WHATSAPP_AGENT_WEBHOOK_URL || '').trim() ||
         configValue('whatsapp_agente_webhook_url', DEFAULT_WEBHOOK),
@@ -643,16 +647,25 @@ async function handleIncoming(message) {
       turno_actual: currentShift.turno_actual,
       atencion: buildAgentTraining(businessConfig, currentShift.turno_actual),
     };
-    let output;
-    try {
-      output = await callAgent(agentPayload, config.webhook);
-    } catch (primaryError) {
-      if (!config.fallbackWebhook || config.fallbackWebhook === config.webhook) throw primaryError;
-      logger.warn('WhatsApp Gateway: usando proveedor alternativo', {
-        message: primaryError.message,
-      });
-      output = await callAgent(agentPayload, config.fallbackWebhook);
-    }
+    const llamarN8n = async (payload) => {
+      try {
+        return await callAgent(payload, config.webhook);
+      } catch (primaryError) {
+        if (!config.fallbackWebhook || config.fallbackWebhook === config.webhook) {
+          throw primaryError;
+        }
+        logger.warn('WhatsApp Gateway: usando proveedor alternativo', {
+          message: primaryError.message,
+        });
+        return callAgent(payload, config.fallbackWebhook);
+      }
+    };
+    let output = await elegirMotorWhatsapp({
+      usarMotorPropio: config.motorPropio,
+      payload: agentPayload,
+      llamarN8n,
+      llamarMotor: atenderConMotorPropio,
+    });
 
     const createdOrder = createdWhatsappOrderAfter(telefono, previousOrder?.id);
     let createdExternalOrder = null;

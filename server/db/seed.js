@@ -69,6 +69,7 @@ function runSeed(db) {
     ['whatsapp_gateway_pausa_total', '0'],
     ['whatsapp_atencion_ia_activa', '0'],
     ['whatsapp_masivos_activo', '0'],
+    ['whatsapp_motor_propio', '0'],
     [
       'whatsapp_agente_webhook_url',
       'https://n8n-production-f8ed.up.railway.app/webhook/modosabor-atencion-web',
