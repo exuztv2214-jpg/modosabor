@@ -1,5 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
-import { AlertTriangle, Camera, Check, Loader2, ScanSearch, Send, X } from 'lucide-react';
+import {
+  AlertTriangle,
+  Camera,
+  Check,
+  Loader2,
+  Mic,
+  ScanSearch,
+  Send,
+  Square,
+  X,
+} from 'lucide-react';
 
 import api from '../../lib/api.js';
 import { BRAND, STROKE, Z } from '../../lib/theme.js';
@@ -48,9 +58,13 @@ export default function AsistenteFlotante() {
   const [aplicando, setAplicando] = useState(null);
   // La foto de un remito, ya achicada y lista para mandar.
   const [foto, setFoto] = useState(null);
+  const [audio, setAudio] = useState(null);
+  const [grabando, setGrabando] = useState(false);
   const [revisando, setRevisando] = useState(false);
   const finDeLista = useRef(null);
   const campoFoto = useRef(null);
+  const grabador = useRef(null);
+  const flujoAudio = useRef(null);
   const { hasPermission } = useAuth();
 
   useCerrarConEscape(abierto, () => setAbierto(false));
@@ -75,6 +89,13 @@ export default function AsistenteFlotante() {
     finDeLista.current?.scrollIntoView({ behavior: 'smooth' });
   }, [mensajes, pensando]);
 
+  useEffect(
+    () => () => {
+      flujoAudio.current?.getTracks().forEach((track) => track.stop());
+    },
+    []
+  );
+
   const elegirFoto = async (evento) => {
     const archivo = evento.target.files?.[0];
     // El input se limpia siempre: si no, elegir la misma foto dos veces
@@ -84,21 +105,68 @@ export default function AsistenteFlotante() {
     setFoto(await achicarImagen(archivo));
   };
 
+  const alternarGrabacion = async () => {
+    if (grabando) {
+      grabador.current?.stop();
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      flujoAudio.current = stream;
+      const chunks = [];
+      const recorder = new MediaRecorder(stream);
+      grabador.current = recorder;
+      recorder.ondataavailable = (event) => {
+        if (event.data?.size) chunks.push(event.data);
+      };
+      recorder.onstop = () => {
+        const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
+        const reader = new FileReader();
+        reader.onload = () => setAudio(String(reader.result || ''));
+        reader.readAsDataURL(blob);
+        stream.getTracks().forEach((track) => track.stop());
+        flujoAudio.current = null;
+        grabador.current = null;
+        setGrabando(false);
+      };
+      recorder.start();
+      setGrabando(true);
+      window.setTimeout(() => {
+        if (recorder.state === 'recording') recorder.stop();
+      }, 60000);
+    } catch {
+      setMensajes((prev) => [
+        ...prev,
+        {
+          rol: 'asistente',
+          texto: 'No pude usar el micrófono. Revisá el permiso del navegador.',
+          falló: true,
+        },
+      ]);
+    }
+  };
+
   const preguntar = async (preguntaCruda) => {
     const pregunta = String(preguntaCruda ?? texto).trim();
-    if ((!pregunta && !foto) || pensando) return;
+    if ((!pregunta && !foto && !audio) || pensando) return;
 
     // El historial se arma antes de agregar la pregunta nueva: el servidor
     // espera la conversación previa por un lado y la pregunta por otro.
     const historial = mensajes.map((m) => ({ rol: m.rol, texto: m.texto }));
 
     const imagen = foto;
+    const audioAdjunto = audio;
     setMensajes((prev) => [
       ...prev,
-      { rol: 'usuario', texto: pregunta || 'Te mando esta foto.', imagen },
+      {
+        rol: 'usuario',
+        texto: pregunta || (audioAdjunto ? 'Te mando este audio.' : 'Te mando esta foto.'),
+        imagen,
+      },
     ]);
     setTexto('');
     setFoto(null);
+    setAudio(null);
     setPensando(true);
 
     try {
@@ -106,6 +174,7 @@ export default function AsistenteFlotante() {
         pregunta: pregunta || 'Leé esta foto y decime qué ves.',
         historial,
         imagen,
+        audio: audioAdjunto,
       });
       setMensajes((prev) => [
         ...prev,
@@ -468,6 +537,21 @@ export default function AsistenteFlotante() {
               </div>
             ) : null}
 
+            {audio ? (
+              <div className="mb-2 flex items-center gap-2 rounded-xl bg-gray-50 p-2">
+                <Mic size={16} className="text-gray-500" />
+                <span className="flex-1 text-[12px] text-gray-600">Audio listo para mandar</span>
+                <button
+                  type="button"
+                  onClick={() => setAudio(null)}
+                  aria-label="Quitar el audio"
+                  className="rounded-lg p-1.5 text-gray-400 transition hover:bg-gray-200 hover:text-gray-600"
+                >
+                  <X size={15} strokeWidth={STROKE} />
+                </button>
+              </div>
+            ) : null}
+
             <div className="flex items-center gap-2">
               <input
                 ref={campoFoto}
@@ -485,6 +569,15 @@ export default function AsistenteFlotante() {
               >
                 <Camera size={17} strokeWidth={STROKE} />
               </button>
+              <button
+                type="button"
+                onClick={alternarGrabacion}
+                aria-label={grabando ? 'Detener grabación' : 'Dictar por audio'}
+                className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border transition ${grabando ? 'border-red-300 bg-red-50 text-red-600' : 'text-gray-500 hover:bg-gray-50'}`}
+                style={grabando ? undefined : { borderColor: STROKE }}
+              >
+                {grabando ? <Square size={15} fill="currentColor" /> : <Mic size={17} />}
+              </button>
               <input
                 value={texto}
                 onChange={(evento) => setTexto(evento.target.value)}
@@ -493,7 +586,7 @@ export default function AsistenteFlotante() {
               />
               <button
                 type="submit"
-                disabled={pensando || (!texto.trim() && !foto)}
+                disabled={pensando || grabando || (!texto.trim() && !foto && !audio)}
                 aria-label="Enviar"
                 style={{ background: BRAND }}
                 className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-white transition hover:brightness-110 disabled:opacity-40"

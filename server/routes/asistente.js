@@ -29,6 +29,7 @@ const {
 } = require('../services/asistenteAcciones');
 const { firmarPropuesta, verificarPropuesta } = require('../utils/firmaPropuesta');
 const { ejecutarAgente, detenerAgente } = require('../services/motorAgente');
+const { transcribeAudioBuffer } = require('../services/whatsappAudioTranscription');
 
 /*
   Las preguntas operativas más directas no necesitan gastar una llamada al
@@ -368,9 +369,24 @@ router.post(
       return res.status(400).json({ error: 'El asistente está apagado o le falta la clave.' });
     }
 
-    const pregunta = String(req.body?.pregunta || '').trim();
-    if (!pregunta && !req.body?.imagen) {
+    let pregunta = String(req.body?.pregunta || '').trim();
+    if (!pregunta && !req.body?.imagen && !req.body?.audio) {
       return res.status(400).json({ error: 'Escribí una pregunta.' });
+    }
+
+    const audio = String(req.body?.audio || '');
+    if (audio) {
+      const match = /^data:audio\/([a-z0-9.+-]+);base64,(.+)$/i.exec(audio);
+      if (!match) return res.status(400).json({ error: 'Eso no parece un audio.' });
+      try {
+        const transcripto = await transcribeAudioBuffer(
+          Buffer.from(match[2], 'base64'),
+          match[1].includes('ogg') ? 'ogg' : 'webm'
+        );
+        pregunta = [pregunta, transcripto].filter(Boolean).join('\n');
+      } catch (error) {
+        return res.status(400).json({ error: `No pude escuchar el audio: ${error.message}` });
+      }
     }
     if (pregunta.length > 1000) {
       return res.status(400).json({ error: 'La pregunta es demasiado larga.' });

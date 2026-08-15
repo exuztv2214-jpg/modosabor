@@ -10,6 +10,7 @@ const SCRIPT = path.join(__dirname, '..', 'scripts', 'transcribe-whatsapp-audio.
 const BUNDLED_MODEL_DIR = path.join(__dirname, '..', 'whisper-models');
 const MAX_AUDIO_SECONDS = 180;
 const TRANSCRIPTION_TIMEOUT_MS = 120000;
+const MAX_AUDIO_BYTES = 8 * 1024 * 1024;
 let transcriptionQueue = Promise.resolve();
 
 function pythonCandidates() {
@@ -118,13 +119,24 @@ async function transcribeWhatsappAudio(message, conexion) {
     throw new Error(`El audio supera el máximo de ${MAX_AUDIO_SECONDS} segundos`);
   }
 
+  const buffer = await conexion.descargarAudio(message);
+  if (!Buffer.isBuffer(buffer) || buffer.length === 0) {
+    throw new Error('WhatsApp no devolvió el contenido del audio');
+  }
+  return transcribeAudioBuffer(buffer, 'ogg');
+}
+
+async function transcribeAudioBuffer(buffer, extension = 'webm') {
+  if (!Buffer.isBuffer(buffer) || buffer.length === 0) {
+    throw new Error('El audio está vacío');
+  }
+  if (buffer.length > MAX_AUDIO_BYTES) {
+    throw new Error('El audio supera el máximo de 8 MB');
+  }
+  const safeExtension = String(extension || 'webm').replace(/[^a-z0-9]/gi, '') || 'webm';
   const task = async () => {
-    const buffer = await conexion.descargarAudio(message);
-    if (!Buffer.isBuffer(buffer) || buffer.length === 0) {
-      throw new Error('WhatsApp no devolvió el contenido del audio');
-    }
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'modosabor-audio-'));
-    const audioPath = path.join(tempDir, 'nota.ogg');
+    const audioPath = path.join(tempDir, `nota.${safeExtension}`);
     try {
       fs.writeFileSync(audioPath, buffer);
       return await transcribeFile(audioPath);
@@ -142,4 +154,10 @@ async function transcribeWhatsappAudio(message, conexion) {
   return queued;
 }
 
-module.exports = { transcribeWhatsappAudio, MAX_AUDIO_SECONDS, transcribeFile };
+module.exports = {
+  transcribeWhatsappAudio,
+  transcribeAudioBuffer,
+  MAX_AUDIO_SECONDS,
+  MAX_AUDIO_BYTES,
+  transcribeFile,
+};
