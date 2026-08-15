@@ -1,0 +1,7 @@
+{
+  "fecha": null,
+  "casos": 40,
+  "aprobados": 0,
+  "resultados": [],
+  "nota": "Se completa al ejecutar node server/tests/agente/correrConversaciones.js; no forma parte de tests/run.js."
+}

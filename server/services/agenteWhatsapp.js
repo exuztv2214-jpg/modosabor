@@ -73,7 +73,14 @@ async function atenderConMotorPropio(payload, dependencias = {}) {
   if (cliente === undefined) {
     cliente = getCustomerSnapshot(db, telefono);
   }
-  const contexto = { db, telefono, cliente, turno, mensajeId: payload?.mensaje_id || '' };
+  const contexto = {
+    db,
+    telefono,
+    cliente,
+    turno,
+    mensajeId: payload?.mensaje_id || '',
+    dependenciasPedido: dependencias.dependenciasPedido,
+  };
   const herramientas = catalogoParaPerfil('cliente', contexto);
   const memoriaActual = await memoria.obtenerContexto(telefono);
   const historial = memoriaActual.mensajes?.length

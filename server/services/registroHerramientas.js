@@ -231,7 +231,8 @@ const HERRAMIENTAS_BASE = [
     ejecutar: (_args, contexto = {}) =>
       crearCarritoWhatsapp(contexto.db || defaultDb).confirmarCarrito(
         telefonoSeguro({}, contexto),
-        { whatsappMessageId: contexto.mensajeId }
+        { whatsappMessageId: contexto.mensajeId },
+        contexto.dependenciasPedido || {}
       ),
   },
 ];
