@@ -9,6 +9,7 @@ const { getCurrentShiftInfo } = require('../utils/shifts');
 const { buildAgentTraining } = require('../services/whatsappAgentTraining');
 const { logAudit } = require('../utils/audit');
 const { emitNuevoPedido } = require('../utils/socketRooms');
+const logger = require('../utils/logger');
 const {
   getMenuOverview,
   getMenuDiaToday,
@@ -163,11 +164,23 @@ router.post('/envio', (req, res) => {
 // en la URL no queda declarado como tal.
 router.get('/cliente/:telefono?', (req, res) => {
   try {
-    const telefono = req.params.telefono || req.query.telefono;
-    if (!telefono) {
-      return res.status(400).json({ error: 'Falta telefono' });
+    const telefonoSolicitado = String(req.params.telefono || req.query.telefono || '').trim();
+    const telefonoConversacion = String(req.headers['x-agent-telefono'] || '').trim();
+    const comparable = (value) =>
+      String(value || '')
+        .replace(/\D/g, '')
+        .slice(-10);
+    if (
+      !telefonoConversacion ||
+      (telefonoSolicitado && comparable(telefonoSolicitado) !== comparable(telefonoConversacion))
+    ) {
+      logger.warn('Agente WhatsApp: intento de consultar otro cliente', {
+        telefono_contexto: comparable(telefonoConversacion),
+        telefono_solicitado: comparable(telefonoSolicitado),
+      });
+      return res.status(403).json({ error: 'La ficha no pertenece a esta conversación' });
     }
-    res.json(getCustomerSnapshot(db, telefono));
+    res.json(getCustomerSnapshot(db, telefonoConversacion));
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

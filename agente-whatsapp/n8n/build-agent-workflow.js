@@ -19,6 +19,11 @@ const fixedHeader = {
         valueProvider: 'fieldValue',
         value: '={{ $env.AGENT_API_KEY }}',
       },
+      {
+        name: 'x-agent-telefono',
+        valueProvider: 'fieldValue',
+        value: "={{ $('Entrada WhatsApp Web').item.json.headers['x-agent-telefono'] }}",
+      },
     ],
   },
 };
@@ -256,6 +261,10 @@ const workflow = {
 
 fs.writeFileSync(
   path.join(__dirname, 'workflow-agent.generated.json'),
+  JSON.stringify([workflow], null, 2)
+);
+fs.writeFileSync(
+  path.join(__dirname, 'workflow-9-tools.generated.json'),
   JSON.stringify([workflow], null, 2)
 );
 

@@ -11,7 +11,12 @@ automatizacion consulta los datos reales de Modo Sabor mediante las rutas
 3. Desde esta carpeta ejecutar `docker compose up -d`.
 4. Abrir `http://localhost:5678` y crear la cuenta inicial de n8n.
 5. Ejecutar `node build-agent-workflow.js` e importar
-   `workflow-agent.generated.json`.
+   `workflow-9-tools.generated.json`.
+
+Ese archivo contiene las nueve herramientas. Las tres que faltaban en el
+workflow anterior son `menu-dia`, `pedido-actual` y `derivar`. La importación y
+activación en n8n se hacen manualmente; generar el JSON no modifica el workflow
+que está atendiendo hoy.
 
 Cuando n8n corre en Docker y Modo Sabor en esta misma PC, configurar
 `MODO_SABOR_API_URL=http://host.docker.internal:3001`. Así las herramientas

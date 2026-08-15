@@ -382,7 +382,10 @@ async function callAgent(payload, webhook) {
   // de respaldo.
   const response = await fetch(webhook, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: {
+      'content-type': 'application/json',
+      'x-agent-telefono': String(payload?.telefono || ''),
+    },
     body: JSON.stringify(payload),
     signal: AbortSignal.timeout(90000),
   });
