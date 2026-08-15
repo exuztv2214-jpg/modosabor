@@ -1,0 +1,206 @@
+const defaultDb = require('../db');
+const { quoteProduct } = require('../utils/systemClient');
+
+function json(value, fallback) {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallback;
+  }
+}
+
+function textoOpciones(variantes = {}, extras = [], notas = '') {
+  const variantesTexto = Object.values(variantes || {})
+    .map((opcion) => (typeof opcion === 'string' ? opcion : opcion?.nombre))
+    .filter(Boolean);
+  const extrasTexto = (extras || [])
+    .map((extra) => (typeof extra === 'string' ? extra : extra?.nombre))
+    .filter(Boolean);
+  return [...variantesTexto, ...extrasTexto, notas].filter(Boolean).join(' ');
+}
+
+function crearCarritoWhatsapp(db = defaultDb) {
+  function borradorAbierto(telefono) {
+    return db
+      .prepare(
+        `SELECT * FROM whatsapp_pedidos_borrador
+          WHERE telefono = ? AND estado = 'abierto' AND pedido_id IS NULL
+          ORDER BY id DESC LIMIT 1`
+      )
+      .get(String(telefono));
+  }
+
+  function asegurarBorrador(telefono) {
+    const existente = borradorAbierto(telefono);
+    if (existente) return existente;
+    const conversacion = db
+      .prepare('SELECT id, nombre FROM whatsapp_conversaciones WHERE telefono = ?')
+      .get(String(telefono));
+    const result = db
+      .prepare(
+        `INSERT INTO whatsapp_pedidos_borrador
+          (conversacion_id, telefono, cliente_nombre, estado)
+         VALUES (?, ?, ?, 'abierto')`
+      )
+      .run(conversacion?.id || null, String(telefono), conversacion?.nombre || '');
+    return db
+      .prepare('SELECT * FROM whatsapp_pedidos_borrador WHERE id = ?')
+      .get(result.lastInsertRowid);
+  }
+
+  function exigirEditable(borrador) {
+    if (!borrador) throw new Error('No hay un carrito abierto');
+    if (borrador.pedido_id || borrador.estado !== 'abierto') {
+      throw new Error('El carrito ya fue confirmado y no se puede modificar');
+    }
+  }
+
+  function recalcular(borradorId) {
+    const subtotal = Number(
+      db
+        .prepare(
+          'SELECT COALESCE(SUM(precio_unitario * cantidad), 0) total FROM whatsapp_pedidos_borrador_items WHERE borrador_id = ?'
+        )
+        .get(borradorId)?.total || 0
+    );
+    const borrador = db
+      .prepare('SELECT costo_envio FROM whatsapp_pedidos_borrador WHERE id = ?')
+      .get(borradorId);
+    const costoEnvio = Number(borrador?.costo_envio || 0);
+    db.prepare(
+      `UPDATE whatsapp_pedidos_borrador SET subtotal = ?, total = ?,
+       actualizado_en = CURRENT_TIMESTAMP WHERE id = ?`
+    ).run(subtotal, subtotal + costoEnvio, borradorId);
+  }
+
+  function cotizar(datos) {
+    const producto = db
+      .prepare('SELECT id, nombre FROM productos WHERE id = ? AND activo = 1')
+      .get(Number(datos.producto_id));
+    if (!producto) throw new Error('El producto no existe o está inactivo');
+    const consulta =
+      `${producto.nombre} ${textoOpciones(datos.variantes, datos.extras, datos.notas)}`.trim();
+    const cotizacion = quoteProduct(db, consulta);
+    if (cotizacion.status !== 'ok' || Number(cotizacion.product?.id) !== Number(producto.id)) {
+      throw new Error(cotizacion.message || 'No se pudo cotizar el producto');
+    }
+    return { producto, cotizacion };
+  }
+
+  function verCarrito(telefono) {
+    const borrador = borradorAbierto(telefono);
+    if (!borrador) return { abierto: false, telefono: String(telefono), items: [] };
+    const items = db
+      .prepare('SELECT * FROM whatsapp_pedidos_borrador_items WHERE borrador_id = ? ORDER BY id')
+      .all(borrador.id)
+      .map((item) => ({
+        ...item,
+        variantes: json(item.variantes, {}),
+        extras: json(item.extras, []),
+      }));
+    return { ...borrador, abierto: true, items };
+  }
+
+  function agregarItem(telefono, datos) {
+    const cantidad = Math.max(1, Number(datos?.cantidad || 1));
+    const borrador = asegurarBorrador(telefono);
+    exigirEditable(borrador);
+    const { producto, cotizacion } = cotizar(datos || {});
+    const variantes = datos?.variantes || cotizacion.order_item?.variantes || {};
+    const extras = datos?.extras || cotizacion.order_item?.extras || [];
+    const notas = String(datos?.notas || '').trim();
+    const firmaVariantes = JSON.stringify(variantes);
+    const firmaExtras = JSON.stringify(extras);
+    const igual = db
+      .prepare(
+        `SELECT id, cantidad FROM whatsapp_pedidos_borrador_items
+          WHERE borrador_id = ? AND producto_id = ? AND variantes = ? AND extras = ? AND descripcion = ?
+          LIMIT 1`
+      )
+      .get(borrador.id, producto.id, firmaVariantes, firmaExtras, notas);
+
+    let itemId;
+    if (igual) {
+      db.prepare(
+        'UPDATE whatsapp_pedidos_borrador_items SET cantidad = cantidad + ? WHERE id = ?'
+      ).run(cantidad, igual.id);
+      itemId = igual.id;
+    } else {
+      const result = db
+        .prepare(
+          `INSERT INTO whatsapp_pedidos_borrador_items
+            (borrador_id, producto_id, nombre, cantidad, descripcion, variantes, extras, precio_unitario)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run(
+          borrador.id,
+          producto.id,
+          cotizacion.item_name || producto.nombre,
+          cantidad,
+          notas,
+          firmaVariantes,
+          firmaExtras,
+          Number(cotizacion.price_total)
+        );
+      itemId = Number(result.lastInsertRowid);
+    }
+    recalcular(borrador.id);
+    return { itemId, carrito: verCarrito(telefono) };
+  }
+
+  function quitarItem(telefono, itemId) {
+    const borrador = borradorAbierto(telefono);
+    exigirEditable(borrador);
+    const result = db
+      .prepare('DELETE FROM whatsapp_pedidos_borrador_items WHERE id = ? AND borrador_id = ?')
+      .run(Number(itemId), borrador.id);
+    if (!result.changes) throw new Error('No se encontró ese item en el carrito');
+    recalcular(borrador.id);
+    return verCarrito(telefono);
+  }
+
+  function modificarItem(telefono, itemId, cambios = {}) {
+    const borrador = borradorAbierto(telefono);
+    exigirEditable(borrador);
+    const actual = db
+      .prepare('SELECT * FROM whatsapp_pedidos_borrador_items WHERE id = ? AND borrador_id = ?')
+      .get(Number(itemId), borrador.id);
+    if (!actual) throw new Error('No se encontró ese item en el carrito');
+    const datos = {
+      producto_id: actual.producto_id,
+      cantidad: cambios.cantidad ?? actual.cantidad,
+      variantes: cambios.variantes ?? json(actual.variantes, {}),
+      extras: cambios.extras ?? json(actual.extras, []),
+      notas: cambios.notas ?? actual.descripcion,
+    };
+    const { producto, cotizacion } = cotizar(datos);
+    db.prepare(
+      `UPDATE whatsapp_pedidos_borrador_items SET nombre = ?, cantidad = ?, descripcion = ?,
+       variantes = ?, extras = ?, precio_unitario = ? WHERE id = ?`
+    ).run(
+      cotizacion.item_name || producto.nombre,
+      Math.max(1, Number(datos.cantidad || 1)),
+      String(datos.notas || ''),
+      JSON.stringify(datos.variantes || {}),
+      JSON.stringify(datos.extras || []),
+      Number(cotizacion.price_total),
+      actual.id
+    );
+    recalcular(borrador.id);
+    return verCarrito(telefono);
+  }
+
+  function vaciarCarrito(telefono) {
+    const borrador = borradorAbierto(telefono);
+    exigirEditable(borrador);
+    db.prepare('DELETE FROM whatsapp_pedidos_borrador_items WHERE borrador_id = ?').run(
+      borrador.id
+    );
+    recalcular(borrador.id);
+    return verCarrito(telefono);
+  }
+
+  return { verCarrito, agregarItem, quitarItem, modificarItem, vaciarCarrito };
+}
+
+module.exports = { crearCarritoWhatsapp, ...crearCarritoWhatsapp(defaultDb) };

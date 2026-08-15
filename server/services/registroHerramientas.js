@@ -18,6 +18,7 @@ const {
   ejecutarHerramienta,
 } = require('./asistenteHerramientas');
 const { ACCIONES, prepararAccion } = require('./asistenteAcciones');
+const { crearCarritoWhatsapp } = require('./carritoWhatsapp');
 
 const PERMISOS_CLIENTE = new Set([
   'READ_MENU',
@@ -140,6 +141,87 @@ const HERRAMIENTAS_BASE = [
       if (!result.changes) throw new Error('No se encontró la conversación');
       return { ok: true, estado: 'esperando_humano' };
     },
+  },
+  {
+    nombre: 'ver_carrito',
+    descripcion: 'Muestra el pedido en preparación con ids de cada unidad.',
+    parametros: schemaVacio,
+    permiso: 'WRITE_CART',
+    escribe: false,
+    ejecutar: (_args, contexto = {}) =>
+      crearCarritoWhatsapp(contexto.db || defaultDb).verCarrito(telefonoSeguro({}, contexto)),
+  },
+  {
+    nombre: 'agregar_item',
+    descripcion: 'Agrega una unidad cotizada contra el catálogo real.',
+    parametros: {
+      type: 'object',
+      properties: {
+        producto_id: { type: 'integer' },
+        cantidad: { type: 'integer' },
+        variantes: { type: 'object' },
+        extras: { type: 'array' },
+        notas: { type: 'string' },
+      },
+      required: ['producto_id'],
+    },
+    permiso: 'WRITE_CART',
+    escribe: true,
+    ejecutar: (args, contexto = {}) =>
+      crearCarritoWhatsapp(contexto.db || defaultDb).agregarItem(
+        telefonoSeguro({}, contexto),
+        args
+      ),
+  },
+  {
+    nombre: 'quitar_item',
+    descripcion: 'Quita una unidad concreta por itemId.',
+    parametros: {
+      type: 'object',
+      properties: { itemId: { type: 'integer' } },
+      required: ['itemId'],
+    },
+    permiso: 'WRITE_CART',
+    escribe: true,
+    ejecutar: (args, contexto = {}) =>
+      crearCarritoWhatsapp(contexto.db || defaultDb).quitarItem(
+        telefonoSeguro({}, contexto),
+        args.itemId
+      ),
+  },
+  {
+    nombre: 'modificar_item',
+    descripcion: 'Modifica una unidad concreta por itemId y vuelve a cotizarla.',
+    parametros: {
+      type: 'object',
+      properties: {
+        itemId: { type: 'integer' },
+        cantidad: { type: 'integer' },
+        variantes: { type: 'object' },
+        extras: { type: 'array' },
+        notas: { type: 'string' },
+      },
+      required: ['itemId'],
+    },
+    permiso: 'WRITE_CART',
+    escribe: true,
+    ejecutar: (args, contexto = {}) => {
+      const { itemId, ...cambios } = args;
+      return crearCarritoWhatsapp(contexto.db || defaultDb).modificarItem(
+        telefonoSeguro({}, contexto),
+        itemId,
+        cambios
+      );
+    },
+  },
+  {
+    nombre: 'vaciar_carrito',
+    descripcion: 'Vacía el pedido en preparación sin tocar pedidos confirmados.',
+    parametros: schemaVacio,
+    permiso: 'WRITE_CART',
+    escribe: true,
+    ejecutar: (_args, contexto = {}) =>
+      crearCarritoWhatsapp(contexto.db || defaultDb).vaciarCarrito(telefonoSeguro({}, contexto)),
   },
   {
     nombre: 'crear_pedido',
