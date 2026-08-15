@@ -1,3 +1,5 @@
+const fs = require('fs');
+const path = require('path');
 const defaultDb = require('../db');
 const { getConfigMap } = require('../utils/mercadoPago');
 const { getCurrentShiftInfo } = require('../utils/shifts');
@@ -46,6 +48,17 @@ ${atencion.ejemplos || ''}
 ${atencion.regla_catalogo || ''}`;
 }
 
+function leerPoliticaConversacional() {
+  try {
+    return fs.readFileSync(
+      path.join(__dirname, '../../agente-whatsapp/politica-conversacional.md'),
+      'utf8'
+    );
+  } catch {
+    return '';
+  }
+}
+
 async function atenderConMotorPropio(payload, dependencias = {}) {
   const db = dependencias.db || defaultDb;
   const ejecutarMotor = dependencias.ejecutarAgente || ejecutarAgente;
@@ -73,7 +86,7 @@ async function atenderConMotorPropio(payload, dependencias = {}) {
       ? historial
       : [...historial, { rol: 'usuario', texto: textoActual }];
   const resultado = await ejecutarMotor({
-    sistema: `${instruccionesCliente(atencion)}${
+    sistema: `${instruccionesCliente(atencion)}\n\n${leerPoliticaConversacional()}${
       memoriaActual.resumen
         ? `\n\nResumen guardado de la conversación:\n${memoriaActual.resumen}`
         : ''
@@ -102,4 +115,5 @@ module.exports = {
   elegirMotorWhatsapp,
   historialAMensajes,
   instruccionesCliente,
+  leerPoliticaConversacional,
 };

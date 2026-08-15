@@ -16,6 +16,7 @@ const { emitAtencionHumana } = require('../utils/socketRooms');
 const { transcribeWhatsappAudio } = require('./whatsappAudioTranscription');
 const { buildAgentTraining } = require('./whatsappAgentTraining');
 const { atenderConMotorPropio, elegirMotorWhatsapp } = require('./agenteWhatsapp');
+const { crearAgrupadorMensajes } = require('./agruparMensajes');
 const { registrarRespuesta } = require('./whatsappMasivo/motor');
 const { deJid } = require('./whatsappMasivo/telefono');
 const { conexion } = require('./whatsappMasivo/conexion');
@@ -96,6 +97,10 @@ function gatewayConfig() {
     // Experimental y apagado por defecto. Si se apaga, n8n sigue atendiendo
     // exactamente por el mismo webhook que se usaba antes.
     motorPropio: enabled('whatsapp_motor_propio', false),
+    agruparMs: Math.min(
+      8000,
+      Math.max(0, Number(configValue('whatsapp_agrupar_ms', '2000')) || 2000)
+    ),
     webhook: safeWebhookUrl(
       String(process.env.WHATSAPP_AGENT_WEBHOOK_URL || '').trim() ||
         configValue('whatsapp_agente_webhook_url', DEFAULT_WEBHOOK),
@@ -827,8 +832,37 @@ function serializeByKey(key, task) {
   return current;
 }
 
+function combinarMensajes(mensajes) {
+  const ultimo = mensajes[mensajes.length - 1];
+  const texto = mensajes.map(textFromMessage).filter(Boolean).join('\n');
+  const ids = mensajes.map((item) => String(item?.key?.id || '')).filter(Boolean);
+  return {
+    ...ultimo,
+    key: { ...ultimo.key, id: ids.join('+').slice(0, 240) },
+    message: { conversation: texto },
+    mensajesAgrupados: ids,
+  };
+}
+
+const agrupadorMotorPropio = crearAgrupadorMensajes({
+  procesar: (message) => {
+    const key = phoneFromMessage(message) || String(message?.key?.remoteJid || 'desconocido');
+    return serializeByKey(key, () => handleIncoming(message));
+  },
+  obtenerClave: phoneFromMessage,
+  combinar: combinarMensajes,
+  maxMs: 8000,
+});
+
 function enqueueIncoming(message) {
   const key = phoneFromMessage(message) || String(message?.key?.remoteJid || 'desconocido');
+  const config = gatewayConfig();
+  const agrupar =
+    config.motorPropio &&
+    !message?.key?.fromMe &&
+    typeFromMessage(message) === 'texto' &&
+    Boolean(textFromMessage(message));
+  if (agrupar) return agrupadorMotorPropio.agregar(message, config.agruparMs);
   return serializeByKey(key, () => handleIncoming(message));
 }
 
@@ -864,4 +898,5 @@ module.exports = {
   serializeByKey,
   safeWebhookUrl,
   closedBusinessMessage,
+  combinarMensajes,
 };

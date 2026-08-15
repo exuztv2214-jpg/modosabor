@@ -328,6 +328,15 @@ export default function SeccionWhatsapp({ config, setConfig }) {
             onChange={(event) => editar('whatsapp_agente_nombre', event.target.value)}
             placeholder="Chispita"
           />
+          <InputField
+            label="Espera para mensajes partidos (ms)"
+            description="Chispita junta mensajes consecutivos antes de responder. Recomendado: 2000."
+            type="number"
+            min="0"
+            max="8000"
+            value={config?.whatsapp_agrupar_ms || '2000'}
+            onChange={(event) => editar('whatsapp_agrupar_ms', event.target.value)}
+          />
           <TextareaField
             label="Estilo de conversación"
             description="Tono, extensión y forma de escribir."
