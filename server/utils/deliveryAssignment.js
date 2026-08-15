@@ -25,7 +25,9 @@ function listActiveRepartidores(db) {
     LEFT JOIN (
       SELECT repartidor_id, COUNT(*) AS active_orders
       FROM pedidos
-      WHERE estado = 'en_camino'
+      WHERE tipo_entrega = 'delivery'
+        AND repartidor_id IS NOT NULL
+        AND estado NOT IN ('entregado', 'cancelado')
       GROUP BY repartidor_id
     ) active ON active.repartidor_id = r.id
     LEFT JOIN (

@@ -294,6 +294,31 @@ export default function TPV() {
       .finally(() => setCargandoCatalogo(false));
   }, []);
 
+  useEffect(() => {
+    // El TPV puede quedar abierto desde la mañana hasta la noche. La lista
+    // inicial ya no alcanza: al cambiar el turno seguía mostrando los riders
+    // del horario anterior hasta recargar toda la aplicación.
+    const actualizarRidersDelTurno = () => {
+      api
+        .get('/repartidores?turno_actual=1')
+        .then((data) =>
+          setRepartidores(Array.isArray(data) ? data.filter((item) => item.activo) : [])
+        )
+        .catch(() => {});
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') actualizarRidersDelTurno();
+    };
+    const intervalId = window.setInterval(actualizarRidersDelTurno, 30000);
+    window.addEventListener('focus', actualizarRidersDelTurno);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener('focus', actualizarRidersDelTurno);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, []);
+
   const cargarClientesDelDia = useCallback(async () => {
     try {
       const hoy = getLocalDateInputValue();

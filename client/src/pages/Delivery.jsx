@@ -533,7 +533,11 @@ export default function Delivery() {
   const riderLoads = useMemo(
     () =>
       pedidosDelivery.reduce((acc, pedido) => {
-        if (!pedido.repartidor_id || !['listo', 'en_camino'].includes(pedido.estado)) return acc;
+        if (
+          !pedido.repartidor_id ||
+          ['entregado', 'cancelado'].includes(String(pedido.estado || '').toLowerCase())
+        )
+          return acc;
         acc[pedido.repartidor_id] = (acc[pedido.repartidor_id] || 0) + 1;
         return acc;
       }, {}),
@@ -553,10 +557,11 @@ export default function Delivery() {
   );
 
   const repartidoresSugeridos = useMemo(() => {
-    if (!asignarModal) return repartidoresDisponibles;
-    return [...repartidoresDisponibles].sort((a, b) => {
+    if (!asignarModal) return repartidoresEnTurno;
+    return [...repartidoresEnTurno].sort((a, b) => {
       const scoreA = riderScore(a, asignarModal, riderLoads, lastAssignmentByRider);
       const scoreB = riderScore(b, asignarModal, riderLoads, lastAssignmentByRider);
+      if (Boolean(a.disponible) !== Boolean(b.disponible)) return a.disponible ? -1 : 1;
       if (scoreA.zoneMatch !== scoreB.zoneMatch) return scoreA.zoneMatch ? -1 : 1;
       if (scoreA.load !== scoreB.load) return scoreA.load - scoreB.load;
       if (scoreA.lastAssignedAt !== scoreB.lastAssignedAt)
@@ -564,7 +569,7 @@ export default function Delivery() {
       if (scoreA.gpsAt !== scoreB.gpsAt) return scoreB.gpsAt - scoreA.gpsAt;
       return String(a.nombre || '').localeCompare(String(b.nombre || ''), 'es');
     });
-  }, [asignarModal, repartidoresDisponibles, riderLoads, lastAssignmentByRider]);
+  }, [asignarModal, repartidoresEnTurno, riderLoads, lastAssignmentByRider]);
 
   const guardarRider = async () => {
     if (!form.nombre.trim()) return toast.error('Ingresa el nombre del repartidor');
@@ -1836,7 +1841,7 @@ export default function Delivery() {
             <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-6 py-4">
               {repartidoresSugeridos.length === 0 ? (
                 <div className="rounded-xl border border-dashed border-gray-200 px-6 py-10 text-center text-[13px] text-gray-400">
-                  No hay riders disponibles ahora mismo.
+                  No hay riders asignados a este turno.
                 </div>
               ) : (
                 repartidoresSugeridos.map((repartidor, idx) => {
