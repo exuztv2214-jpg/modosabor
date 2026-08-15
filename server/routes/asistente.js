@@ -28,6 +28,7 @@ const {
   ErrorDeAccion,
 } = require('../services/asistenteAcciones');
 const { firmarPropuesta, verificarPropuesta } = require('../utils/firmaPropuesta');
+const { ejecutarAgente, detenerAgente } = require('../services/motorAgente');
 
 /*
   Las preguntas operativas más directas no necesitan gastar una llamada al
@@ -430,139 +431,100 @@ router.post(
     const consultasHechas = [];
 
     try {
-      for (let vuelta = 0; vuelta < MAX_VUELTAS; vuelta += 1) {
-        const respuestaIa = await conversar({
-          sistema: INSTRUCCIONES,
-          mensajes,
-          herramientas,
-        });
-
-        /*
-          Si el modelo pidió una acción, el bucle se corta acá. No se ejecuta
-          nada: se arma la propuesta, se firma y se devuelve para que el usuario
-          la confirme. Ese corte es lo que hace que la confirmación signifique
-          algo.
-        */
-        const pedidoDeAccion = respuestaIa.llamadas?.find((l) => esAccion(l.nombre));
-        if (pedidoDeAccion) {
-          const preparada = await prepararAccion(pedidoDeAccion.nombre, pedidoDeAccion.argumentos);
-
-          if (preparada.error) {
-            // La validación falló (insumo inexistente, nombre ambiguo). Vuelve
-            // al modelo como resultado para que se lo explique al usuario y
-            // pueda corregir sin empezar de nuevo.
-            mensajes.push({
-              rol: 'asistente',
-              texto: respuestaIa.texto,
-              llamadas: [pedidoDeAccion],
-            });
-            mensajes.push({
-              rol: 'herramienta',
-              id: pedidoDeAccion.id,
-              nombre: pedidoDeAccion.nombre,
-              resultado: JSON.stringify({ error: preparada.error }),
-            });
-            continue;
+      const resultadoMotor = await ejecutarAgente({
+        sistema: INSTRUCCIONES,
+        mensajes,
+        herramientas,
+        maxVueltas: MAX_VUELTAS,
+        ejecutar: async (nombre, argumentos) => {
+          if (esAccion(nombre)) {
+            const preparada = await prepararAccion(nombre, argumentos);
+            if (preparada.error) return { error: preparada.error };
+            return detenerAgente({ nombre, argumentos, preparada });
           }
+          const resultado = ejecutarHerramienta(nombre, argumentos);
+          consultasHechas.push(nombre);
+          return resultado;
+        },
+      });
 
-          logAudit(db, {
-            modulo: 'asistente',
-            accion: 'propone',
-            entidad: pedidoDeAccion.nombre,
-            actor_id: req.user?.id ?? null,
-            actor_nombre: req.user?.nombre || 'Desconocido',
-            detalle: { pregunta, resumen: preparada.resumen },
-          });
-
-          registrarAuditoriaIa({
-            usuario_id: req.user?.id ?? null,
-            usuario_nombre: req.user?.nombre || 'Desconocido',
-            tipo: 'propuesta',
-            pregunta,
-            respuesta: respuestaIa.texto || '',
-            herramientas_usadas: [pedidoDeAccion.nombre],
-            accion: pedidoDeAccion.nombre,
-            proveedor: respuestaIa._meta?.proveedor || '',
-            modelo: respuestaIa._meta?.modelo || '',
-            duracion_ms: respuestaIa._meta?.duracionMs || 0,
-            fallback: respuestaIa._meta?.fallback || false,
-            proveedor_original: respuestaIa._meta?.proveedorOriginal || '',
-          });
-
-          return res.json({
-            respuesta: respuestaIa.texto || '',
-            consultas: consultasHechas,
-            propuesta: {
-              resumen: preparada.resumen,
-              detalles: preparada.detalles || [],
-              advertencia: preparada.advertencia || '',
-              token: firmarPropuesta(
-                {
-                  accion: pedidoDeAccion.nombre,
-                  argumentos: preparada.argumentosResueltos,
-                  resumen: preparada.resumen,
-                },
-                req.user?.id
-              ),
-            },
-          });
-        }
-
-        if (!respuestaIa.llamadas?.length) {
-          logAudit(db, {
-            modulo: 'asistente',
-            accion: 'consulta',
-            entidad: 'asistente',
-            actor_id: req.user?.id ?? null,
-            actor_nombre: req.user?.nombre || 'Desconocido',
-            // Queda registrado qué preguntó y qué datos se le entregaron. Si
-            // alguna vez se filtra información, esto dice quién la pidió.
-            detalle: { pregunta, herramientas: consultasHechas },
-          });
-
-          registrarAuditoriaIa({
-            usuario_id: req.user?.id ?? null,
-            usuario_nombre: req.user?.nombre || 'Desconocido',
-            tipo: 'consulta',
-            pregunta,
-            respuesta: respuestaIa.texto || '',
-            herramientas_usadas: consultasHechas,
-            accion: 'consulta',
-            proveedor: respuestaIa._meta?.proveedor || '',
-            modelo: respuestaIa._meta?.modelo || '',
-            duracion_ms: respuestaIa._meta?.duracionMs || 0,
-            fallback: respuestaIa._meta?.fallback || false,
-            proveedor_original: respuestaIa._meta?.proveedorOriginal || '',
-          });
-
-          return res.json({
-            respuesta: respuestaIa.texto || 'No pude armar una respuesta.',
-            consultas: consultasHechas,
-          });
-        }
-
-        mensajes.push({
-          rol: 'asistente',
-          texto: respuestaIa.texto,
-          llamadas: respuestaIa.llamadas,
+      if (resultadoMotor.detenido) {
+        const { nombre, preparada } = resultadoMotor.detenido;
+        const respuestaIa = resultadoMotor.respuesta;
+        logAudit(db, {
+          modulo: 'asistente',
+          accion: 'propone',
+          entidad: nombre,
+          actor_id: req.user?.id ?? null,
+          actor_nombre: req.user?.nombre || 'Desconocido',
+          detalle: { pregunta, resumen: preparada.resumen },
         });
-
-        respuestaIa.llamadas.forEach((llamada) => {
-          const resultado = ejecutarHerramienta(llamada.nombre, llamada.argumentos);
-          consultasHechas.push(llamada.nombre);
-          mensajes.push({
-            rol: 'herramienta',
-            id: llamada.id,
-            nombre: llamada.nombre,
-            resultado: JSON.stringify(resultado),
-          });
+        registrarAuditoriaIa({
+          usuario_id: req.user?.id ?? null,
+          usuario_nombre: req.user?.nombre || 'Desconocido',
+          tipo: 'propuesta',
+          pregunta,
+          respuesta: respuestaIa.texto || '',
+          herramientas_usadas: [nombre],
+          accion: nombre,
+          proveedor: respuestaIa._meta?.proveedor || '',
+          modelo: respuestaIa._meta?.modelo || '',
+          duracion_ms: respuestaIa._meta?.duracionMs || 0,
+          fallback: respuestaIa._meta?.fallback || false,
+          proveedor_original: respuestaIa._meta?.proveedorOriginal || '',
+        });
+        return res.json({
+          respuesta: respuestaIa.texto || '',
+          consultas: consultasHechas,
+          propuesta: {
+            resumen: preparada.resumen,
+            detalles: preparada.detalles || [],
+            advertencia: preparada.advertencia || '',
+            token: firmarPropuesta(
+              {
+                accion: nombre,
+                argumentos: preparada.argumentosResueltos,
+                resumen: preparada.resumen,
+              },
+              req.user?.id
+            ),
+          },
         });
       }
 
-      // Se agotaron las vueltas sin una respuesta final.
+      if (resultadoMotor.agotado) {
+        return res.json({
+          respuesta:
+            'Me quedé dando vueltas sin llegar a una respuesta. Probá preguntándolo más simple.',
+          consultas: consultasHechas,
+        });
+      }
+
+      const respuestaIa = resultadoMotor.respuesta;
+      logAudit(db, {
+        modulo: 'asistente',
+        accion: 'consulta',
+        entidad: 'asistente',
+        actor_id: req.user?.id ?? null,
+        actor_nombre: req.user?.nombre || 'Desconocido',
+        detalle: { pregunta, herramientas: consultasHechas },
+      });
+      registrarAuditoriaIa({
+        usuario_id: req.user?.id ?? null,
+        usuario_nombre: req.user?.nombre || 'Desconocido',
+        tipo: 'consulta',
+        pregunta,
+        respuesta: respuestaIa.texto || '',
+        herramientas_usadas: consultasHechas,
+        accion: 'consulta',
+        proveedor: respuestaIa._meta?.proveedor || '',
+        modelo: respuestaIa._meta?.modelo || '',
+        duracion_ms: respuestaIa._meta?.duracionMs || 0,
+        fallback: respuestaIa._meta?.fallback || false,
+        proveedor_original: respuestaIa._meta?.proveedorOriginal || '',
+      });
       return res.json({
-        respuesta:
-          'Me quedé dando vueltas sin llegar a una respuesta. Probá preguntándolo más simple.',
+        respuesta: respuestaIa.texto || 'No pude armar una respuesta.',
         consultas: consultasHechas,
       });
     } catch (error) {
