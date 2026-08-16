@@ -13,6 +13,12 @@ const MONEY_PATTERNS = [
   'efectivo',
   'diferencia',
   'valor',
+  /*
+    Cubre `propina`, `propinas`, `propinasEfectivo` y `propinas_por_mozo`. Sin
+    esto, una propina de $500 se guardaría como 500 centavos —$5— y en el
+    cierre de caja el cajón nunca cerraría.
+  */
+  'propina',
 ];
 
 /**

@@ -3,7 +3,7 @@ const router = express.Router();
 const db = require('../db');
 const auth = require('../middleware/auth');
 const { logAudit, actorFromRequest } = require('../utils/audit');
-const { requirePermission } = require('../utils/permissions');
+const { requirePermission, hasPermission } = require('../utils/permissions');
 const { getCurrentShiftInfo, resolveShiftLabel } = require('../utils/shifts');
 const {
   ensureOperationalCaja,
@@ -86,7 +86,52 @@ function buildCajaResumen(desde, hasta = null, cierreId = null) {
     .filter((m) => m.tipo === 'salida')
     .reduce((acc, m) => acc + Number(m.monto || 0), 0);
 
-  const efectivoNeto = efectivoVentas + totalIngresosManuales - totalEgresosManuales;
+  /*
+    ── Propinas ───────────────────────────────────────────────────────────────
+
+    No están adentro de `total` a propósito: `total` es lo que cuesta la comida
+    y es de lo que salen los reportes de venta. La propina es plata del mozo.
+
+    Pero en el cajón sí están. Si el cliente deja $500 de propina en efectivo,
+    esos $500 están físicamente ahí, y si no se suman al esperado el arqueo
+    cierra con $500 de más y parece un error de caja.
+
+    Sólo se cuentan las de los pedidos ya cobrados: una propina anotada en un
+    pedido que todavía no se pagó no está en ningún cajón.
+
+    Y sólo las cobradas en efectivo suman al esperado. La propina de una tarjeta
+    o una transferencia no pasa por el cajón.
+  */
+  const pedidosCobrados = validRows.filter((row) =>
+    isPagoPagado(row.pago_estado, { metodoPago: row.metodo_pago, origen: row.origen })
+  );
+  const propinas = pedidosCobrados.reduce((acc, row) => acc + Number(row.propina || 0), 0);
+  const propinasEfectivo = pedidosCobrados.reduce(
+    (acc, row) => (isMetodoEfectivo(row.metodo_pago) ? acc + Number(row.propina || 0) : acc),
+    0
+  );
+  const propinasDigitales = propinas - propinasEfectivo;
+
+  /*
+    Cuánto le toca a cada mozo. Es el motivo por el que se registran: al cerrar
+    el turno hay que repartirlas, y hasta ahora eso se hacía de memoria.
+  */
+  const propinasPorMozo = Array.from(
+    pedidosCobrados
+      .filter((row) => Number(row.propina || 0) > 0)
+      .reduce((acc, row) => {
+        const nombre = String(row.mozo_nombre || '').trim() || 'Sin mozo asignado';
+        const actual = acc.get(nombre) || { mozo: nombre, pedidos: 0, propinas: 0 };
+        actual.pedidos += 1;
+        actual.propinas += Number(row.propina || 0);
+        acc.set(nombre, actual);
+        return acc;
+      }, new Map())
+      .values()
+  ).sort((a, b) => b.propinas - a.propinas);
+
+  const efectivoNeto =
+    efectivoVentas + propinasEfectivo + totalIngresosManuales - totalEgresosManuales;
 
   const porMetodo = paymentSummary.byMethod;
 
@@ -150,6 +195,10 @@ function buildCajaResumen(desde, hasta = null, cierreId = null) {
     totalPendienteCobro,
     totalIngresosManuales,
     totalEgresosManuales,
+    propinas,
+    propinasEfectivo,
+    propinasDigitales,
+    propinasPorMozo,
     efectivoNeto,
     entregados,
     cancelados,
@@ -202,9 +251,43 @@ router.get('/estado', auth, requirePermission('caja.view'), (req, res) => {
     });
   });
 
+  /*
+    ── Arqueo ciego ───────────────────────────────────────────────────────────
+
+    Cuando está activado, el cajero cuenta la plata **sin ver cuánto debería
+    haber**. Recién al cerrar se revela la diferencia.
+
+    Para qué sirve: si el cajero ve que se esperan $61.000, cuenta $60.500 y
+    sabe que le faltan $500, la tentación de declarar $61.000 y "ya va a
+    aparecer" existe. Contando a ciegas, el número declarado es el que salió
+    del cajón de verdad. Fudo lo tiene y es de las cosas que un dueño valora.
+
+    Se resuelve **en el servidor y no escondiéndolo en pantalla**: ocultarlo
+    sólo en el frontend lo deja a la vista de cualquiera que abra la pestaña de
+    red del navegador, que es exactamente la persona de la que uno se querría
+    cuidar.
+
+    Se tapan los cuatro caminos para llegar al número: el neto, las ventas en
+    efectivo, las propinas en efectivo y el desglose por método —de donde se
+    podría sumar el efectivo a mano—.
+
+    Quien tiene permiso de configurar la caja lo sigue viendo: el dueño no se
+    audita a sí mismo.
+  */
+  const arqueoCiego =
+    String(getConfigMap(db).caja_arqueo_ciego || '0') === '1' &&
+    !hasPermission(req.user, 'config.manage');
+
+  let resumen = activa ? buildCajaResumen(activa.abierta_en, null, activa.id) : null;
+  if (resumen && arqueoCiego) {
+    const { efectivoNeto, efectivoVentas, propinasEfectivo, porMetodo, ...visible } = resumen;
+    resumen = { ...visible, arqueo_ciego: true };
+  }
+
   res.json({
     activa: activa ? { ...activa, resumen: safeJsonParse(activa.resumen_json, {}) } : null,
-    resumen: activa ? buildCajaResumen(activa.abierta_en, null, activa.id) : null,
+    resumen,
+    arqueo_ciego: arqueoCiego,
     historial,
     auditoria,
     turno_operativo: operational.context,

@@ -1097,6 +1097,19 @@ function renderCajaCierreHtml(data) {
         <div class="totals" style="width:100%;">
           ${fila('Fondo inicial', money(activa.monto_inicial, moneda))}
           ${fila('Ventas en efectivo', money(resumen.efectivoVentas, moneda))}
+          ${
+            /*
+              La propina en efectivo va como línea propia, y sólo si la hubo.
+
+              Está adentro de "Efectivo esperado" porque está adentro del cajón.
+              Si no se listara, las líneas de arriba no sumarían el total de
+              abajo: el ticket dejaría de cerrar a la vista y el cajero
+              buscaría un error que no existe.
+            */
+            Number(resumen.propinasEfectivo || 0) > 0
+              ? fila('Propinas en efectivo', money(resumen.propinasEfectivo, moneda))
+              : ''
+          }
           ${fila('Ingresos manuales', money(resumen.totalIngresosManuales, moneda))}
           ${fila('Gastos y egresos', `-${money(resumen.totalEgresosManuales, moneda)}`)}
           <div class="totals-grand"><span>Efectivo esperado</span><span>${escapeHtml(money(activa.efectivo_esperado, moneda))}</span></div>

@@ -217,6 +217,17 @@ export default function Caja() {
   const porMetodo = Array.isArray(resumen?.porMetodo) ? resumen.porMetodo : [];
   const porTipo = Array.isArray(resumen?.porTipo) ? resumen.porTipo : [];
   const porTurno = Array.isArray(resumen?.porTurno) ? resumen.porTurno : [];
+  const propinasPorMozo = Array.isArray(resumen?.propinasPorMozo) ? resumen.propinasPorMozo : [];
+  /*
+    Con el arqueo ciego prendido, el servidor no manda `efectivoNeto`: quien
+    cierra la caja cuenta la plata sin saber cuánto debería haber, y la
+    diferencia aparece recién al cerrar.
+
+    El servidor es el que decide y el que oculta el número. Acá sólo se deja de
+    mostrar el hueco: si esto fuera lo único que lo esconde, alcanzaría con
+    abrir la pestaña de red del navegador para verlo.
+  */
+  const arqueoCiego = data?.arqueo_ciego === true;
   const efectivoEsperado =
     Number(data?.activa?.monto_inicial || 0) + Number(resumen?.efectivoNeto || 0);
   const ultimoCierre = historial.find((item) => item.estado === 'cerrada') || null;
@@ -421,9 +432,29 @@ export default function Caja() {
               />
               <Stat
                 label="Efectivo esperado"
-                value={fmt(efectivoEsperado)}
-                helper="Fondo + cobros en efectivo − egresos"
+                value={arqueoCiego ? '—' : fmt(efectivoEsperado)}
+                /*
+                  La propina en efectivo está adentro de este número porque está
+                  adentro del cajón. Si no se dijera acá, el cajero contaría de
+                  más y creería que sobra plata.
+                */
+                helper={
+                  Number(resumen?.propinasEfectivo) > 0
+                    ? `Fondo + cobros + ${fmt(resumen?.propinasEfectivo)} de propinas − egresos`
+                    : 'Fondo + cobros en efectivo − egresos'
+                }
               />
+              {Number(resumen?.propinas) > 0 ? (
+                <Stat
+                  label="Propinas"
+                  value={fmt(resumen?.propinas)}
+                  helper={
+                    Number(resumen?.propinasDigitales) > 0
+                      ? `${fmt(resumen?.propinasEfectivo)} en efectivo · ${fmt(resumen?.propinasDigitales)} digitales`
+                      : 'Todas en efectivo, están en el cajón'
+                  }
+                />
+              ) : null}
               <Stat
                 label="Pagos digitales"
                 value={fmt(resumen?.digitales)}
@@ -436,6 +467,45 @@ export default function Caja() {
 
             <div className="grid gap-4 xl:grid-cols-[1fr_380px]">
               <div className="space-y-4">
+                {/*
+                  ── Reparto de propinas ────────────────────────────────────
+
+                  Es el motivo por el que se registran. Al cerrar el turno hay
+                  que repartirlas, y hasta ahora eso se hacía de memoria o con
+                  un papel.
+
+                  Sólo aparece si hubo propinas: una tarjeta vacía todos los
+                  días es ruido.
+                */}
+                {propinasPorMozo.length > 0 ? (
+                  <Card title="Propinas por mozo">
+                    <div className="space-y-1.5">
+                      {propinasPorMozo.map((m) => (
+                        <div
+                          key={m.mozo}
+                          className="flex items-center justify-between gap-3 rounded-xl bg-gray-50 px-3 py-2.5"
+                        >
+                          <div className="min-w-0">
+                            <p className="truncate text-[13px] font-medium text-gray-900">
+                              {m.mozo}
+                            </p>
+                            <p className="text-[11px] text-gray-400">
+                              {m.pedidos} {Number(m.pedidos) === 1 ? 'mesa' : 'mesas'}
+                            </p>
+                          </div>
+                          <p className="shrink-0 text-[14px] font-bold tabular-nums text-gray-900">
+                            {fmt(m.propinas)}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="mt-2.5 text-[11px] leading-relaxed text-gray-400">
+                      Las propinas no cuentan como venta del local. Se muestran acá para repartirlas
+                      al cerrar el turno.
+                    </p>
+                  </Card>
+                ) : null}
+
                 {/* ── Desglose ── */}
                 <Card title="Desglose de ventas del turno">
                   <div className="grid gap-5 md:grid-cols-2">
@@ -623,35 +693,56 @@ export default function Caja() {
                     </button>
                   </div>
 
-                  <div className="mt-4 rounded-xl bg-gray-50 p-3">
-                    <div className="flex items-center justify-between text-[13px]">
-                      <span className="text-gray-500">Esperado</span>
-                      <span className="font-bold tabular-nums text-gray-900">
-                        {fmt(efectivoEsperado)}
-                      </span>
+                  {/*
+                    Con arqueo ciego no se muestra ni el esperado ni la
+                    diferencia en vivo.
+
+                    La diferencia hay que taparla aparte y no alcanza con
+                    esconder el esperado: se calcula acá restando el declarado,
+                    así que con el esperado oculto igual delataría el número
+                    —y peor, mostraría uno falso, porque sin `efectivoNeto` la
+                    cuenta daría cualquier cosa—.
+                  */}
+                  {arqueoCiego ? (
+                    <div className="mt-4 rounded-xl bg-gray-50 p-3">
+                      <p className="text-[13px] font-semibold text-gray-900">Arqueo a ciegas</p>
+                      <p className="mt-1 text-[11px] leading-4 text-gray-500">
+                        Contá el efectivo del cajón y cargá el total. La diferencia se calcula al
+                        cerrar.
+                      </p>
                     </div>
-                    <div className="mt-2 flex items-center justify-between border-t border-gray-200 pt-2 text-[15px]">
-                      <span className="font-semibold text-gray-900">Diferencia</span>
-                      <span
-                        className="font-bold tabular-nums"
-                        style={{
-                          color: diferencia === 0 ? '#047857' : diferencia > 0 ? '#B45309' : BRAND,
-                        }}
-                      >
-                        {diferencia > 0 ? '+' : ''}
-                        {fmt(diferencia)}
-                      </span>
+                  ) : (
+                    <div className="mt-4 rounded-xl bg-gray-50 p-3">
+                      <div className="flex items-center justify-between text-[13px]">
+                        <span className="text-gray-500">Esperado</span>
+                        <span className="font-bold tabular-nums text-gray-900">
+                          {fmt(efectivoEsperado)}
+                        </span>
+                      </div>
+                      <div className="mt-2 flex items-center justify-between border-t border-gray-200 pt-2 text-[15px]">
+                        <span className="font-semibold text-gray-900">Diferencia</span>
+                        <span
+                          className="font-bold tabular-nums"
+                          style={{
+                            color:
+                              diferencia === 0 ? '#047857' : diferencia > 0 ? '#B45309' : BRAND,
+                          }}
+                        >
+                          {diferencia > 0 ? '+' : ''}
+                          {fmt(diferencia)}
+                        </span>
+                      </div>
+                      <p className="mt-2 text-[11px] leading-4 text-gray-500">
+                        {String(closing.monto_final_declarado).trim() === ''
+                          ? 'Contá el efectivo y cargá el total para ver la diferencia.'
+                          : diferencia === 0
+                            ? 'El arqueo coincide con lo esperado.'
+                            : diferencia > 0
+                              ? 'Sobra efectivo. Conviene dejar una nota explicando de dónde salió.'
+                              : 'Falta efectivo. Revisá ventas y movimientos antes de cerrar.'}
+                      </p>
                     </div>
-                    <p className="mt-2 text-[11px] leading-4 text-gray-500">
-                      {String(closing.monto_final_declarado).trim() === ''
-                        ? 'Contá el efectivo y cargá el total para ver la diferencia.'
-                        : diferencia === 0
-                          ? 'El arqueo coincide con lo esperado.'
-                          : diferencia > 0
-                            ? 'Sobra efectivo. Conviene dejar una nota explicando de dónde salió.'
-                            : 'Falta efectivo. Revisá ventas y movimientos antes de cerrar.'}
-                    </p>
-                  </div>
+                  )}
 
                   {pendienteCobro > 0 ? (
                     <div className="mt-3 flex items-start gap-2 rounded-xl bg-amber-50 p-3">
