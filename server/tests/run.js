@@ -1,6 +1,25 @@
 const fs = require('fs');
 const path = require('path');
 
+/*
+  Los tests se cargan todos en este mismo proceso, así que el primero que
+  hace `require('../../db')` dispara el seed para todos. Si la tabla de
+  usuarios está vacía, `seed.js` corta con:
+
+      No hay usuarios creados y faltan INITIAL_ADMIN_EMAIL / INITIAL_ADMIN_PASSWORD
+
+  En una máquina de trabajo eso no pasa nunca —la base ya tiene usuarios—, pero
+  en el CI el checkout es limpio y la base nace vacía. Un solo `require` se
+  cae y arrastra a los sesenta y pico que vienen atrás, que es por qué el CI
+  reportaba decenas de tests rotos cuando el problema era uno.
+
+  Se definen acá, antes de cargar nada, y con valores obviamente de prueba: no
+  son credenciales, son lo que hace falta para que la base arranque vacía.
+*/
+process.env.NODE_ENV = process.env.NODE_ENV || 'test';
+process.env.INITIAL_ADMIN_EMAIL = process.env.INITIAL_ADMIN_EMAIL || 'test@example.invalid';
+process.env.INITIAL_ADMIN_PASSWORD = process.env.INITIAL_ADMIN_PASSWORD || 'test-only-password';
+
 function findTests(dir) {
   const files = [];
   const entries = fs.readdirSync(dir, { withFileTypes: true });
