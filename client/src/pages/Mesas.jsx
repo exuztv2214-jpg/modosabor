@@ -24,6 +24,7 @@ import tableImg from '../image/table/table.jpg';
 import { BRAND, STROKE, Z, estadoTono } from '../lib/theme.js';
 import { minutosDesde as minutosDesdeServidor, parseFechaServidor } from '../lib/fechas.js';
 import { isPagoPagado } from '../lib/paymentStatus.js';
+import { playOrderAlarm } from '../lib/orderAlerts.js';
 
 const fmt = (n) => `$${Number(n || 0).toLocaleString('es-AR')}`;
 
@@ -146,6 +147,38 @@ export default function Mesas() {
   const [cobrandoId, setCobrandoId] = useState(null);
   // Pedido cuyo cobro se está por registrar. Abre el selector de método.
   const [cobroTarget, setCobroTarget] = useState(null);
+  /*
+    La propina del cobro que se está haciendo, en pesos.
+
+    Vive acá y no adentro del diálogo para que se limpie sola cada vez que se
+    abre uno nuevo: una propina que quedara pegada de la mesa anterior sería
+    plata cargada de más sin que nadie la escriba.
+  */
+  const [propina, setPropina] = useState(0);
+  const [propinaManual, setPropinaManual] = useState('');
+  // Cobro parcial: cuánto paga esta persona ahora, en pesos.
+  const [parcialAbierto, setParcialAbierto] = useState(false);
+  const [montoParcial, setMontoParcial] = useState('');
+
+  /*
+    Lo que ya se cobró a cuenta de esta mesa y lo que falta.
+
+    Sale de `pago_detalle.split_payments`, la misma lista que lee el arqueo de
+    caja. Se calcula acá y no en el servidor para que el número grande del
+    diálogo se actualice apenas vuelve el pedido, sin una consulta más.
+  */
+  const cobradoDeAntes = useMemo(() => {
+    if (!cobroTarget) return 0;
+    try {
+      const detalle = JSON.parse(cobroTarget.pago_detalle || '{}');
+      const pagos = Array.isArray(detalle?.split_payments) ? detalle.split_payments : [];
+      return pagos.reduce((acc, pago) => acc + Number(pago?.monto || 0), 0);
+    } catch {
+      return 0;
+    }
+  }, [cobroTarget]);
+
+  const restanteDeCobro = Math.max(0, Number(cobroTarget?.total || 0) - cobradoDeAntes);
 
   // Estados para modales y flujos
   const [moveState, setMoveState] = useState(null); // mesa de origen del pedido a mover
@@ -190,9 +223,33 @@ export default function Mesas() {
     socketManager.connect();
     const s1 = socketManager.on('nuevo_pedido', () => cargar());
     const s2 = socketManager.on('pedido_actualizado', () => cargar());
+    /*
+      ── La cocina avisa que el plato está listo ──────────────────────────────
+
+      El servidor manda este evento **sólo al mozo que tomó la mesa**, por su
+      sala `mozo_<id>`. Acá no hace falta filtrar por mozo: si llegó, es porque
+      es para esta persona.
+
+      Suena además de mostrarse: en pleno servicio nadie está mirando la
+      pantalla, y un aviso silencioso es un aviso que no existe. Se reusa la
+      misma alarma que ya usan los pedidos nuevos, para que el equipo no tenga
+      que aprender un sonido nuevo.
+
+      Si el navegador todavía no dejó reproducir audio —hace falta que el
+      usuario haya tocado la pantalla al menos una vez— el toast igual aparece.
+    */
+    const s3 = socketManager.on('pedido_listo', (aviso) => {
+      toast.success(
+        aviso?.mesa ? `Mesa ${aviso.mesa} lista para servir` : `Pedido #${aviso?.numero} listo`,
+        { duration: 8000, icon: '🔔' }
+      );
+      playOrderAlarm({ enabled: true }).catch(() => {});
+      cargar();
+    });
     return () => {
       s1();
       s2();
+      s3();
       socketManager.disconnect();
     };
   }, []);
@@ -209,6 +266,15 @@ export default function Mesas() {
     };
     document.addEventListener('keydown', alPresionar);
     return () => document.removeEventListener('keydown', alPresionar);
+  }, [cobroTarget]);
+
+  // La propina arranca en cero cada vez que se abre un cobro. Arrastrar la de
+  // la mesa anterior sería cobrar de más sin que nadie lo escriba.
+  useEffect(() => {
+    setPropina(0);
+    setPropinaManual('');
+    setParcialAbierto(false);
+    setMontoParcial('');
   }, [cobroTarget]);
 
   const mesas = useMemo(() => {
@@ -306,16 +372,55 @@ export default function Mesas() {
     setCobrandoId(pedido.id);
     try {
       /*
+        ── Cobro parcial ──────────────────────────────────────────────────────
+
+        Va por otra ruta: registra el cobro y deja el pedido abierto con el
+        resto pendiente. El servidor lo cierra solo cuando la suma llega al
+        total, así que nadie tiene que acordarse de marcarlo.
+
+        La propina no va acá: es del cierre de la mesa, no de cada persona que
+        pone su parte. Mezclarlas obligaría a repartir una propina entre pagos
+        parciales, que es una discusión que no vale la pena tener.
+      */
+      if (parcialAbierto) {
+        const monto = Number(montoParcial || 0);
+        if (monto <= 0) {
+          toast.error('Poné cuánto paga');
+          return;
+        }
+        const resultado = await api.post(`/pedidos/${pedido.id}/pago-parcial`, {
+          monto,
+          metodo_pago: metodoPago,
+        });
+        toast.success(
+          resultado.saldado
+            ? `Mesa cerrada. Se cobró todo.`
+            : `Cobrado ${fmt(monto)}. Faltan ${fmt(resultado.restante)}`
+        );
+        setCobroTarget(null);
+        await cargar();
+        return;
+      }
+
+      /*
         Se manda el método junto con el cobro. Sin esto la mesa quedaba cobrada
         con lo que se había elegido al cargar el pedido —una suposición hecha
         cuando el cliente todavía miraba la carta— y el cierre de caja repartía
         mal entre efectivo y digital.
+
+        La propina va en el mismo envío por el mismo motivo: es cuando se sabe.
+        Va en pesos; el servidor la pasa a centavos.
       */
       await api.put(`/pedidos/${pedido.id}/pago`, {
         pago_estado: 'pagado',
         metodo_pago: metodoPago,
+        ...(propina > 0 ? { propina } : {}),
       });
-      toast.success(`Cobrado ${fmt(pedido.total)} en ${metodoLabel(metodoPago)}`);
+      toast.success(
+        propina > 0
+          ? `Cobrado ${fmt(restanteDeCobro)} + ${fmt(propina)} de propina`
+          : `Cobrado ${fmt(restanteDeCobro)} en ${metodoLabel(metodoPago)}`
+      );
       setCobroTarget(null);
       await cargar();
     } catch (error) {
@@ -882,9 +987,120 @@ export default function Mesas() {
             <p className="text-[13px] font-medium text-gray-400">
               Mesa {cobroTarget.mesa} · Orden #{cobroTarget.numero}
             </p>
-            <p className="mb-1 mt-1 text-3xl font-semibold text-gray-900">
-              {fmt(cobroTarget.total)}
-            </p>
+            <p className="mb-1 mt-1 text-3xl font-semibold text-gray-900">{fmt(restanteDeCobro)}</p>
+            {/*
+              ── Cobro parcial ────────────────────────────────────────────────
+
+              La mesa de seis donde tres se van antes y pagan lo suyo.
+
+              El número grande de arriba muestra **lo que falta**, no el total:
+              es lo que el mozo va a cantar. Si ya se cobró algo, se aclara
+              abajo para que no parezca que el total cambió solo.
+
+              El parcial es un caso raro, así que está detrás de un enlace en
+              vez de ocupar lugar: lo normal es cobrar todo junto de un toque.
+            */}
+            {cobradoDeAntes > 0 ? (
+              <p className="-mt-0.5 mb-1 text-[12px] text-gray-500">
+                de {fmt(cobroTarget.total)} · ya se cobraron {fmt(cobradoDeAntes)}
+              </p>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => {
+                setParcialAbierto((abierto) => !abierto);
+                setMontoParcial('');
+              }}
+              className="mb-3 text-[12px] font-medium text-gray-400 underline-offset-2 hover:text-gray-700 hover:underline"
+            >
+              {parcialAbierto ? 'Cobrar todo junto' : 'Cobrar sólo una parte'}
+            </button>
+            {parcialAbierto ? (
+              <div className="mb-4 rounded-2xl bg-gray-50 p-3">
+                <p className="mb-1.5 text-[12px] text-gray-500">
+                  ¿Cuánto paga? Después queda el resto pendiente.
+                </p>
+                <input
+                  value={montoParcial}
+                  onChange={(evento) => setMontoParcial(evento.target.value.replace(/[^\d]/g, ''))}
+                  inputMode="numeric"
+                  placeholder={String(restanteDeCobro)}
+                  aria-label="Monto que paga ahora"
+                  className="h-11 w-full rounded-xl border border-gray-200 px-3 text-[15px] font-semibold tabular-nums outline-none focus:border-gray-400"
+                />
+                {Number(montoParcial || 0) > 0 ? (
+                  <p className="mt-1.5 text-[12px] text-gray-500">
+                    Quedarían pendientes{' '}
+                    <span className="font-semibold text-gray-900">
+                      {fmt(Math.max(0, restanteDeCobro - Number(montoParcial)))}
+                    </span>
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
+            {/*
+              ── Propina ──────────────────────────────────────────────────────
+
+              Opcional y de un toque. Este diálogo existe para cerrar una mesa
+              rápido en el peor momento del servicio: si la propina fuera un
+              paso obligatorio, o un campo que hay que tipear, el mozo lo
+              saltearía y no se registraría nunca.
+
+              Los porcentajes se calculan sobre el total y se redondean a $100,
+              que es como se deja una propina de verdad. "Otro" aparece sólo si
+              hace falta.
+            */}
+            <div className="mb-4">
+              <p className="mb-1.5 text-[13px] font-medium text-gray-500">Propina</p>
+              <div className="flex flex-wrap gap-1.5">
+                {[0, 10, 15, 20].map((pct) => {
+                  const monto =
+                    pct === 0
+                      ? 0
+                      : Math.round((Number(cobroTarget.total || 0) * pct) / 100 / 100) * 100;
+                  const elegido = propina === monto && !propinaManual;
+                  return (
+                    <button
+                      key={pct}
+                      type="button"
+                      onClick={() => {
+                        setPropina(monto);
+                        setPropinaManual('');
+                      }}
+                      className={`h-9 rounded-xl px-3 text-[13px] font-semibold transition ${
+                        elegido
+                          ? 'bg-gray-900 text-white'
+                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      }`}
+                    >
+                      {pct === 0 ? 'Sin propina' : `${pct}%`}
+                    </button>
+                  );
+                })}
+                <input
+                  value={propinaManual}
+                  onChange={(evento) => {
+                    const texto = evento.target.value.replace(/[^\d]/g, '');
+                    setPropinaManual(texto);
+                    setPropina(Number(texto || 0));
+                  }}
+                  inputMode="numeric"
+                  placeholder="Otro"
+                  aria-label="Otra propina en pesos"
+                  className="h-9 w-20 rounded-xl border border-gray-200 px-3 text-[13px] tabular-nums outline-none focus:border-gray-400"
+                />
+              </div>
+              {propina > 0 ? (
+                <p className="mt-2 text-[13px] text-gray-500">
+                  Cobra{' '}
+                  <span className="font-semibold text-gray-900">
+                    {fmt(Number(cobroTarget.total || 0) + propina)}
+                  </span>{' '}
+                  en total
+                </p>
+              ) : null}
+            </div>
+
             <p className="mb-5 text-[13px] font-medium text-gray-500">¿Con qué pagó?</p>
 
             <div className="grid grid-cols-2 gap-2">

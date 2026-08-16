@@ -192,18 +192,33 @@ function shouldAutoSettleOnEntrega(pedido) {
   });
 }
 
+/**
+ * Los cobros ya hechos sobre un pedido, sin importar si terminó de pagarse.
+ *
+ * `pago_detalle.split_payments` guarda cada cobro con su método y su monto.
+ * Nació para pagar una misma venta con dos medios —mitad efectivo, mitad
+ * tarjeta— y es lo mismo que hace falta para el cierre parcial: cobrar unos
+ * platos ahora y el resto después.
+ *
+ * La diferencia con `getPedidoPaymentBreakdown` es que esto devuelve **lo que
+ * efectivamente entró**, aunque el pedido siga abierto. Esa plata ya está en el
+ * cajón y el arqueo tiene que verla.
+ */
+function getPagosParciales(row = {}) {
+  const parsedDetail = safeJsonParse(row.pago_detalle, null);
+  if (!Array.isArray(parsedDetail?.split_payments)) return [];
+  return parsedDetail.split_payments
+    .map((item) => ({
+      metodo_pago: normalizeMetodoPago(item?.metodo || item?.metodo_pago || ''),
+      monto: Number(item?.monto || 0),
+    }))
+    .filter((item) => item.metodo_pago && item.monto > 0);
+}
+
 function getPedidoPaymentBreakdown(row = {}) {
   const total = Number(row.total || 0);
   const metodoPago = normalizeMetodoPago(row.metodo_pago);
-  const parsedDetail = safeJsonParse(row.pago_detalle, null);
-  const splitPayments = Array.isArray(parsedDetail?.split_payments)
-    ? parsedDetail.split_payments
-        .map((item) => ({
-          metodo_pago: normalizeMetodoPago(item?.metodo || item?.metodo_pago || ''),
-          monto: Number(item?.monto || 0),
-        }))
-        .filter((item) => item.metodo_pago && item.monto > 0)
-    : [];
+  const splitPayments = getPagosParciales(row);
 
   if (splitPayments.length > 0) {
     return splitPayments;
@@ -252,6 +267,51 @@ function summarizePaymentRows(rows = []) {
       });
     } else if (pagoEstado === 'pendiente') {
       const total = Number(row.total || 0);
+
+      /*
+        ── Cierre parcial ─────────────────────────────────────────────────────
+
+        Un pedido puede estar pendiente y tener plata cobrada igual: la mesa de
+        seis donde tres ya pagaron lo suyo.
+
+        Antes esta rama contaba el total como pendiente y no miraba los cobros
+        parciales. Esa plata estaba físicamente en el cajón y el arqueo no la
+        veía: al cerrar el turno daba un sobrante que parecía un error.
+
+        Ahora cada cobro parcial se cuenta como cobrado por su método, y sólo
+        queda pendiente lo que falta.
+      */
+      const parciales = getPagosParciales(row);
+      const cobradoACuenta = parciales.reduce((acc, p) => acc + Number(p.monto || 0), 0);
+
+      parciales.forEach((entry) => {
+        const cuenta = byMethod.get(entry.metodo_pago) || {
+          metodo_pago: entry.metodo_pago,
+          cantidad: 0,
+          total: 0,
+          cantidad_total: 0,
+          total_total: 0,
+          cantidad_pendiente: 0,
+          total_pendiente: 0,
+          cantidad_rechazada: 0,
+          total_rechazado: 0,
+        };
+        cuenta.total_total += Number(entry.monto || 0);
+        cuenta.total += Number(entry.monto || 0);
+        byMethod.set(entry.metodo_pago, cuenta);
+
+        totalCobrado += Number(entry.monto || 0);
+        if (isMetodoEfectivo(entry.metodo_pago)) efectivoCobrado += Number(entry.monto || 0);
+        else digitalesCobrados += Number(entry.monto || 0);
+      });
+
+      /*
+        Lo que falta cobrar. Nunca negativo: si alguien cobró de más —una
+        propina cargada como pago, un error de tipeo— el pendiente es cero y no
+        un número en rojo que descuadre el resumen entero.
+      */
+      const restante = Math.max(0, total - cobradoACuenta);
+
       const current = byMethod.get(metodoPago) || {
         metodo_pago: metodoPago,
         cantidad: 0,
@@ -264,10 +324,10 @@ function summarizePaymentRows(rows = []) {
         total_rechazado: 0,
       };
       current.cantidad_total += 1;
-      current.total_total += total;
+      current.total_total += restante;
       current.cantidad_pendiente += 1;
-      current.total_pendiente += total;
-      totalPendiente += total;
+      current.total_pendiente += restante;
+      totalPendiente += restante;
       byMethod.set(metodoPago, current);
     } else if (pagoEstado === 'rechazado' || pagoEstado === 'devuelto') {
       const total = Number(row.total || 0);
@@ -315,4 +375,5 @@ module.exports = {
   shouldAutoSettleOnEntrega,
   summarizePaymentRows,
   getPedidoPaymentBreakdown,
+  getPagosParciales,
 };
