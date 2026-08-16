@@ -1,5 +1,4 @@
 const assert = require('assert');
-const Module = require('module');
 
 /**
  * Verifica que el precio de los pedidos públicos lo ponga el servidor y no el
@@ -126,13 +125,16 @@ const dbFalsa = {
 const rutaPrecios = require.resolve('../../services/preciosServidor');
 delete require.cache[rutaPrecios];
 
-// Interceptar el require de '../db' para inyectar la base falsa.
-const originalLoad = Module._load;
-Module._load = function (request, parent, isMain) {
-  if (parent && request === '../db' && parent.filename.includes('preciosServidor')) {
-    return dbFalsa;
-  }
-  return originalLoad.call(this, request, parent, isMain);
+// Reemplazar la entrada del caché es estable entre Node 22 y Node 24. El
+// gancho de Module._load dependía de detalles internos y en el CI dejaba pasar
+// la base temporal real en vez del doble.
+const rutaDb = require.resolve('../../db');
+const moduloDbOriginal = require.cache[rutaDb];
+require.cache[rutaDb] = {
+  id: rutaDb,
+  filename: rutaDb,
+  loaded: true,
+  exports: dbFalsa,
 };
 
 const {

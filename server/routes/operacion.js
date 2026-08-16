@@ -350,6 +350,9 @@ function buildMenuDiaManagerPayload() {
 function persistMenuDiaItems(items = [], fecha = today()) {
   const category = ensureMenuDiaCategory();
   const existingById = new Map(loadMenuDiaLibrary().map((item) => [Number(item.id), item]));
+  const snapshotById = new Map(
+    loadMenuDiaSnapshot(fecha).map((item) => [Number(item.producto_id), item])
+  );
   const updateProduct = db.prepare(`
     UPDATE productos
     SET categoria_id = ?,
@@ -453,8 +456,13 @@ function persistMenuDiaItems(items = [], fecha = today()) {
         y `menu_dia_tipo`. Sólo se guardan los que valen algo: un cero acá
         querría decir "se vende gratis en ese tamaño".
       */
-      const precioEconomico = roundStock(Math.max(0, Number(rawItem?.precio_economico_hoy || 0)));
-      const precioEjecutivo = roundStock(Math.max(0, Number(rawItem?.precio_ejecutivo_hoy || 0)));
+      const previousSnapshot = snapshotById.get(id);
+      const precioEconomico = Object.hasOwn(rawItem || {}, 'precio_economico_hoy')
+        ? roundStock(Math.max(0, Number(rawItem.precio_economico_hoy || 0)))
+        : roundStock(Math.max(0, Number(previousSnapshot?.precio_economico || 0)));
+      const precioEjecutivo = Object.hasOwn(rawItem || {}, 'precio_ejecutivo_hoy')
+        ? roundStock(Math.max(0, Number(rawItem.precio_ejecutivo_hoy || 0)))
+        : roundStock(Math.max(0, Number(previousSnapshot?.precio_ejecutivo || 0)));
 
       upsertSnapshot.run(
         fecha,
@@ -516,6 +524,8 @@ function updateMenuDiaProduct(productId, changes = {}) {
       destacado_hoy: item.destacado_hoy,
       orden_hoy: item.orden_hoy,
       tipo_hoy: item.tipo_hoy,
+      precio_economico_hoy: item.precio_economico_hoy,
+      precio_ejecutivo_hoy: item.precio_ejecutivo_hoy,
       guarniciones_hoy: item.guarniciones_hoy,
       ofrece_postre_hoy: item.ofrece_postre_hoy,
       ofrece_bebida_postre_hoy: item.ofrece_bebida_postre_hoy,
@@ -526,6 +536,8 @@ function updateMenuDiaProduct(productId, changes = {}) {
       disponible_hoy:
         changes.disponible_hoy === undefined ? base.disponible_hoy : changes.disponible_hoy ? 1 : 0,
       precio_hoy: changes.precio_hoy ?? base.precio_hoy,
+      precio_economico_hoy: changes.precio_economico_hoy ?? base.precio_economico_hoy,
+      precio_ejecutivo_hoy: changes.precio_ejecutivo_hoy ?? base.precio_ejecutivo_hoy,
       stock_hoy: changes.stock_hoy ?? base.stock_hoy,
       descripcion_hoy: changes.descripcion_hoy ?? base.descripcion_hoy,
       destacado_hoy:
@@ -979,6 +991,8 @@ router.post('/menu-dia/copiar-ayer', requirePermission('productos.edit'), (_req,
     id: item.producto_id,
     disponible_hoy: item.disponible,
     precio_hoy: item.precio,
+    precio_economico_hoy: item.precio_economico,
+    precio_ejecutivo_hoy: item.precio_ejecutivo,
     stock_hoy: item.stock_directo,
     descripcion_hoy: item.descripcion,
     destacado_hoy: item.destacado,
