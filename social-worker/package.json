@@ -1,0 +1,15 @@
+{
+  "name": "modo-sabor-social-worker",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Worker local y visible para publicaciones sociales de Modo Sabor",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "check": "node --check index.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "playwright-core": "^1.62.1"
+  }
+}

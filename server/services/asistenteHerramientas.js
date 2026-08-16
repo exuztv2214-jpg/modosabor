@@ -5,6 +5,7 @@ const { buildMenuDiaManagerPayload } = require('../routes/operacion');
 const { normalizePagoEstado, normalizeMetodoPago } = require('../utils/paymentStatus');
 const { envolverDatoInline } = require('../utils/sanitizarPrompt');
 const { decorateProductsWithInventory } = require('../utils/inventory');
+const socialService = require('./socialService');
 
 /**
  * Lo que el asistente puede consultar.
@@ -900,6 +901,13 @@ const HERRAMIENTAS = [
       'Revisa todo el sistema de una sola vez: stock bajo, stock negativo, pedidos colgados, deliverys sin repartidor, productos sin precio, clientes duplicados e insumos sin movimientos. Devuelve un resumen con severidad (ok, advertencia o crítico). Usala cuando el usuario diga "revisá el sistema", "qué está mal" o "hacé un diagnóstico".',
     parametros: { type: 'object', properties: {} },
     ejecutar: revisionAutomatica,
+  },
+  {
+    nombre: 'estado_social',
+    descripcion:
+      'Consulta el estado real de Modo Sabor Social: worker local, grupos detectados, publicaciones en cola y fallidas. No publica ni modifica campañas.',
+    parametros: { type: 'object', properties: {} },
+    ejecutar: () => socialService.dashboard(),
   },
 ];
 

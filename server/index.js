@@ -264,6 +264,8 @@ app.use('/api/personal', require('./routes/personal'));
 app.use('/api/caja', require('./routes/caja'));
 app.use('/api/cupones', require('./routes/cupones'));
 app.use('/api/marketing', require('./routes/marketing'));
+app.use('/api/social', require('./routes/social'));
+app.use('/api/social-worker', require('./routes/socialWorker'));
 /*
   Envío masivo de WhatsApp. Vive adentro del sistema y no en una PC del local:
   usa Baileys, que habla el protocolo directo sin navegador, y guarda la
@@ -447,6 +449,7 @@ require('./services/whatsappGateway').iniciarWhatsappGateway(io);
 const PORT = Number(process.env.PORT || 3001);
 server.listen(PORT, () => {
   logger.info(`Modo Sabor API corriendo en http://localhost:${PORT}`);
+  require('./services/socialScheduler').startSocialScheduler();
   // Si hay una sesión persistida, la conexión única queda disponible para
   // atención y campañas sin que el operador abra primero una pantalla.
   if (process.env.WHATSAPP_DISABLE_STARTUP !== '1') {

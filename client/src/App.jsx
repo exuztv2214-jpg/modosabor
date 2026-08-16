@@ -48,6 +48,7 @@ const Usuarios = lazy(() => import('./pages/Usuarios.jsx'));
 const Reportes = lazy(() => import('./pages/Reportes.jsx'));
 const ReportesDelivery = lazy(() => import('./pages/ReportesDelivery.jsx'));
 const MarketingDigital = lazy(() => import('./pages/MarketingDigital.jsx'));
+const Social = lazy(() => import('./pages/Social.jsx'));
 const Configuracion = lazy(() => import('./pages/Configuracion.jsx'));
 const Cupones = lazy(() => import('./pages/Cupones.jsx'));
 const Fidelizacion = lazy(() => import('./pages/Fidelizacion.jsx'));
@@ -134,9 +135,10 @@ export default function App() {
                       <Route path="/admin/fidelizacion" element={<Fidelizacion />} />
                     </Route>
                     <Route
-                      element={<PrivateRoute permission="reportes.view" moduleKey="marketing" />}
+                      element={<PrivateRoute permission="marketing.view" moduleKey="marketing" />}
                     >
                       <Route path="/admin/marketing" element={<MarketingDigital />} />
+                      <Route path="/admin/social" element={<Social />} />
                     </Route>
                     <Route path="/admin/cuenta" element={<Cuenta />} />
                     <Route

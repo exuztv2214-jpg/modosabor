@@ -1025,6 +1025,7 @@ function runMigrations(db) {
   } catch {}
 
   crearTablasWhatsapp(db);
+  crearTablasSocial(db);
   migrateMoneyColumns(db);
   migrarUmbralesDeNivel(db);
   migrarPuntosInflados(db);
@@ -1391,6 +1392,165 @@ function crearTablasWhatsapp(db) {
     CREATE INDEX IF NOT EXISTS idx_wa_envios_fecha ON wa_envios(enviado_en);
     CREATE INDEX IF NOT EXISTS idx_wa_envios_campana ON wa_envios(campana_id);
     CREATE INDEX IF NOT EXISTS idx_wa_respuestas_fecha ON wa_respuestas(recibido_en);
+  `);
+}
+
+/**
+ * Base persistente de Modo Sabor Social.
+ *
+ * La publicación se guarda por destino, no sólo por campaña: Facebook Page,
+ * cada grupo y cada formato pueden terminar distinto sin ocultar un fallo.
+ * El worker local reclama cada destino usando un lock en SQLite; así un
+ * reinicio no deja tareas viviendo sólo en memoria ni duplica publicaciones.
+ */
+function crearTablasSocial(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS social_accounts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      provider TEXT NOT NULL,
+      nombre TEXT NOT NULL,
+      identificador_externo TEXT DEFAULT '',
+      estado TEXT NOT NULL DEFAULT 'desconectada',
+      metadata TEXT DEFAULT '{}',
+      habilitada INTEGER DEFAULT 1,
+      ultimo_check_en DATETIME,
+      creado_en DATETIME DEFAULT CURRENT_TIMESTAMP,
+      actualizado_en DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS social_destinations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      cuenta_id INTEGER REFERENCES social_accounts(id) ON DELETE SET NULL,
+      provider TEXT NOT NULL,
+      tipo TEXT NOT NULL,
+      nombre TEXT NOT NULL,
+      identificador_externo TEXT DEFAULT '',
+      url TEXT DEFAULT '',
+      metadata TEXT DEFAULT '{}',
+      habilitada INTEGER DEFAULT 1,
+      favorita INTEGER DEFAULT 0,
+      ultimo_estado TEXT DEFAULT 'pendiente',
+      creado_en DATETIME DEFAULT CURRENT_TIMESTAMP,
+      actualizado_en DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(provider, tipo, identificador_externo)
+    );
+
+    CREATE TABLE IF NOT EXISTS social_destination_sets (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      nombre TEXT NOT NULL UNIQUE,
+      descripcion TEXT DEFAULT '',
+      creado_en DATETIME DEFAULT CURRENT_TIMESTAMP,
+      actualizado_en DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS social_destination_set_items (
+      conjunto_id INTEGER NOT NULL REFERENCES social_destination_sets(id) ON DELETE CASCADE,
+      destino_id INTEGER NOT NULL REFERENCES social_destinations(id) ON DELETE CASCADE,
+      PRIMARY KEY (conjunto_id, destino_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS social_media (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      nombre TEXT NOT NULL,
+      ruta TEXT NOT NULL,
+      mime TEXT DEFAULT '',
+      tamano INTEGER DEFAULT 0,
+      tipo TEXT DEFAULT 'archivo',
+      tags TEXT DEFAULT '[]',
+      origen TEXT DEFAULT 'manual',
+      creado_en DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS social_templates (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      nombre TEXT NOT NULL UNIQUE,
+      texto TEXT DEFAULT '',
+      tipo TEXT DEFAULT 'post',
+      destinos_sugeridos TEXT DEFAULT '[]',
+      conjuntos_sugeridos TEXT DEFAULT '[]',
+      horario_sugerido TEXT DEFAULT '',
+      media_id INTEGER REFERENCES social_media(id) ON DELETE SET NULL,
+      activa INTEGER DEFAULT 1,
+      creado_en DATETIME DEFAULT CURRENT_TIMESTAMP,
+      actualizado_en DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS social_campaigns (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      nombre TEXT NOT NULL,
+      texto TEXT DEFAULT '',
+      personalizaciones TEXT DEFAULT '{}',
+      estado TEXT NOT NULL DEFAULT 'draft',
+      programada_para DATETIME,
+      iniciada_en DATETIME,
+      finalizada_en DATETIME,
+      creado_por INTEGER REFERENCES usuarios(id) ON DELETE SET NULL,
+      ultimo_error TEXT DEFAULT '',
+      creado_en DATETIME DEFAULT CURRENT_TIMESTAMP,
+      actualizado_en DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS social_campaign_media (
+      campana_id INTEGER NOT NULL REFERENCES social_campaigns(id) ON DELETE CASCADE,
+      media_id INTEGER NOT NULL REFERENCES social_media(id) ON DELETE RESTRICT,
+      orden INTEGER DEFAULT 0,
+      PRIMARY KEY (campana_id, media_id)
+    );
+    CREATE TABLE IF NOT EXISTS social_post_targets (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      campana_id INTEGER NOT NULL REFERENCES social_campaigns(id) ON DELETE CASCADE,
+      destino_id INTEGER NOT NULL REFERENCES social_destinations(id) ON DELETE RESTRICT,
+      estado TEXT NOT NULL DEFAULT 'draft',
+      programada_para DATETIME,
+      lock_token TEXT DEFAULT '',
+      lock_hasta DATETIME,
+      intentos INTEGER DEFAULT 0,
+      max_intentos INTEGER DEFAULT 2,
+      proximo_reintento_en DATETIME,
+      iniciado_en DATETIME,
+      finalizado_en DATETIME,
+      external_post_url TEXT DEFAULT '',
+      ultimo_error TEXT DEFAULT '',
+      creado_en DATETIME DEFAULT CURRENT_TIMESTAMP,
+      actualizado_en DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(campana_id, destino_id)
+    );
+    CREATE TABLE IF NOT EXISTS social_publication_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      campana_id INTEGER REFERENCES social_campaigns(id) ON DELETE CASCADE,
+      target_id INTEGER REFERENCES social_post_targets(id) ON DELETE CASCADE,
+      destino_id INTEGER REFERENCES social_destinations(id) ON DELETE SET NULL,
+      nivel TEXT DEFAULT 'info',
+      codigo TEXT DEFAULT '',
+      mensaje TEXT NOT NULL,
+      detalle TEXT DEFAULT '{}',
+      screenshot_ruta TEXT DEFAULT '',
+      creado_en DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS social_worker_commands (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tipo TEXT NOT NULL,
+      payload TEXT DEFAULT '{}',
+      estado TEXT NOT NULL DEFAULT 'pending',
+      lock_token TEXT DEFAULT '',
+      lock_hasta DATETIME,
+      resultado TEXT DEFAULT '{}',
+      error TEXT DEFAULT '',
+      creado_en DATETIME DEFAULT CURRENT_TIMESTAMP,
+      finalizado_en DATETIME
+    );
+    CREATE TABLE IF NOT EXISTS social_workers (
+      codigo TEXT PRIMARY KEY,
+      nombre TEXT DEFAULT 'Worker Social',
+      estado TEXT DEFAULT 'offline',
+      version TEXT DEFAULT '',
+      detalle TEXT DEFAULT '{}',
+      ultimo_heartbeat_en DATETIME,
+      actualizado_en DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_social_targets_due
+      ON social_post_targets(estado, programada_para, proximo_reintento_en);
+    CREATE INDEX IF NOT EXISTS idx_social_targets_campaign ON social_post_targets(campana_id);
+    CREATE INDEX IF NOT EXISTS idx_social_logs_campaign ON social_publication_logs(campana_id, creado_en);
   `);
 }
 
