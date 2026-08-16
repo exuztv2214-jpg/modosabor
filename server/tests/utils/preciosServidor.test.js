@@ -142,7 +142,8 @@ const {
   PrecioInvalidoError,
 } = require('../../services/preciosServidor');
 
-Module._load = originalLoad;
+if (moduloDbOriginal) require.cache[rutaDb] = moduloDbOriginal;
+else delete require.cache[rutaDb];
 
 /*
   Y se saca de nuevo al terminar: si quedara la copia con la base falsa, el
