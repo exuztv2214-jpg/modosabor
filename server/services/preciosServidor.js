@@ -160,7 +160,7 @@ function recargoDeExtras(extrasElegidos, definicion, nombreProducto) {
  * @throws {PrecioInvalidoError} Si un producto no existe, está inactivo, o trae
  *         una variante o un adicional que no le corresponde.
  */
-function recalcularPreciosPublicos(items, canal = 'mostrador', opciones = {}) {
+function recalcularPreciosPublicos(items, canal = 'mostrador', opciones = {}, baseDatos = db) {
   const lista = Array.isArray(items) ? items : [];
   if (!lista.length) return lista;
   const permitirDescuentoItems = opciones?.permitirDescuentoItems === true;
@@ -178,7 +178,7 @@ function recalcularPreciosPublicos(items, canal = 'mostrador', opciones = {}) {
     podría traer el campo sin mala intención, y perder la venta por eso sería
     peor que ignorarlo.
   */
-  const buscarProducto = db.prepare(
+  const buscarProducto = baseDatos.prepare(
     `SELECT p.id, p.nombre, p.precio, p.activo, p.variantes, p.extras,
             mdh.precio_economico AS menu_dia_precio_economico,
             mdh.precio_ejecutivo AS menu_dia_precio_ejecutivo
@@ -196,7 +196,7 @@ function recalcularPreciosPublicos(items, canal = 'mostrador', opciones = {}) {
     consultar las listas una vez por ítem.
   */
   const listasDelPedido = listasPorProducto(
-    db,
+    baseDatos,
     lista.map((item) => Number(item?.producto_id || item?.id || 0))
   );
 
@@ -225,7 +225,7 @@ function recalcularPreciosPublicos(items, canal = 'mostrador', opciones = {}) {
       día dejaría de valer lo que dice el cartel.
     */
     const productoConLista = productoCrudo
-      ? aplicarListaDePrecios(db, [productoCrudo], canal)[0]
+      ? aplicarListaDePrecios(baseDatos, [productoCrudo], canal)[0]
       : null;
     const producto = productoConLista ? applyMenuDiaPricing(productoConLista) : null;
     if (!producto) {

@@ -122,35 +122,13 @@ const dbFalsa = {
   depende de qué corrió antes. Un test que sólo pasa según el orden no sirve
   para nada.
 */
-const rutaPrecios = require.resolve('../../services/preciosServidor');
-delete require.cache[rutaPrecios];
-
-// Reemplazar la entrada del caché es estable entre Node 22 y Node 24. El
-// gancho de Module._load dependía de detalles internos y en el CI dejaba pasar
-// la base temporal real en vez del doble.
-const rutaDb = require.resolve('../../db');
-const moduloDbOriginal = require.cache[rutaDb];
-require.cache[rutaDb] = {
-  id: rutaDb,
-  filename: rutaDb,
-  loaded: true,
-  exports: dbFalsa,
-};
-
 const {
-  recalcularPreciosPublicos,
+  recalcularPreciosPublicos: recalcularPreciosConBase,
   PrecioInvalidoError,
 } = require('../../services/preciosServidor');
 
-if (moduloDbOriginal) require.cache[rutaDb] = moduloDbOriginal;
-else delete require.cache[rutaDb];
-
-/*
-  Y se saca de nuevo al terminar: si quedara la copia con la base falsa, el
-  problema pasaría al revés y rompería a cualquier test posterior que necesite
-  la base real.
-*/
-delete require.cache[rutaPrecios];
+const recalcularPreciosPublicos = (items, canal, opciones) =>
+  recalcularPreciosConBase(items, canal, opciones, dbFalsa);
 
 console.log('\nTests de preciosServidor.js');
 let fallos = 0;
