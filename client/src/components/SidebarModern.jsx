@@ -9,13 +9,18 @@ import {
   ChefHat,
   ClipboardCheck,
   ClipboardList,
+  DatabaseBackup,
   ExternalLink,
   Gift,
   LayoutDashboard,
   ListPlus,
+  NotebookPen,
+  Scale,
+  Tags,
   LogOut,
   MapPinned,
   Megaphone,
+  MonitorUp,
   Package,
   Receipt,
   Settings,
@@ -130,6 +135,12 @@ const GRUPOS = [
         permission: 'productos.edit',
       },
       {
+        to: '/admin/listas-precios',
+        icon: Tags,
+        label: 'Listas de precios',
+        permission: 'productos.edit',
+      },
+      {
         to: '/admin/inventario',
         icon: Boxes,
         label: 'Inventario',
@@ -156,10 +167,17 @@ const GRUPOS = [
         moduleKey: 'clientes',
       },
       {
+        to: '/admin/cuenta-corriente',
+        icon: NotebookPen,
+        label: 'Cuenta corriente',
+        permission: 'clientes.view',
+        moduleKey: 'clientes',
+      },
+      {
         to: '/admin/fidelizacion',
         icon: Gift,
         label: 'Fidelización',
-        permission: 'clientes.view',
+        permission: 'config.manage',
         moduleKey: 'clientes',
       },
       {
@@ -187,11 +205,25 @@ const GRUPOS = [
         permission: 'marketing.view',
         moduleKey: 'marketing',
       },
+      {
+        to: '/admin/whatsapp-masivo',
+        icon: Megaphone,
+        label: 'WhatsApp masivo',
+        permission: 'marketing.view',
+        moduleKey: 'marketing',
+      },
     ],
   },
   {
     label: 'Reportes',
     items: [
+      {
+        to: '/admin/estado-resultados',
+        icon: Scale,
+        label: 'Estado de resultados',
+        permission: 'reportes.view',
+        moduleKey: 'reportes',
+      },
       {
         to: '/admin/reportes',
         icon: BarChart3,
@@ -235,6 +267,12 @@ const GRUPOS = [
         to: '/admin/auditoria',
         icon: ShieldAlert,
         label: 'Auditoría',
+        permission: 'config.manage',
+      },
+      {
+        to: '/admin/intercambio-datos',
+        icon: DatabaseBackup,
+        label: 'Importar / exportar',
         permission: 'config.manage',
       },
     ],
@@ -444,6 +482,15 @@ export default function SidebarModern({ onCloseMobile }) {
         >
           <ExternalLink size={16} strokeWidth={STROKE} className="text-gray-400" />
           Ver la web pública
+        </a>
+        <a
+          href="/estado-pedidos"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mb-2 flex items-center gap-2.5 rounded-xl px-3 py-2 text-[13px] font-medium text-gray-600 transition hover:bg-gray-100"
+        >
+          <MonitorUp size={16} strokeWidth={STROKE} className="text-gray-400" />
+          Pantalla de pedidos
         </a>
 
         {/*

@@ -127,6 +127,151 @@ function runMigrations(db) {
   ensureColumn(db, 'pedidos', 'mozo_usuario_id', 'INTEGER');
   ensureColumn(db, 'pedidos', 'mozo_nombre', "TEXT DEFAULT ''");
   ensureColumn(db, 'pedidos', 'idempotency_key', "TEXT DEFAULT ''");
+  /*
+    ── La propina ─────────────────────────────────────────────────────────────
+
+    Va en centavos y **aparte de `total`**, no adentro.
+
+    `total` es lo que cuesta la comida, y es de lo que vive el negocio: es lo
+    que suman los reportes de ventas, lo que se factura y sobre lo que se
+    calculan los márgenes. La propina no es venta: es plata del mozo que pasa
+    por la caja.
+
+    Si se sumara a `total`, el ticket promedio, la facturación y la
+    rentabilidad quedarían inflados por algo que el local no cobra.
+
+    La consecuencia de tenerla afuera hay que asumirla en la caja: lo que hay
+    en el cajón es ventas en efectivo **más** propinas en efectivo. Eso está
+    resuelto en routes/caja.js.
+  */
+  ensureColumn(db, 'pedidos', 'propina', 'INTEGER DEFAULT 0');
+
+  /*
+    Descuento sobre una línea del pedido, en centavos, con su motivo.
+
+    Hasta ahora sólo se podía descontar del total. Eso no cubre lo de todos los
+    días: el plato que salió mal y se cobra a mitad, el postre de cortesía, el
+    2x1 sobre una sola línea.
+
+    En plata y no en porcentaje: un 15% sobre un precio que después cambia da un
+    número distinto cada vez que se recalcula, y los centavos que se
+    descontaron ese día son un hecho.
+  */
+  ensureColumn(db, 'pedido_items', 'descuento_item', 'INTEGER DEFAULT 0');
+  ensureColumn(db, 'pedido_items', 'descuento_motivo', "TEXT DEFAULT ''");
+
+  /*
+    ── PIN de autorización del mozo ───────────────────────────────────────────
+
+    Protege las mesas de un mozo de que las toque otro. Fudo lo tiene y el
+    motivo es concreto: en un turno con varios mozos, cualquiera podía cobrar o
+    modificar una mesa que no era suya, y cuando el arqueo no cerraba no había
+    forma de saber quién había hecho qué.
+
+    No confundir con los dos PIN que ya existían:
+      · `pedidos.entrega_pin` — el que el cliente le dice al repartidor
+      · `personal.clock_pin`  — el de fichar entrada y salida
+
+    Se guarda hasheado, igual que las contraseñas. Son cuatro dígitos: si la
+    base se filtra, un PIN en texto plano se prueba en un segundo.
+  */
+  ensureColumn(db, 'usuarios', 'pin_mozo_hash', "TEXT DEFAULT ''");
+
+  /*
+    ── Cuenta corriente de clientes ───────────────────────────────────────────
+
+    El cliente consume ahora y paga después. Es común en un local de barrio: la
+    oficina de al lado que pide todos los mediodías y arregla a fin de mes.
+
+    Hasta ahora eso se anotaba en un cuaderno, y el que lo llevaba era el único
+    que sabía cuánto debía cada uno.
+
+    ── Por qué movimientos y no un saldo ──────────────────────────────────────
+
+    El saldo se calcula sumando los movimientos, no se guarda en una columna.
+
+    Un saldo guardado se desincroniza el día que algo falla a mitad de camino, y
+    a partir de ahí nadie sabe cuál de los dos números es el bueno. Con los
+    movimientos, el saldo siempre se puede reconstruir y cada peso tiene su
+    fila con fecha, motivo y quién lo cargó — que es lo que hace falta cuando
+    el cliente discute la cuenta.
+
+    `limite_credito` en centavos. Cero significa **sin cuenta corriente
+    habilitada**, no "crédito infinito": habilitarla tiene que ser una decisión
+    explícita por cliente.
+  */
+  ensureColumn(db, 'clientes', 'limite_credito', 'INTEGER DEFAULT 0');
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS cliente_cuenta_movimientos (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      cliente_id INTEGER NOT NULL REFERENCES clientes(id) ON DELETE CASCADE,
+      -- 'consumo' suma deuda · 'pago' la baja · 'ajuste' corrige a mano
+      tipo TEXT NOT NULL,
+      monto INTEGER NOT NULL,
+      pedido_id INTEGER REFERENCES pedidos(id) ON DELETE SET NULL,
+      nota TEXT DEFAULT '',
+      usuario_id INTEGER,
+      usuario_nombre TEXT DEFAULT '',
+      creado_en DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  db.exec(
+    'CREATE INDEX IF NOT EXISTS idx_cuenta_mov_cliente ON cliente_cuenta_movimientos(cliente_id)'
+  );
+  /*
+    Un pedido no puede cargarse dos veces a la cuenta. Sin esto, reintentar el
+    cobro le duplicaría la deuda al cliente — el mismo problema de idempotencia
+    que en la creación de pedidos, pero acá la víctima es el que paga.
+  */
+  db.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_cuenta_mov_pedido
+      ON cliente_cuenta_movimientos(pedido_id)
+      WHERE pedido_id IS NOT NULL AND tipo = 'consumo'
+  `);
+
+  /*
+    ── Listas de precios ──────────────────────────────────────────────────────
+
+    El mismo plato puede valer distinto según por dónde se venda. La milanesa a
+    $10.500 en el mostrador y a $11.500 por delivery, porque el envío propio
+    cuesta y el precio de mostrador no tiene que subsidiarlo.
+
+    Hasta ahora había un solo `productos.precio` para todo.
+
+    ── Cómo está modelado ─────────────────────────────────────────────────────
+
+    Una lista es un nombre. `producto_precios` guarda **sólo las excepciones**:
+    si un producto no tiene fila en una lista, vale su precio normal.
+
+    Eso es deliberado. La alternativa —copiar los 94 precios a cada lista— haría
+    que subir un precio obligue a acordarse de subirlo en todos lados, y el día
+    que alguien se olvide el delivery vende a precio viejo sin que nadie lo note.
+    Así, una lista con tres excepciones tiene tres filas.
+
+    Qué lista usa cada canal se guarda en `configuracion`, con las claves
+    `lista_precios_mostrador`, `lista_precios_delivery` y `lista_precios_web`.
+    Vacío significa "el precio de siempre".
+  */
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS listas_precios (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      nombre TEXT NOT NULL,
+      descripcion TEXT DEFAULT '',
+      orden INTEGER DEFAULT 0,
+      activo INTEGER DEFAULT 1,
+      creado_en DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS producto_precios (
+      lista_id INTEGER NOT NULL REFERENCES listas_precios(id) ON DELETE CASCADE,
+      producto_id INTEGER NOT NULL REFERENCES productos(id) ON DELETE CASCADE,
+      -- En centavos, igual que productos.precio.
+      precio INTEGER NOT NULL,
+      actualizado_en DATETIME DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (lista_id, producto_id)
+    )
+  `);
   db.exec(`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_pedidos_idempotency
       ON pedidos(idempotency_key)
@@ -1024,6 +1169,7 @@ function runMigrations(db) {
     }
   } catch {}
 
+  crearBaseMultisucursal(db);
   crearTablasWhatsapp(db);
   crearTablasSocial(db);
   migrateMoneyColumns(db);
@@ -1323,6 +1469,44 @@ function migrateMoneyColumns(db) {
       logger.error(`Error migrando ${table}.${column}`, { message: e.message });
     }
   }
+}
+
+/**
+ * Base técnica para separar locales en una etapa posterior.
+ *
+ * La función crea únicamente el catálogo de sucursales y deja la función
+ * desactivada. No agrega todavía `sucursal_id` a pedidos, caja, stock ni
+ * personal: activar una separación parcial sería más peligroso que seguir
+ * operando como un solo local.
+ */
+function crearBaseMultisucursal(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS sucursales (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      codigo TEXT NOT NULL UNIQUE,
+      nombre TEXT NOT NULL,
+      direccion TEXT DEFAULT '',
+      telefono TEXT DEFAULT '',
+      activa INTEGER DEFAULT 1,
+      principal INTEGER DEFAULT 0,
+      creado_en DATETIME DEFAULT CURRENT_TIMESTAMP,
+      actualizado_en DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_sucursales_principal
+      ON sucursales(principal) WHERE principal = 1;
+  `);
+
+  db.prepare(
+    `INSERT OR IGNORE INTO sucursales (codigo, nombre, activa, principal)
+     VALUES ('principal', 'Modo Sabor', 1, 1)`
+  ).run();
+
+  const insertConfig = db.prepare(
+    'INSERT OR IGNORE INTO configuracion (clave, valor) VALUES (?, ?)'
+  );
+  insertConfig.run('multi_sucursal_activo', '0');
+  insertConfig.run('sucursal_actual_codigo', 'principal');
 }
 
 /**

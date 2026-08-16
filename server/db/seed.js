@@ -44,6 +44,24 @@ function runSeed(db) {
 
   // Configuración por defecto (settings)
   const defaultSettings = [
+    /*
+      Arqueo ciego, apagado por defecto.
+
+      Con esto en '1', quien cierra la caja no ve cuánto debería haber: cuenta
+      la plata y declara, y recién ahí aparece la diferencia. Sirve para que el
+      número declarado sea el que salió del cajón de verdad.
+
+      Apagado por defecto porque en un local chico donde el dueño cierra su
+      propia caja no aporta nada y agrega una fricción.
+    */
+    ['caja_arqueo_ciego', '0'],
+    /*
+      Las tres listas de precios por canal. Vacío = precio de siempre.
+      Se asignan desde Catálogo → Listas de precios.
+    */
+    ['lista_precios_mostrador', ''],
+    ['lista_precios_delivery', ''],
+    ['lista_precios_web', ''],
     ['rider_app_nombre', 'Modo Sabor Delivery'],
     ['rider_app_color_primario', '#5D87FF'],
     ['rider_app_color_secundario', '#49BEFF'],
@@ -320,6 +338,8 @@ function runSeed(db) {
     modulo_personal_activo: '1',
     modulo_cupones_activo: '1',
     modulo_marketing_activo: '1',
+    multi_sucursal_activo: '0',
+    sucursal_actual_codigo: 'principal',
     delivery_autoasignar_activo: '1',
     turnos_negocio: JSON.stringify([
       { id: 'manana', nombre: 'Turno manana', desde: '10:00', hasta: '14:30', activo: true },

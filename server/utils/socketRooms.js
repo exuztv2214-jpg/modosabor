@@ -408,9 +408,51 @@ function emitAtencionHumana(io, datos) {
   );
 }
 
+/**
+ * Avisarle al mozo que su plato está listo para retirar de la cocina.
+ *
+ * ── Por qué ────────────────────────────────────────────────────────────────
+ *
+ * Hoy la cocina marca "listo" y eso aparece en la pantalla del KDS. El mozo se
+ * entera si pasa por la cocina y mira. En un servicio con mesas eso significa ir
+ * a mirar cada tanto, o que la comida se enfríe esperando a que alguien la vea.
+ *
+ * Fudo tiene "aviso al camarero de orden lista para entregar" y es de las cosas
+ * que se notan todos los días.
+ *
+ * ── A quién le llega ───────────────────────────────────────────────────────
+ *
+ * **Sólo al mozo que tomó la mesa**, por su sala `mozo_<id>`. Avisarles a todos
+ * haría que en un turno con cuatro mozos cada uno reciba cuatro veces más
+ * avisos de los que le importan, y a los tres días nadie los mira.
+ *
+ * Si el pedido no tiene mozo asignado —un delivery, un mostrador— no se manda
+ * nada: no hay a quién.
+ */
+function emitPedidoListo(io, pedido) {
+  if (!io || !pedido) return;
+  const mozoId = Number(pedido.mozo_usuario_id || 0);
+  if (!mozoId) return;
+
+  io.to(`mozo_${mozoId}`).emit('pedido_listo', {
+    pedido_id: pedido.id,
+    numero: pedido.numero,
+    mesa: pedido.mesa || '',
+    // El nombre del mozo va en el evento para poder mostrarlo en el aviso sin
+    // otra consulta, y para que quede en el log de quién debía retirarlo.
+    mozo_nombre: pedido.mozo_nombre || '',
+    en: new Date().toISOString(),
+  });
+
+  logger.info(
+    `[socket] Pedido #${pedido.numero} listo, avisado a ${pedido.mozo_nombre || `mozo ${mozoId}`}`
+  );
+}
+
 module.exports = {
   initSocketSecurity,
   emitAtencionHumana,
+  emitPedidoListo,
   generateTrackingToken,
   validateTrackingToken,
   clearTrackingToken,

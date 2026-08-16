@@ -37,6 +37,9 @@ const Inventario = lazy(() => import('./pages/Inventario.jsx'));
 const Compras = lazy(() => import('./pages/Compras.jsx'));
 const Categorias = lazy(() => import('./pages/Categorias.jsx'));
 const ListasOpciones = lazy(() => import('./pages/ListasOpciones.jsx'));
+const ListasPrecios = lazy(() => import('./pages/ListasPrecios.jsx'));
+const EstadoResultados = lazy(() => import('./pages/EstadoResultados.jsx'));
+const CuentaCorriente = lazy(() => import('./pages/CuentaCorriente.jsx'));
 const MenuDelDia = lazy(() => import('./pages/MenuDelDia.jsx'));
 const Clientes = lazy(() => import('./pages/Clientes.jsx'));
 const Delivery = lazy(() => import('./pages/Delivery.jsx'));
@@ -48,6 +51,7 @@ const Usuarios = lazy(() => import('./pages/Usuarios.jsx'));
 const Reportes = lazy(() => import('./pages/Reportes.jsx'));
 const ReportesDelivery = lazy(() => import('./pages/ReportesDelivery.jsx'));
 const MarketingDigital = lazy(() => import('./pages/MarketingDigital.jsx'));
+const WhatsAppMasivo = lazy(() => import('./pages/WhatsAppMasivo.jsx'));
 const Social = lazy(() => import('./pages/Social.jsx'));
 const Configuracion = lazy(() => import('./pages/Configuracion.jsx'));
 const Cupones = lazy(() => import('./pages/Cupones.jsx'));
@@ -57,6 +61,8 @@ const Cuenta = lazy(() => import('./pages/Cuenta.jsx'));
 const Personal = lazy(() => import('./pages/Personal.jsx'));
 const SeguimientoPedido = lazy(() => import('./pages/SeguimientoPedido.jsx'));
 const RiderPanel = lazy(() => import('./pages/RiderPanel.jsx'));
+const EstadoPedidosPublico = lazy(() => import('./pages/EstadoPedidosPublico.jsx'));
+const IntercambioDatos = lazy(() => import('./pages/IntercambioDatos.jsx'));
 
 export default function App() {
   return (
@@ -78,12 +84,14 @@ export default function App() {
                   path="/"
                   element={isNativeRiderApp() ? <Navigate to="/rider" replace /> : <WebPublica />}
                 />
+                <Route path="/kiosco" element={<WebPublica mode="kiosco" />} />
                 <Route path="/club" element={<ClubFidelidad />} />
                 <Route path="/club/terminos" element={<TerminosCondiciones />} />
                 <Route path="/club/:codigo" element={<ClubFidelidad />} />
                 <Route path="/personal/reloj" element={<PersonalClock />} />
                 <Route path="/personal/reloj/:token" element={<PersonalClock />} />
                 <Route path="/seguimiento/:id" element={<SeguimientoPedido />} />
+                <Route path="/estado-pedidos" element={<EstadoPedidosPublico />} />
                 <Route path="/rider" element={<RiderPanel />} />
                 <Route path="/rider/:id/:codigo" element={<RiderPanel />} />
                 <Route path="/admin" element={<Login />} />
@@ -120,6 +128,7 @@ export default function App() {
                       <Route path="/admin/productos" element={<Productos />} />
                       <Route path="/admin/categorias" element={<Categorias />} />
                       <Route path="/admin/listas-opciones" element={<ListasOpciones />} />
+                      <Route path="/admin/listas-precios" element={<ListasPrecios />} />
                       <Route path="/admin/menu-del-dia" element={<MenuDelDia />} />
                     </Route>
                     <Route
@@ -132,12 +141,18 @@ export default function App() {
                       element={<PrivateRoute permission="clientes.view" moduleKey="clientes" />}
                     >
                       <Route path="/admin/clientes" element={<Clientes />} />
+                      <Route path="/admin/cuenta-corriente" element={<CuentaCorriente />} />
+                    </Route>
+                    <Route
+                      element={<PrivateRoute permission="config.manage" moduleKey="clientes" />}
+                    >
                       <Route path="/admin/fidelizacion" element={<Fidelizacion />} />
                     </Route>
                     <Route
                       element={<PrivateRoute permission="marketing.view" moduleKey="marketing" />}
                     >
                       <Route path="/admin/marketing" element={<MarketingDigital />} />
+                      <Route path="/admin/whatsapp-masivo" element={<WhatsAppMasivo />} />
                       <Route path="/admin/social" element={<Social />} />
                     </Route>
                     <Route path="/admin/cuenta" element={<Cuenta />} />
@@ -145,12 +160,14 @@ export default function App() {
                       element={<PrivateRoute permission="reportes.view" moduleKey="reportes" />}
                     >
                       <Route path="/admin/reportes" element={<Reportes />} />
+                      <Route path="/admin/estado-resultados" element={<EstadoResultados />} />
                       <Route path="/admin/reportes-delivery" element={<ReportesDelivery />} />
                     </Route>
                     <Route element={<PrivateRoute permission="config.manage" />}>
                       <Route path="/admin/configuracion" element={<Configuracion />} />
                       <Route path="/admin/usuarios" element={<Usuarios />} />
                       <Route path="/admin/auditoria" element={<Auditoria />} />
+                      <Route path="/admin/intercambio-datos" element={<IntercambioDatos />} />
                     </Route>
                     <Route
                       element={<PrivateRoute permission="config.manage" moduleKey="personal" />}

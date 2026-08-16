@@ -24,6 +24,7 @@ const {
   emitPedidoActualizado,
   emitDeliveryAssignment,
   emitNuevoPedido,
+  emitPedidoListo,
   clearTrackingToken,
 } = require('../utils/socketRooms');
 
@@ -49,6 +50,7 @@ const {
   normalizePagoEstado,
   resolveInitialPagoEstado,
   shouldAutoSettleOnEntrega,
+  getPagosParciales,
 } = require('../utils/paymentStatus');
 
 const {
@@ -62,6 +64,13 @@ const publicOrderRateLimit = createRateLimiter({
   max: 30,
   message: 'Demasiados pedidos desde este origen. Proba de nuevo en unos minutos.',
   store: createSqliteRateLimitStore(db, 'pedido-publico'),
+});
+
+const publicStatusRateLimit = createRateLimiter({
+  windowMs: 10 * 60 * 1000,
+  max: 180,
+  message: 'Demasiadas consultas de estado. Proba de nuevo en unos minutos.',
+  store: createSqliteRateLimitStore(db, 'estado-pedidos-publico'),
 });
 
 function buildTrackingPayload(pedido) {
@@ -244,6 +253,48 @@ router.get('/activos', auth, requirePermission('pedidos.view'), (req, res) => {
       "SELECT * FROM pedidos WHERE estado NOT IN ('entregado','cancelado') ORDER BY creado_en ASC"
     )
   );
+});
+
+/**
+ * Pantalla pública de estados (OSS).
+ *
+ * Sólo expone el número del pedido y su etapa. No devuelve nombres,
+ * teléfonos, direcciones, importes ni productos. Los entregados permanecen
+ * treinta minutos para que el cliente alcance a ver que su orden terminó.
+ */
+router.get('/estado-publico', publicStatusRateLimit, (req, res) => {
+  const pedidos = db
+    .prepare(
+      `
+      SELECT numero, estado, tipo_entrega, creado_en, actualizado_en
+      FROM pedidos
+      WHERE ${fechaLocal('creado_en')} >= DATE('now', '-3 hours', '-1 day')
+        AND estado != 'cancelado'
+        AND (
+          estado != 'entregado'
+          OR datetime(actualizado_en) >= datetime('now', '-30 minutes')
+        )
+      ORDER BY
+        CASE estado
+          WHEN 'listo' THEN 1
+          WHEN 'en_camino' THEN 2
+          WHEN 'preparando' THEN 3
+          WHEN 'confirmado' THEN 4
+          WHEN 'nuevo' THEN 5
+          WHEN 'entregado' THEN 6
+          ELSE 7
+        END,
+        datetime(actualizado_en) DESC
+      LIMIT 80
+    `
+    )
+    .all();
+
+  res.set('Cache-Control', 'no-store');
+  res.json({
+    actualizado_en: new Date().toISOString(),
+    pedidos,
+  });
 });
 
 router.post('/mesa/:mesa/precuenta', auth, requirePermission('pedidos.print'), (req, res) => {
@@ -844,6 +895,126 @@ router.post(
   }
 );
 
+/**
+ * Cobrar una parte de la cuenta sin cerrarla.
+ *
+ * ── Para qué ───────────────────────────────────────────────────────────────
+ *
+ * La mesa de seis donde tres se van antes y pagan lo suyo. Hasta ahora había
+ * que cobrar todo junto o nada, y el mozo terminaba anotando en un papel quién
+ * había puesto cuánto.
+ *
+ * ── Cómo está guardado ─────────────────────────────────────────────────────
+ *
+ * Cada cobro se agrega a `pago_detalle.split_payments`, que ya existía para
+ * pagar una misma venta con dos medios. Es la misma idea: una lista de cobros
+ * con su método y su monto.
+ *
+ * Reusarlo en vez de crear una tabla nueva tiene una ventaja concreta: el
+ * arqueo de caja ya sabe leer esa lista, así que la plata aparece en el cajón
+ * sin tener que enseñarle un formato nuevo.
+ *
+ * ── Cuándo se cierra ───────────────────────────────────────────────────────
+ *
+ * Solo. Cuando la suma de los cobros llega al total, el pedido pasa a pagado.
+ * Nadie tiene que acordarse de marcarlo.
+ */
+router.post('/:id/pago-parcial', auth, requirePermission('pedidos.edit'), (req, res) => {
+  const pedido = getPedidoOr404(req.params.id, res);
+  if (!pedido) return;
+
+  const metodoPago = normalizeMetodoPago(req.body?.metodo_pago || pedido.metodo_pago);
+  if (metodoPago === 'mercadopago') {
+    return res
+      .status(400)
+      .json({ error: 'Los pagos de MercadoPago se sincronizan desde el proveedor' });
+  }
+
+  const monto = Math.round(Number(req.body?.monto || 0));
+  if (!Number.isFinite(monto) || monto <= 0) {
+    return res.status(400).json({ error: 'El monto tiene que ser mayor que cero' });
+  }
+
+  const yaCobrado = getPagosParciales(pedido).reduce((acc, p) => acc + Number(p.monto || 0), 0);
+  const total = Number(pedido.total || 0);
+  const restante = Math.max(0, total - yaCobrado);
+
+  /*
+    No se puede cobrar más de lo que falta. Casi siempre es un error de tipeo
+    —el total del ticket en el campo del pago parcial— y aceptarlo dejaría la
+    caja con un sobrante que después nadie sabe explicar.
+
+    Si la intención era dejar propina, va por el campo de propina, que se
+    contabiliza aparte.
+  */
+  if (monto > restante) {
+    return res.status(400).json({
+      error: `Faltan ${(restante / 100).toLocaleString('es-AR')} pesos. No se puede cobrar de más.`,
+    });
+  }
+
+  const detalleActual = (() => {
+    try {
+      const parsed = JSON.parse(pedido.pago_detalle || '{}');
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+      return {};
+    }
+  })();
+
+  const pagos = Array.isArray(detalleActual.split_payments) ? detalleActual.split_payments : [];
+  pagos.push({
+    metodo: metodoPago,
+    monto,
+    nota: String(req.body?.nota || '').trim(),
+    creado_en: new Date().toISOString(),
+  });
+
+  const cobradoTotal = yaCobrado + monto;
+  const quedaSaldado = cobradoTotal >= total;
+
+  db.prepare(
+    `UPDATE pedidos
+        SET pago_detalle = ?, pago_estado = ?, actualizado_en = CURRENT_TIMESTAMP
+      WHERE id = ?`
+  ).run(
+    JSON.stringify({ ...detalleActual, split_payments: pagos }),
+    quedaSaldado ? 'pagado' : 'pendiente',
+    pedido.id
+  );
+
+  const actor = actorFromRequest(req);
+  logAudit(db, {
+    modulo: 'pagos',
+    accion: quedaSaldado ? 'cobro_parcial_final' : 'cobro_parcial',
+    entidad: 'pedido',
+    entidad_id: pedido.id,
+    actor_id: actor.actor_id,
+    actor_nombre: actor.actor_nombre,
+    detalle: {
+      numero: pedido.numero,
+      metodo_pago: metodoPago,
+      monto,
+      cobrado_total: cobradoTotal,
+      total,
+      queda_saldado: quedaSaldado,
+    },
+  });
+
+  const actualizado = hydratePedido(
+    db.prepare('SELECT * FROM pedidos WHERE id = ?').get(pedido.id)
+  );
+  const io = req.app.get('io');
+  if (io) io.emit('pedido_actualizado', actualizado);
+
+  res.json({
+    pedido: actualizado,
+    cobrado: cobradoTotal,
+    restante: Math.max(0, total - cobradoTotal),
+    saldado: quedaSaldado,
+  });
+});
+
 router.put('/:id/pago', auth, requirePermission('pedidos.edit'), (req, res) => {
   const pedido = getPedidoOr404(req.params.id, res);
   if (!pedido) return;
@@ -891,6 +1062,37 @@ router.put('/:id/pago', auth, requirePermission('pedidos.edit'), (req, res) => {
     pedido.metodo_pago = nextMetodoPago;
   }
 
+  /*
+    La propina se deja acá, junto con el cobro, porque es cuando se sabe.
+
+    Nunca se suma a `total`: `total` es lo que cuesta la comida y es de lo que
+    salen los reportes de venta y la facturación. La propina es plata del mozo
+    que pasa por la caja. Ver el comentario largo en db/migrations.js.
+
+    Llega en pesos y el middleware de plata la convierte a centavos antes de
+    entrar acá. Se acepta sólo al cobrar: una propina sobre un pedido que
+    todavía no se cobró no significa nada.
+  */
+  let propina = null;
+  if (req.body?.propina !== undefined && req.body?.propina !== null) {
+    const valor = Math.round(Number(req.body.propina));
+    if (!Number.isFinite(valor) || valor < 0) {
+      return res.status(400).json({ error: 'La propina no puede ser negativa' });
+    }
+    // Una propina mayor que el pedido casi siempre es un error de tipeo: el
+    // cajero puso el total del ticket en el campo equivocado.
+    if (valor > Number(pedido.total || 0) && Number(pedido.total || 0) > 0) {
+      return res
+        .status(400)
+        .json({ error: 'La propina no puede ser mayor que el total del pedido' });
+    }
+    propina = valor;
+    db.prepare(
+      'UPDATE pedidos SET propina = ?, actualizado_en = CURRENT_TIMESTAMP WHERE id = ?'
+    ).run(propina, pedido.id);
+    pedido.propina = propina;
+  }
+
   const detalle = String(req.body?.detalle || '').trim();
   const updated = hydratePedido(updatePedidoPaymentStatus(pedido, nextPagoEstado, { detalle }));
   const actor = actorFromRequest(req);
@@ -907,6 +1109,9 @@ router.put('/:id/pago', auth, requirePermission('pedidos.edit'), (req, res) => {
       desde: normalizePagoEstado(pedido.pago_estado, { metodoPago, origen: pedido.origen }),
       hacia: updated.pago_estado,
       nota: detalle,
+      // Queda en la auditoría: la propina es plata que entra al cajón y
+      // después se reparte. Tiene que poder reconstruirse quién la cargó.
+      ...(propina === null ? {} : { propina }),
     },
   });
 
@@ -1391,6 +1596,17 @@ router.put('/:id/estado', auth, async (req, res) => {
   const hydrated = hydratePedido(pedido);
   if (io) {
     emitPedidoActualizado(io, hydrated);
+    /*
+      La cocina marcó "listo": se le avisa al mozo que tomó la mesa para que lo
+      retire, en vez de que tenga que pasar a mirar el KDS cada tanto.
+
+      Sólo en la transición hacia listo, no cada vez que se guarda el pedido:
+      si no, un cambio de dirección o una nota volvería a sonarle el aviso de
+      un plato que ya llevó hace media hora.
+    */
+    if (nuevoEstado === PedidoState.LISTO && existing.estado !== PedidoState.LISTO) {
+      emitPedidoListo(io, hydrated);
+    }
     if (assignedForEnCamino) {
       emitDeliveryAssignment(io, {
         pedido: hydrated,

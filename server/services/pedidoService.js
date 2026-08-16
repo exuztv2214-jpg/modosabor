@@ -26,6 +26,7 @@ const {
   loadPedidoItems,
   replacePedidoItems,
 } = require('../utils/pedidoItems');
+const { canalDePedido, listaDelCanal } = require('../utils/listasPrecios');
 const { geocodeClienteDireccion } = require('../utils/geocode');
 const {
   asegurarCodigoTarjeta,
@@ -219,9 +220,20 @@ function generateEntregaPin() {
 }
 
 function subtotalFromItems(items) {
+  /*
+    Se resta el descuento por ítem. Sin esto, un plato que salió mal y se cobró
+    a mitad se descontaba en la pantalla pero el pedido se guardaba con el
+    precio entero: la caja cobraba de más y el mozo quedaba de mentiroso.
+
+    `descuento_item` ya viene acotado en `normalizePedidoItem`: nunca es mayor
+    que el ítem, así que esta resta no puede dar negativo.
+  */
   return roundAmount(
     items.reduce(
-      (acc, item) => acc + Number(item.precio_unitario || 0) * Number(item.cantidad || 0),
+      (acc, item) =>
+        acc +
+        Number(item.precio_unitario || 0) * Number(item.cantidad || 0) -
+        Number(item.descuento_item || 0),
       0
     )
   );
@@ -844,7 +856,7 @@ async function buildPedidoPayload(body, options = {}) {
   // 'whatsapp' (agente de IA) tiene que respetar el mismo control de turno
   // que la web publica: sin esto, un pedido armado fuera de horario por el
   // agente se cargaria igual, sin que nadie en cocina lo espere.
-  const isPublicFlow = ['web', 'canal_publico', 'whatsapp'].includes(origen);
+  const isPublicFlow = ['web', 'canal_publico', 'whatsapp', 'kiosco'].includes(origen);
 
   /*
     En los canales públicos el precio se arma de cero desde la base.
@@ -859,8 +871,20 @@ async function buildPedidoPayload(body, options = {}) {
   // Los pedidos de Mozo también se calculan desde catálogo. A diferencia del
   // TPV, el celular nunca puede fijar precios ni descuentos manuales.
   const forceServerPrices = options.forceServerPrices === true;
+  /*
+    El canal sale de cómo se entrega el pedido, no de quién lo cargó: un
+    delivery tipeado en el TPV sigue siendo delivery y le toca el precio de
+    delivery. Tiene que ser el mismo canal con el que se le mostró la carta al
+    cliente, o vería un precio y se le cobraría otro.
+  */
+  const canalDePrecios = canalDePedido(body);
+  const tieneListaDeCanal = Boolean(listaDelCanal(db, canalDePrecios));
   const parsedItems =
-    isPublicFlow || forceServerPrices ? recalcularPreciosPublicos(itemsEscalados) : itemsEscalados;
+    isPublicFlow || forceServerPrices || tieneListaDeCanal
+      ? recalcularPreciosPublicos(itemsEscalados, canalDePrecios, {
+          permitirDescuentoItems: !isPublicFlow && !forceServerPrices,
+        })
+      : itemsEscalados;
   const subtotal = subtotalFromItems(parsedItems);
 
   // Validar cupón si se proporciona
