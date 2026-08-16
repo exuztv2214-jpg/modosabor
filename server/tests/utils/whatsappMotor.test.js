@@ -31,6 +31,9 @@ function crearBase() {
     CREATE TABLE clientes (
       id INTEGER PRIMARY KEY, nombre TEXT, telefono TEXT, total_pedidos INTEGER DEFAULT 0
     );
+    CREATE TABLE pedidos (
+      id INTEGER PRIMARY KEY, cliente_id INTEGER, creado_en DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
   `);
 
   // Las tablas wa_* salen del mismo SQL que corre en producción, para que el
@@ -297,7 +300,11 @@ async function run() {
   console.log('Todos los tests del motor de envío pasaron\n');
 }
 
-run().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+if (require.main === module) {
+  run().catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });
+}
+
+module.exports = { run };

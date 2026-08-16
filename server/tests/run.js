@@ -1,4 +1,5 @@
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
 /*
@@ -19,6 +20,22 @@ const path = require('path');
 process.env.NODE_ENV = process.env.NODE_ENV || 'test';
 process.env.INITIAL_ADMIN_EMAIL = process.env.INITIAL_ADMIN_EMAIL || 'test@example.invalid';
 process.env.INITIAL_ADMIN_PASSWORD = process.env.INITIAL_ADMIN_PASSWORD || 'test-only-password';
+
+const dirTemporal = fs.mkdtempSync(path.join(os.tmpdir(), 'modosabor-tests-'));
+process.env.DATA_DIR = dirTemporal;
+process.env.DB_FILE = path.join(dirTemporal, 'tests.sqlite');
+
+const db = require('../db');
+require('./fixtures').sembrarCatalogoBase(db);
+
+process.on('exit', () => {
+  try {
+    db.close();
+  } catch {
+    /* La base puede haber sido cerrada por un test aislado. */
+  }
+  fs.rmSync(dirTemporal, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+});
 
 function findTests(dir) {
   const files = [];
