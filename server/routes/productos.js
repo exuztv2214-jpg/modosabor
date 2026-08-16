@@ -27,6 +27,9 @@ const { createProductoSchema, updateProductoSchema } = require('../schemas');
 const { pesosToCents } = require('../utils/moneyConversion');
 const authOpcional = require('../middleware/authOpcional');
 const { aplicarListasCompartidas } = require('../utils/opcionesCompartidas');
+const { applyMenuDiaPricingList } = require('../utils/menuDiaPricing');
+const { hoyLocal } = require('../utils/fechaLocal');
+const { aplicarListaDePrecios, CANALES } = require('../utils/listasPrecios');
 
 /**
  * Lo que ve alguien que no está adentro del panel.
@@ -71,6 +74,14 @@ const CAMPOS_PUBLICOS = [
   'destacado',
   'tiempo_preparacion',
   'menu_dia_tipo',
+  'menu_dia_precio_economico',
+  'menu_dia_precio_ejecutivo',
+  /*
+    El orden en que el dueño acomodó el menú de hoy arrastrando las tarjetas.
+    Va al público a propósito: sin él la web ordenaba alfabéticamente y el
+    arrastre no servía para nada de cara al cliente.
+  */
+  'menu_dia_orden',
   'disponible_para_venta',
 ];
 
@@ -272,9 +283,26 @@ function buildProductPayload(body, options = {}) {
 
 router.get('/', authOpcional, (req, res) => {
   const { categoria_id, activo } = req.query;
+  /*
+    El orden del menú del día no vive en `productos`: vive en
+    `menu_dia_historial`, una fila por plato y por día. Por eso el JOIN va
+    atado a la fecha de hoy.
+
+    Es LEFT JOIN: los platos que no son del menú del día no tienen fila ahí y
+    tienen que seguir apareciendo igual, con `menu_dia_orden` en null.
+
+    La fecha va primero en los parámetros porque el JOIN se escribe antes del
+    WHERE, y SQLite los toma en el orden en que aparecen en el texto.
+  */
   let q =
-    'SELECT p.*, c.nombre as categoria_nombre, c.icono as categoria_icono FROM productos p LEFT JOIN categorias c ON p.categoria_id = c.id WHERE 1=1';
-  const params = [];
+    'SELECT p.*, c.nombre as categoria_nombre, c.icono as categoria_icono, mdh.orden AS menu_dia_orden,' +
+    ' mdh.precio_economico AS menu_dia_precio_economico,' +
+    ' mdh.precio_ejecutivo AS menu_dia_precio_ejecutivo' +
+    ' FROM productos p' +
+    ' LEFT JOIN categorias c ON p.categoria_id = c.id' +
+    ' LEFT JOIN menu_dia_historial mdh ON mdh.producto_id = p.id AND mdh.fecha = ?' +
+    ' WHERE 1=1';
+  const params = [hoyLocal()];
   if (categoria_id) {
     q += ' AND p.categoria_id = ?';
     params.push(categoria_id);
@@ -289,7 +317,27 @@ router.get('/', authOpcional, (req, res) => {
     todo lo que viene después —la proyección pública, el conversor de plata, el
     TPV, la web y la app del rider— vea el mismo JSON de siempre.
   */
-  const productos = aplicarListasCompartidas(db, db.prepare(q).all(...params));
+  /*
+    ── El orden de estas tres capas no es casual ──────────────────────────────
+
+    1. Lista de precios del canal, sobre el precio base.
+    2. Listas de opciones compartidas: los recargos de las variantes se suman
+       sobre el precio ya ajustado.
+    3. Menú del día, que manda por encima de todo: el precio de hoy para ese
+       plato lo decidió el dueño esta mañana y ninguna lista de canal tiene por
+       qué pisarlo.
+
+    Es el mismo orden que usa `preciosServidor.js` al validar un pedido. Si los
+    dos no coincidieran, la carta mostraría un precio y la caja cobraría otro.
+
+    El canal lo manda quien pregunta: la web pide `?canal=delivery` cuando el
+    cliente eligió envío. Por defecto, mostrador. Sin listas configuradas —el
+    estado inicial— esto no cambia ningún precio.
+  */
+  const canal = CANALES.includes(String(req.query.canal || '')) ? req.query.canal : 'mostrador';
+  const conPrecioDeCanal = aplicarListaDePrecios(db, db.prepare(q).all(...params), canal);
+  const productosConListas = aplicarListasCompartidas(db, conPrecioDeCanal);
+  const productos = applyMenuDiaPricingList(productosConListas);
   res.json(segunQuienPregunta(req, decorateProductsWithInventory(db, productos)));
 });
 

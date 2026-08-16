@@ -1,5 +1,8 @@
 const db = require('../db');
 const { listasPorProducto, mezclarListas } = require('../utils/opcionesCompartidas');
+const { applyMenuDiaPricing } = require('../utils/menuDiaPricing');
+const { aplicarListaDePrecios } = require('../utils/listasPrecios');
+const { hoyArgentina } = require('../utils/fechaLocal');
 
 /**
  * Recálculo de precios del lado del servidor.
@@ -74,11 +77,24 @@ class PrecioInvalidoError extends Error {
  *   [{ nombre: "Guarnición", opciones: [{ nombre: "Papas", precio_extra: 0 }] }]
  */
 function recargoDeVariantes(variantesElegidas, definicion, nombreProducto) {
-  if (!variantesElegidas || typeof variantesElegidas !== 'object') return 0;
+  const elegidas =
+    variantesElegidas && typeof variantesElegidas === 'object' ? variantesElegidas : {};
   const grupos = Array.isArray(definicion) ? definicion : [];
   let recargo = 0;
 
-  for (const [grupoElegido, opcionElegida] of Object.entries(variantesElegidas)) {
+  for (const grupo of grupos) {
+    if (grupo?.obligatorio !== true && Number(grupo?.obligatorio) !== 1) continue;
+    const seleccion = Object.entries(elegidas).find(
+      ([nombre]) => textoNormalizado(nombre) === textoNormalizado(grupo?.nombre)
+    )?.[1];
+    if (!seleccion) {
+      throw new PrecioInvalidoError(
+        `Elegí una opción de ${grupo?.nombre || 'la variante'} para ${nombreProducto}.`
+      );
+    }
+  }
+
+  for (const [grupoElegido, opcionElegida] of Object.entries(elegidas)) {
     if (!opcionElegida) continue;
 
     const grupo = grupos.find(
@@ -135,16 +151,41 @@ function recargoDeExtras(extrasElegidos, definicion, nombreProducto) {
  * Devuelve los ítems con el precio recalculado desde la base.
  *
  * @param {Array} items Ítems ya normalizados y escalados a centavos.
+ * @param {string} canal 'mostrador' | 'delivery' | 'web'. Decide qué lista de
+ *        precios se aplica. **Tiene que ser el mismo canal con el que se le
+ *        mostró la carta al cliente**: si la web muestra el precio de delivery
+ *        y acá se recalcula con el de mostrador, el cliente ve un número y se
+ *        le cobra otro.
  * @returns {Array} Los mismos ítems con `precio_unitario` y `subtotal` reales.
  * @throws {PrecioInvalidoError} Si un producto no existe, está inactivo, o trae
  *         una variante o un adicional que no le corresponde.
  */
-function recalcularPreciosPublicos(items) {
+function recalcularPreciosPublicos(items, canal = 'mostrador', opciones = {}) {
   const lista = Array.isArray(items) ? items : [];
   if (!lista.length) return lista;
+  const permitirDescuentoItems = opciones?.permitirDescuentoItems === true;
 
+  /*
+    ── Los descuentos por ítem no existen en el flujo público ─────────────────
+
+    `descuento_item` lo aplica el mozo o el cajero sobre un plato que salió mal.
+    Si se aceptara desde la web, cualquiera podría mandar
+    `descuento_item: 999999` con las herramientas del navegador y llevarse la
+    comida gratis: exactamente el agujero que este archivo vino a cerrar con los
+    precios.
+
+    Se pisa a cero en vez de rechazar el pedido: un carrito viejo en caché
+    podría traer el campo sin mala intención, y perder la venta por eso sería
+    peor que ignorarlo.
+  */
   const buscarProducto = db.prepare(
-    'SELECT id, nombre, precio, activo, variantes, extras FROM productos WHERE id = ?'
+    `SELECT p.id, p.nombre, p.precio, p.activo, p.variantes, p.extras,
+            mdh.precio_economico AS menu_dia_precio_economico,
+            mdh.precio_ejecutivo AS menu_dia_precio_ejecutivo
+       FROM productos p
+       LEFT JOIN menu_dia_historial mdh
+         ON mdh.producto_id = p.id AND mdh.fecha = ?
+      WHERE p.id = ?`
   );
 
   /*
@@ -173,7 +214,20 @@ function recalcularPreciosPublicos(items) {
       );
     }
 
-    const producto = buscarProducto.get(productoId);
+    const productoCrudo = buscarProducto.get(hoyArgentina(), productoId);
+    /*
+      El orden importa: primero la lista de precios sobre el precio base, y
+      después el menú del día.
+
+      El menú del día es el precio de hoy para ese plato, decidido esta mañana;
+      una lista de canal no tiene por qué pisarlo. Si se aplicara al revés, un
+      recargo de delivery le cambiaría el precio al menú del día y el plato del
+      día dejaría de valer lo que dice el cartel.
+    */
+    const productoConLista = productoCrudo
+      ? aplicarListaDePrecios(db, [productoCrudo], canal)[0]
+      : null;
+    const producto = productoConLista ? applyMenuDiaPricing(productoConLista) : null;
     if (!producto) {
       throw new PrecioInvalidoError(
         `El producto "${item?.nombre || productoId}" ya no está en la carta.`
@@ -202,6 +256,10 @@ function recalcularPreciosPublicos(items) {
 
     const precioUnitario = precioBase + extraVariantes + extraAdicionales;
     const cantidad = Math.max(0, Number(item.cantidad || 0));
+    const bruto = precioUnitario * cantidad;
+    const descuentoItem = permitirDescuentoItems
+      ? Math.min(Math.max(0, Number(item.descuento_item || 0)), bruto)
+      : 0;
 
     return {
       ...item,
@@ -209,7 +267,8 @@ function recalcularPreciosPublicos(items) {
       // comanda de cocina tiene que aparecer el producto real.
       nombre: producto.nombre,
       precio_unitario: precioUnitario,
-      subtotal: precioUnitario * cantidad,
+      descuento_item: descuentoItem,
+      subtotal: bruto - descuentoItem,
     };
   });
 }
