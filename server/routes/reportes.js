@@ -19,6 +19,26 @@ function parseDateRange(req) {
   return { desde, hasta };
 }
 
+function parseDashboardRange(req) {
+  const hoy = hoyArgentina();
+  const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+  const desde = datePattern.test(String(req.query.desde || '')) ? req.query.desde : hoy;
+  const hasta = datePattern.test(String(req.query.hasta || '')) ? req.query.hasta : hoy;
+  const start = new Date(`${desde}T12:00:00-03:00`);
+  const end = new Date(`${hasta}T12:00:00-03:00`);
+
+  if (
+    Number.isNaN(start.getTime()) ||
+    Number.isNaN(end.getTime()) ||
+    start > end ||
+    end.getTime() - start.getTime() > 366 * 86400000
+  ) {
+    return { desde: hoy, hasta: hoy };
+  }
+
+  return { desde, hasta };
+}
+
 function diffMinutes(start, end) {
   const a = new Date(start).getTime();
   const b = new Date(end).getTime();
@@ -670,6 +690,7 @@ function buildTopCustomersAllTime(limit = 5) {
 router.get('/dashboard', auth, requirePermission('dashboard.view'), (req, res) => {
   const hoy = hoyArgentina();
   const ayer = hoyArgentina(new Date(Date.now() - 86400000));
+  const rangoDashboard = parseDashboardRange(req);
   const catalogoProductos = db
     .prepare(
       `
@@ -825,6 +846,48 @@ router.get('/dashboard', auth, requirePermission('dashboard.view'), (req, res) =
   const clientesMasCompran = buildTopCustomersAllTime(5);
   const stockCritico = buildCriticalStock(10);
 
+  const pedidosPeriodo = db
+    .prepare(
+      `SELECT id, estado, total, cliente_id, cliente_telefono
+       FROM pedidos
+       WHERE ${fechaLocal('creado_en')} BETWEEN ? AND ?`
+    )
+    .all(rangoDashboard.desde, rangoDashboard.hasta);
+  const pedidosValidosPeriodo = pedidosPeriodo.filter((pedido) => pedido.estado !== 'cancelado');
+  const clientesPeriodo = new Set(
+    pedidosValidosPeriodo
+      .map((pedido) =>
+        pedido.cliente_id
+          ? `id:${pedido.cliente_id}`
+          : String(pedido.cliente_telefono || '').trim()
+            ? `tel:${String(pedido.cliente_telefono).trim()}`
+            : null
+      )
+      .filter(Boolean)
+  );
+  const estadoOrden = [
+    'nuevo',
+    'confirmado',
+    'preparando',
+    'listo',
+    'en_camino',
+    'entregado',
+    'cancelado',
+  ];
+  const conteoEstados = pedidosPeriodo.reduce((acc, pedido) => {
+    const estado = String(pedido.estado || 'nuevo');
+    acc[estado] = (acc[estado] || 0) + 1;
+    return acc;
+  }, {});
+  const estadosPeriodo = [
+    ...estadoOrden.filter((estado) => conteoEstados[estado] !== undefined),
+    ...Object.keys(conteoEstados).filter((estado) => !estadoOrden.includes(estado)),
+  ].map((estado) => ({ estado, cantidad: conteoEstados[estado] }));
+  const totalPeriodo = pedidosValidosPeriodo.reduce(
+    (total, pedido) => total + Number(pedido.total || 0),
+    0
+  );
+
   // Estado de caja actual
   const cajaActiva = db
     .prepare("SELECT id, abierta_en, abierta_por_nombre FROM cierres_caja WHERE estado = 'abierta'")
@@ -855,6 +918,16 @@ router.get('/dashboard', auth, requirePermission('dashboard.view'), (req, res) =
     // pero sin costos cargados mostraba "0% vs ayer" como si fuera un dato
     // real. Con el margen de ayer explicito puede distinguir "sin datos".
     margenBrutoAyer: margenAyer,
+    periodo: {
+      ...rangoDashboard,
+      pedidos: pedidosValidosPeriodo.length,
+      total: totalPeriodo,
+      ticketPromedio: pedidosValidosPeriodo.length
+        ? Math.round(totalPeriodo / pedidosValidosPeriodo.length)
+        : 0,
+      clientes: clientesPeriodo.size,
+      estados: estadosPeriodo,
+    },
   });
 });
 
@@ -872,6 +945,142 @@ router.get('/ventas', auth, requirePermission('reportes.view'), (req, res) => {
     )
     .get(desde, hasta);
   res.json({ pedidos, totales });
+});
+
+/**
+ * Estado de resultados: si el negocio gana plata o no.
+ *
+ * ── Lo primero: este reporte puede mentir ──────────────────────────────────
+ *
+ * Vender no es ganar. La cuenta es:
+ *
+ *     ventas − costo de lo vendido − gastos = resultado
+ *
+ * Si no hay costos cargados, el "costo de lo vendido" da cero y el reporte
+ * diría que se gana el 100% de lo que se vende. Eso no es un reporte
+ * incompleto: es un número que puede hacer tomar una decisión mala —bajar un
+ * precio creyendo que hay margen de sobra—.
+ *
+ * Por eso devuelve **`cobertura`**: cuántos de los productos vendidos tenían
+ * costo cargado. Con cobertura baja, la pantalla tiene que decir que el
+ * resultado no es confiable en vez de mostrar un número lindo.
+ *
+ * ── De dónde sale cada cosa ────────────────────────────────────────────────
+ *
+ * · Ventas: `pedidos.total` de los no cancelados.
+ * · Costo: `productos.costo` × cantidad vendida. Si un producto no tiene costo,
+ *   suma cero y se cuenta como "sin cubrir".
+ * · Gastos: los egresos manuales de caja.
+ * · Mermas: la plata tirada, que es un costo real y hasta ahora no figuraba en
+ *   ningún lado.
+ *
+ * Las propinas quedan afuera a propósito: no son ingreso del local.
+ */
+router.get('/resultados', auth, requirePermission('reportes.view'), (req, res) => {
+  const { desde, hasta } = parseDateRange(req);
+
+  const ventas = db
+    .prepare(
+      `SELECT COUNT(*) AS pedidos, COALESCE(SUM(total), 0) AS total
+         FROM pedidos
+        WHERE ${fechaLocal('creado_en')} BETWEEN ? AND ? AND estado != 'cancelado'`
+    )
+    .get(desde, hasta);
+
+  /*
+    El costo de lo vendido, ítem por ítem. Se mira `productos.costo` y no la
+    receta: la receta da el costo teórico y `costo` es el que el dueño cargó.
+    Cuando no hay ninguno de los dos, el ítem queda sin cubrir y se dice.
+  */
+  const items = db
+    .prepare(
+      `SELECT pi.cantidad, pi.subtotal, COALESCE(p.costo, 0) AS costo, p.nombre
+         FROM pedido_items pi
+         JOIN pedidos ped ON ped.id = pi.pedido_id
+         LEFT JOIN productos p ON p.id = pi.producto_id
+        WHERE ${fechaLocal('ped.creado_en')} BETWEEN ? AND ? AND ped.estado != 'cancelado'`
+    )
+    .all(desde, hasta);
+
+  let costoVendido = 0;
+  let itemsConCosto = 0;
+  let ventasCubiertas = 0;
+  let ventasSinCubrir = 0;
+  const sinCosto = new Map();
+
+  for (const item of items) {
+    const costo = Number(item.costo || 0);
+    const subtotal = Number(item.subtotal || 0);
+    if (costo > 0) {
+      costoVendido += costo * Number(item.cantidad || 0);
+      itemsConCosto += 1;
+      ventasCubiertas += subtotal;
+    } else {
+      ventasSinCubrir += subtotal;
+      const nombre = item.nombre || 'Producto borrado';
+      sinCosto.set(nombre, (sinCosto.get(nombre) || 0) + subtotal);
+    }
+  }
+
+  const gastos = db
+    .prepare(
+      `SELECT COALESCE(SUM(monto), 0) AS total
+         FROM caja_movimientos
+        WHERE tipo = 'salida' AND ${fechaLocal('creado_en')} BETWEEN ? AND ?`
+    )
+    .get(desde, hasta);
+
+  const mermas = db
+    .prepare(
+      `SELECT detalle FROM inventario_movimientos
+        WHERE tipo = 'merma' AND ${fechaLocal('creado_en')} BETWEEN ? AND ?`
+    )
+    .all(desde, hasta)
+    .reduce((acc, fila) => {
+      try {
+        return acc + Number(JSON.parse(fila.detalle || '{}')?.costo_perdido || 0);
+      } catch {
+        return acc;
+      }
+    }, 0);
+
+  const totalVentas = Number(ventas.total || 0);
+  const totalGastos = Number(gastos.total || 0);
+  const resultado = totalVentas - costoVendido - totalGastos - mermas;
+
+  /*
+    Qué porcentaje de lo vendido tiene costo conocido. Es el número que decide
+    si el resultado de arriba se puede creer.
+  */
+  const cobertura = totalVentas > 0 ? Math.round((ventasCubiertas / totalVentas) * 100) : 0;
+
+  res.json({
+    desde,
+    hasta,
+    ventas: totalVentas,
+    pedidos: Number(ventas.pedidos || 0),
+    costo_vendido: costoVendido,
+    gastos: totalGastos,
+    mermas,
+    resultado,
+    margen_porcentaje: totalVentas > 0 ? Math.round((resultado / totalVentas) * 100) : 0,
+    cobertura: {
+      porcentaje: cobertura,
+      // Con cobertura baja el resultado infla la ganancia: los productos sin
+      // costo aportan venta y cero costo.
+      confiable: cobertura >= 80,
+      ventas_cubiertas: ventasCubiertas,
+      ventas_sin_cubrir: ventasSinCubrir,
+      items_con_costo: itemsConCosto,
+      items_totales: items.length,
+      // Los que más plata mueven sin tener costo: es la lista de qué cargar
+      // primero para que este reporte empiece a servir.
+      productos_sin_costo: Array.from(sinCosto.entries())
+        .map(([nombre, venta]) => ({ nombre, venta }))
+        .sort((a, b) => b.venta - a.venta)
+        .slice(0, 15),
+    },
+  });
 });
 
 router.get('/premium', auth, requirePermission('reportes.view'), (req, res) => {
