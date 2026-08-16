@@ -21,6 +21,13 @@ const {
 const { getOperationalShiftContext } = require('../utils/operationalCaja');
 const { emitNuevoPedido } = require('../utils/socketRooms');
 const { logAudit, actorFromRequest } = require('../utils/audit');
+const {
+  puedeTocarMesaDeOtro,
+  normalizarPin,
+  pinValido,
+  hashearPin,
+  LARGO_PIN,
+} = require('../utils/pinMozo');
 
 router.use(auth, requirePermission('mozo.use'));
 
@@ -88,10 +95,44 @@ function requireOwnAssignment(req, res, mesa) {
     res.status(409).json({ error: 'Primero tomá esta mesa desde la app.' });
     return null;
   }
-  if (Number(assignment.mozo_usuario_id) !== Number(req.user.id)) {
-    res.status(403).json({ error: 'Esta mesa está asignada a otro mozo.' });
+
+  /*
+    La mesa de otro ya no es un 403 seco.
+
+    Antes lo era, y en la práctica se destrabab por afuera: alguien entraba con
+    el usuario del otro, o se cerraba la mesa desde el TPV a mano. Las dos son
+    peores que el problema, porque además borran el rastro de quién hizo qué.
+
+    Ahora hay una salida legítima: el PIN del mozo que la tomó, o un encargado.
+    Y queda registrado con qué PIN se destrabó.
+  */
+  const permiso = puedeTocarMesaDeOtro(db, {
+    usuario: req.user,
+    duenoId: assignment.mozo_usuario_id,
+    pin: req.body?.pin_mozo || req.query?.pin_mozo,
+  });
+
+  if (!permiso.ok) {
+    res.status(403).json({ error: permiso.motivo, requiere_pin: permiso.requierePin === true });
     return null;
   }
+
+  if (permiso.conPinDe || permiso.comoEncargado) {
+    logAudit(db, {
+      modulo: 'mozo',
+      accion: 'trabajar_mesa_ajena',
+      entidad: 'mesa',
+      entidad_id: 0,
+      actor_id: req.user?.id,
+      actor_nombre: req.user?.nombre,
+      detalle: {
+        mesa,
+        dueno: assignment.mozo_nombre,
+        como: permiso.comoEncargado ? 'encargado' : `PIN de ${permiso.conPinDe}`,
+      },
+    });
+  }
+
   return assignment;
 }
 
@@ -145,6 +186,52 @@ function serializeCatalogo() {
       tiempo_preparacion: product.tiempo_preparacion,
     }));
 }
+
+/**
+ * El mozo elige su propio PIN.
+ *
+ * Lo elige él y no el encargado: es lo que va a dictarle a un compañero cuando
+ * tenga que irse antes, así que tiene que poder acordárselo. Un PIN asignado
+ * por otro termina anotado en un papel al lado de la caja.
+ *
+ * Sólo puede cambiar el suyo. Para cambiar el de otro está el encargado, que
+ * de todos modos no lo necesita: pasa sin PIN.
+ */
+router.put('/mi-pin', (req, res) => {
+  const pin = normalizarPin(req.body?.pin);
+  if (!pinValido(pin)) {
+    return res.status(400).json({ error: `El PIN tiene que ser de ${LARGO_PIN} números` });
+  }
+
+  /*
+    Cuatro dígitos repetidos o en fila —0000, 1234— no son un PIN: son el
+    primero que prueba cualquiera. Se rechazan acá y no en la pantalla, porque
+    la pantalla se puede saltear.
+  */
+  const todosIguales = new Set(pin).size === 1;
+  const enFila = '0123456789'.includes(pin) || '9876543210'.includes(pin);
+  if (todosIguales || enFila) {
+    return res.status(400).json({ error: 'Elegí un PIN menos obvio que ese' });
+  }
+
+  db.prepare('UPDATE usuarios SET pin_mozo_hash = ? WHERE id = ?').run(
+    hashearPin(pin),
+    req.user.id
+  );
+
+  logAudit(db, {
+    modulo: 'mozo',
+    accion: 'cambiar_pin',
+    entidad: 'usuario',
+    entidad_id: req.user.id,
+    actor_id: req.user.id,
+    actor_nombre: req.user.nombre,
+    // El PIN no se guarda en la auditoría, obviamente. Sólo que se cambió.
+    detalle: {},
+  });
+
+  res.json({ ok: true });
+});
 
 router.get('/estado', (req, res) => {
   const operation = operationalStatus();
