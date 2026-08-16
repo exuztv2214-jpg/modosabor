@@ -225,8 +225,21 @@ export function calculatePedidoSummary({
   efectivoRecibido = '',
   cashTarget = null,
 } = {}) {
+  /*
+    El descuento por línea se resta acá.
+
+    Sin esto, el mozo descontaría un plato en la pantalla y el total seguiría
+    igual: quedaría de mentiroso frente al cliente y la caja cobraría de más.
+
+    Es el mismo cálculo que hace `subtotalFromItems` en el servidor, que es el
+    que manda. Si los dos no coincidieran, el TPV mostraría un total y el pedido
+    se guardaría con otro.
+  */
   const subtotal = (items || []).reduce(
-    (sum, item) => sum + Number(item.precio_unitario || 0) * Number(item.cantidad || 0),
+    (sum, item) =>
+      sum +
+      Number(item.precio_unitario || 0) * Number(item.cantidad || 0) -
+      Number(item.descuento_item || 0),
     0
   );
   const envio = tipoEntrega === 'delivery' ? Number(deliveryQuote?.costo_envio || 0) : 0;
@@ -339,6 +352,8 @@ export function buildPedidoPayload({
     nombre: item.nombre || '',
     cantidad: Number(item.cantidad || 0),
     precio_unitario: Number(item.precio_unitario || 0),
+    descuento_item: Number(item.descuento_item || 0),
+    descuento_motivo: item.descuento_motivo || '',
     variantes: item.variantes || {},
     extras: item.extras || [],
     descripcion: item.descripcion || '',

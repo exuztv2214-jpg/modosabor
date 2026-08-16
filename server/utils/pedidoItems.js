@@ -93,11 +93,40 @@ function normalizePedidoItem(rawItem = {}) {
   const base = rawItem && typeof rawItem === 'object' ? rawItem : {};
   const cantidad = Math.max(0, Number(base.cantidad || 0));
   const precioUnitario = roundAmount(base.precio_unitario ?? base.precio ?? 0);
-  const subtotal = roundAmount(
-    base.subtotal !== undefined && base.subtotal !== null
-      ? base.subtotal
-      : cantidad * precioUnitario
-  );
+  const extras = parseJson(base.extras_json ?? base.extras, []);
+
+  /*
+    ── Descuento por ítem ─────────────────────────────────────────────────────
+
+    Hasta ahora sólo se podía descontar del total del pedido. Eso no alcanza
+    para los casos de todos los días: un plato que salió mal y se cobra a
+    mitad, el postre de cortesía, el 2x1 de una sola línea.
+
+    Se guarda en plata y no en porcentaje. Un 15% sobre un precio que después
+    cambia da un número distinto cada vez que se recalcula; los centavos que se
+    descontaron ese día son un hecho y no se mueven.
+
+    Nunca puede dejar el ítem en negativo: un descuento mayor que el ítem es un
+    error de carga, y aceptarlo haría que ese ítem le reste plata al resto del
+    pedido.
+  */
+  const descuentoPedido = Math.max(0, roundAmount(base.descuento_item ?? 0));
+  // Los registros históricos no representaban los extras todos de la misma
+  // manera: algunos los incluían en `precio_unitario` y otros sólo en
+  // `subtotal`. Sin descuento se conserva esa cifra ya persistida. Cuando hay
+  // descuento, en cambio, se deriva desde cantidad × precio para que un
+  // subtotal del navegador no pueda anularlo o volverlo incoherente.
+  const subtotalHistorico = roundAmount(base.subtotal ?? 0);
+  const bruto =
+    descuentoPedido > 0 || !Number.isFinite(Number(base.subtotal))
+      ? roundAmount(cantidad * precioUnitario)
+      : Math.max(0, subtotalHistorico);
+  const descuentoItem = Math.min(descuentoPedido, bruto);
+
+  // Nunca confiamos en un subtotal enviado por el navegador: con un descuento
+  // por línea debe salir siempre de cantidad × precio menos el descuento ya
+  // acotado. Así la fila guardada, el total y el ticket no pueden discrepar.
+  const subtotal = roundAmount(bruto - descuentoItem);
 
   return {
     ...base,
@@ -107,10 +136,12 @@ function normalizePedidoItem(rawItem = {}) {
     nombre: String(base.nombre || '').trim(),
     cantidad,
     precio_unitario: precioUnitario,
+    descuento_item: descuentoItem,
+    descuento_motivo: String(base.descuento_motivo || '').trim(),
     subtotal,
     descripcion: String(base.descripcion || '').trim(),
     variantes: inferVariantsFromItem(base),
-    extras: parseJson(base.extras_json ?? base.extras, []),
+    extras,
   };
 }
 
@@ -203,8 +234,9 @@ function replacePedidoItems(db, pedidoId, items = []) {
   const insertStmt = db.prepare(`
     INSERT INTO pedido_items (
       pedido_id, producto_id, nombre, cantidad, precio_unitario, subtotal,
-      variantes_json, extras_json, categoria_id, descripcion, creado_en
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      variantes_json, extras_json, categoria_id, descripcion,
+      descuento_item, descuento_motivo, creado_en
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
   `);
 
   deleteStmt.run(pedidoId);
@@ -233,12 +265,15 @@ function replacePedidoItems(db, pedidoId, items = []) {
       roundAmount(
         item.subtotal !== undefined
           ? item.subtotal
-          : Number(item.cantidad || 0) * Number(item.precio_unitario || 0)
+          : Number(item.cantidad || 0) * Number(item.precio_unitario || 0) -
+              Number(item.descuento_item || 0)
       ),
       JSON.stringify(item.variantes || {}),
       JSON.stringify(item.extras || []),
       category?.id || null,
-      item.descripcion || ''
+      item.descripcion || '',
+      Number(item.descuento_item || 0),
+      item.descuento_motivo || ''
     );
   });
 

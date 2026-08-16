@@ -21,7 +21,7 @@ import TpvClientPickerModal from '../components/TPV/TpvClientPickerModal.jsx';
 import TpvHeader from '../components/TPV/TpvHeader.jsx';
 import TpvSidebar from '../components/TPV/TpvSidebar.jsx';
 import TpvPaymentModal from '../components/TPV/TpvPaymentModal.jsx';
-import { TPV_BG } from '../components/TPV/tpvUi.jsx';
+import { fmt, TPV_BG } from '../components/TPV/tpvUi.jsx';
 import TpvVariantModal from '../components/TPV/TpvVariantModal.jsx';
 import {
   grupoEsObligatorio,
@@ -107,6 +107,16 @@ function normalizeExtraSelection(extras) {
     }))
     .filter((extra) => extra.nombre)
     .sort((a, b) => normalizeText(a.nombre).localeCompare(normalizeText(b.nombre)));
+}
+
+function precioParaCanalEnCarrito(item, producto) {
+  if (item?.precio_fijo) return Number(item.precio_unitario || 0);
+  const extrasVariantes = Object.values(item?.variantes || {}).reduce(
+    (sum, opcion) => sum + Number(opcion?.precio_extra || 0),
+    0
+  );
+  const extras = (item?.extras || []).reduce((sum, extra) => sum + Number(extra?.precio || 0), 0);
+  return Number(producto?.precio || 0) + extrasVariantes + extras;
 }
 
 function buildCartKey(variantes, extras) {
@@ -273,7 +283,7 @@ export default function TPV() {
     setCargandoCatalogo(true);
     Promise.all([
       api.get('/categorias'),
-      api.get('/productos?activo=1'),
+      api.get('/productos?activo=1&canal=mostrador'),
       api.get('/configuracion'),
       api.get('/repartidores?turno_actual=1').catch(() => []),
       api.get('/caja/estado').catch(() => null),
@@ -293,6 +303,26 @@ export default function TPV() {
       .catch((error) => toast.error(error?.error || 'No se pudo cargar el TPV'))
       .finally(() => setCargandoCatalogo(false));
   }, []);
+
+  useEffect(() => {
+    const canal = tipoEntrega === 'delivery' ? 'delivery' : 'mostrador';
+    api
+      .get(`/productos?activo=1&canal=${canal}`)
+      .then((prods) => {
+        const productosPorId = new Map(
+          (prods || []).map((producto) => [Number(producto.id), producto])
+        );
+        setProductos(prods);
+        setItems((previous) =>
+          previous.map((item) => {
+            const producto = productosPorId.get(Number(item.producto_id));
+            if (!producto || item.precio_fijo) return item;
+            return { ...item, precio_unitario: precioParaCanalEnCarrito(item, producto) };
+          })
+        );
+      })
+      .catch((error) => toast.error(error?.error || 'No se pudo actualizar el precio del canal'));
+  }, [tipoEntrega]);
 
   useEffect(() => {
     // El TPV puede quedar abierto desde la mañana hasta la noche. La lista
@@ -1261,6 +1291,7 @@ export default function TPV() {
           imagen: producto.imagen || null,
           categoria_icono: producto.categoria_icono || null,
           precio_unitario: precioUnitario,
+          precio_fijo: options.priceOverride !== undefined,
           cantidad: 1,
           variantes,
           extras,
@@ -1414,6 +1445,61 @@ export default function TPV() {
   };
 
   const quitarItem = (id) => setItems((previous) => previous.filter((item) => item.id !== id));
+
+  /*
+    ── Descontar una línea ────────────────────────────────────────────────────
+
+    El plato que salió mal y se cobra a mitad, el postre de cortesía, el 2x1 de
+    una sola línea. Antes sólo se podía descontar del total del pedido, que no
+    deja rastro de a qué se le hizo el descuento ni por qué.
+
+    Se pide en plata y no en porcentaje: un 15% sobre un precio que después
+    cambia da un número distinto cada vez, y los centavos que se descontaron ese
+    día son un hecho.
+
+    El motivo es obligatorio. Un descuento sin motivo es un agujero en la caja
+    que nadie puede explicar tres días después.
+  */
+  const descontarItem = (item) => {
+    const bruto = Number(item.precio_unitario || 0) * Number(item.cantidad || 0);
+    const actual = Number(item.descuento_item || 0);
+
+    const ingresado = window.prompt(
+      `Descuento sobre "${item.nombre}"\nLa línea vale ${fmt(bruto)}.\n\n` +
+        `Poné cuántos pesos descontar, o 0 para sacar el descuento:`,
+      actual > 0 ? String(actual) : ''
+    );
+    if (ingresado === null) return;
+
+    const monto = Math.max(0, Math.round(Number(String(ingresado).replace(/[^\d]/g, '') || 0)));
+    if (monto > bruto) {
+      toast.error(`El descuento no puede superar los ${fmt(bruto)} de la línea`);
+      return;
+    }
+
+    let motivo = '';
+    if (monto > 0) {
+      motivo = String(
+        window.prompt(
+          '¿Por qué? (salió frío, cortesía, promoción…)',
+          item.descuento_motivo || ''
+        ) || ''
+      ).trim();
+      if (!motivo) {
+        toast.error('Poné un motivo: después nadie se acuerda por qué se descontó');
+        return;
+      }
+    }
+
+    setItems((previous) =>
+      previous.map((linea) =>
+        linea.id === item.id
+          ? { ...linea, descuento_item: monto, descuento_motivo: monto > 0 ? motivo : '' }
+          : linea
+      )
+    );
+    toast.success(monto > 0 ? `Descontados ${fmt(monto)}` : 'Descuento sacado');
+  };
 
   const imprimirEnIframe = (html) => {
     const iframe = document.createElement('iframe');
@@ -1931,6 +2017,7 @@ export default function TPV() {
             parkedLabel={parkedLabel}
             onDuplicateParked={duplicateParkedOrder}
             onQuitarItem={quitarItem}
+            onDescontarItem={descontarItem}
             onReprintLastSale={reimprimirUltimaVenta}
             onRepeatClientePedido={repetirUltimoPedidoCliente}
             onSeleccionarRider={setSelectedRiderId}

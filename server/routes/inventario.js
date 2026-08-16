@@ -910,6 +910,148 @@ router.put('/productos/:id/receta', (req, res) => {
   res.json(decorateProductsWithInventory(db, [updated])[0]);
 });
 
+/**
+ * Mermas y desperdicios.
+ *
+ * ── Por qué no alcanza con un ajuste ───────────────────────────────────────
+ *
+ * Ya se podía descontar stock con un movimiento manual, pero eso no dice nada:
+ * un ajuste puede ser un error de carga, un recuento, o cinco kilos de carne
+ * que se echaron a perder. Los tres bajan el stock igual y después no hay forma
+ * de saber cuánto se tiró.
+ *
+ * Acá el motivo es obligatorio y sale de una lista corta, y **se guarda cuánta
+ * plata era**. Eso es todo el punto de registrar una merma: al fin de mes poder
+ * decir "tiré $80.000 en verdura vencida" y hacer algo al respecto.
+ *
+ * El costo se congela en el momento: `costo_unitario` cambia con cada compra, y
+ * calcularlo después con el precio de hoy diría una mentira distinta cada vez
+ * que se mira el reporte.
+ */
+const MOTIVOS_MERMA = [
+  'vencido',
+  'roto o caído',
+  'mal preparado',
+  'devuelto por el cliente',
+  'prueba o degustación',
+  'robo o faltante',
+  'otro',
+];
+
+router.get('/mermas/motivos', (_req, res) => res.json(MOTIVOS_MERMA));
+
+router.post('/insumos/:id/merma', (req, res) => {
+  const insumo = db.prepare('SELECT * FROM inventario_insumos WHERE id = ?').get(req.params.id);
+  if (!insumo) return res.status(404).json({ error: 'Insumo no encontrado' });
+
+  const cantidad = roundStock(req.body?.cantidad || 0);
+  if (cantidad <= 0)
+    return res.status(400).json({ error: 'La cantidad tiene que ser mayor a cero' });
+
+  const motivo = cleanText(req.body?.motivo);
+  if (!MOTIVOS_MERMA.includes(motivo)) {
+    return res.status(400).json({ error: 'Elegí un motivo de la lista' });
+  }
+
+  const nextStock = roundStock(Number(insumo.stock_actual || 0) - cantidad);
+  if (nextStock < 0) {
+    return res.status(400).json({
+      error: `No podés tirar ${cantidad} ${insumo.unidad}: sólo hay ${insumo.stock_actual} en stock`,
+    });
+  }
+
+  // Centavos, como toda la plata del sistema.
+  const costoPerdido = Math.round(cantidad * Number(insumo.costo_unitario || 0));
+
+  db.prepare(
+    'UPDATE inventario_insumos SET stock_actual = ?, actualizado_en = CURRENT_TIMESTAMP WHERE id = ?'
+  ).run(nextStock, insumo.id);
+
+  insertInventoryMovement(db, {
+    insumo_id: insumo.id,
+    cantidad: -cantidad,
+    tipo: 'merma',
+    motivo,
+    detalle: {
+      insumo_nombre: insumo.nombre,
+      unidad: insumo.unidad,
+      anterior: roundStock(insumo.stock_actual || 0),
+      nuevo: nextStock,
+      // Se congela acá: el costo unitario cambia con cada compra y recalcular
+      // después con el precio de hoy daría un número distinto cada vez.
+      costo_unitario: Number(insumo.costo_unitario || 0),
+      costo_perdido: costoPerdido,
+      nota: cleanText(req.body?.nota) || '',
+    },
+  });
+
+  res.json({
+    insumo: insumo.nombre,
+    cantidad,
+    unidad: insumo.unidad,
+    costo_perdido: costoPerdido,
+    stock_actual: nextStock,
+  });
+});
+
+/** Cuánta plata se tiró, por insumo y por motivo. */
+router.get('/mermas', (req, res) => {
+  const desde = cleanText(req.query?.desde) || '1900-01-01';
+  const hasta = cleanText(req.query?.hasta) || '2999-12-31';
+
+  const filas = db
+    .prepare(
+      `SELECT m.cantidad, m.motivo, m.detalle, m.creado_en, i.nombre, i.unidad
+         FROM inventario_movimientos m
+         LEFT JOIN inventario_insumos i ON i.id = m.insumo_id
+        WHERE m.tipo = 'merma'
+          AND date(m.creado_en) BETWEEN date(?) AND date(?)
+        ORDER BY m.creado_en DESC`
+    )
+    .all(desde, hasta);
+
+  const movimientos = filas.map((fila) => {
+    let detalle = {};
+    try {
+      detalle = JSON.parse(fila.detalle || '{}') || {};
+    } catch {
+      detalle = {};
+    }
+    return {
+      insumo: fila.nombre || detalle.insumo_nombre || 'Insumo borrado',
+      unidad: fila.unidad || detalle.unidad || '',
+      cantidad: Math.abs(Number(fila.cantidad || 0)),
+      motivo: fila.motivo || 'otro',
+      costo_perdido: Number(detalle.costo_perdido || 0),
+      nota: detalle.nota || '',
+      creado_en: fila.creado_en,
+    };
+  });
+
+  const agrupar = (clave) =>
+    Array.from(
+      movimientos
+        .reduce((acc, mov) => {
+          const k = mov[clave];
+          const actual = acc.get(k) || { [clave]: k, veces: 0, costo: 0 };
+          actual.veces += 1;
+          actual.costo += mov.costo_perdido;
+          acc.set(k, actual);
+          return acc;
+        }, new Map())
+        .values()
+    ).sort((a, b) => b.costo - a.costo);
+
+  res.json({
+    desde,
+    hasta,
+    total_perdido: movimientos.reduce((acc, m) => acc + m.costo_perdido, 0),
+    por_insumo: agrupar('insumo'),
+    por_motivo: agrupar('motivo'),
+    movimientos: movimientos.slice(0, 200),
+  });
+});
+
 router.get('/movimientos', (req, res) => {
   const limit = Math.max(1, Math.min(300, Number(req.query?.limit || 80)));
   const rows = db

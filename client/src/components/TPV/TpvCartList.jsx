@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Minus, Plus, ShoppingBag, Trash2, UtensilsCrossed } from 'lucide-react';
+import { Minus, Percent, Plus, ShoppingBag, Trash2, UtensilsCrossed } from 'lucide-react';
 
 import { resolveAssetUrl } from '../../lib/assets.js';
 import { fmt, STROKE } from './tpvUi.jsx';
@@ -47,6 +47,7 @@ export default function TpvCartList({
   listRef,
   onCambiarCantidad,
   onQuitarItem,
+  onDescontarItem,
 }) {
   return (
     <div ref={listRef} className="no-scrollbar min-h-0 flex-1 space-y-1.5 overflow-y-auto px-3">
@@ -81,12 +82,55 @@ export default function TpvCartList({
                     {item.descripcion}
                   </p>
                 ) : null}
-                <p className="mt-0.5 text-[13px] font-bold tabular-nums text-brand-600">
-                  {fmt(item.precio_unitario * item.cantidad)}
-                </p>
+                {/*
+                  ── El precio de la línea ────────────────────────────────────
+
+                  Con descuento se muestra el precio viejo tachado al lado. Sin
+                  eso, un plato cobrado a mitad se ve como un precio raro y
+                  nadie sabe si está bien o si alguien se equivocó al cargar.
+
+                  El motivo va abajo porque es lo que después se pregunta:
+                  "¿por qué esta mila salió $5.000?".
+                */}
+                <div className="mt-0.5 flex items-baseline gap-1.5">
+                  <p className="text-[13px] font-bold tabular-nums text-brand-600">
+                    {fmt(item.precio_unitario * item.cantidad - (item.descuento_item || 0))}
+                  </p>
+                  {item.descuento_item > 0 ? (
+                    <p className="text-[11px] tabular-nums text-gray-400 line-through">
+                      {fmt(item.precio_unitario * item.cantidad)}
+                    </p>
+                  ) : null}
+                </div>
+                {item.descuento_item > 0 && item.descuento_motivo ? (
+                  <p className="truncate text-[11px] leading-tight text-gray-400">
+                    {item.descuento_motivo}
+                  </p>
+                ) : null}
               </div>
 
               <div className="flex shrink-0 items-center gap-1">
+                {/*
+                  Descontar esta línea: el plato que salió mal, el postre de
+                  cortesía. Sólo aparece si el TPV lo habilitó —`onDescontarItem`
+                  puede no venir— así que las pantallas que no lo necesitan
+                  quedan igual que antes.
+                */}
+                {onDescontarItem ? (
+                  <button
+                    type="button"
+                    onClick={() => onDescontarItem(item)}
+                    aria-label={`Descontar ${item.nombre}`}
+                    title="Descontar esta línea"
+                    className={`flex h-7 w-7 items-center justify-center rounded-full border transition active:scale-90 ${
+                      item.descuento_item > 0
+                        ? 'border-brand-300 bg-brand-50 text-brand-600'
+                        : 'border-gray-200 text-gray-400 hover:border-gray-300 hover:text-gray-700'
+                    }`}
+                  >
+                    <Percent size={12} strokeWidth={STROKE} />
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   onClick={() =>

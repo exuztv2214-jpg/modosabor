@@ -475,8 +475,29 @@ export default function useInventario() {
     }
     setSaving(true);
     try {
-      await api.post(`/inventario/insumos/${movementModal.id}/movimientos`, movementForm);
-      toast.success('Movimiento registrado');
+      /*
+        Una merma va por su propia ruta, no como salida genérica.
+
+        La diferencia no es cosmética: la ruta de merma exige un motivo de una
+        lista corta y **guarda cuánta plata se perdió**, congelando el costo
+        unitario del momento. Una salida común baja el stock y no deja rastro
+        de si fue un error de conteo o cinco kilos de carne a la basura.
+      */
+      if (movementForm.tipo === 'merma') {
+        const resultado = await api.post(`/inventario/insumos/${movementModal.id}/merma`, {
+          cantidad: movementForm.cantidad,
+          motivo: movementForm.motivo,
+          nota: movementForm.nota || '',
+        });
+        toast.success(
+          Number(resultado?.costo_perdido) > 0
+            ? `Merma registrada: se perdieron $${Number(resultado.costo_perdido).toLocaleString('es-AR')}`
+            : 'Merma registrada'
+        );
+      } else {
+        await api.post(`/inventario/insumos/${movementModal.id}/movimientos`, movementForm);
+        toast.success('Movimiento registrado');
+      }
       closeMovementModal();
       await cargar();
     } catch (error) {

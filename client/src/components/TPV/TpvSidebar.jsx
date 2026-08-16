@@ -67,6 +67,7 @@ export default function TpvSidebar({
   parkedLabel,
   onDuplicateParked,
   onQuitarItem,
+  onDescontarItem,
   onReprintLastSale,
   onRepeatLastSale,
   onRepeatClientePedido,
@@ -225,6 +226,7 @@ export default function TpvSidebar({
           listRef={cartItemsRef}
           onCambiarCantidad={onCambiarCantidad}
           onQuitarItem={onQuitarItem}
+          onDescontarItem={onDescontarItem}
         />
       </div>
 

@@ -1,4 +1,5 @@
 import { Download, History, Pencil, Search, Trash2 } from 'lucide-react';
+import { Link } from 'react-router-dom';
 
 import { BRAND, STROKE } from '../../lib/theme.js';
 import { fmtMoney } from '../../lib/formatters.js';
@@ -41,12 +42,12 @@ export default function StockTable({
                 Si una de estas se queda sin stock, frena varios productos a la vez
               </p>
             </div>
-            <a
-              href="/admin/operacion"
+            <Link
+              to="/admin/operacion"
               className="inline-flex h-9 shrink-0 items-center rounded-xl bg-gray-100 px-3 text-[12px] font-semibold text-gray-700 transition hover:bg-gray-200"
             >
               Abrir control diario
-            </a>
+            </Link>
           </div>
 
           <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
