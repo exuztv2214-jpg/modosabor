@@ -74,7 +74,7 @@ const LISTAS_POR_PRODUCTO = {
 const dbFalsa = {
   prepare(sql) {
     return {
-      get: (id) => PRODUCTOS[Number(id)] || undefined,
+      get: (...args) => PRODUCTOS[Number(args.at(-1))] || undefined,
       all: (...ids) => {
         if (sql.includes('producto_opcion_listas')) {
           return ids.flatMap((id) =>
