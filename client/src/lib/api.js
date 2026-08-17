@@ -7,10 +7,26 @@ const api = axios.create({
   withCredentials: true,
 });
 
+// Son las únicas lecturas que el service worker puede resolver desde una
+// copia segura del catálogo. No se habilitan pedidos, caja, clientes ni
+// productos completos: esas acciones siguen fallando sin red hasta que exista
+// una cola idempotente en la siguiente etapa.
+function esLecturaCatalogoOffline(config) {
+  if (String(config?.method || 'get').toLowerCase() !== 'get') return false;
+  const path = String(config?.url || '')
+    .split('?')[0]
+    .replace(/\/$/, '');
+  return path === '/categorias' || path === '/productos/catalogo-tpv';
+}
+
 // Offline check antes de cada request
 api.interceptors.request.use(
   (config) => {
-    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    if (
+      typeof navigator !== 'undefined' &&
+      !navigator.onLine &&
+      !esLecturaCatalogoOffline(config)
+    ) {
       return Promise.reject({ error: 'Sin conexión a internet', offline: true });
     }
     return config;

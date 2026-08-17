@@ -71,6 +71,9 @@ const createPedidoSchema = z.object({
   notas: z.string().max(2000).default(''),
   origen: z.string().max(50).default('tpv'),
   repartidor_id: z.number().int().positive().nullable().optional(),
+  // La genera el dispositivo para poder reenviar un pedido offline sin que se
+  // cree dos veces si la conexión vuelve durante la respuesta.
+  idempotency_key: z.string().max(160).optional(),
 });
 
 const updatePedidoSchema = z.object({

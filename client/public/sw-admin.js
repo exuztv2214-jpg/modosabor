@@ -1,6 +1,12 @@
-const CACHE_NAME = 'modo-sabor-admin-v3';
+const CACHE_NAME = 'modo-sabor-admin-v4';
 const FALLBACK_INDEX = '/index.html';
 const STATIC_ASSETS = ['/manifest.json', '/admin-icon.svg', '/admin-icon-maskable.svg'];
+const CATALOGO_TPV_PATH = '/api/productos/catalogo-tpv';
+const CATEGORIAS_PATH = '/api/categorias';
+
+function esLecturaCatalogoSegura(url) {
+  return url.pathname === CATALOGO_TPV_PATH || url.pathname === CATEGORIAS_PATH;
+}
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -29,6 +35,26 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
+  /*
+   * El TPV necesita poder volver a abrir la carta sin red. Sólo se cachean
+   * estas dos respuestas: el endpoint de catálogo usa una proyección sin
+   * costo ni stock real. El resto de /api sigue excluido a propósito.
+   */
+  if (esLecturaCatalogoSegura(url)) {
+    event.respondWith(
+      fetch(request)
+        .then(async (response) => {
+          if (response && response.status === 200) {
+            const cache = await caches.open(CACHE_NAME);
+            cache.put(request, response.clone()).catch(() => null);
+          }
+          return response;
+        })
+        .catch(async () => (await caches.match(request)) || Response.error())
+    );
+    return;
+  }
+
   if (url.pathname.startsWith('/api') || url.pathname.startsWith('/uploads')) return;
   if (url.pathname.startsWith('/rider')) return;
 

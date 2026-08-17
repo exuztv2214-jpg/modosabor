@@ -617,6 +617,21 @@ function createPedidoRecord(payload) {
 }
 
 function createPedidoWithInventory(payload) {
+  const idempotencyKey = String(payload?.idempotency_key || '').trim();
+
+  /*
+   * La clave identifica un intento de venta, no un canal. Antes sólo Mozo y
+   * WhatsApp la consultaban; un TPV offline podía reenviar la misma venta y
+   * caer en el índice único como error. La clave se genera aleatoriamente en
+   * el dispositivo y el índice de la DB la hace definitiva.
+   */
+  if (idempotencyKey) {
+    const existing = db
+      .prepare("SELECT * FROM pedidos WHERE TRIM(COALESCE(idempotency_key, '')) = ?")
+      .get(idempotencyKey);
+    if (existing) return existing;
+  }
+
   // Validar caja abierta para pedidos internos/tpv
   if (['tpv', 'interno', 'mesa', 'caja', 'mozo'].includes(payload.origen || 'web')) {
     const operationalContext = getOperationalShiftContext(getOperationalConfigMap(db));
@@ -639,7 +654,6 @@ function createPedidoWithInventory(payload) {
     }
   }
 
-  const idempotencyKey = String(payload?.idempotency_key || '').trim();
   const mozoUserId = optionalNumber(payload?.mozo_usuario_id);
   const whatsappIdempotency =
     idempotencyKey && String(payload?.origen || '').toLowerCase() === 'whatsapp';
@@ -703,14 +717,10 @@ function createPedidoWithInventory(payload) {
         db.exec('ROLLBACK');
       } catch {}
     }
-    if (idempotencyKey && (mozoUserId || whatsappIdempotency)) {
+    if (idempotencyKey) {
       const existing = db
-        .prepare(
-          whatsappIdempotency
-            ? "SELECT * FROM pedidos WHERE origen = 'whatsapp' AND idempotency_key = ?"
-            : 'SELECT * FROM pedidos WHERE mozo_usuario_id = ? AND idempotency_key = ?'
-        )
-        .get(...(whatsappIdempotency ? [idempotencyKey] : [mozoUserId, idempotencyKey]));
+        .prepare("SELECT * FROM pedidos WHERE TRIM(COALESCE(idempotency_key, '')) = ?")
+        .get(idempotencyKey);
       if (existing) return existing;
     }
     throw error;

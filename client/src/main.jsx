@@ -5,7 +5,7 @@ import App from './App.jsx';
 import './index.css';
 import { unlockOrderAudio } from './lib/orderAlerts.js';
 
-const SW_VERSION = '2026-07-21-1';
+const SW_VERSION = '2026-08-17-1';
 
 // Se instala antes incluso de la pantalla de login: así el primer pedido que
 // llega después de iniciar sesión no queda silenciado por la política autoplay.

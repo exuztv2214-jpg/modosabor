@@ -27,6 +27,11 @@ import {
   grupoEsObligatorio,
   variantesCompletas as esCompleto,
 } from '../lib/variantesObligatorias.js';
+import {
+  encolarPedidoOffline,
+  leerPedidosOffline,
+  sincronizarPedidosOffline,
+} from '../lib/tpvOfflineQueue.js';
 
 const PAGOS = ['efectivo', 'mercadopago', 'transferencia', 'modo', 'uala'];
 const TPV_PAYMENT_OPTIONS = [...PAGOS, 'mixto'];
@@ -229,6 +234,14 @@ export default function TPV() {
   const [clienteResumen, setClienteResumen] = useState(null);
   const [clientesDelDia, setClientesDelDia] = useState([]);
   const [barriosConocidos, setBarriosConocidos] = useState([]);
+  const [sinConexion, setSinConexion] = useState(
+    () => typeof navigator !== 'undefined' && navigator.onLine === false
+  );
+  const [pedidosOfflinePendientes, setPedidosOfflinePendientes] = useState(
+    () => leerPedidosOffline().length
+  );
+  const [sincronizandoOffline, setSincronizandoOffline] = useState(false);
+  const sincronizacionOfflineEnCurso = useRef(false);
 
   const refreshCajaState = useCallback(async ({ silent = true } = {}) => {
     try {
@@ -244,6 +257,50 @@ export default function TPV() {
       return null;
     }
   }, []);
+
+  const sincronizarColaOffline = useCallback(async () => {
+    if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+    if (sincronizacionOfflineEnCurso.current) return;
+
+    sincronizacionOfflineEnCurso.current = true;
+    setSincronizandoOffline(true);
+    try {
+      const resultado = await sincronizarPedidosOffline(api);
+      setPedidosOfflinePendientes(resultado.pendientes);
+      if (resultado.enviados > 0) {
+        toast.success(
+          `${resultado.enviados} pedido${resultado.enviados === 1 ? '' : 's'} pendiente${
+            resultado.enviados === 1 ? '' : 's'
+          } sincronizado${resultado.enviados === 1 ? '' : 's'}`
+        );
+      }
+    } finally {
+      sincronizacionOfflineEnCurso.current = false;
+      setSincronizandoOffline(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const alPerderConexion = () => {
+      setSinConexion(true);
+      setPedidosOfflinePendientes(leerPedidosOffline().length);
+    };
+    const alRecuperarConexion = () => {
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        alPerderConexion();
+        return;
+      }
+      setSinConexion(false);
+      sincronizarColaOffline().catch(() => {});
+    };
+    window.addEventListener('online', alRecuperarConexion);
+    window.addEventListener('offline', alPerderConexion);
+    alRecuperarConexion();
+    return () => {
+      window.removeEventListener('online', alRecuperarConexion);
+      window.removeEventListener('offline', alPerderConexion);
+    };
+  }, [sincronizarColaOffline]);
 
   const playBeep = () => {
     try {
@@ -283,8 +340,11 @@ export default function TPV() {
     setCargandoCatalogo(true);
     Promise.all([
       api.get('/categorias'),
-      api.get('/productos?activo=1&canal=mostrador'),
-      api.get('/configuracion'),
+      api.get('/productos/catalogo-tpv?canal=mostrador'),
+      // La configuración no se cachea: puede incluir datos operativos que no
+      // corresponden a una copia offline. Sin red el TPV abre con sus valores
+      // seguros por defecto y la carta ya cacheada.
+      api.get('/configuracion').catch(() => ({})),
       api.get('/repartidores?turno_actual=1').catch(() => []),
       api.get('/caja/estado').catch(() => null),
       api.get('/fidelizacion/config').catch(() => null),
@@ -307,7 +367,7 @@ export default function TPV() {
   useEffect(() => {
     const canal = tipoEntrega === 'delivery' ? 'delivery' : 'mostrador';
     api
-      .get(`/productos?activo=1&canal=${canal}`)
+      .get(`/productos/catalogo-tpv?canal=${canal}`)
       .then((prods) => {
         const productosPorId = new Map(
           (prods || []).map((producto) => [Number(producto.id), producto])
@@ -414,13 +474,13 @@ export default function TPV() {
 
   useEffect(() => {
     const onBeforeUnload = (event) => {
-      if (items.length === 0) return;
+      if (items.length === 0 && pedidosOfflinePendientes === 0) return;
       event.preventDefault();
       event.returnValue = '';
     };
     window.addEventListener('beforeunload', onBeforeUnload);
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
-  }, [items.length]);
+  }, [items.length, pedidosOfflinePendientes]);
 
   // Los pedidos en espera se sincronizan por operacion individual (guardar
   // uno, borrar uno) en vez de mandar la lista completa en cada cambio.
@@ -1604,7 +1664,8 @@ export default function TPV() {
     if (loading) return;
     setLoading(true);
 
-    const cajaActual = await refreshCajaState({ silent: true });
+    const ventaSinConexion = typeof navigator !== 'undefined' && navigator.onLine === false;
+    const cajaActual = ventaSinConexion ? cajaAbierta : await refreshCajaState({ silent: true });
     if (!cajaActual) {
       setLoading(false);
       toast.error('Debes abrir la caja antes de registrar ventas');
@@ -1630,10 +1691,16 @@ export default function TPV() {
       return toast.error(submitError);
     }
 
-    const shouldAutoPrint = imprimir || config.impresion_auto_tpv === '1';
+    const metodoEnUso = metodoPago === 'mixto' ? primaryMixedMethod : metodoPago;
+    if (ventaSinConexion && !['efectivo', 'transferencia'].includes(metodoEnUso)) {
+      setLoading(false);
+      return toast.error('Sin internet no se puede cobrar con tarjeta ni billetera digital');
+    }
+
+    const shouldAutoPrint = !ventaSinConexion && (imprimir || config.impresion_auto_tpv === '1');
     let popup = null;
 
-    if (imprimir) {
+    if (imprimir && !ventaSinConexion) {
       popup = window.open('', '_blank', 'width=900,height=700');
       if (!popup) {
         setLoading(false);
@@ -1646,42 +1713,52 @@ export default function TPV() {
     }
 
     try {
-      const pedido = await api.post(
-        '/pedidos/interno',
-        buildPedidoPayload({
-          customer: cliente,
-          items,
-          summary,
-          tipoEntrega,
-          mesa,
-          horaEntrega,
-          metodoPago: metodoPago === 'mixto' ? primaryMixedMethod : metodoPago,
-          notas,
-          origen: 'tpv',
-          repartidorId:
-            tipoEntrega === 'delivery' && selectedRiderId ? Number(selectedRiderId) : undefined,
-          /*
+      const payload = buildPedidoPayload({
+        customer: cliente,
+        items,
+        summary,
+        tipoEntrega,
+        mesa,
+        horaEntrega,
+        metodoPago: metodoPago === 'mixto' ? primaryMixedMethod : metodoPago,
+        notas,
+        origen: 'tpv',
+        repartidorId:
+          tipoEntrega === 'delivery' && selectedRiderId ? Number(selectedRiderId) : undefined,
+        /*
             Se manda cuántos puntos usar, nunca cuánta plata valen. El importe
             lo calcula el servidor con el valor configurado: si viniera de acá,
             alcanzaría con editarlo para llevarse el pedido gratis.
           */
-          extra: {
-            ...(puntosACanjear > 0 ? { puntos_a_canjear: puntosACanjear } : {}),
-            ...(metodoPago === 'mixto'
-              ? {
-                  pago_detalle: JSON.stringify({
-                    tipo: 'mixto',
-                    split_payments: splitPaymentEntries.map((item) => ({
-                      metodo: item.method,
-                      monto: Number(item.amount || 0),
-                    })),
-                    principal: primaryMixedMethod,
-                  }),
-                }
-              : {}),
-          },
-        })
-      );
+        extra: {
+          ...(puntosACanjear > 0 ? { puntos_a_canjear: puntosACanjear } : {}),
+          ...(metodoPago === 'mixto'
+            ? {
+                pago_detalle: JSON.stringify({
+                  tipo: 'mixto',
+                  split_payments: splitPaymentEntries.map((item) => ({
+                    metodo: item.method,
+                    monto: Number(item.amount || 0),
+                  })),
+                  principal: primaryMixedMethod,
+                }),
+              }
+            : {}),
+        },
+      });
+
+      if (ventaSinConexion) {
+        encolarPedidoOffline(payload);
+        setPedidosOfflinePendientes(leerPedidosOffline().length);
+        toast.success('Pedido guardado sin conexión. Se enviará al recuperar internet.', {
+          duration: 5000,
+        });
+        limpiar();
+        setCobroAbierto(false);
+        return;
+      }
+
+      const pedido = await api.post('/pedidos/interno', payload);
 
       setLastSale({
         id: pedido.id,
@@ -1929,6 +2006,35 @@ export default function TPV() {
           onToggleFullscreen={toggleBrowserFullscreen}
           turnoLabel={formatTurnoLabel(cajaEstado?.turno_operativo?.shiftName)}
         />
+
+        {sinConexion || pedidosOfflinePendientes > 0 ? (
+          <div
+            role="status"
+            className={`mx-5 mb-1 flex shrink-0 items-center justify-between gap-3 rounded-xl px-4 py-2.5 text-[13px] ${
+              sinConexion ? 'bg-amber-50 text-amber-900' : 'bg-sky-50 text-sky-900'
+            }`}
+          >
+            <p className="font-medium">
+              {sinConexion
+                ? `Sin conexión. ${pedidosOfflinePendientes} pedido${
+                    pedidosOfflinePendientes === 1 ? '' : 's'
+                  } esperando para enviar.`
+                : `${pedidosOfflinePendientes} pedido${
+                    pedidosOfflinePendientes === 1 ? '' : 's'
+                  } esperando para enviar.`}
+            </p>
+            {!sinConexion ? (
+              <button
+                type="button"
+                onClick={() => sincronizarColaOffline().catch(() => {})}
+                disabled={sincronizandoOffline}
+                className="shrink-0 rounded-lg bg-sky-700 px-3 py-1.5 text-[12px] font-semibold text-white transition hover:bg-sky-800 disabled:cursor-wait disabled:opacity-60"
+              >
+                {sincronizandoOffline ? 'Enviando...' : 'Reintentar ahora'}
+              </button>
+            ) : null}
+          </div>
+        ) : null}
 
         {/*
           Acá vivía una barra de chips que repetía tipo de entrega, items,

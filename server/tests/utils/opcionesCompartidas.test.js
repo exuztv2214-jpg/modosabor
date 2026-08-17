@@ -173,14 +173,24 @@ function run() {
   );
   console.log('  ✓ el validador de precios resuelve las listas, y una sola vez por pedido');
 
-  // ── 7. Las dos rutas del catálogo las aplican ─────────────────────────────
+  // ── 7. Las tres rutas del catálogo las aplican ────────────────────────────
+  //
+  // Además del listado y la ficha, el TPV tiene un catálogo seguro que se
+  // puede cachear offline. Si no resolviera las listas, una guarnición válida
+  // se vería en la carta pero se perdería al agregarla desde caja.
   const productos = leer('routes/productos.js');
   assert.strictEqual(
     (productos.match(/aplicarListasCompartidas\(db,/g) || []).length,
-    2,
-    'alguna de las dos rutas del catálogo dejó de resolver las listas compartidas'
+    3,
+    'alguna de las rutas del catálogo dejó de resolver las listas compartidas'
   );
-  console.log('  ✓ el listado y la ficha de producto resuelven las listas');
+  assert.ok(
+    /router\.get\('\/catalogo-tpv'[\s\S]*?aplicarListasCompartidas\(db,[\s\S]*?paraElPublico\(/.test(
+      productos
+    ),
+    'el catálogo offline del TPV no resuelve las listas o dejó de filtrar los costos'
+  );
+  console.log('  ✓ listado, ficha y TPV resuelven las listas sin exponer costos');
 
   // ── 8. La API de listas no recibe multipart ───────────────────────────────
   //

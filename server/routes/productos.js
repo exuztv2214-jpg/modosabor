@@ -342,6 +342,34 @@ router.get('/', authOpcional, (req, res) => {
 });
 
 /**
+ * Catálogo mínimo que necesita el TPV para seguir pudiendo leer la carta si
+ * se corta internet. Se mantiene separado de GET /productos porque el panel
+ * autenticado recibe también costo y stock interno; esos datos no pueden
+ * quedar persistidos en el caché del navegador.
+ */
+router.get('/catalogo-tpv', auth, requirePermission('tpv.use'), (req, res) => {
+  let q =
+    'SELECT p.*, c.nombre as categoria_nombre, c.icono as categoria_icono, mdh.orden AS menu_dia_orden,' +
+    ' mdh.precio_economico AS menu_dia_precio_economico,' +
+    ' mdh.precio_ejecutivo AS menu_dia_precio_ejecutivo' +
+    ' FROM productos p' +
+    ' LEFT JOIN categorias c ON p.categoria_id = c.id' +
+    ' LEFT JOIN menu_dia_historial mdh ON mdh.producto_id = p.id AND mdh.fecha = ?' +
+    ' WHERE p.activo = 1';
+  const params = [hoyLocal()];
+  const canal = CANALES.includes(String(req.query.canal || '')) ? req.query.canal : 'mostrador';
+
+  q += ' ORDER BY c.orden ASC, p.nombre ASC';
+  const conPrecioDeCanal = aplicarListaDePrecios(db, db.prepare(q).all(...params), canal);
+  const productosConListas = aplicarListasCompartidas(db, conPrecioDeCanal);
+  const productos = applyMenuDiaPricingList(productosConListas);
+
+  // `paraElPublico` es la lista explícita de campos seguros: precio y opciones
+  // sí, costo y cantidades reales de stock no.
+  res.json(paraElPublico(decorateProductsWithInventory(db, productos)));
+});
+
+/**
  * Planilla de costos: todos los productos activos, empezando por los que más
  * se vendieron en los últimos 30 días.  No reutiliza el catálogo público:
  * costo y margen son datos internos del negocio y sólo los puede ver quien
@@ -389,6 +417,7 @@ router.get('/costos', auth, requirePermission('productos.edit'), (_req, res) => 
     sin_costo: productos.filter((producto) => Number(producto.costo || 0) <= 0).length,
   });
 });
+
 router.post(
   '/upload',
   auth,

@@ -1255,6 +1255,18 @@ router.post(
   validateBody(createPedidoSchema),
   async (req, res) => {
     if (!req.body?.items) return res.status(400).json({ error: 'Items requeridos' });
+
+    // Un TPV sin conexión puede haber alcanzado a crear el pedido antes de
+    // perder la respuesta. Si lo reenvía, se devuelve exactamente el mismo
+    // pedido sin volver a auditarlo, sonar una alarma ni descontar stock.
+    const idempotencyKey = String(req.body?.idempotency_key || '').trim();
+    if (idempotencyKey) {
+      const existing = db
+        .prepare("SELECT * FROM pedidos WHERE TRIM(COALESCE(idempotency_key, '')) = ?")
+        .get(idempotencyKey);
+      if (existing) return res.json(hydratePedido(existing));
+    }
+
     if (!getActiveCaja()) return res.status(400).json({ error: 'Caja cerrada' });
 
     try {
