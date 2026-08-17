@@ -244,19 +244,9 @@
           280
         ],
         "parameters": {
-          "toolDescription": "Busca datos e historial del cliente por telefono. El telefono actual aparece en el mensaje de entrada.",
+          "toolDescription": "Busca datos e historial solamente del cliente que está escribiendo esta conversación.",
           "method": "GET",
           "url": "={{ $env.MODO_SABOR_API_URL }}/api/agente/cliente",
-          "sendQuery": true,
-          "specifyQuery": "keypair",
-          "parametersQuery": {
-            "values": [
-              {
-                "name": "telefono",
-                "valueProvider": "modelRequired"
-              }
-            ]
-          },
           "sendHeaders": true,
           "specifyHeaders": "keypair",
           "parametersHeaders": {
@@ -288,16 +278,6 @@
           "toolDescription": "Consulta el estado real del pedido más reciente del teléfono actual. Usar cuando pregunten cómo va, si ya salió, cuánto falta o si el pedido quedó registrado.",
           "method": "GET",
           "url": "={{ $env.MODO_SABOR_API_URL }}/api/agente/pedido-actual",
-          "sendQuery": true,
-          "specifyQuery": "keypair",
-          "parametersQuery": {
-            "values": [
-              {
-                "name": "telefono",
-                "valueProvider": "modelRequired"
-              }
-            ]
-          },
           "sendHeaders": true,
           "specifyHeaders": "keypair",
           "parametersHeaders": {
@@ -333,10 +313,6 @@
           "specifyBody": "keypair",
           "parametersBody": {
             "values": [
-              {
-                "name": "telefono",
-                "valueProvider": "modelRequired"
-              },
               {
                 "name": "motivo",
                 "valueProvider": "modelRequired"

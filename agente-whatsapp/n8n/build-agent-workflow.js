@@ -139,30 +139,15 @@ const workflow = {
     }),
     tool('tool-cliente', 'consultar_cliente', [80, 280], {
       toolDescription:
-        'Busca datos e historial del cliente por telefono. El telefono actual aparece en el mensaje de entrada.',
+        'Busca datos e historial solamente del cliente que está escribiendo esta conversación.',
       method: 'GET',
       url: '={{ $env.MODO_SABOR_API_URL }}/api/agente/cliente',
-      sendQuery: true,
-      specifyQuery: 'keypair',
-      parametersQuery: {
-        values: [
-          {
-            name: 'telefono',
-            valueProvider: 'modelRequired',
-          },
-        ],
-      },
     }),
     tool('tool-pedido-actual', 'consultar_pedido_actual', [80, 380], {
       toolDescription:
         'Consulta el estado real del pedido más reciente del teléfono actual. Usar cuando pregunten cómo va, si ya salió, cuánto falta o si el pedido quedó registrado.',
       method: 'GET',
       url: '={{ $env.MODO_SABOR_API_URL }}/api/agente/pedido-actual',
-      sendQuery: true,
-      specifyQuery: 'keypair',
-      parametersQuery: {
-        values: [{ name: 'telefono', valueProvider: 'modelRequired' }],
-      },
     }),
     tool('tool-derivar', 'derivar_a_persona', [80, 480], {
       toolDescription:
@@ -172,10 +157,7 @@ const workflow = {
       sendBody: true,
       specifyBody: 'keypair',
       parametersBody: {
-        values: [
-          { name: 'telefono', valueProvider: 'modelRequired' },
-          { name: 'motivo', valueProvider: 'modelRequired' },
-        ],
+        values: [{ name: 'motivo', valueProvider: 'modelRequired' }],
       },
     }),
     tool('tool-pedido', 'crear_pedido', [80, 580], {

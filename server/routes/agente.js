@@ -37,6 +37,47 @@ const {
 
 const agentApiKey = String(process.env.AGENT_API_KEY || '').trim();
 
+function comparableAgentPhone(value) {
+  return String(value || '')
+    .replace(/\D/g, '')
+    .slice(-10);
+}
+
+/*
+ * El teléfono que identifica una conversación llega desde el gateway de
+ * WhatsApp, no desde la llamada que el modelo decide hacer. Las tools pueden
+ * enviar un teléfono heredado por compatibilidad, pero nunca pueden cambiar
+ * el contexto de la conversación: si difiere, se rechaza antes de consultar
+ * datos o modificar el chat.
+ */
+function resolveConversationPhone(req) {
+  const telefonoConversacion = String(req.headers['x-agent-telefono'] || '').trim();
+  const telefonoSolicitado = String(
+    req.params?.telefono || req.query?.telefono || req.body?.telefono || ''
+  ).trim();
+
+  if (!telefonoConversacion) {
+    const error = new Error('Falta el teléfono de la conversación');
+    error.statusCode = 403;
+    throw error;
+  }
+
+  if (
+    telefonoSolicitado &&
+    comparableAgentPhone(telefonoSolicitado) !== comparableAgentPhone(telefonoConversacion)
+  ) {
+    logger.warn('Agente WhatsApp: intento de consultar o modificar otro cliente', {
+      telefono_contexto: comparableAgentPhone(telefonoConversacion),
+      telefono_solicitado: comparableAgentPhone(telefonoSolicitado),
+    });
+    const error = new Error('La ficha no pertenece a esta conversación');
+    error.statusCode = 403;
+    throw error;
+  }
+
+  return telefonoConversacion;
+}
+
 function requireAgentKey(req, res, next) {
   if (!agentApiKey) {
     return res.status(404).json({ error: 'Agente deshabilitado' });
@@ -157,44 +198,22 @@ router.post('/envio', (req, res) => {
   }
 });
 
-// GET /api/agente/cliente/:telefono — historial rapido para personalizar
-// Acepta el telefono por parametro de ruta O por query string (?telefono=...).
-// La version por query existe porque algunos proveedores de IA (Gemini) exigen
-// que cada tool declare sus parametros explicitamente, y un valor incrustado
-// en la URL no queda declarado como tal.
+// GET /api/agente/cliente — historial rápido para personalizar al remitente
+// El teléfono se toma del contexto fijado por el gateway de WhatsApp.
 router.get('/cliente/:telefono?', (req, res) => {
   try {
-    const telefonoSolicitado = String(req.params.telefono || req.query.telefono || '').trim();
-    const telefonoConversacion = String(req.headers['x-agent-telefono'] || '').trim();
-    const comparable = (value) =>
-      String(value || '')
-        .replace(/\D/g, '')
-        .slice(-10);
-    if (
-      !telefonoConversacion ||
-      (telefonoSolicitado && comparable(telefonoSolicitado) !== comparable(telefonoConversacion))
-    ) {
-      logger.warn('Agente WhatsApp: intento de consultar otro cliente', {
-        telefono_contexto: comparable(telefonoConversacion),
-        telefono_solicitado: comparable(telefonoSolicitado),
-      });
-      return res.status(403).json({ error: 'La ficha no pertenece a esta conversación' });
-    }
-    res.json(getCustomerSnapshot(db, telefonoConversacion));
+    res.json(getCustomerSnapshot(db, resolveConversationPhone(req)));
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(error.statusCode || 500).json({ error: error.message });
   }
 });
 
-// GET /api/agente/pedido-actual?telefono=... — permite responder "¿cómo va?"
-// con el estado real del sistema, sin que el modelo lo deduzca del chat.
+// GET /api/agente/pedido-actual — estado real del pedido del remitente actual.
 router.get('/pedido-actual', (req, res) => {
   try {
-    const telefono = String(req.query.telefono || '').trim();
-    if (!telefono) return res.status(400).json({ error: 'Falta telefono' });
-    res.json(getCurrentOrderSnapshot(db, telefono));
+    res.json(getCurrentOrderSnapshot(db, resolveConversationPhone(req)));
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(error.statusCode || 500).json({ error: error.message });
   }
 });
 
@@ -202,11 +221,10 @@ router.get('/pedido-actual', (req, res) => {
 // persona, reclama o plantea algo que no puede resolver con datos confiables.
 router.post('/derivar', (req, res) => {
   try {
-    const telefono = String(req.body?.telefono || '').trim();
+    const telefono = resolveConversationPhone(req);
     const motivo = String(req.body?.motivo || 'Derivación solicitada por el agente')
       .trim()
       .slice(0, 300);
-    if (!telefono) return res.status(400).json({ error: 'Falta telefono' });
     const result = db
       .prepare(
         `UPDATE whatsapp_conversaciones
@@ -231,7 +249,7 @@ router.post('/derivar', (req, res) => {
     });
     res.json({ ok: true, estado: 'esperando_humano' });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(error.statusCode || 500).json({ error: error.message });
   }
 });
 
@@ -305,5 +323,7 @@ router.post('/pedido', async (req, res) => {
     res.status(400).json({ error: error.message });
   }
 });
+
+router.resolveConversationPhone = resolveConversationPhone;
 
 module.exports = router;

@@ -129,12 +129,18 @@
     },
     {
       "parameters": {
-        "toolDescription": "Busca si el numero de telefono que esta escribiendo ya pidio antes en Modo Sabor, para saludar por su nombre si corresponde. No es obligatorio usarla siempre.",
-        "url": "={{ $env.MODO_SABOR_API_URL }}/api/agente/cliente/{{ $fromAI('telefono', 'Numero de telefono del cliente que esta escribiendo', 'string') }}",
+        "toolDescription": "Busca si el cliente que está escribiendo ya pidió antes en Modo Sabor, para saludar por su nombre si corresponde. No es obligatorio usarla siempre.",
+        "url": "={{ $env.MODO_SABOR_API_URL }}/api/agente/cliente",
         "method": "GET",
         "sendHeaders": true,
         "headerParameters": {
-          "parameters": [{ "name": "x-agent-key", "value": "={{ $env.AGENT_API_KEY }}" }]
+          "parameters": [
+            { "name": "x-agent-key", "value": "={{ $env.AGENT_API_KEY }}" },
+            {
+              "name": "x-agent-telefono",
+              "value": "={{ $('Entrada WhatsApp Web').item.json.body.telefono }}"
+            }
+          ]
         }
       },
       "id": "tool-cliente",
