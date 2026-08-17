@@ -6,6 +6,7 @@ import {
   Bike,
   Boxes,
   CalendarDays,
+  CircleDollarSign,
   ChefHat,
   ClipboardCheck,
   ClipboardList,
@@ -127,6 +128,12 @@ const GRUPOS = [
         permission: 'productos.edit',
       },
       { to: '/admin/productos', icon: Package, label: 'Productos', permission: 'productos.edit' },
+      {
+        to: '/admin/costos-productos',
+        icon: CircleDollarSign,
+        label: 'Costos y márgenes',
+        permission: 'productos.edit',
+      },
       { to: '/admin/categorias', icon: Tag, label: 'Categorías', permission: 'productos.edit' },
       {
         to: '/admin/listas-opciones',

@@ -38,6 +38,7 @@ const Compras = lazy(() => import('./pages/Compras.jsx'));
 const Categorias = lazy(() => import('./pages/Categorias.jsx'));
 const ListasOpciones = lazy(() => import('./pages/ListasOpciones.jsx'));
 const ListasPrecios = lazy(() => import('./pages/ListasPrecios.jsx'));
+const CostosProductos = lazy(() => import('./pages/CostosProductos.jsx'));
 const EstadoResultados = lazy(() => import('./pages/EstadoResultados.jsx'));
 const CuentaCorriente = lazy(() => import('./pages/CuentaCorriente.jsx'));
 const MenuDelDia = lazy(() => import('./pages/MenuDelDia.jsx'));
@@ -129,6 +130,7 @@ export default function App() {
                       <Route path="/admin/categorias" element={<Categorias />} />
                       <Route path="/admin/listas-opciones" element={<ListasOpciones />} />
                       <Route path="/admin/listas-precios" element={<ListasPrecios />} />
+                      <Route path="/admin/costos-productos" element={<CostosProductos />} />
                       <Route path="/admin/menu-del-dia" element={<MenuDelDia />} />
                     </Route>
                     <Route

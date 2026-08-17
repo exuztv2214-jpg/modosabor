@@ -28,7 +28,7 @@ const { pesosToCents } = require('../utils/moneyConversion');
 const authOpcional = require('../middleware/authOpcional');
 const { aplicarListasCompartidas } = require('../utils/opcionesCompartidas');
 const { applyMenuDiaPricingList } = require('../utils/menuDiaPricing');
-const { hoyLocal } = require('../utils/fechaLocal');
+const { fechaLocal, hoyArgentina, hoyLocal } = require('../utils/fechaLocal');
 const { aplicarListaDePrecios, CANALES } = require('../utils/listasPrecios');
 
 /**
@@ -341,6 +341,54 @@ router.get('/', authOpcional, (req, res) => {
   res.json(segunQuienPregunta(req, decorateProductsWithInventory(db, productos)));
 });
 
+/**
+ * Planilla de costos: todos los productos activos, empezando por los que más
+ * se vendieron en los últimos 30 días.  No reutiliza el catálogo público:
+ * costo y margen son datos internos del negocio y sólo los puede ver quien
+ * ya puede editar Productos.
+ */
+router.get('/costos', auth, requirePermission('productos.edit'), (_req, res) => {
+  const hasta = hoyArgentina();
+  const desdeDate = new Date(`${hasta}T12:00:00-03:00`);
+  desdeDate.setDate(desdeDate.getDate() - 29);
+  const desde = desdeDate.toISOString().slice(0, 10);
+
+  const productos = db
+    .prepare(
+      `SELECT
+         p.id,
+         p.nombre,
+         p.precio,
+         COALESCE(p.costo, 0) AS costo,
+         c.nombre AS categoria_nombre,
+         COALESCE(SUM(CASE
+           WHEN ped.estado != 'cancelado'
+            AND ${fechaLocal('ped.creado_en')} BETWEEN ? AND ?
+           THEN pi.cantidad
+           ELSE 0
+         END), 0) AS unidades_vendidas
+       FROM productos p
+       LEFT JOIN categorias c ON c.id = p.categoria_id
+       LEFT JOIN pedido_items pi ON pi.producto_id = p.id
+       LEFT JOIN pedidos ped ON ped.id = pi.pedido_id
+       WHERE p.activo = 1
+       GROUP BY p.id
+       ORDER BY unidades_vendidas DESC, p.nombre COLLATE NOCASE ASC`
+    )
+    .all(desde, hasta)
+    .map((producto) => ({
+      ...producto,
+      unidades_vendidas: Number(producto.unidades_vendidas || 0),
+    }));
+
+  res.json({
+    desde,
+    hasta,
+    productos,
+    activos: productos.length,
+    sin_costo: productos.filter((producto) => Number(producto.costo || 0) <= 0).length,
+  });
+});
 router.post(
   '/upload',
   auth,
