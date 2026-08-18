@@ -1234,21 +1234,53 @@ function getMenuOverview(db, options = {}) {
     };
   }
 
-  const categories = getCategories(db).map((category) => ({
-    ...category,
-    products: getProducts(db, {
+  /*
+    El resumen muestra unos pocos de cada categoría, pero tiene que DECIR que
+    está recortado.
+
+    Sin eso pasó esto en producción: un cliente pidió una "Demencial", el
+    modelo había visto seis hamburguesas —las seis primeras alfabéticamente, de
+    dieciséis— y le contestó que esa hamburguesa no existía en la carta. Existe,
+    está activa y sale $13.000. El modelo no mintió: dedujo de una lista que
+    parecía completa.
+
+    Ahora cada categoría viene con cuántas tiene en total y con el aviso de que
+    faltan, más la instrucción de consultar la categoría antes de afirmar que
+    algo no está.
+  */
+  const categories = getCategories(db).map((category) => {
+    const todos = getProducts(db, {
       activeOnly: true,
       categoryId: category.id,
       sellableOnly: true,
       excludeMenuDia: true,
-      limit: limitPerCategory,
-    }).map(buildProductPreview),
-  }));
+    });
+
+    // El corte va después de filtrar por disponible, no antes: si se recorta
+    // en la consulta, los que se caen por stock dejan huecos en la muestra.
+    const muestra = todos.slice(0, limitPerCategory);
+
+    return {
+      ...category,
+      products: muestra.map(buildProductPreview),
+      total_en_carta: todos.length,
+      mostrados: muestra.length,
+      hay_mas: todos.length > muestra.length,
+    };
+  });
+
+  const recortadas = categories.filter((c) => c.hay_mas).map((c) => c.nombre);
 
   return {
     status: 'ok',
     negocio: getBusinessInfo(db),
     categories,
+    lista_completa: recortadas.length === 0,
+    nota: recortadas.length
+      ? 'Esta es una muestra, no la carta entera. Falta ver ' +
+        recortadas.join(', ') +
+        '. Antes de decir que un producto no existe, pedí la categoría completa.'
+      : '',
   };
 }
 
