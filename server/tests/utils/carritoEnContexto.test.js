@@ -56,10 +56,20 @@ function run() {
     const borradorId = db
       .prepare('SELECT id FROM whatsapp_pedidos_borrador WHERE telefono = ?')
       .get(telefono).id;
+    /*
+      producto_id va en nulo a propósito. La columna tiene clave foránea contra
+      productos, y en una base de prueba limpia no hay ningún producto: poner
+      un id inventado hacía fallar el test con "FOREIGN KEY constraint failed".
+
+      Crear un producto de mentira para satisfacer la clave sería peor: este
+      test mira cómo se le describe el carrito al modelo, y para eso alcanza
+      con el nombre y la cantidad. Un fixture de más es una cosa más que se
+      puede desincronizar.
+    */
     db.prepare(
       \`INSERT INTO whatsapp_pedidos_borrador_items
          (borrador_id, producto_id, nombre, cantidad, precio_unitario)
-       VALUES (?, 1, 'Empanadas de mondongo', 6, 91666)\`
+       VALUES (?, NULL, 'Empanadas de mondongo', 6, 91666)\`
     ).run(borradorId);
 
     const conPedido = resumenDelCarrito(db, telefono);
