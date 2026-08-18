@@ -89,7 +89,19 @@ function runPython(python, audioPath) {
     });
     let stdout = '';
     let stderr = '';
-    const timeout = setTimeout(() => child.kill(), TRANSCRIPTION_TIMEOUT_MS);
+    const arranque = Date.now();
+
+    /*
+      Se anota si el que corta somos nosotros. Sin esta marca, un audio
+      detenido por el timeout y uno que el sistema operativo mató por falta de
+      memoria llegaban con el mismo mensaje —"terminó con código null"— y no
+      había forma de distinguirlos sin entrar al servidor.
+    */
+    let cortadoPorTiempo = false;
+    const timeout = setTimeout(() => {
+      cortadoPorTiempo = true;
+      child.kill();
+    }, TRANSCRIPTION_TIMEOUT_MS);
 
     child.stdout.on('data', (chunk) => {
       stdout += String(chunk);
@@ -101,10 +113,42 @@ function runPython(python, audioPath) {
       clearTimeout(timeout);
       reject(error);
     });
-    child.once('exit', (code) => {
+    child.once('exit', (code, signal) => {
       clearTimeout(timeout);
       if (code !== 0) {
-        return reject(new Error(stderr.trim() || `Whisper terminó con código ${code}`));
+        if (stderr.trim()) return reject(new Error(stderr.trim()));
+
+        /*
+          Código nulo significa que a Whisper lo mataron: no falló, lo cortaron.
+          Quién lo hizo cambia por completo el arreglo, así que el mensaje lo
+          dice en castellano en vez de dejar un número.
+
+          · Nuestro timeout  → la máquina no llega a tiempo.
+          · SIGKILL ajeno    → casi siempre memoria: el sistema operativo
+            eligió a Whisper para liberar RAM. Se resuelve con más memoria en
+            el servidor, no tocando el audio.
+        */
+        const segundos = Math.round((Date.now() - arranque) / 1000);
+        if (code === null) {
+          if (cortadoPorTiempo) {
+            return reject(
+              new Error(
+                `Whisper no terminó a tiempo: lo cortamos a los ${segundos}s ` +
+                  `(el límite es ${Math.round(TRANSCRIPTION_TIMEOUT_MS / 1000)}s). ` +
+                  'El servidor está tardando más de lo normal en transcribir.'
+              )
+            );
+          }
+          return reject(
+            new Error(
+              `El sistema mató a Whisper a los ${segundos}s con ${signal || 'una señal'}, ` +
+                'sin que llegara a fallar. Casi siempre es falta de memoria en el servidor: ' +
+                'el modelo "small" necesita alrededor de 1 GB para cargarse.'
+            )
+          );
+        }
+
+        return reject(new Error(`Whisper terminó con código ${code} a los ${segundos}s`));
       }
       try {
         const result = JSON.parse(stdout.trim());
