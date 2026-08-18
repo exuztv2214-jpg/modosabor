@@ -3,9 +3,9 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const { ConexionWhatsapp } = require('../../services/whatsappMasivo/conexion');
+const { ConexionWhatsapp, contenidoInterno } = require('../../services/whatsappMasivo/conexion');
 
-function run() {
+async function run() {
   console.log('\nTests de recuperación de sesión de WhatsApp');
   const raiz = fs.mkdtempSync(path.join(os.tmpdir(), 'modosabor-wa-sesion-'));
   const sesion = path.join(raiz, 'whatsapp-sesion');
@@ -23,6 +23,24 @@ function run() {
   }
 
   const conexion = new ConexionWhatsapp();
+  assert.ok(
+    contenidoInterno({
+      message: { ephemeralMessage: { message: { audioMessage: { seconds: 3 } } } },
+    }).audioMessage,
+    'debe abrir un audio efímero antes de descargarlo'
+  );
+  let contextoDescarga;
+  conexion.estado = 'conectado';
+  conexion.socket = { updateMediaMessage: async () => {} };
+  conexion.downloadMediaMessage = async (_message, tipo, _opciones, contexto) => {
+    assert.strictEqual(tipo, 'buffer');
+    contextoDescarga = contexto;
+    return Buffer.from('audio');
+  };
+  await conexion.descargarAudio({ message: { audioMessage: { seconds: 3 } } });
+  assert.strictEqual(typeof contextoDescarga?.logger?.info, 'function');
+  assert.strictEqual(typeof contextoDescarga?.reuploadRequest, 'function');
+  conexion.socket = null;
   const setTimeoutOriginal = global.setTimeout;
   let ejecutarReintento;
   let aperturas = 0;
@@ -46,4 +64,11 @@ function run() {
   console.log('✅ Recuperación de sesión de WhatsApp verificada\n');
 }
 
-run();
+if (require.main === module) {
+  run().catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  });
+}
+
+module.exports = { run };

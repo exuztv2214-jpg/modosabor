@@ -128,8 +128,15 @@ function closedBusinessMessage(turnos = []) {
 
 function textFromMessage(message) {
   let content = message?.message || {};
-  if (content.ephemeralMessage?.message) content = content.ephemeralMessage.message;
-  if (content.viewOnceMessage?.message) content = content.viewOnceMessage.message;
+  while (true) {
+    const wrapped =
+      content.ephemeralMessage?.message ||
+      content.viewOnceMessage?.message ||
+      content.viewOnceMessageV2?.message ||
+      content.viewOnceMessageV2Extension?.message;
+    if (!wrapped) break;
+    content = wrapped;
+  }
   return String(
     content.conversation ||
       content.extendedTextMessage?.text ||
@@ -141,8 +148,15 @@ function textFromMessage(message) {
 
 function typeFromMessage(message) {
   let content = message?.message || {};
-  if (content.ephemeralMessage?.message) content = content.ephemeralMessage.message;
-  if (content.viewOnceMessage?.message) content = content.viewOnceMessage.message;
+  while (true) {
+    const wrapped =
+      content.ephemeralMessage?.message ||
+      content.viewOnceMessage?.message ||
+      content.viewOnceMessageV2?.message ||
+      content.viewOnceMessageV2Extension?.message;
+    if (!wrapped) break;
+    content = wrapped;
+  }
   if (content.audioMessage) return 'audio';
   if (content.imageMessage) return 'imagen';
   if (content.videoMessage) return 'video';
@@ -887,6 +901,7 @@ module.exports = {
   resumenGateway,
   gatewayConfig,
   textFromMessage,
+  typeFromMessage,
   phoneFromMessage,
   asksForCarta,
   shouldAnswerMenuDayDirectly,

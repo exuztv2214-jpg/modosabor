@@ -2,6 +2,7 @@ const assert = require('assert');
 
 const {
   textFromMessage,
+  typeFromMessage,
   phoneFromMessage,
   enqueueIncoming,
   serializeByKey,
@@ -39,6 +40,13 @@ async function run() {
     }),
     'confirmo',
     'debe abrir mensajes efímeros'
+  );
+  assert.strictEqual(
+    typeFromMessage({
+      message: { viewOnceMessageV2: { message: { audioMessage: { seconds: 4 } } } },
+    }),
+    'audio',
+    'debe enviar a transcripción un audio envuelto por WhatsApp'
   );
 
   assert.strictEqual(

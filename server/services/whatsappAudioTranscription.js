@@ -13,6 +13,28 @@ const TRANSCRIPTION_TIMEOUT_MS = 120000;
 const MAX_AUDIO_BYTES = 8 * 1024 * 1024;
 let transcriptionQueue = Promise.resolve();
 
+function contenidoInterno(message = {}) {
+  let content = message?.message || {};
+  while (true) {
+    const wrapped =
+      content.ephemeralMessage?.message ||
+      content.viewOnceMessage?.message ||
+      content.viewOnceMessageV2?.message ||
+      content.viewOnceMessageV2Extension?.message;
+    if (!wrapped) return content;
+    content = wrapped;
+  }
+}
+
+function transcriptionErrorCode(error) {
+  const message = String(error?.message || '');
+  if (error?.code === 'WHATSAPP_AUDIO_DOWNLOAD') return 'media_download';
+  if (/tiempo|timeout|timed out/i.test(message)) return 'timeout';
+  if (/vac[ií]o|supera el m[aá]ximo|no contiene un audio/i.test(message)) return 'invalid_audio';
+  if (/no se detect[oó] voz/i.test(message)) return 'no_speech';
+  return 'transcriber_failure';
+}
+
 function pythonCandidates() {
   const serverRoot = path.join(__dirname, '..');
   return [
@@ -111,15 +133,21 @@ async function transcribeFile(audioPath) {
 }
 
 async function transcribeWhatsappAudio(message, conexion) {
-  let content = message?.message || {};
-  if (content.ephemeralMessage?.message) content = content.ephemeralMessage.message;
-  if (content.viewOnceMessage?.message) content = content.viewOnceMessage.message;
+  const content = contenidoInterno(message);
   const seconds = Number(content.audioMessage?.seconds || 0);
   if (seconds > MAX_AUDIO_SECONDS) {
     throw new Error(`El audio supera el máximo de ${MAX_AUDIO_SECONDS} segundos`);
   }
 
-  const buffer = await conexion.descargarAudio(message);
+  let buffer;
+  try {
+    buffer = await conexion.descargarAudio(message);
+  } catch (error) {
+    const wrapped = new Error('No se pudo descargar el audio desde WhatsApp');
+    wrapped.code = 'WHATSAPP_AUDIO_DOWNLOAD';
+    wrapped.cause = error;
+    throw wrapped;
+  }
   if (!Buffer.isBuffer(buffer) || buffer.length === 0) {
     throw new Error('WhatsApp no devolvió el contenido del audio');
   }
@@ -149,7 +177,11 @@ async function transcribeAudioBuffer(buffer, extension = 'webm') {
   // clientes no congelen simultáneamente la caja de la PC del local.
   const queued = transcriptionQueue.then(task, task);
   transcriptionQueue = queued.catch((error) => {
-    logger.warn('WhatsApp: no se pudo transcribir un audio', { message: error.message });
+    // No registramos audio, texto transcripto, teléfono ni credenciales. El
+    // código permite diagnosticar descarga/Whisper sin exponer conversaciones.
+    logger.warn('WhatsApp: no se pudo transcribir un audio', {
+      reason: transcriptionErrorCode(error),
+    });
   });
   return queued;
 }
@@ -160,4 +192,6 @@ module.exports = {
   MAX_AUDIO_SECONDS,
   MAX_AUDIO_BYTES,
   transcribeFile,
+  contenidoInterno,
+  transcriptionErrorCode,
 };

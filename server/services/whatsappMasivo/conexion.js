@@ -39,6 +39,21 @@ const CARPETA_SESION = path.join(dataDir, 'whatsapp-sesion');
 
 /** Espera creciente entre reintentos, en milisegundos. */
 const ESPERAS_RECONEXION = [3000, 8000, 20000, 60000, 120000];
+function contenidoInterno(message = {}) {
+  let content = message?.message || {};
+  // WhatsApp puede envolver una nota de voz en más de una capa. Si sólo
+  // abrimos las dos variantes viejas, el gateway la clasifica como texto y
+  // nunca llega a Whisper.
+  while (true) {
+    const wrapped =
+      content.ephemeralMessage?.message ||
+      content.viewOnceMessage?.message ||
+      content.viewOnceMessageV2?.message ||
+      content.viewOnceMessageV2Extension?.message;
+    if (!wrapped) return content;
+    content = wrapped;
+  }
+}
 
 class ConexionWhatsapp extends EventEmitter {
   constructor({ carpetaSesion = CARPETA_SESION } = {}) {
@@ -334,9 +349,7 @@ class ConexionWhatsapp extends EventEmitter {
 
   async descargarAudio(message) {
     if (!this.listo) throw new Error('WhatsApp no está conectado');
-    let content = message?.message || {};
-    if (content.ephemeralMessage?.message) content = content.ephemeralMessage.message;
-    if (content.viewOnceMessage?.message) content = content.viewOnceMessage.message;
+    const content = contenidoInterno(message);
     if (!content.audioMessage) throw new Error('El mensaje no contiene un audio');
     if (typeof this.downloadMediaMessage !== 'function') {
       throw new Error('El descargador de audio de WhatsApp no está disponible');
@@ -347,6 +360,10 @@ class ConexionWhatsapp extends EventEmitter {
       'buffer',
       {},
       {
+        // Baileys usa este logger sólo cuando WhatsApp pide volver a subir el
+        // medio (404/410). Sin logger el propio reintento fallaba antes de
+        // recuperar la nota de voz.
+        logger: { info: () => {} },
         reuploadRequest:
           typeof this.socket.updateMediaMessage === 'function'
             ? this.socket.updateMediaMessage.bind(this.socket)
@@ -376,4 +393,4 @@ class ConexionWhatsapp extends EventEmitter {
 
 const conexion = new ConexionWhatsapp();
 
-module.exports = { conexion, ConexionWhatsapp, CARPETA_SESION };
+module.exports = { conexion, ConexionWhatsapp, CARPETA_SESION, contenidoInterno };
