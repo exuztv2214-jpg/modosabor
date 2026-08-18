@@ -33,11 +33,46 @@ const TERM_ALIASES = [
   ['coca', ['coca', 'coca cola', 'cocacola']],
 ];
 
+/*
+  Los alias salen de seis meses de conversaciones reales: 496 clientes, 27.901
+  mensajes, de febrero a agosto de 2026. No son suposiciones sobre cómo podría
+  hablar la gente — son las palabras que efectivamente usaron, con la cantidad
+  de veces que aparecen entre paréntesis.
+
+  Faltaban cuatro categorías enteras. Sin alias, "¿qué hamburguesas tenés?" no
+  encontraba la categoría y el agente caía en el resumen general recortado —
+  que es exactamente la cadena que terminó en decirle a un cliente que la
+  Demencial no existe.
+
+  Sobre "menú": aparece 357 veces y sólo 29 aclaran "del día". Acá menú es el
+  plato del día, no la carta: "¿hoy tienen menú?", "3 menú", "guardar un menú
+  de ñoquis". Darle el otro sentido sería traducir mal a los clientes.
+*/
 const CATEGORY_ALIASES = [
-  ['Pizzas', ['pizza', 'pizzas', 'muzza', 'muzzas']],
-  ['Empanadas', ['empanada', 'empanadas']],
-  ['Milanesas', ['milanesa', 'milanesas', 'mila', 'milas']],
-  ['Papas', ['papa', 'papas', 'papas fritas']],
+  ['Pizzas', ['pizza', 'pizzas', 'muzza', 'muzzas']], // 150
+  ['Empanadas', ['empanada', 'empanadas']], // 154
+  ['Milanesas', ['milanesa', 'milanesas', 'mila', 'milas', 'milanga', 'milangas']], // 109
+  ['Papas', ['papa', 'papas', 'papas fritas', 'salchipapa', 'salchipapas', 'salchi']], // 185
+  [
+    'Hamburguesas',
+    ['hamburguesa', 'hamburguesas', 'hambur', 'burger', 'burgers', 'burguer', 'burguesa'],
+  ], // 127
+  [
+    'Sandwichs',
+    ['sandwich', 'sandwiches', 'sanguche', 'sanguches', 'sanguchito', 'lomito', 'lomitos', 'lomo'],
+  ], // 86 + 41
+  [
+    'Bebidas',
+    ['bebida', 'bebidas', 'gaseosa', 'gaseosas', 'coca', 'pepsi', 'agua', 'jugo', 'cerveza'],
+  ], // 87
+  [
+    'Pastas',
+    ['pasta', 'pastas', 'fideos', 'noquis', 'ñoquis', 'ravioles', 'canelones', 'lasaña', 'lasagna'],
+  ],
+  [
+    'Menu del Dia',
+    ['menu', 'menu del dia', 'menu de hoy', 'menu diario', 'plato del dia', 'menues', 'menus'],
+  ], // 357
 ];
 
 function cleanText(value) {
