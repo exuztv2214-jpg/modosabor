@@ -3,7 +3,8 @@ const path = require('path');
 const defaultDb = require('../db');
 const { getConfigMap } = require('../utils/mercadoPago');
 const { getCurrentShiftInfo } = require('../utils/shifts');
-const { getCustomerSnapshot } = require('../utils/systemClient');
+const { getCustomerSnapshot, formatMoney } = require('../utils/systemClient');
+const { crearCarritoWhatsapp } = require('./carritoWhatsapp');
 const { ejecutarAgente } = require('./motorAgente');
 const { crearMemoriaConversacion } = require('./memoriaConversacion');
 const { buildAgentTraining } = require('./whatsappAgentTraining');
@@ -63,6 +64,43 @@ function leerPoliticaConversacional() {
   }
 }
 
+/*
+  El estado del carrito, escrito para que el modelo lo tenga siempre delante.
+
+  Antes sólo lo sabía si se acordaba de llamar a `ver_carrito`. En producción
+  eso terminó en una conversación cerrada con "¡Hasta la próxima!" mientras el
+  cliente tenía media docena de empanadas cargadas y una guarnición a medio
+  elegir. Ese pedido se perdió y nadie se enteró.
+
+  Un dato que decide si la conversación puede terminar no puede depender de que
+  el modelo se acuerde de preguntarlo.
+*/
+function resumenDelCarrito(db, telefono) {
+  try {
+    const carrito = crearCarritoWhatsapp(db).verCarrito(telefono);
+    const items = Array.isArray(carrito?.items) ? carrito.items : [];
+    if (!items.length) return 'Carrito: vacío.';
+
+    const detalle = items
+      .map((item) => {
+        const cantidad = Number(item?.cantidad || 1);
+        const nombre = String(item?.nombre || item?.descripcion || 'ítem');
+        return `${cantidad}× ${nombre}`;
+      })
+      .join(', ');
+
+    const total = Number(carrito?.total || 0);
+    return (
+      `Carrito EN CURSO: ${detalle}` +
+      (total ? ` · ${formatMoney(total)}` : '') +
+      '. Hay un pedido a medio armar: no cierres ni te despidas sin confirmarlo ' +
+      'o sin preguntar si lo deja para después.'
+    );
+  } catch {
+    return '';
+  }
+}
+
 async function atenderConMotorPropio(payload, dependencias = {}) {
   const inicio = Date.now();
   const db = dependencias.db || defaultDb;
@@ -105,7 +143,7 @@ async function atenderConMotorPropio(payload, dependencias = {}) {
         memoriaActual.resumen
           ? `\n\nResumen guardado de la conversación:\n${memoriaActual.resumen}`
           : ''
-      }`,
+      }\n\n${resumenDelCarrito(db, telefono)}`,
       mensajes,
       herramientas,
       ejecutar: (nombre, argumentos) => ejecutarRegistrada(nombre, argumentos, contexto, 'cliente'),
@@ -165,4 +203,5 @@ module.exports = {
   historialAMensajes,
   instruccionesCliente,
   leerPoliticaConversacional,
+  resumenDelCarrito,
 };
