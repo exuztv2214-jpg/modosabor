@@ -112,10 +112,24 @@ function runSeed(db) {
       'No inventes productos, precios, promociones ni tiempos. El pedido es delivery salvo retiro explícito; reutilizá o pedí la dirección. No preguntes forma de pago: se abona al recibir. Las pizzas son enteras con cremoso por defecto. Antes de crear el pedido, enviá el resumen completo y esperá confirmación explícita.',
     ],
     [
+      /*
+        A la mañana se vende el menú del día. La carta existe y se puede
+        vender, pero no se ofrece: se manda sólo si el cliente la pide.
+
+        La redacción anterior decía "se vende el menú y también la carta
+        completa", y eso le daba permiso al agente para ofrecer las dos cosas.
+        Ofrecer la carta al mediodía empuja al cliente a un plato más caro y
+        más lento cuando lo que hay preparado es el menú.
+      */
       'whatsapp_agente_reglas_turnos',
       JSON.stringify({
-        manana: 'Se vende el menú del día disponible y también la carta completa.',
-        noche: 'Se vende únicamente la carta habitual. No ofrezcas menú del día.',
+        manana:
+          'Se vende el MENÚ DEL DÍA. Ofrecelo vos y preguntá cuál quiere. ' +
+          'La carta completa se puede vender, pero NO la ofrezcas por tu cuenta: ' +
+          'mandala únicamente si el cliente la pide.',
+        noche:
+          'Se vende únicamente la carta habitual. No ofrezcas ni tomes menú del día; ' +
+          'ofrecé la carta.',
       }),
     ],
     [
