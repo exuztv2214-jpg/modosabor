@@ -12,6 +12,7 @@ import {
   ShoppingBag,
   MessageSquareMore,
   Download,
+  WifiOff,
 } from 'lucide-react';
 import { PageTransition } from '../design-system';
 
@@ -42,6 +43,7 @@ export default function Layout() {
   const [deferredInstallPrompt, setDeferredInstallPrompt] = useState(null);
   const [installReady, setInstallReady] = useState(false);
   const [isStandalone, setIsStandalone] = useState(false);
+  const [isOnline, setIsOnline] = useState(() => navigator.onLine !== false);
   const { audioContextRef, voiceRef, fallbackAudioRef } = useOrderAlertPlayback();
   const staticNotificationsRef = useRef([]);
 
@@ -49,6 +51,17 @@ export default function Layout() {
   const isTpvRoute = location.pathname === '/admin/tpv';
 
   // Close menus on route change
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
   useEffect(() => {
     setMobileMenuOpen(false);
     setUserMenuOpen(false);
@@ -289,6 +302,7 @@ export default function Layout() {
       '/admin/cupones': 'Cupones',
       '/admin/fidelizacion': 'Fidelización',
       '/admin/auditoria': 'Auditoría del sistema',
+      '/admin/intercambio-datos': 'Importar / exportar',
     };
     return titles[location.pathname] || 'Panel de Control';
   }, [location.pathname]);
@@ -302,6 +316,15 @@ export default function Layout() {
     return (
       <div className="w-screen h-screen overflow-hidden bg-gray-50">
         <GlobalOrderAlerts />
+        {!isOnline ? (
+          <div
+            role="alert"
+            className="fixed inset-x-0 top-0 z-[200] flex items-center justify-center gap-2 bg-amber-500 px-4 py-2 text-center text-sm font-semibold text-amber-950 shadow-lg"
+          >
+            <WifiOff size={17} aria-hidden="true" />
+            Sin conexión: no se puede cobrar ni enviar pedidos hasta recuperar internet.
+          </div>
+        ) : null}
         <Outlet />
       </div>
     );
@@ -310,6 +333,15 @@ export default function Layout() {
   return (
     <div className="min-h-screen bg-background flex font-sans text-gray-900">
       <GlobalOrderAlerts />
+      {!isOnline ? (
+        <div
+          role="alert"
+          className="fixed inset-x-0 top-0 z-[200] flex items-center justify-center gap-2 bg-amber-500 px-4 py-2 text-center text-sm font-semibold text-amber-950 shadow-lg"
+        >
+          <WifiOff size={17} aria-hidden="true" />
+          Sin conexión: los cambios no se guardarán hasta recuperar internet.
+        </div>
+      ) : null}
 
       {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
           SIDEBAR (Modernize Style)
