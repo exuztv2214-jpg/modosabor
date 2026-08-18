@@ -471,23 +471,76 @@ function getProductOptionsDetail(db, productId) {
     throw new Error('Producto no encontrado');
   }
 
-  const variantGroups = parseJsonArray(product.variantes).map((group) => ({
+  /*
+    Al modelo se le entrega el precio FINAL de cada opción, ya en pesos y con
+    su texto armado. Nunca el adicional en centavos.
+
+    Las dos cosas causaron el mismo error en producción: la Salchipapas XL
+    tiene 300000 de adicional —que son $3.000— y el agente le dijo al cliente
+    "un adicional de $300.000, total $304.000". Sumó centavos con pesos, y
+    encima habló de adicionales, que a quien pide no le dicen nada. Lo que
+    quiere escuchar es "la XL sale $7.000".
+
+    Es la misma regla que ya cumple `quoteProduct`: el modelo no hace cuentas
+    de plata, sólo repite el número que le da el servidor.
+  */
+  const gruposCrudos = parseJsonArray(product.variantes).map((group) => ({
     nombre: group?.nombre || '',
     opciones: parseJsonArray(group?.opciones).map((option) => ({
       nombre: option?.nombre || '',
-      precio_extra: Number(option?.precio_extra || 0),
+      extra: Number(option?.precio_extra || 0),
     })),
   }));
 
-  const extras = parseJsonArray(product.extras).map((extra) => ({
-    nombre: extra?.nombre || '',
-    precio: Number(extra?.precio || 0),
-  }));
+  const base = Number(product.precio || 0);
+
+  // Lo mínimo que suman los demás grupos, para que el precio de cada opción
+  // sea el que realmente pagaría alguien que elige esa y lo más barato del
+  // resto. Con un solo grupo —el caso normal— esto da el precio exacto.
+  const minimoDeOtros = (indice) =>
+    gruposCrudos.reduce((acc, grupo, i) => {
+      if (i === indice || !grupo.opciones.length) return acc;
+      return acc + Math.min(...grupo.opciones.map((o) => o.extra));
+    }, 0);
+
+  const variantGroups = gruposCrudos.map((group, i) => {
+    const piso = minimoDeOtros(i);
+    return {
+      nombre: group.nombre,
+      opciones: group.opciones.map((option) => {
+        const precio = base + piso + option.extra;
+        return {
+          nombre: option.nombre,
+          precio_total: precio,
+          precio_total_pesos: precio / 100,
+          precio_texto: formatMoney(precio),
+        };
+      }),
+    };
+  });
+
+  const extras = parseJsonArray(product.extras).map((extra) => {
+    const precio = Number(extra?.precio || 0);
+    return {
+      nombre: extra?.nombre || '',
+      precio_total: precio,
+      precio_total_pesos: precio / 100,
+      precio_texto: formatMoney(precio),
+    };
+  });
+
+  // El más barato que se puede armar: la base más la opción mínima de cada grupo.
+  const desde = gruposCrudos.reduce(
+    (acc, g) => acc + (g.opciones.length ? Math.min(...g.opciones.map((o) => o.extra)) : 0),
+    base
+  );
 
   return {
     id: product.id,
     nombre: product.nombre,
-    precio: Number(product.precio || 0),
+    precio_desde: desde,
+    precio_desde_pesos: desde / 100,
+    precio_desde_texto: formatMoney(desde),
     categoria: product.categoria_nombre || '',
     descripcion: product.descripcion || '',
     disponible_para_venta: product.disponible_para_venta,
