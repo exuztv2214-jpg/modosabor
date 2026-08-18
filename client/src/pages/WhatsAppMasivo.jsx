@@ -194,6 +194,47 @@ export default function WhatsAppMasivo() {
         ))}
       </div>
 
+      {/*
+        El último error del gateway, a la vista.
+
+        El sistema ya lo guardaba pero no lo mostraba en ninguna pantalla: para
+        saber por qué un audio no se transcribía había que entrar al código.
+        Un error que el sistema conoce y no cuenta es un error que se arregla
+        tarde, cuando alguien lo reporta.
+      */}
+      <div className="grid gap-3 md:grid-cols-2">
+        {estado?.gateway?.ultimoError ? (
+          <div className="rounded-2xl border border-red-200 bg-red-50 p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-red-700">
+              Último problema
+            </p>
+            <p className="mt-1 break-words text-[13px] leading-relaxed text-red-900">
+              {estado.gateway.ultimoError}
+            </p>
+          </div>
+        ) : (
+          <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
+              Sin problemas
+            </p>
+            <p className="mt-1 text-[13px] text-emerald-900">El gateway no registró errores.</p>
+          </div>
+        )}
+
+        <div className="rounded-2xl bg-white p-4 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+            Última actividad
+          </p>
+          <p className="mt-1 break-words text-[13px] leading-relaxed text-gray-700">
+            {estado?.gateway?.ultimaActividad || 'Todavía no hubo movimiento.'}
+          </p>
+          <p className="mt-2 text-xs text-gray-500">
+            {Number(estado?.gateway?.recibidos || 0)} recibidos ·{' '}
+            {Number(estado?.gateway?.respondidos || 0)} respondidos
+          </p>
+        </div>
+      </div>
+
       <section
         className={`rounded-3xl border p-5 ${conectado ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50'}`}
       >
