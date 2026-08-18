@@ -5,6 +5,7 @@ const { spawn } = require('child_process');
 
 const logger = require('../utils/logger');
 const { dataDir } = require('../utils/storagePaths');
+const { transcribirConGemini } = require('./transcripcionGemini');
 
 const SCRIPT = path.join(__dirname, '..', 'scripts', 'transcribe-whatsapp-audio.py');
 const BUNDLED_MODEL_DIR = path.join(__dirname, '..', 'whisper-models');
@@ -198,12 +199,65 @@ async function transcribeWhatsappAudio(message, conexion) {
   return transcribeAudioBuffer(buffer, 'ogg');
 }
 
+const MIME_POR_EXTENSION = {
+  ogg: 'audio/ogg',
+  oga: 'audio/ogg',
+  opus: 'audio/ogg',
+  mp3: 'audio/mp3',
+  m4a: 'audio/mp4',
+  mp4: 'audio/mp4',
+  wav: 'audio/wav',
+  webm: 'audio/webm',
+};
+
+/*
+  Primero Gemini, después Whisper.
+
+  El orden no es un gusto: Whisper corre adentro del servidor y necesita cerca
+  de 1 GB para cargarse, contra 954 MB que tiene el contenedor entero. Cuando
+  no entra, el sistema lo mata sin dejar mensaje. Gemini no ocupa nada acá.
+
+  Whisper se queda igual como respaldo. Si Gemini no contesta, se cae internet
+  o la clave falla, el audio sigue el camino de antes. Un cliente mandando un
+  audio a las nueve de la noche no se tiene que enterar de nada de esto.
+
+  Si el negocio prefiere volver al orden viejo, alcanza con poner en cero la
+  configuración `transcripcion_gemini_activa`.
+*/
+/*
+  La base se pide recién acá, no al cargar el módulo. Este archivo se puede
+  importar sin base —su test lo hace— y agregarle un `require('../db')` arriba
+  obligaría a levantar SQLite para probar una función que sólo mueve bytes.
+*/
+function configDelNegocio() {
+  const db = require('../db');
+  const { getConfigMap } = require('../utils/mercadoPago');
+  return getConfigMap(db);
+}
+
+async function transcribirRemoto(buffer, extension) {
+  const config = configDelNegocio();
+  if (String(config.transcripcion_gemini_activa ?? '1') !== '1') {
+    throw new Error('La transcripción remota está apagada');
+  }
+  const mime = MIME_POR_EXTENSION[String(extension || '').toLowerCase()] || 'audio/ogg';
+  return transcribirConGemini(buffer, mime, config);
+}
+
 async function transcribeAudioBuffer(buffer, extension = 'webm') {
   if (!Buffer.isBuffer(buffer) || buffer.length === 0) {
     throw new Error('El audio está vacío');
   }
   if (buffer.length > MAX_AUDIO_BYTES) {
     throw new Error('El audio supera el máximo de 8 MB');
+  }
+
+  try {
+    return await transcribirRemoto(buffer, extension);
+  } catch (error) {
+    logger.warn('Audio: Gemini no pudo transcribir, se intenta con Whisper local', {
+      message: error.message,
+    });
   }
   const safeExtension = String(extension || 'webm').replace(/[^a-z0-9]/gi, '') || 'webm';
   const task = async () => {
