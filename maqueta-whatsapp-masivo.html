@@ -1,0 +1,2732 @@
+<!doctype html>
+<html lang="es-AR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Modo Sabor · WhatsApp Masivo</title>
+    <style>
+      /*
+        ── Sobre este rediseño ───────────────────────────────────────────────
+
+        La versión anterior era correcta y aburrida: todo caja blanca con borde
+        gris de un pixel. Correcto no alcanza. Un sistema que se mira ocho horas
+        por día tiene que tener algo de vida o cansa.
+
+        Lo que cambió:
+
+        · Las tarjetas ya no se separan con bordes sino con profundidad. Sombra
+          suave abajo, un pelo de luz arriba. Se despegan del fondo.
+        · Cada tarjeta importante tiene una cinta de color arriba. Es lo que
+          hace que se reconozca de qué habla antes de leerla.
+        · Los números grandes van con degradado.
+        · Las barras se llenan solas al entrar, y las que están corriendo tienen
+          un brillo que se desliza. Una barra quieta no dice "esto está pasando
+          ahora"; una que se mueve, sí.
+        · Las caras son fotos de verdad, las que ya están en el proyecto.
+
+        Lo que NO cambió: los tres colores. Rojo para la acción principal,
+        verde para WhatsApp y lo que salió bien, violeta sólo para la IA. El
+        color acá es información, no decoración — por eso el resto es gris.
+      */
+      :root {
+        --marca: #dc1f2d;
+        --marca-2: #ff5a5f;
+        --marca-suave: #fff1f2;
+        --wa: #25d366;
+        --wa-2: #0fb98b;
+        --wa-oscuro: #0f8a6a;
+        --wa-suave: #e8fbf1;
+        --ia: #7c3aed;
+        --ia-2: #a855f7;
+        --ia-suave: #f6f2ff;
+        --ambar: #d97706;
+        --ambar-2: #fbbf24;
+        --ambar-suave: #fffaeb;
+        --verde: #059669;
+        --verde-suave: #ecfdf5;
+        --azul: #2563eb;
+        --azul-2: #60a5fa;
+
+        --tinta: #0d1424;
+        --tinta-media: #5b6478;
+        --tinta-suave: #98a1b2;
+        --linea: #eaecf1;
+        --fondo: #f4f6fa;
+        --panel: #ffffff;
+        --rail: #0b1220;
+
+        --r-chico: 12px;
+        --r: 18px;
+        --r-grande: 24px;
+
+        /* Sombras en capas: una cerca y chiquita, otra lejos y amplia. */
+        --sombra: 0 1px 2px rgba(13, 20, 36, 0.04), 0 8px 24px -6px rgba(13, 20, 36, 0.08);
+        --sombra-alta: 0 2px 4px rgba(13, 20, 36, 0.05), 0 18px 40px -10px rgba(13, 20, 36, 0.16);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+      }
+
+      body {
+        background: var(--fondo);
+        color: var(--tinta);
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        font-size: 13px;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      /* Un par de manchas de color muy tenues detrás de todo, para que el
+         fondo no sea un gris plano. */
+      body::before {
+        content: '';
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        background:
+          radial-gradient(680px 380px at 80% -8%, rgba(37, 211, 102, 0.09), transparent 60%),
+          radial-gradient(560px 340px at 12% 106%, rgba(220, 31, 45, 0.06), transparent 62%);
+      }
+
+      button {
+        font: inherit;
+        color: inherit;
+        border: 0;
+        background: none;
+        cursor: pointer;
+      }
+
+      input,
+      select,
+      textarea {
+        font: inherit;
+        color: inherit;
+      }
+
+      .num {
+        font-variant-numeric: tabular-nums;
+        letter-spacing: -0.02em;
+      }
+
+      .marco {
+        display: grid;
+        grid-template-columns: 68px 1fr;
+        height: 100vh;
+        position: relative;
+      }
+
+      /* ── Barra de iconos ──────────────────────────────────────────────── */
+      .rail {
+        background: linear-gradient(175deg, #101a2c, var(--rail) 55%, #060a12);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 14px 0;
+        gap: 5px;
+        z-index: 30;
+        box-shadow: 4px 0 24px rgba(13, 20, 36, 0.14);
+      }
+
+      .logo {
+        width: 40px;
+        height: 40px;
+        border-radius: 13px;
+        background: linear-gradient(145deg, var(--wa), var(--wa-oscuro));
+        color: #fff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 12px;
+        box-shadow: 0 6px 18px rgba(37, 211, 102, 0.4);
+      }
+
+      .icono-rail {
+        position: relative;
+        width: 44px;
+        height: 44px;
+        border-radius: 14px;
+        color: rgba(255, 255, 255, 0.5);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: 0.18s cubic-bezier(0.2, 0.8, 0.3, 1);
+      }
+
+      .icono-rail:hover {
+        color: #fff;
+        background: rgba(255, 255, 255, 0.09);
+        transform: translateY(-1px);
+      }
+
+      .icono-rail.activo {
+        color: #fff;
+        background: linear-gradient(150deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.07));
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22);
+      }
+
+      /* Una marquita a la izquierda del activo. */
+      .icono-rail.activo::before {
+        content: '';
+        position: absolute;
+        left: -10px;
+        width: 3px;
+        height: 20px;
+        border-radius: 999px;
+        background: var(--wa);
+        box-shadow: 0 0 10px var(--wa);
+      }
+
+      .icono-rail .nombre {
+        position: absolute;
+        left: 54px;
+        white-space: nowrap;
+        background: rgba(11, 18, 32, 0.97);
+        color: #fff;
+        padding: 8px 13px;
+        border-radius: 10px;
+        opacity: 0;
+        pointer-events: none;
+        transform: translateX(-6px);
+        transition: 0.16s;
+        font-size: 12.5px;
+        box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4);
+        z-index: 40;
+      }
+
+      .icono-rail:hover .nombre {
+        opacity: 1;
+        transform: translateX(0);
+      }
+
+      .rail .abajo {
+        margin-top: auto;
+      }
+
+      .globo-rail {
+        position: absolute;
+        top: 5px;
+        right: 5px;
+        min-width: 17px;
+        height: 17px;
+        padding: 0 4px;
+        border-radius: 999px;
+        background: linear-gradient(145deg, var(--marca-2), var(--marca));
+        color: #fff;
+        font-size: 10px;
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 3px 10px rgba(220, 31, 45, 0.5);
+      }
+
+      /* ── Cabecera ─────────────────────────────────────────────────────── */
+      .contenido {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+        min-height: 0;
+        position: relative;
+      }
+
+      .barra {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 14px 22px;
+        background: rgba(255, 255, 255, 0.82);
+        backdrop-filter: blur(14px);
+        border-bottom: 1px solid rgba(234, 236, 241, 0.9);
+        z-index: 20;
+      }
+
+      .barra h1 {
+        font-size: 19px;
+        font-weight: 650;
+        margin: 0;
+        letter-spacing: -0.02em;
+      }
+
+      .barra .sub {
+        color: var(--tinta-suave);
+        font-size: 12px;
+        margin-top: 1px;
+      }
+
+      .estado-linea {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        height: 40px;
+        padding: 0 15px;
+        border-radius: 999px;
+        background: linear-gradient(135deg, var(--wa-suave), #fff);
+        color: var(--wa-oscuro);
+        font-weight: 600;
+        box-shadow: inset 0 0 0 1px rgba(15, 138, 106, 0.16), var(--sombra);
+      }
+
+      .latido {
+        width: 9px;
+        height: 9px;
+        border-radius: 999px;
+        background: var(--wa);
+        animation: latir 2s ease-in-out infinite;
+      }
+
+      @keyframes latir {
+        0%,
+        100% {
+          box-shadow: 0 0 0 0 rgba(37, 211, 102, 0.55);
+        }
+        60% {
+          box-shadow: 0 0 0 8px rgba(37, 211, 102, 0);
+        }
+      }
+
+      .cuerpo {
+        flex: 1;
+        overflow-y: auto;
+        padding: 20px 22px 34px;
+        position: relative;
+      }
+
+      .vista {
+        display: none;
+      }
+
+      .vista.activa {
+        display: block;
+      }
+
+      /* Las tarjetas entran escalonadas, no todas de golpe. */
+      .vista.activa > *,
+      .vista.activa .rejilla > * {
+        animation: entrar 0.42s cubic-bezier(0.2, 0.8, 0.3, 1) both;
+      }
+
+      .vista.activa .rejilla > *:nth-child(2) {
+        animation-delay: 0.05s;
+      }
+      .vista.activa .rejilla > *:nth-child(3) {
+        animation-delay: 0.1s;
+      }
+      .vista.activa .rejilla > *:nth-child(4) {
+        animation-delay: 0.15s;
+      }
+
+      @keyframes entrar {
+        from {
+          opacity: 0;
+          transform: translateY(12px) scale(0.985);
+        }
+      }
+
+      /* ── Tarjetas ─────────────────────────────────────────────────────── */
+      .tarjeta {
+        position: relative;
+        background: var(--panel);
+        border-radius: var(--r);
+        padding: 18px;
+        box-shadow: var(--sombra);
+        transition: 0.22s cubic-bezier(0.2, 0.8, 0.3, 1);
+        overflow: hidden;
+      }
+
+      /* Filito de luz arriba: es lo que hace que se vea sólida y no pegada. */
+      .tarjeta::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        pointer-events: none;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), inset 0 0 0 1px rgba(13, 20, 36, 0.05);
+      }
+
+      .tarjeta.viva:hover {
+        transform: translateY(-3px);
+        box-shadow: var(--sombra-alta);
+      }
+
+      /* La cinta de color de arriba dice de qué habla la tarjeta. */
+      .tarjeta.cinta::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 4px;
+        background: var(--cinta, linear-gradient(90deg, var(--wa), var(--wa-2)));
+      }
+
+      .titulo-tarjeta {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        font-size: 14.5px;
+        font-weight: 640;
+        margin: 0 0 14px;
+        letter-spacing: -0.01em;
+      }
+
+      .rejilla {
+        display: grid;
+        gap: 16px;
+      }
+
+      .rejilla.cuatro {
+        grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+      }
+
+      .rejilla.dos {
+        grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+      }
+
+      /* ── Números ──────────────────────────────────────────────────────── */
+      .numero-grande {
+        font-size: 30px;
+        font-weight: 750;
+        letter-spacing: -0.035em;
+        font-variant-numeric: tabular-nums;
+        line-height: 1.1;
+      }
+
+      .degradado {
+        background: linear-gradient(135deg, var(--d1), var(--d2));
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+      }
+
+      .etiqueta-chica {
+        color: var(--tinta-suave);
+        font-size: 11.5px;
+        margin-top: 3px;
+      }
+
+      /* Cuadro de indicador con su iconito arriba a la derecha. */
+      .kpi {
+        position: relative;
+        background: var(--panel);
+        border-radius: var(--r);
+        padding: 17px;
+        box-shadow: var(--sombra);
+        overflow: hidden;
+        transition: 0.22s cubic-bezier(0.2, 0.8, 0.3, 1);
+      }
+
+      .kpi:hover {
+        transform: translateY(-3px);
+        box-shadow: var(--sombra-alta);
+      }
+
+      .kpi::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        pointer-events: none;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), inset 0 0 0 1px rgba(13, 20, 36, 0.05);
+      }
+
+      /* Un halo de color detrás, arriba a la derecha. */
+      .kpi .halo {
+        position: absolute;
+        top: -34px;
+        right: -34px;
+        width: 108px;
+        height: 108px;
+        border-radius: 999px;
+        opacity: 0.14;
+        background: var(--halo, var(--wa));
+        filter: blur(4px);
+      }
+
+      .kpi .marca-kpi {
+        position: absolute;
+        top: 15px;
+        right: 15px;
+        width: 34px;
+        height: 34px;
+        border-radius: 11px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 16px;
+        background: var(--panel);
+        box-shadow: var(--sombra);
+      }
+
+      .tendencia {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        margin-top: 8px;
+        padding: 3px 8px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 620;
+        background: var(--verde-suave);
+        color: var(--verde);
+      }
+
+      .tendencia.baja {
+        background: var(--marca-suave);
+        color: var(--marca);
+      }
+
+      /* ── Botones ──────────────────────────────────────────────────────── */
+      .boton-principal {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        height: 42px;
+        padding: 0 19px;
+        border-radius: 14px;
+        background: linear-gradient(140deg, var(--marca-2), var(--marca));
+        color: #fff;
+        font-weight: 600;
+        box-shadow: 0 1px 0 rgba(255, 255, 255, 0.25) inset, 0 8px 20px -6px rgba(220, 31, 45, 0.55);
+        transition: 0.18s cubic-bezier(0.2, 0.8, 0.3, 1);
+      }
+
+      .boton-principal:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 1px 0 rgba(255, 255, 255, 0.25) inset, 0 12px 26px -6px rgba(220, 31, 45, 0.6);
+      }
+
+      .boton-principal:active {
+        transform: translateY(1px);
+      }
+
+      .boton-verde {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        height: 42px;
+        padding: 0 19px;
+        border-radius: 14px;
+        background: linear-gradient(140deg, var(--wa), var(--wa-oscuro));
+        color: #fff;
+        font-weight: 600;
+        box-shadow: 0 1px 0 rgba(255, 255, 255, 0.25) inset, 0 8px 20px -6px rgba(15, 138, 106, 0.5);
+        transition: 0.18s;
+      }
+
+      .boton-verde:hover {
+        transform: translateY(-1px);
+      }
+
+      .boton-suave {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        height: 42px;
+        padding: 0 16px;
+        border-radius: 14px;
+        background: var(--panel);
+        color: var(--tinta-media);
+        font-weight: 550;
+        box-shadow: inset 0 0 0 1px var(--linea), 0 1px 2px rgba(13, 20, 36, 0.04);
+        transition: 0.18s;
+      }
+
+      .boton-suave:hover {
+        color: var(--tinta);
+        transform: translateY(-1px);
+        box-shadow: inset 0 0 0 1px #d7dbe4, 0 6px 16px -4px rgba(13, 20, 36, 0.14);
+      }
+
+      .boton-ia {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 7px;
+        height: 38px;
+        padding: 0 15px;
+        border-radius: 12px;
+        background: linear-gradient(135deg, var(--ia-suave), #fdf4ff);
+        color: var(--ia);
+        font-weight: 640;
+        box-shadow: inset 0 0 0 1px rgba(124, 58, 237, 0.16);
+        transition: 0.18s;
+      }
+
+      .boton-ia:hover {
+        transform: translateY(-1px);
+        box-shadow: inset 0 0 0 1px rgba(124, 58, 237, 0.32), 0 8px 20px -6px rgba(124, 58, 237, 0.4);
+      }
+
+      .chapa {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        font-size: 11px;
+        font-weight: 600;
+        padding: 4px 10px;
+        border-radius: 999px;
+        white-space: nowrap;
+      }
+
+      .chapa::before {
+        content: '';
+        width: 6px;
+        height: 6px;
+        border-radius: 999px;
+        background: currentColor;
+      }
+
+      .chapa.andando {
+        background: var(--wa-suave);
+        color: var(--wa-oscuro);
+      }
+
+      .chapa.andando::before {
+        animation: latir 1.6s infinite;
+      }
+
+      .chapa.pausada {
+        background: var(--ambar-suave);
+        color: var(--ambar);
+      }
+
+      .chapa.lista {
+        background: var(--verde-suave);
+        color: var(--verde);
+      }
+
+      .chapa.borrador {
+        background: #f1f3f7;
+        color: var(--tinta-media);
+      }
+
+      .chapa.programada {
+        background: #eff6ff;
+        color: var(--azul);
+      }
+
+      /* ── Barras de progreso ───────────────────────────────────────────── */
+      .barra-progreso {
+        height: 10px;
+        border-radius: 999px;
+        background: #eef0f5;
+        overflow: hidden;
+        box-shadow: inset 0 1px 2px rgba(13, 20, 36, 0.07);
+      }
+
+      .barra-progreso > span {
+        display: block;
+        height: 100%;
+        border-radius: 999px;
+        background: linear-gradient(90deg, var(--b1, var(--wa)), var(--b2, var(--wa-2)));
+        position: relative;
+        width: 0;
+        transition: width 1.1s cubic-bezier(0.2, 0.8, 0.3, 1);
+        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+      }
+
+      /* Rayas que se mueven: sólo en lo que está corriendo ahora. */
+      .barra-progreso.viva > span::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        background: linear-gradient(
+          115deg,
+          rgba(255, 255, 255, 0) 30%,
+          rgba(255, 255, 255, 0.55) 50%,
+          rgba(255, 255, 255, 0) 70%
+        );
+        background-size: 220% 100%;
+        animation: brillar 1.9s linear infinite;
+      }
+
+      @keyframes brillar {
+        from {
+          background-position: 220% 0;
+        }
+        to {
+          background-position: -60% 0;
+        }
+      }
+
+      .barra-progreso.fina {
+        height: 6px;
+      }
+
+      .fila-barra {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        margin-bottom: 7px;
+      }
+
+      .fila-barra span {
+        color: var(--tinta-media);
+      }
+
+      /* ── Aro de cupo ──────────────────────────────────────────────────── */
+      .aro {
+        --p: 0;
+        width: 146px;
+        height: 146px;
+        border-radius: 999px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        position: relative;
+        background: conic-gradient(from -90deg, var(--a1) 0, var(--a2) calc(var(--p) * 1%), #eef0f5 0);
+        transition: --p 1.2s ease;
+        box-shadow: 0 10px 30px -10px rgba(13, 20, 36, 0.3);
+      }
+
+      @property --p {
+        syntax: '<number>';
+        inherits: true;
+        initial-value: 0;
+      }
+
+      .aro .centro {
+        width: 116px;
+        height: 116px;
+        border-radius: 999px;
+        background: var(--panel);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        box-shadow: inset 0 2px 8px rgba(13, 20, 36, 0.06);
+      }
+
+      /* ── La cola en vivo ──────────────────────────────────────────────── */
+      .fila-cola {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 11px 13px;
+        border-radius: var(--r-chico);
+        margin-bottom: 8px;
+        background: var(--panel);
+        box-shadow: inset 0 0 0 1px var(--linea);
+        transition: 0.2s;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .fila-cola:hover {
+        box-shadow: inset 0 0 0 1px #d7dbe4, 0 6px 16px -6px rgba(13, 20, 36, 0.18);
+        transform: translateX(2px);
+      }
+
+      .fila-cola.ahora {
+        background: linear-gradient(100deg, var(--wa-suave), #fff 70%);
+        box-shadow: inset 0 0 0 1px rgba(15, 138, 106, 0.28), 0 6px 18px -8px rgba(15, 138, 106, 0.4);
+      }
+
+      /* La barrita de abajo del que está saliendo. */
+      .fila-cola.ahora::after {
+        content: '';
+        position: absolute;
+        left: 0;
+        bottom: 0;
+        height: 3px;
+        width: 100%;
+        background: linear-gradient(90deg, var(--wa), var(--wa-2));
+        animation: correr 2.4s linear infinite;
+        transform-origin: left;
+      }
+
+      @keyframes correr {
+        from {
+          transform: scaleX(0);
+        }
+        to {
+          transform: scaleX(1);
+        }
+      }
+
+      .cara {
+        width: 40px;
+        height: 40px;
+        border-radius: 999px;
+        object-fit: cover;
+        flex-shrink: 0;
+        background: #eef0f5;
+        box-shadow: 0 0 0 2px var(--panel), 0 0 0 3px var(--linea), 0 3px 8px rgba(13, 20, 36, 0.14);
+      }
+
+      .cara.chica {
+        width: 32px;
+        height: 32px;
+      }
+
+      .cara.grande {
+        width: 46px;
+        height: 46px;
+      }
+
+      .con-sello {
+        position: relative;
+        flex-shrink: 0;
+      }
+
+      .sello {
+        position: absolute;
+        right: -2px;
+        bottom: -2px;
+        width: 17px;
+        height: 17px;
+        border-radius: 999px;
+        border: 2.5px solid var(--panel);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 8px;
+        color: #fff;
+      }
+
+      .quien {
+        flex: 1;
+        min-width: 0;
+      }
+
+      .quien b {
+        font-weight: 620;
+      }
+
+      .tel {
+        color: var(--tinta-suave);
+        font-size: 11.5px;
+        margin-top: 1px;
+      }
+
+      .reloj {
+        font-variant-numeric: tabular-nums;
+        color: var(--tinta-media);
+        font-size: 12px;
+        white-space: nowrap;
+        font-weight: 550;
+      }
+
+      /* ── Audiencias ───────────────────────────────────────────────────── */
+      .audiencia {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        padding: 15px;
+        border-radius: var(--r);
+        margin-bottom: 11px;
+        background: var(--panel);
+        width: 100%;
+        text-align: left;
+        box-shadow: var(--sombra);
+        transition: 0.22s cubic-bezier(0.2, 0.8, 0.3, 1);
+        position: relative;
+        overflow: hidden;
+      }
+
+      .audiencia::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        pointer-events: none;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), inset 0 0 0 1px rgba(13, 20, 36, 0.05);
+      }
+
+      .audiencia:hover {
+        transform: translateY(-2px);
+        box-shadow: var(--sombra-alta);
+      }
+
+      .audiencia.elegida {
+        background: linear-gradient(100deg, var(--wa-suave), #fff 62%);
+      }
+
+      .audiencia.elegida::after {
+        box-shadow: inset 0 0 0 2px var(--wa-oscuro);
+      }
+
+      /* Baldosa de icono con degradado, no un cuadrado pastel plano. */
+      .baldosa {
+        width: 48px;
+        height: 48px;
+        border-radius: 15px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 22px;
+        flex-shrink: 0;
+        background: linear-gradient(145deg, var(--t1), var(--t2));
+        box-shadow:
+          inset 0 1px 0 rgba(255, 255, 255, 0.6),
+          0 6px 16px -6px var(--t2);
+      }
+
+      .explica {
+        color: var(--tinta-media);
+        margin-top: 3px;
+        line-height: 1.5;
+      }
+
+      .cuantos {
+        text-align: right;
+        flex-shrink: 0;
+      }
+
+      .cuantos b {
+        font-size: 22px;
+        font-weight: 720;
+        font-variant-numeric: tabular-nums;
+        letter-spacing: -0.03em;
+      }
+
+      /* Barrita que compara el tamaño del grupo contra el más grande. */
+      .peso {
+        height: 4px;
+        width: 64px;
+        border-radius: 999px;
+        background: #eef0f5;
+        overflow: hidden;
+        margin-top: 6px;
+        margin-left: auto;
+      }
+
+      .peso span {
+        display: block;
+        height: 100%;
+        border-radius: 999px;
+        background: linear-gradient(90deg, var(--wa), var(--wa-2));
+        width: 0;
+        transition: width 1s cubic-bezier(0.2, 0.8, 0.3, 1);
+      }
+
+      /* ── Perillas ─────────────────────────────────────────────────────── */
+      .perilla {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        padding: 15px;
+        border-radius: var(--r);
+        margin-bottom: 11px;
+        background: var(--panel);
+        box-shadow: var(--sombra);
+        transition: 0.2s;
+        position: relative;
+      }
+
+      .perilla::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        pointer-events: none;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), inset 0 0 0 1px rgba(13, 20, 36, 0.05);
+      }
+
+      .perilla:hover {
+        transform: translateY(-2px);
+        box-shadow: var(--sombra-alta);
+      }
+
+      .cuerpo-perilla {
+        flex: 1;
+        min-width: 0;
+      }
+
+      .control {
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .llave {
+        width: 48px;
+        height: 27px;
+        border-radius: 999px;
+        background: #dfe3ea;
+        position: relative;
+        transition: 0.24s cubic-bezier(0.2, 0.8, 0.3, 1);
+        flex-shrink: 0;
+        box-shadow: inset 0 1px 3px rgba(13, 20, 36, 0.16);
+      }
+
+      .llave::after {
+        content: '';
+        position: absolute;
+        top: 3px;
+        left: 3px;
+        width: 21px;
+        height: 21px;
+        border-radius: 999px;
+        background: #fff;
+        transition: 0.24s cubic-bezier(0.2, 0.8, 0.3, 1);
+        box-shadow: 0 2px 5px rgba(13, 20, 36, 0.3);
+      }
+
+      .llave.prendida {
+        background: linear-gradient(135deg, var(--wa), var(--wa-oscuro));
+        box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.14), 0 4px 12px -3px rgba(15, 138, 106, 0.6);
+      }
+
+      .llave.prendida::after {
+        left: 24px;
+      }
+
+      .campo {
+        height: 40px;
+        padding: 0 12px;
+        border: 0;
+        border-radius: var(--r-chico);
+        background: var(--panel);
+        box-shadow: inset 0 0 0 1px var(--linea);
+        min-width: 88px;
+        font-weight: 600;
+        transition: 0.16s;
+      }
+
+      .campo:focus {
+        outline: none;
+        box-shadow: inset 0 0 0 2px var(--wa-oscuro);
+      }
+
+      /* ── Termómetro ───────────────────────────────────────────────────── */
+      .termometro {
+        display: flex;
+        gap: 5px;
+        margin: 12px 0 10px;
+      }
+
+      .termometro i {
+        flex: 1;
+        height: 9px;
+        border-radius: 999px;
+        background: #eef0f5;
+        transition: 0.3s cubic-bezier(0.2, 0.8, 0.3, 1);
+        box-shadow: inset 0 1px 2px rgba(13, 20, 36, 0.06);
+      }
+
+      .termometro i.on {
+        background: linear-gradient(135deg, var(--wa), var(--wa-2));
+        box-shadow: 0 3px 10px -3px rgba(37, 211, 102, 0.7);
+      }
+
+      .termometro.medio i.on {
+        background: linear-gradient(135deg, var(--ambar-2), var(--ambar));
+        box-shadow: 0 3px 10px -3px rgba(217, 119, 6, 0.7);
+      }
+
+      .termometro.alto i.on {
+        background: linear-gradient(135deg, var(--marca-2), var(--marca));
+        box-shadow: 0 3px 10px -3px rgba(220, 31, 45, 0.7);
+      }
+
+      /* ── Teléfono ─────────────────────────────────────────────────────── */
+      .telefono {
+        border: 10px solid #0b1220;
+        border-radius: 34px;
+        overflow: hidden;
+        background: #ece5dd;
+        max-width: 300px;
+        margin: 0 auto;
+        box-shadow: 0 24px 50px -16px rgba(13, 20, 36, 0.5);
+      }
+
+      .telefono .cabeza {
+        background: linear-gradient(135deg, #128c7e, #075e54);
+        color: #fff;
+        padding: 12px 14px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .telefono .chats {
+        padding: 15px 12px 22px;
+        min-height: 262px;
+        background-image: radial-gradient(rgba(0, 0, 0, 0.04) 1px, transparent 1px);
+        background-size: 16px 16px;
+      }
+
+      .burbuja {
+        background: #fff;
+        padding: 9px 12px 7px;
+        border-radius: 10px 10px 10px 3px;
+        max-width: 90%;
+        line-height: 1.5;
+        white-space: pre-wrap;
+        word-break: break-word;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.14);
+        animation: entrar 0.3s ease both;
+      }
+
+      .burbuja .hora {
+        display: block;
+        text-align: right;
+        color: var(--tinta-suave);
+        font-size: 10px;
+        margin-top: 4px;
+      }
+
+      .burbuja .comodin {
+        background: linear-gradient(135deg, var(--ia-suave), #fbf0ff);
+        color: var(--ia);
+        border-radius: 5px;
+        padding: 1px 4px;
+        font-weight: 650;
+        box-shadow: inset 0 0 0 1px rgba(124, 58, 237, 0.18);
+      }
+
+      /* ── Editor ───────────────────────────────────────────────────────── */
+      .caja-texto {
+        border-radius: var(--r);
+        overflow: hidden;
+        background: var(--panel);
+        box-shadow: var(--sombra), inset 0 0 0 1px var(--linea);
+        transition: 0.18s;
+      }
+
+      .caja-texto:focus-within {
+        box-shadow: var(--sombra-alta), inset 0 0 0 2px var(--wa-oscuro);
+      }
+
+      .caja-texto textarea {
+        width: 100%;
+        border: 0;
+        outline: none;
+        resize: none;
+        padding: 16px;
+        height: 172px;
+        line-height: 1.6;
+        font-size: 14px;
+        background: transparent;
+      }
+
+      .herramientas {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 9px 11px;
+        background: linear-gradient(180deg, #fbfcfe, #f7f8fb);
+        border-top: 1px solid var(--linea);
+        flex-wrap: wrap;
+      }
+
+      .pastilla-comodin {
+        height: 32px;
+        padding: 0 12px;
+        border-radius: 10px;
+        background: linear-gradient(135deg, var(--ia-suave), #fdf5ff);
+        color: var(--ia);
+        font-size: 12px;
+        font-weight: 620;
+        box-shadow: inset 0 0 0 1px rgba(124, 58, 237, 0.14);
+        transition: 0.16s;
+      }
+
+      .pastilla-comodin:hover {
+        transform: translateY(-1px);
+        box-shadow: inset 0 0 0 1px rgba(124, 58, 237, 0.3), 0 6px 14px -5px rgba(124, 58, 237, 0.5);
+      }
+
+      .contador {
+        margin-left: auto;
+        color: var(--tinta-suave);
+        font-size: 11.5px;
+        font-variant-numeric: tabular-nums;
+      }
+
+      /* ── Pasos ────────────────────────────────────────────────────────── */
+      .pasos {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        margin-bottom: 20px;
+        flex-wrap: wrap;
+      }
+
+      .paso {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        height: 44px;
+        padding: 0 16px;
+        border-radius: 14px;
+        background: var(--panel);
+        color: var(--tinta-media);
+        font-weight: 550;
+        box-shadow: inset 0 0 0 1px var(--linea);
+        transition: 0.2s cubic-bezier(0.2, 0.8, 0.3, 1);
+      }
+
+      .paso:hover {
+        transform: translateY(-1px);
+      }
+
+      .paso.activo {
+        background: linear-gradient(140deg, #1b263c, var(--rail));
+        color: #fff;
+        box-shadow: 0 10px 24px -8px rgba(13, 20, 36, 0.6);
+      }
+
+      .paso.hecho {
+        background: var(--wa-suave);
+        color: var(--wa-oscuro);
+        box-shadow: inset 0 0 0 1px rgba(15, 138, 106, 0.22);
+      }
+
+      .bolita {
+        width: 23px;
+        height: 23px;
+        border-radius: 999px;
+        background: #f1f3f7;
+        color: var(--tinta-media);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 11px;
+        font-weight: 700;
+      }
+
+      .paso.activo .bolita {
+        background: rgba(255, 255, 255, 0.22);
+        color: #fff;
+      }
+
+      .paso.hecho .bolita {
+        background: var(--wa-oscuro);
+        color: #fff;
+      }
+
+      .flecha {
+        color: #d3d8e2;
+      }
+
+      .sub-vista {
+        display: none;
+      }
+
+      .sub-vista.activa {
+        display: block;
+        animation: entrar 0.34s cubic-bezier(0.2, 0.8, 0.3, 1) both;
+      }
+
+      /* ── Alertas ──────────────────────────────────────────────────────── */
+      .fila-alerta {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 12px 13px;
+        border-radius: var(--r-chico);
+        margin-bottom: 9px;
+        width: 100%;
+        text-align: left;
+        background: var(--panel);
+        box-shadow: inset 0 0 0 1px var(--linea);
+        transition: 0.2s;
+      }
+
+      .fila-alerta:hover {
+        transform: translateX(3px);
+        box-shadow: inset 0 0 0 1px #d7dbe4, 0 6px 16px -6px rgba(13, 20, 36, 0.16);
+      }
+
+      .fila-alerta.hay {
+        background: linear-gradient(100deg, var(--marca-suave), #fff 66%);
+        box-shadow: inset 0 0 0 1px rgba(220, 31, 45, 0.2);
+      }
+
+      .cuenta-alerta {
+        margin-left: auto;
+        min-width: 28px;
+        height: 26px;
+        padding: 0 9px;
+        border-radius: 999px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 700;
+        font-size: 12px;
+        background: #f1f3f7;
+        color: var(--tinta-media);
+      }
+
+      .fila-alerta.hay .cuenta-alerta {
+        background: linear-gradient(140deg, var(--marca-2), var(--marca));
+        color: #fff;
+        box-shadow: 0 4px 12px -3px rgba(220, 31, 45, 0.6);
+      }
+
+      /* ── Tabla ────────────────────────────────────────────────────────── */
+      table {
+        width: 100%;
+        border-collapse: separate;
+        border-spacing: 0 8px;
+      }
+
+      th {
+        text-align: left;
+        color: var(--tinta-suave);
+        font-weight: 550;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        padding: 0 12px 4px;
+      }
+
+      tbody tr {
+        background: var(--panel);
+        box-shadow: inset 0 0 0 1px var(--linea);
+        transition: 0.2s;
+      }
+
+      tbody tr:hover {
+        box-shadow: inset 0 0 0 1px #d7dbe4, 0 8px 20px -8px rgba(13, 20, 36, 0.2);
+        transform: translateY(-1px);
+      }
+
+      td {
+        padding: 14px 12px;
+      }
+
+      td:first-child {
+        border-radius: var(--r-chico) 0 0 var(--r-chico);
+      }
+
+      td:last-child {
+        border-radius: 0 var(--r-chico) var(--r-chico) 0;
+      }
+
+      .aviso {
+        position: fixed;
+        left: 50%;
+        bottom: 24px;
+        transform: translate(-50%, 14px);
+        background: rgba(11, 18, 32, 0.96);
+        backdrop-filter: blur(10px);
+        color: #fff;
+        padding: 12px 20px;
+        border-radius: 999px;
+        opacity: 0;
+        pointer-events: none;
+        transition: 0.26s cubic-bezier(0.2, 0.8, 0.3, 1);
+        z-index: 90;
+        box-shadow: 0 14px 40px rgba(0, 0, 0, 0.4);
+        font-weight: 550;
+      }
+
+      .aviso.visible {
+        opacity: 1;
+        transform: translate(-50%, 0);
+      }
+
+      @media (max-width: 1100px) {
+        .rejilla.dos {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="marco">
+      <!-- ══ Barra de iconos ═══════════════════════════════════════════ -->
+      <nav class="rail">
+        <div class="logo">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 0 0-8.6 15L2 22l5.2-1.4A10 10 0 1 0 12 2Zm5.7 14.2c-.2.7-1.4 1.3-2 1.4-.5.1-1.1.1-1.8-.1-.4-.1-1-.3-1.7-.6-3-1.3-4.9-4.3-5.1-4.5-.1-.2-1.2-1.5-1.2-2.9s.7-2 1-2.3c.2-.3.5-.4.7-.4h.5c.2 0 .4 0 .6.5l.8 2c.1.1.1.3 0 .5l-.3.4-.4.4c-.1.1-.3.3-.1.6.1.3.6 1.1 1.4 1.8 1 .9 1.8 1.1 2 1.2.3.1.4.1.6-.1l.8-1c.2-.2.4-.2.6-.1l2 1c.2.1.4.2.4.3.1.1.1.6-.1 1.3Z"/></svg>
+        </div>
+
+        <button class="icono-rail activo" data-vista="inicio">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5M5 9.5V20h14V9.5"/></svg>
+          <span class="nombre">Estado</span>
+        </button>
+
+        <button class="icono-rail" data-vista="nueva">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7Z"/></svg>
+          <span class="nombre">Nueva campaña</span>
+        </button>
+
+        <button class="icono-rail" data-vista="campanas">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
+          <span class="nombre">Campañas</span>
+        </button>
+
+        <button class="icono-rail" data-vista="audiencias">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.9"/></svg>
+          <span class="nombre">A quién le mando</span>
+        </button>
+
+        <button class="icono-rail" data-vista="ritmo">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg>
+          <span class="nombre">Ritmo y seguridad</span>
+        </button>
+
+        <button class="icono-rail" data-vista="automatico">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/><circle cx="12" cy="12" r="3.5"/></svg>
+          <span class="nombre">Mandar solo</span>
+        </button>
+
+        <button class="icono-rail" data-vista="respuestas">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M21 15a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2Z"/></svg>
+          <span class="globo-rail">6</span>
+          <span class="nombre">Respuestas</span>
+        </button>
+
+        <button class="icono-rail" data-vista="resultados">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M3 3v18h18M7 15l4-5 3 3 5-7"/></svg>
+          <span class="nombre">Resultados</span>
+        </button>
+
+        <button class="icono-rail" data-vista="bajas">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M18.4 5.6 5.6 18.4"/><circle cx="12" cy="12" r="9"/></svg>
+          <span class="nombre">Bajas y bloqueados</span>
+        </button>
+
+        <div class="abajo"></div>
+
+        <button class="icono-rail" data-vista="alertas">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+          <span class="globo-rail" id="globo-alertas">3</span>
+          <span class="nombre">Avisos</span>
+        </button>
+      </nav>
+
+      <!-- ══ Contenido ═════════════════════════════════════════════════ -->
+      <main class="contenido">
+        <header class="barra">
+          <div style="flex: 1">
+            <h1 id="titulo-vista">Estado</h1>
+            <div class="sub" id="sub-vista">Qué está pasando ahora mismo</div>
+          </div>
+
+          <div class="estado-linea">
+            <span class="latido"></span>
+            Conectado · 381 598-8735
+          </div>
+
+          <button class="boton-principal" onclick="verVista('nueva')">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+            Nueva campaña
+          </button>
+        </header>
+
+        <div class="cuerpo">
+          <!-- ── Estado ──────────────────────────────────────────────── -->
+          <section class="vista activa" id="vista-inicio">
+            <div class="rejilla cuatro" style="margin-bottom: 16px" id="kpis"></div>
+
+            <div class="rejilla dos" style="margin-bottom: 16px">
+              <div class="tarjeta cinta" style="--cinta: linear-gradient(90deg, #25d366, #0fb98b)">
+                <p class="titulo-tarjeta">
+                  <span class="baldosa" style="--t1: #d9fbe9; --t2: #a7f3d0; width: 30px; height: 30px; border-radius: 10px; font-size: 15px">📊</span>
+                  Cupo de hoy
+                </p>
+
+                <div style="display: flex; align-items: center; gap: 24px; flex-wrap: wrap">
+                  <div class="aro" id="aro-cupo" style="--a1: #25d366; --a2: #0fb98b">
+                    <div class="centro">
+                      <div class="numero-grande num degradado" style="--d1: #25d366; --d2: #0f8a6a">142</div>
+                      <div class="etiqueta-chica">de 300 hoy</div>
+                    </div>
+                  </div>
+
+                  <div style="flex: 1; min-width: 230px">
+                    <div class="fila-barra">
+                      <span>En esta hora</span>
+                      <b class="num">23 <span style="color: var(--tinta-suave); font-weight: 500">/ 60</span></b>
+                    </div>
+                    <div class="barra-progreso viva"><span data-ancho="38"></span></div>
+
+                    <div class="fila-barra" style="margin-top: 15px">
+                      <span>Le quedan por salir</span>
+                      <b class="num">158</b>
+                    </div>
+                    <div class="barra-progreso"><span data-ancho="53" style="--b1: #98a1b2; --b2: #cbd2dd"></span></div>
+
+                    <div class="fila-barra" style="margin-top: 15px">
+                      <span>Contestaron</span>
+                      <b class="num">31 <span style="color: var(--tinta-suave); font-weight: 500">/ 142</span></b>
+                    </div>
+                    <div class="barra-progreso"><span data-ancho="22" style="--b1: #7c3aed; --b2: #a855f7"></span></div>
+
+                    <p style="color: var(--tinta-media); margin: 16px 0 0; line-height: 1.55">
+                      Al ritmo de ahora termina cerca de las
+                      <b style="color: var(--tinta)">21:40</b>.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div class="tarjeta cinta" style="--cinta: linear-gradient(90deg, #ff5a5f, #dc1f2d)">
+                <p class="titulo-tarjeta">
+                  <span class="baldosa" style="--t1: #ffe4e6; --t2: #fecdd3; width: 30px; height: 30px; border-radius: 10px; font-size: 15px">🔔</span>
+                  Avisos
+                </p>
+                <div id="alertas-inicio"></div>
+              </div>
+            </div>
+
+            <div class="rejilla dos">
+              <div class="tarjeta">
+                <p class="titulo-tarjeta" style="justify-content: space-between">
+                  <span style="display: flex; align-items: center; gap: 9px">
+                    <span class="latido"></span> Saliendo ahora
+                  </span>
+                  <span style="display: flex; gap: 8px">
+                    <button class="boton-suave" style="height: 36px" onclick="avisar('Campaña pausada. Los que faltan quedan en la cola.')">Pausar</button>
+                    <button class="boton-suave" style="height: 36px; color: var(--marca)" onclick="avisar('Se frena todo. Nada más sale hoy.')">Frenar</button>
+                  </span>
+                </p>
+                <div id="cola"></div>
+              </div>
+
+              <div class="tarjeta cinta" style="--cinta: linear-gradient(90deg, #a855f7, #7c3aed)">
+                <p class="titulo-tarjeta">
+                  <span class="baldosa" style="--t1: #f3e8ff; --t2: #e9d5ff; width: 30px; height: 30px; border-radius: 10px; font-size: 15px">💚</span>
+                  Cómo viene el número
+                </p>
+                <p style="color: var(--tinta-media); line-height: 1.55; margin: 0 0 4px">
+                  Mientras más gente conteste, mejor. Un número que sólo manda y
+                  nadie responde es el que WhatsApp termina limitando.
+                </p>
+                <div class="termometro"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i></div>
+                <b style="color: var(--verde); font-size: 15px">Sano</b>
+                <p style="color: var(--tinta-media); margin: 4px 0 16px; line-height: 1.5">
+                  Contesta 1 de cada 5, y ninguno te bloqueó esta semana.
+                </p>
+
+                <div id="mini-semana"></div>
+              </div>
+            </div>
+          </section>
+
+          <!-- ── Nueva campaña ───────────────────────────────────────── -->
+          <section class="vista" id="vista-nueva">
+            <div class="pasos" id="pasos"></div>
+
+            <div class="sub-vista activa" id="paso-1">
+              <div class="rejilla dos">
+                <div>
+                  <p style="color: var(--tinta-media); margin: 0 0 14px; line-height: 1.55">
+                    El sistema ya sabe quién te compró, qué pidió y cuándo. No
+                    hace falta cargar ninguna lista.
+                  </p>
+                  <div id="lista-audiencias"></div>
+                </div>
+
+                <div class="tarjeta cinta" style="--cinta: linear-gradient(90deg, #25d366, #0fb98b); align-self: start">
+                  <p class="titulo-tarjeta">Le va a llegar a</p>
+                  <div class="numero-grande num degradado" id="total-audiencia" style="--d1: #25d366; --d2: #0f8a6a; font-size: 42px">0</div>
+                  <div class="etiqueta-chica">personas</div>
+                  <div style="margin-top: 16px" id="descuento-audiencia"></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="sub-vista" id="paso-2">
+              <div class="rejilla dos">
+                <div>
+                  <div class="caja-texto">
+                    <textarea id="texto">Hola {nombre}! 👋
+
+Hace {dias_sin_pedir} días que no te vemos y te extrañamos.
+
+Esta semana tenemos {plato} a ${precio} 🔥
+
+Pedí por acá nomás y te lo mandamos calentito 🛵</textarea>
+                    <div class="herramientas" id="herramientas"></div>
+                  </div>
+
+                  <div class="tarjeta cinta" style="--cinta: linear-gradient(90deg, #a855f7, #7c3aed); margin-top: 16px">
+                    <div style="display: flex; align-items: flex-start; gap: 13px">
+                      <span class="baldosa" style="--t1: #f3e8ff; --t2: #ddd6fe">✨</span>
+                      <div style="flex: 1">
+                        <b style="font-size: 14px">Que no llegue el mismo texto a todos</b>
+                        <div style="color: var(--tinta-media); line-height: 1.55; margin-top: 4px">
+                          Chispita arma cinco versiones que dicen lo mismo con
+                          otras palabras. A cada contacto le toca una.
+                        </div>
+                        <div style="display: flex; gap: 5px; margin-top: 12px" id="variantes"></div>
+                        <button class="boton-ia" style="margin-top: 12px" onclick="avisar('Se generarían 5 variantes para revisar')">
+                          Ver las cinco versiones
+                        </button>
+                      </div>
+                      <button class="llave prendida"></button>
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <p style="color: var(--tinta-suave); margin: 0 0 12px">
+                    Cómo le llega a <b style="color: var(--tinta)" id="nombre-ejemplo">Luciana</b>
+                  </p>
+                  <div class="telefono">
+                    <div class="cabeza">
+                      <img class="cara chica" src="client/public/rider-flame-red.png" alt="" style="box-shadow: 0 0 0 2px rgba(255,255,255,.3); background: #fff" />
+                      <div>
+                        <div style="font-weight: 620">Modo Sabor</div>
+                        <div style="font-size: 10.5px; opacity: 0.85">en línea</div>
+                      </div>
+                    </div>
+                    <div class="chats">
+                      <div class="burbuja" id="burbuja"></div>
+                    </div>
+                  </div>
+
+                  <button class="boton-suave" style="width: 100%; margin-top: 14px" onclick="cambiarEjemplo()">
+                    Ver con otro cliente
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div class="sub-vista" id="paso-3">
+              <div class="rejilla dos">
+                <div>
+                  <div class="tarjeta" style="margin-bottom: 16px">
+                    <p class="titulo-tarjeta">¿Cuándo arranca?</p>
+                    <div style="display: flex; gap: 10px; flex-wrap: wrap">
+                      <label style="flex: 1; min-width: 155px">
+                        <div style="color: var(--tinta-media); margin-bottom: 7px">Día</div>
+                        <input type="date" class="campo" style="width: 100%" value="2026-08-19" />
+                      </label>
+                      <label style="flex: 1; min-width: 155px">
+                        <div style="color: var(--tinta-media); margin-bottom: 7px">Hora</div>
+                        <input type="time" class="campo" style="width: 100%" value="20:00" />
+                      </label>
+                    </div>
+                  </div>
+
+                  <div class="tarjeta cinta" style="--cinta: linear-gradient(90deg, #fbbf24, #d97706)">
+                    <p class="titulo-tarjeta">
+                      <span class="baldosa" style="--t1: #fef3c7; --t2: #fde68a; width: 30px; height: 30px; border-radius: 10px; font-size: 15px">🌙</span>
+                      Sólo dentro de esta franja
+                    </p>
+                    <div style="display: flex; gap: 10px; flex-wrap: wrap">
+                      <label style="flex: 1; min-width: 125px">
+                        <div style="color: var(--tinta-media); margin-bottom: 7px">Desde</div>
+                        <input type="time" class="campo" style="width: 100%" value="10:00" />
+                      </label>
+                      <label style="flex: 1; min-width: 125px">
+                        <div style="color: var(--tinta-media); margin-bottom: 7px">Hasta</div>
+                        <input type="time" class="campo" style="width: 100%" value="22:00" />
+                      </label>
+                    </div>
+                    <p style="color: var(--tinta-media); line-height: 1.55; margin: 14px 0 0">
+                      Si no termina, sigue al otro día apenas se abre la franja.
+                      Nunca de madrugada.
+                    </p>
+                  </div>
+                </div>
+
+                <div class="tarjeta cinta" style="--cinta: linear-gradient(90deg, #60a5fa, #2563eb); align-self: start">
+                  <p class="titulo-tarjeta">Cuánto va a tardar</p>
+                  <div class="numero-grande num degradado" style="--d1: #60a5fa; --d2: #2563eb; font-size: 40px">2 h 40</div>
+                  <div class="etiqueta-chica">para los 320 mensajes</div>
+
+                  <div style="margin-top: 18px" id="linea-tiempo"></div>
+
+                  <p style="color: var(--tinta-media); line-height: 1.55; margin: 16px 0 0">
+                    Sale uno cada 15 a 45 segundos, con una pausa de 2 minutos
+                    cada 15. Esa demora despareja es la que hace que no parezca
+                    un robot.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div class="sub-vista" id="paso-4">
+              <div class="rejilla dos">
+                <div class="tarjeta">
+                  <p class="titulo-tarjeta">Antes de mandar, repasemos</p>
+                  <div id="repaso"></div>
+
+                  <div style="display: flex; gap: 11px; margin-top: 20px; flex-wrap: wrap">
+                    <button class="boton-verde" onclick="avisar('Se manda una prueba a tu propio número')">
+                      Mandarme una prueba
+                    </button>
+                    <button class="boton-principal" onclick="avisar('Campaña en marcha. Se ve en Estado.')">
+                      Arrancar la campaña
+                    </button>
+                  </div>
+                </div>
+
+                <div class="tarjeta cinta" style="--cinta: linear-gradient(90deg, #25d366, #0fb98b); align-self: start">
+                  <p class="titulo-tarjeta">Riesgo de esta campaña</p>
+                  <div class="termometro"><i class="on"></i><i class="on"></i><i></i><i></i><i></i></div>
+                  <b style="color: var(--verde); font-size: 15px">Bajo</b>
+                  <div style="margin-top: 12px" id="chequeos"></div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- ── Campañas ────────────────────────────────────────────── -->
+          <section class="vista" id="vista-campanas">
+            <div style="display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap" id="filtros-camp"></div>
+            <div id="lista-campanas"></div>
+          </section>
+
+          <!-- ── Audiencias ──────────────────────────────────────────── -->
+          <section class="vista" id="vista-audiencias">
+            <p style="color: var(--tinta-media); margin: 0 0 16px; line-height: 1.55">
+              Estos grupos se arman solos con lo que ya pasó en el sistema. El
+              número de al lado se actualiza todos los días.
+            </p>
+            <div id="lista-audiencias-2"></div>
+          </section>
+
+          <!-- ── Ritmo ───────────────────────────────────────────────── -->
+          <section class="vista" id="vista-ritmo">
+            <div class="tarjeta cinta" style="--cinta: linear-gradient(90deg, #fbbf24, #d97706); margin-bottom: 18px">
+              <div style="display: flex; gap: 13px">
+                <span class="baldosa" style="--t1: #fef3c7; --t2: #fde68a">⚠️</span>
+                <div style="line-height: 1.6; align-self: center">
+                  <b>Todo esto ya está funcionando hoy.</b>
+                  Lo que cambia es que ahora se ve y se puede tocar. Si aflojás
+                  los frenos mandás más rápido, pero subís la chance de que
+                  WhatsApp limite el número del local — y ese número es el que
+                  usan tus clientes para pedir.
+                </div>
+              </div>
+            </div>
+
+            <div class="rejilla dos">
+              <div id="lista-perillas"></div>
+
+              <div class="tarjeta cinta" id="tarjeta-riesgo" style="--cinta: linear-gradient(90deg, #25d366, #0fb98b); align-self: start">
+                <p class="titulo-tarjeta">Con estos valores</p>
+                <div class="termometro" id="term-ritmo"></div>
+                <b id="nivel-ritmo" style="color: var(--verde); font-size: 17px">Prudente</b>
+                <p style="color: var(--tinta-media); line-height: 1.6; margin: 8px 0 0" id="detalle-ritmo"></p>
+
+                <div style="margin-top: 16px" id="proyeccion"></div>
+
+                <button class="boton-suave" style="width: 100%; margin-top: 16px" onclick="volverADefectos()">
+                  Volver a lo recomendado
+                </button>
+              </div>
+            </div>
+          </section>
+
+          <!-- ── Automáticas ─────────────────────────────────────────── -->
+          <section class="vista" id="vista-automatico">
+            <p style="color: var(--tinta-media); margin: 0 0 16px; line-height: 1.55">
+              Campañas que salen solas cuando pasa algo, sin que las armes cada
+              vez.
+            </p>
+            <div id="lista-autos"></div>
+          </section>
+
+          <!-- ── Respuestas ──────────────────────────────────────────── -->
+          <section class="vista" id="vista-respuestas">
+            <div style="display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap" id="filtros-resp"></div>
+            <div id="lista-respuestas"></div>
+          </section>
+
+          <!-- ── Resultados ──────────────────────────────────────────── -->
+          <section class="vista" id="vista-resultados">
+            <div class="rejilla cuatro" style="margin-bottom: 16px" id="kpis-resultados"></div>
+
+            <div class="rejilla dos">
+              <div class="tarjeta">
+                <p class="titulo-tarjeta">Cuál funcionó mejor</p>
+                <div id="ranking"></div>
+              </div>
+
+              <div class="tarjeta cinta" style="--cinta: linear-gradient(90deg, #60a5fa, #2563eb); align-self: start">
+                <p class="titulo-tarjeta">A qué hora contestan más</p>
+                <div id="horas"></div>
+                <p style="color: var(--tinta-media); line-height: 1.6; margin: 14px 0 0">
+                  Sale de tus propios envíos. Mandar a las 20 rinde casi el
+                  doble que mandar a las 15.
+                </p>
+              </div>
+            </div>
+          </section>
+
+          <!-- ── Bajas ───────────────────────────────────────────────── -->
+          <section class="vista" id="vista-bajas">
+            <div class="rejilla dos">
+              <div class="tarjeta">
+                <p class="titulo-tarjeta">Los que no quieren recibir más</p>
+                <p style="color: var(--tinta-media); line-height: 1.55; margin: 0 0 14px">
+                  Se sacan solos cuando contestan pidiendo la baja, y no vuelven
+                  a entrar en ninguna campaña.
+                </p>
+                <div id="lista-bajas"></div>
+              </div>
+
+              <div class="tarjeta cinta" style="--cinta: linear-gradient(90deg, #ff5a5f, #dc1f2d); align-self: start">
+                <p class="titulo-tarjeta">Qué palabras dan de baja</p>
+
+                <p style="color: var(--tinta-media); margin: 0 0 8px">
+                  Sólo si es <b style="color: var(--tinta)">todo el mensaje</b>
+                </p>
+                <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 16px" id="palabras-exactas"></div>
+
+                <p style="color: var(--tinta-media); margin: 0 0 8px">
+                  En cualquier parte del mensaje
+                </p>
+                <div style="display: flex; gap: 6px; flex-wrap: wrap" id="palabras-libres"></div>
+
+                <p style="color: var(--tinta-media); line-height: 1.6; margin: 16px 0 0">
+                  Están separadas a propósito: si <b>no</b> diera de baja en
+                  cualquier parte, un "no me llegó el pedido" sacaría de la lista
+                  a alguien que está reclamando.
+                </p>
+              </div>
+            </div>
+          </section>
+
+          <!-- ── Avisos ──────────────────────────────────────────────── -->
+          <section class="vista" id="vista-alertas">
+            <div class="tarjeta">
+              <p class="titulo-tarjeta">Todo lo que el sistema sabe y hay que contarte</p>
+              <div id="alertas-todas"></div>
+            </div>
+          </section>
+        </div>
+      </main>
+    </div>
+
+    <div class="aviso" id="aviso"></div>
+
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const pesos = (n) => '$' + Number(n || 0).toLocaleString('es-AR');
+
+      /* Fotos reales que ya están en el proyecto. */
+      const CARAS = [
+        'client/dist/assets/user-1-CznVQ9Sv.jpg',
+        'client/dist/assets/user-2-idGLMY7R.jpg',
+        'client/dist/assets/user-3-HJ3opN5n.jpg',
+        'client/dist/assets/user-4-Bw2gSpv_.jpg',
+        'client/dist/assets/user-5-TcGtWTp3.jpg',
+        'client/dist/assets/user-6-C1-xBLNW.jpg',
+        'client/dist/assets/user-7-DCxZE3Gx.jpg',
+        'client/dist/assets/user-8-Cq1OXq_B.jpg',
+        'client/dist/assets/user-9-OyDdGsS-.jpg',
+        'client/dist/assets/user-10-BtaXUAQO.jpg',
+        'client/dist/assets/user-11-4oeL4QIr.jpg',
+        'client/dist/assets/user-12-DQjmszcx.jpg',
+      ];
+
+      const cara = (i, clase = '') =>
+        '<img class="cara ' + clase + '" src="' + CARAS[i % CARAS.length] + '" alt="" loading="lazy">';
+
+      let reloj;
+      function avisar(t) {
+        const a = $('aviso');
+        a.textContent = t;
+        a.classList.add('visible');
+        clearTimeout(reloj);
+        reloj = setTimeout(() => a.classList.remove('visible'), 2200);
+      }
+
+      /*
+        Las barras arrancan en cero y se llenan solas. El dato entra por
+        data-ancho y no por el style, justamente para poder animarlo al
+        mostrarse: una barra que ya está llena cuando la ves no cuenta nada.
+      */
+      function animarBarras(dentro) {
+        (dentro || document).querySelectorAll('[data-ancho]').forEach((b) => {
+          b.style.width = '0%';
+          requestAnimationFrame(() =>
+            setTimeout(() => {
+              b.style.width = b.dataset.ancho + '%';
+            }, 60)
+          );
+        });
+      }
+
+      /* ── Datos ──────────────────────────────────────────────────────── */
+      const KPIS = [
+        { n: '142', t: 'Enviados hoy', icono: '📤', c1: '#25d366', c2: '#0f8a6a', tend: '+18% vs ayer' },
+        { n: '31', t: 'Contestaron', icono: '💬', c1: '#a855f7', c2: '#7c3aed', tend: '+6 en la última hora' },
+        { n: '9', t: 'Terminaron pidiendo', icono: '🛵', c1: '#34d399', c2: '#059669', tend: '$118.000' },
+        { n: '2', t: 'Se dieron de baja', icono: '🚫', c1: '#ff5a5f', c2: '#dc1f2d', tend: '1,4% · normal', baja: true },
+      ];
+
+      const KPIS_RES = [
+        { n: '1.840', t: 'Mensajes en 30 días', icono: '📨', c1: '#25d366', c2: '#0f8a6a', tend: '+22%' },
+        { n: '386', t: 'Contestaron', icono: '💬', c1: '#a855f7', c2: '#7c3aed', tend: '21% de los mandados' },
+        { n: '104', t: 'Terminaron pidiendo', icono: '🛵', c1: '#34d399', c2: '#059669', tend: '+31 vs mes pasado' },
+        { n: '$1.248.000', t: 'Vendido con esto', icono: '💰', c1: '#fbbf24', c2: '#d97706', tend: '+$304.000' },
+      ];
+
+      const AUDIENCIAS = [
+        { icono: '😴', t1: '#fef3c7', t2: '#fcd34d', nombre: 'No piden hace más de 30 días', explica: 'Compraron alguna vez y desaparecieron. Es la que más vende.', gente: 312, elegida: true },
+        { icono: '⭐', t1: '#d1fae5', t2: '#6ee7b7', nombre: 'Los que más gastaron', explica: 'Los 50 mejores de los últimos seis meses.', gente: 50, elegida: false },
+        { icono: '🍕', t1: '#dbeafe', t2: '#93c5fd', nombre: 'Pidieron pizza alguna vez', explica: 'Para avisarles de una promo de pizza y nada más.', gente: 186, elegida: false },
+        { icono: '🎂', t1: '#ffe4e6', t2: '#fda4af', nombre: 'Cumplen años esta semana', explica: 'Si tenés la fecha cargada.', gente: 7, elegida: false },
+        { icono: '🆕', t1: '#ede9fe', t2: '#c4b5fd', nombre: 'Pidieron una sola vez', explica: 'Probaron y no volvieron. Vale la pena insistir una vez.', gente: 148, elegida: false },
+        { icono: '📍', t1: '#e0e7ff', t2: '#a5b4fc', nombre: 'De un barrio', explica: 'Para cuando el reparto llega sólo a una zona.', gente: 94, elegida: false },
+        { icono: '📋', t1: '#f1f5f9', t2: '#cbd5e1', nombre: 'Una lista mía', explica: 'Si tenés números sueltos, se pegan acá.', gente: 0, elegida: false },
+      ];
+
+      const CAMPANAS = [
+        { nombre: 'Volvé que te extrañamos', estado: 'andando', total: 312, mandados: 142, contestaron: 31, pidieron: 9, vendio: 118000, icono: '😴', c1: '#fef3c7', c2: '#fcd34d' },
+        { nombre: 'Viernes de pizza', estado: 'lista', total: 186, mandados: 186, contestaron: 44, pidieron: 17, vendio: 214000, icono: '🍕', c1: '#dbeafe', c2: '#93c5fd' },
+        { nombre: 'Menú de la semana', estado: 'programada', total: 240, mandados: 0, contestaron: 0, pidieron: 0, vendio: 0, icono: '🍽️', c1: '#fff7ed', c2: '#fdba74' },
+        { nombre: 'Los mejores clientes', estado: 'lista', total: 50, mandados: 50, contestaron: 22, pidieron: 14, vendio: 196000, icono: '⭐', c1: '#d1fae5', c2: '#6ee7b7' },
+        { nombre: 'Promo lluvia', estado: 'pausada', total: 120, mandados: 38, contestaron: 4, pidieron: 1, vendio: 13000, icono: '🌧️', c1: '#e0f2fe', c2: '#7dd3fc' },
+        { nombre: 'Aniversario del local', estado: 'borrador', total: 0, mandados: 0, contestaron: 0, pidieron: 0, vendio: 0, icono: '🎉', c1: '#fae8ff', c2: '#f0abfc' },
+      ];
+
+      const PERILLAS = [
+        { icono: '⏱️', t1: '#e0f2fe', t2: '#7dd3fc', nombre: 'Esperar entre un mensaje y otro', explica: 'Un rato distinto cada vez. Una cadencia exacta es la firma más obvia de un robot.', tipo: 'rango', de: 15, a: 45 },
+        { icono: '☕', t1: '#fef3c7', t2: '#fcd34d', nombre: 'Pausa larga cada tanto', explica: 'Cada 15 mensajes se toma 2 minutos, como si dejaras el teléfono.', tipo: 'llave', prendida: true },
+        { icono: '🚦', t1: '#ffe4e6', t2: '#fda4af', nombre: 'Techo por hora', explica: 'Es el freno que evita el pico repentino, que es lo que más rápido dispara la alarma.', tipo: 'numero', valor: 60 },
+        { icono: '📅', t1: '#dbeafe', t2: '#93c5fd', nombre: 'Techo por día', explica: 'Sumando todas las campañas juntas.', tipo: 'numero', valor: 300 },
+        { icono: '🌱', t1: '#d1fae5', t2: '#6ee7b7', nombre: 'Arrancar despacio y subir', explica: 'El primer día 20, y va subiendo de a 10. Para un número nuevo o uno que estuvo callado.', tipo: 'llave', prendida: false },
+        { icono: '🔁', t1: '#ede9fe', t2: '#c4b5fd', nombre: 'Nunca dos veces el mismo día', explica: 'Aunque una persona entre en dos campañas, recibe una sola.', tipo: 'llave', prendida: true },
+        { icono: '🛌', t1: '#f1f5f9', t2: '#cbd5e1', nombre: 'Días sin mandar', explica: 'Los domingos no sale nada.', tipo: 'dias' },
+        { icono: '↩️', t1: '#f1f5f9', t2: '#cbd5e1', nombre: 'Reintentar si falla', explica: 'Si un mensaje no sale, se prueba una vez más antes de darlo por perdido.', tipo: 'numero', valor: 1 },
+      ];
+
+      const AUTOS = [
+        { icono: '🎂', t1: '#ffe4e6', t2: '#fda4af', nombre: 'Saludo de cumpleaños', explica: 'A las 10 de la mañana del día, con un descuento chico. Uno por persona por año.', prendida: true, ultimo: 'salieron 3 esta semana' },
+        { icono: '😴', t1: '#fef3c7', t2: '#fcd34d', nombre: 'Recuperar al que no vuelve', explica: 'A los 30 días sin pedir le llega un mensaje. Si no contesta, no se insiste más.', prendida: true, ultimo: 'salieron 47 este mes' },
+        { icono: '🍽️', t1: '#fff7ed', t2: '#fdba74', nombre: 'Menú del día', explica: 'A las 11, sólo a los que pidieron que se los mandes. Con lo que cargaste hoy.', prendida: false, ultimo: '' },
+        { icono: '⭐', t1: '#d1fae5', t2: '#6ee7b7', nombre: 'Preguntar cómo estuvo', explica: 'Dos horas después de entregar. Si contesta mal, te avisa a vos primero.', prendida: false, ultimo: '' },
+        { icono: '🌧️', t1: '#e0f2fe', t2: '#7dd3fc', nombre: 'Promo de día de lluvia', explica: 'Si el pronóstico da lluvia a la noche, propone una promo. La aprobás vos.', prendida: false, ultimo: '' },
+      ];
+
+      const RESPUESTAS = [
+        { i: 0, quien: 'Luciana Farías', tel: '381 544-2210', texto: 'Hola! Sí, quiero pedir. Tienen la napolitana?', cuando: 'hace 4 min', tipo: 'interesado' },
+        { i: 1, quien: 'Ramiro Paz', tel: '381 511-8890', texto: 'Cuánto sale la grande?', cuando: 'hace 12 min', tipo: 'interesado' },
+        { i: 2, quien: 'Sofía Medina', tel: '381 522-3341', texto: 'baja', cuando: 'hace 40 min', tipo: 'baja' },
+        { i: 3, quien: 'Diego Ávila', tel: '381 566-7712', texto: 'Gracias, ahora no. Otro día!', cuando: 'hace 1 h', tipo: 'otro' },
+        { i: 4, quien: 'Carla Vera', tel: '381 533-9087', texto: 'no me llegó el pedido de ayer', cuando: 'hace 2 h', tipo: 'reclamo' },
+        { i: 5, quien: 'Nico Ruiz', tel: '381 577-1123', texto: 'Ya pedí, gracias!', cuando: 'hace 3 h', tipo: 'otro' },
+      ];
+
+      const ALERTAS = [
+        { texto: 'Mensajes que no salieron', detalle: 'Se pueden reintentar', cuantos: 4, hay: true },
+        { texto: 'Un reclamo entre las respuestas', detalle: 'Carla V. dice que no le llegó el pedido de ayer', cuantos: 1, hay: true },
+        { texto: 'Números que no existen', detalle: 'Conviene sacarlos de la lista', cuantos: 3, hay: true },
+        { texto: 'Se dieron de baja hoy', detalle: '', cuantos: 2, hay: false },
+        { texto: 'Problemas con la conexión', detalle: '', cuantos: 0, hay: false },
+      ];
+
+      const BAJAS = [
+        { i: 2, quien: 'Sofía Medina', tel: '381 522-3341', cuando: 'hoy', como: 'escribió "baja"' },
+        { i: 6, quien: 'Martín Godoy', tel: '381 509-4412', cuando: 'ayer', como: 'escribió "no quiero más mensajes"' },
+        { i: 7, quien: 'Sin nombre', tel: '381 588-2019', cuando: 'hace 3 días', como: 'lo agregaste a mano' },
+      ];
+
+      const EXACTAS = ['baja', 'no', 'basta', 'stop', 'salir', 'cancelar'];
+      const LIBRES = ['sacame', 'desuscribir', 'no molestes', 'dejá de escribir', 'no quiero mensajes'];
+
+      const CLIENTES = [
+        { i: 0, nombre: 'Luciana', dias: 34, plato: 'pizza napolitana', precio: 9000 },
+        { i: 1, nombre: 'Ramiro', dias: 51, plato: 'la Demencial', precio: 13000 },
+        { i: 4, nombre: 'Carla', dias: 38, plato: 'papas cheddar', precio: 7500 },
+      ];
+      let iCliente = 0;
+
+      const EN_COLA = [
+        { i: 0, quien: 'Luciana Farías', tel: '381 544-2210', estado: 'ahora' },
+        { i: 1, quien: 'Ramiro Paz', tel: '381 511-8890', segundos: 28 },
+        { i: 2, quien: 'Sofía Medina', tel: '381 522-3341', segundos: 61 },
+        { i: 3, quien: 'Diego Ávila', tel: '381 566-7712', segundos: 94 },
+        { i: 4, quien: 'Carla Vera', tel: '381 533-9087', segundos: 132 },
+        { i: 5, quien: 'Nico Ruiz', tel: '381 577-1123', segundos: 291, pausa: true },
+      ];
+
+      /* ── Vistas ─────────────────────────────────────────────────────── */
+      const TITULOS = {
+        inicio: ['Estado', 'Qué está pasando ahora mismo'],
+        nueva: ['Nueva campaña', 'Cuatro pasos y sale'],
+        campanas: ['Campañas', 'Todo lo que mandaste'],
+        audiencias: ['A quién le mando', 'Grupos que se arman solos'],
+        ritmo: ['Ritmo y seguridad', 'Los frenos que cuidan tu número'],
+        automatico: ['Mandar solo', 'Campañas que salen sin que las armes'],
+        respuestas: ['Respuestas', 'Lo que contestó la gente'],
+        resultados: ['Resultados', 'Qué trajo plata de verdad'],
+        bajas: ['Bajas y bloqueados', 'Los que no quieren recibir más'],
+        alertas: ['Avisos', 'Lo que necesita tu atención'],
+      };
+
+      function verVista(cual) {
+        document.querySelectorAll('.vista').forEach((v) => v.classList.remove('activa'));
+        const v = $('vista-' + cual);
+        v?.classList.add('activa');
+        document.querySelectorAll('[data-vista]').forEach((b) =>
+          b.classList.toggle('activo', b.dataset.vista === cual)
+        );
+        const [t, s] = TITULOS[cual] || ['', ''];
+        $('titulo-vista').textContent = t;
+        $('sub-vista').textContent = s;
+        animarBarras(v);
+        if (cual === 'inicio') $('aro-cupo').style.setProperty('--p', 47);
+      }
+
+      document.querySelectorAll('[data-vista]').forEach((b) => {
+        b.onclick = () => verVista(b.dataset.vista);
+      });
+
+      /* ── Indicadores ────────────────────────────────────────────────── */
+      const pintarKpis = (donde, datos) => {
+        $(donde).innerHTML = datos
+          .map(
+            (k) =>
+              '<div class="kpi"><span class="halo" style="--halo:' + k.c1 + '"></span>' +
+              '<span class="marca-kpi">' + k.icono + '</span>' +
+              '<div class="numero-grande num degradado" style="--d1:' + k.c1 + ';--d2:' + k.c2 + '">' + k.n + '</div>' +
+              '<div class="etiqueta-chica">' + k.t + '</div>' +
+              '<span class="tendencia' + (k.baja ? ' baja' : '') + '">' + k.tend + '</span></div>'
+          )
+          .join('');
+      };
+
+      /* ── Cola ───────────────────────────────────────────────────────── */
+      const mmss = (s) => Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+
+      function pintarCola() {
+        $('cola').innerHTML =
+          EN_COLA.map(
+            (c) =>
+              '<div class="fila-cola' + (c.estado === 'ahora' ? ' ahora' : '') + '">' +
+              '<span class="con-sello">' + cara(c.i) +
+              '<span class="sello" style="background:' +
+              (c.estado === 'ahora' ? 'linear-gradient(135deg,#25d366,#0f8a6a)' : '#98a1b2') + '">' +
+              (c.estado === 'ahora' ? '↑' : '·') + '</span></span>' +
+              '<span class="quien"><b>' + c.quien + '</b>' +
+              '<div class="tel">' + c.tel + '</div></span>' +
+              '<span class="reloj">' +
+              (c.estado === 'ahora'
+                ? '<b style="color:var(--wa-oscuro)">saliendo</b>'
+                : (c.pausa ? '☕ pausa · ' : 'en ') + mmss(c.segundos)) +
+              '</span></div>'
+          ).join('') +
+          '<p style="text-align:center;color:var(--tinta-suave);margin:14px 0 0">y 152 más en la cola</p>';
+      }
+
+      setInterval(() => {
+        EN_COLA.forEach((c) => {
+          if (c.segundos > 0) c.segundos -= 1;
+        });
+        if ($('vista-inicio').classList.contains('activa')) pintarCola();
+      }, 1000);
+
+      /* ── Semana ─────────────────────────────────────────────────────── */
+      function pintarSemana() {
+        const dias = [
+          ['lun', 62], ['mar', 48], ['mié', 71], ['jue', 55],
+          ['vie', 96], ['sáb', 88], ['dom', 0],
+        ];
+        const tope = Math.max(...dias.map((d) => d[1]));
+        $('mini-semana').innerHTML =
+          '<div style="color:var(--tinta-suave);margin-bottom:9px">Mandados esta semana</div>' +
+          '<div style="display:flex;gap:6px;align-items:flex-end;height:76px">' +
+          dias
+            .map(
+              ([d, v]) =>
+                '<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:6px">' +
+                '<div style="width:100%;height:60px;display:flex;align-items:flex-end">' +
+                '<div data-ancho="' + Math.round((v / tope) * 100) + '" style="width:100%;height:0%;' +
+                'border-radius:7px 7px 3px 3px;transition:height 1s cubic-bezier(.2,.8,.3,1);' +
+                'background:linear-gradient(180deg,#a855f7,#7c3aed);box-shadow:0 4px 12px -4px rgba(124,58,237,.7)" ' +
+                'class="barrita" title="' + v + '"></div></div>' +
+                '<span style="color:var(--tinta-suave);font-size:10.5px">' + d + '</span></div>'
+            )
+            .join('') +
+          '</div>';
+
+        /* Estas van por alto, no por ancho: se animan aparte. */
+        setTimeout(() => {
+          $('mini-semana').querySelectorAll('.barrita').forEach((b) => {
+            b.style.height = b.dataset.ancho + '%';
+            b.removeAttribute('data-ancho');
+          });
+        }, 180);
+      }
+
+      /* ── Audiencias ─────────────────────────────────────────────────── */
+      const topeAud = Math.max(...AUDIENCIAS.map((a) => a.gente));
+
+      function pintarAudiencias() {
+        const html = AUDIENCIAS.map(
+          (a, i) =>
+            '<button class="audiencia' + (a.elegida ? ' elegida' : '') + '" data-aud="' + i + '">' +
+            '<span class="baldosa" style="--t1:' + a.t1 + ';--t2:' + a.t2 + '">' + a.icono + '</span>' +
+            '<span style="flex:1;min-width:0"><b style="font-size:14px">' + a.nombre + '</b>' +
+            '<div class="explica">' + a.explica + '</div></span>' +
+            '<span class="cuantos"><b>' + a.gente.toLocaleString('es-AR') + '</b>' +
+            '<div class="etiqueta-chica">personas</div>' +
+            '<span class="peso"><span data-ancho="' + Math.round((a.gente / topeAud) * 100) + '"></span></span>' +
+            '</span></button>'
+        ).join('');
+
+        $('lista-audiencias').innerHTML = html;
+        $('lista-audiencias-2').innerHTML = html;
+
+        document.querySelectorAll('[data-aud]').forEach((b) => {
+          b.onclick = () => {
+            AUDIENCIAS[Number(b.dataset.aud)].elegida = !AUDIENCIAS[Number(b.dataset.aud)].elegida;
+            pintarAudiencias();
+          };
+        });
+
+        const elegidas = AUDIENCIAS.filter((a) => a.elegida);
+        const bruto = elegidas.reduce((s, a) => s + a.gente, 0);
+        const bajas = Math.min(3, bruto);
+        const repetidos = elegidas.length > 1 ? Math.round(bruto * 0.06) : 0;
+        const hoyYa = bruto ? 8 : 0;
+        const neto = Math.max(0, bruto - bajas - repetidos - hoyYa);
+
+        $('total-audiencia').textContent = neto.toLocaleString('es-AR');
+
+        const linea = (k, v, color) =>
+          '<div style="display:flex;justify-content:space-between;padding:7px 0;border-top:1px solid var(--linea)">' +
+          '<span style="color:var(--tinta-media)">' + k + '</span>' +
+          '<b class="num" style="color:' + (color || 'var(--tinta)') + '">' + v + '</b></div>';
+
+        $('descuento-audiencia').innerHTML = bruto
+          ? linea('En los grupos elegidos', bruto.toLocaleString('es-AR')) +
+            linea('Pidieron la baja', '−' + bajas, 'var(--marca)') +
+            (repetidos ? linea('Están en dos grupos', '−' + repetidos, 'var(--marca)') : '') +
+            linea('Ya recibieron hoy', '−' + hoyYa, 'var(--marca)')
+          : '<p style="color:var(--tinta-suave);margin:0">Elegí al menos un grupo.</p>';
+
+        animarBarras($('vista-audiencias'));
+        animarBarras($('paso-1'));
+      }
+
+      /* ── Mensaje ────────────────────────────────────────────────────── */
+      const COMODINES = [
+        ['{nombre}', 'Nombre'],
+        ['{dias_sin_pedir}', 'Días sin pedir'],
+        ['{plato}', 'Su plato'],
+        ['{precio}', 'Precio'],
+        ['{ultimo_pedido}', 'Último pedido'],
+      ];
+
+      function pintarHerramientas() {
+        $('herramientas').innerHTML =
+          COMODINES.map(
+            ([c, n]) => '<button class="pastilla-comodin" data-com="' + c + '">' + n + '</button>'
+          ).join('') +
+          '<button class="boton-ia" style="height:32px;font-size:12px" onclick="escribirConIa()">✨ Chispita</button>' +
+          '<span class="contador" id="contador">0</span>';
+
+        $('herramientas').querySelectorAll('[data-com]').forEach((b) => {
+          b.onclick = () => {
+            $('texto').value += ' ' + b.dataset.com;
+            actualizarPrevia();
+          };
+        });
+
+        $('variantes').innerHTML = Array.from(
+          { length: 5 },
+          (_, i) =>
+            '<span style="flex:1;height:6px;border-radius:999px;background:linear-gradient(90deg,#a855f7,#7c3aed);' +
+            'opacity:' + (1 - i * 0.15) + '"></span>'
+        ).join('');
+      }
+
+      function actualizarPrevia() {
+        const bruto = $('texto').value;
+        const c = CLIENTES[iCliente];
+        const listo = bruto
+          .replace(/\{nombre\}/g, '<span class="comodin">' + c.nombre + '</span>')
+          .replace(/\{dias_sin_pedir\}/g, '<span class="comodin">' + c.dias + '</span>')
+          .replace(/\{plato\}/g, '<span class="comodin">' + c.plato + '</span>')
+          .replace(/\{precio\}/g, '<span class="comodin">' + c.precio.toLocaleString('es-AR') + '</span>')
+          .replace(/\{ultimo_pedido\}/g, '<span class="comodin">hace ' + c.dias + ' días</span>');
+
+        $('burbuja').innerHTML = listo + '<span class="hora">20:14 ✓✓</span>';
+        const cont = $('contador');
+        if (cont) cont.textContent = bruto.length;
+      }
+
+      function cambiarEjemplo() {
+        iCliente = (iCliente + 1) % CLIENTES.length;
+        $('nombre-ejemplo').textContent = CLIENTES[iCliente].nombre;
+        actualizarPrevia();
+      }
+
+      function escribirConIa() {
+        $('texto').value =
+          'Hola {nombre}! 👋\n\n' +
+          'Hace {dias_sin_pedir} días que no pedís y te tenemos algo:\n' +
+          '{plato} a ${precio} 🔥\n\n' +
+          'Contestame por acá y te lo mandamos calentito 🛵';
+        actualizarPrevia();
+        avisar('Chispita escribió con los datos de tu carta');
+      }
+
+      /* ── Pasos ──────────────────────────────────────────────────────── */
+      const PASOS = ['A quién', 'El mensaje', 'Cuándo', 'Repasar'];
+      let pasoActual = 1;
+
+      function pintarPasos() {
+        $('pasos').innerHTML =
+          PASOS.map(
+            (p, i) =>
+              '<button class="paso' + (i + 1 === pasoActual ? ' activo' : i + 1 < pasoActual ? ' hecho' : '') +
+              '" data-paso="' + (i + 1) + '">' +
+              '<span class="bolita">' + (i + 1 < pasoActual ? '✓' : i + 1) + '</span>' + p + '</button>' +
+              (i < PASOS.length - 1 ? '<span class="flecha">›</span>' : '')
+          ).join('') +
+          '<span style="margin-left:auto;display:flex;gap:9px">' +
+          (pasoActual > 1 ? '<button class="boton-suave" onclick="irPaso(' + (pasoActual - 1) + ')">Atrás</button>' : '') +
+          (pasoActual < 4 ? '<button class="boton-principal" onclick="irPaso(' + (pasoActual + 1) + ')">Seguir</button>' : '') +
+          '</span>';
+
+        $('pasos').querySelectorAll('[data-paso]').forEach((b) => {
+          b.onclick = () => irPaso(Number(b.dataset.paso));
+        });
+      }
+
+      function irPaso(n) {
+        pasoActual = n;
+        document.querySelectorAll('.sub-vista').forEach((s) => s.classList.remove('activa'));
+        const s = $('paso-' + n);
+        s.classList.add('activa');
+        pintarPasos();
+        if (n === 3) pintarLineaTiempo();
+        if (n === 4) pintarRepaso();
+        animarBarras(s);
+      }
+
+      function pintarLineaTiempo() {
+        const tramos = [
+          ['20:00', 'arranca', '#25d366'],
+          ['20:45', '60 mandados', '#0fb98b'],
+          ['21:30', '120 mandados', '#60a5fa'],
+          ['22:00', 'corta por horario', '#d97706'],
+          ['10:00', 'sigue mañana', '#98a1b2'],
+        ];
+        $('linea-tiempo').innerHTML = tramos
+          .map(
+            ([h, t, c], i) =>
+              '<div style="display:flex;gap:12px;align-items:flex-start">' +
+              '<div style="display:flex;flex-direction:column;align-items:center">' +
+              '<span style="width:11px;height:11px;border-radius:999px;background:' + c +
+              ';box-shadow:0 0 0 3px ' + c + '25"></span>' +
+              (i < tramos.length - 1 ? '<span style="width:2px;height:26px;background:var(--linea)"></span>' : '') +
+              '</div>' +
+              '<div style="padding-bottom:10px"><b class="num">' + h + '</b>' +
+              '<div style="color:var(--tinta-media)">' + t + '</div></div></div>'
+          )
+          .join('');
+      }
+
+      function pintarRepaso() {
+        const elegidas = AUDIENCIAS.filter((a) => a.elegida);
+        const filas = [
+          ['👥', 'A quién', elegidas.map((a) => a.nombre).join(', ') || 'nadie todavía'],
+          ['#️⃣', 'Cuántos', $('total-audiencia').textContent + ' personas'],
+          ['📅', 'Cuándo', 'Hoy 19 de agosto a las 20:00'],
+          ['⏳', 'Cuánto tarda', 'unas 2 h 40, dentro de la franja de 10 a 22'],
+          ['⏱️', 'Ritmo', 'uno cada 15 a 45 seg, pausa cada 15'],
+          ['✨', 'Texto', 'cinco versiones distintas, una por contacto'],
+        ];
+        $('repaso').innerHTML = filas
+          .map(
+            ([ic, k, v]) =>
+              '<div style="display:flex;gap:12px;align-items:center;padding:11px 0;border-top:1px solid var(--linea)">' +
+              '<span style="font-size:17px;width:24px">' + ic + '</span>' +
+              '<span style="color:var(--tinta-suave);width:110px">' + k + '</span>' +
+              '<b style="flex:1">' + v + '</b></div>'
+          )
+          .join('');
+
+        const ok = [
+          '320 mensajes está dentro del cupo diario',
+          'El texto cambia en cada envío',
+          'Nadie de la lista pidió la baja',
+          'Sale en horario razonable',
+        ];
+        $('chequeos').innerHTML = ok
+          .map(
+            (t) =>
+              '<div style="display:flex;gap:9px;align-items:center;padding:6px 0">' +
+              '<span style="width:19px;height:19px;border-radius:999px;background:linear-gradient(135deg,#25d366,#0f8a6a);' +
+              'color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;flex-shrink:0">✓</span>' +
+              '<span style="color:var(--tinta-media);line-height:1.45">' + t + '</span></div>'
+          )
+          .join('');
+      }
+
+      /* ── Campañas ───────────────────────────────────────────────────── */
+      const FILTROS = ['Todas', 'Andando', 'Programadas', 'Terminadas', 'Borradores'];
+      let filtroCamp = 'Todas';
+
+      function pintarCampanas() {
+        $('filtros-camp').innerHTML = FILTROS.map(
+          (f) =>
+            '<button class="' + (f === filtroCamp ? 'boton-principal' : 'boton-suave') +
+            '" style="height:38px;font-size:12.5px" data-fc="' + f + '">' + f + '</button>'
+        ).join('');
+
+        $('filtros-camp').querySelectorAll('[data-fc]').forEach((b) => {
+          b.onclick = () => {
+            filtroCamp = b.dataset.fc;
+            pintarCampanas();
+          };
+        });
+
+        const mapa = { Andando: 'andando', Programadas: 'programada', Terminadas: 'lista', Borradores: 'borrador' };
+        const nombres = { andando: 'Andando', lista: 'Terminada', programada: 'Programada', borrador: 'Borrador', pausada: 'Pausada' };
+
+        const visibles = CAMPANAS.filter((c) => filtroCamp === 'Todas' || c.estado === mapa[filtroCamp]);
+
+        $('lista-campanas').innerHTML = visibles.length
+          ? visibles
+              .map((c) => {
+                const pct = c.total ? Math.round((c.mandados / c.total) * 100) : 0;
+                const tasa = c.mandados ? Math.round((c.pidieron / c.mandados) * 100) : 0;
+                return (
+                  '<div class="tarjeta viva" style="margin-bottom:12px">' +
+                  '<div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">' +
+                  '<span class="baldosa" style="--t1:' + c.c1 + ';--t2:' + c.c2 + '">' + c.icono + '</span>' +
+                  '<span style="flex:1;min-width:180px">' +
+                  '<b style="font-size:15px">' + c.nombre + '</b>' +
+                  '<div style="margin-top:5px"><span class="chapa ' + c.estado + '">' + nombres[c.estado] + '</span></div>' +
+                  '</span>' +
+                  ['Mandados|' + (c.mandados || '—'), 'Contestaron|' + (c.contestaron || '—'), 'Pidieron|' + (c.pidieron || '—')]
+                    .map((x) => {
+                      const [k, v] = x.split('|');
+                      return (
+                        '<span style="min-width:84px"><div class="etiqueta-chica" style="margin:0">' + k + '</div>' +
+                        '<b class="num" style="font-size:17px">' + v + '</b></span>'
+                      );
+                    })
+                    .join('') +
+                  '<span style="min-width:110px;text-align:right"><div class="etiqueta-chica" style="margin:0">Vendió</div>' +
+                  '<b class="num degradado" style="font-size:19px;--d1:#34d399;--d2:#059669">' +
+                  (c.vendio ? pesos(c.vendio) : '—') + '</b></span></div>' +
+                  (c.total
+                    ? '<div style="margin-top:14px">' +
+                      '<div class="fila-barra" style="margin-bottom:6px">' +
+                      '<span>' + c.mandados + ' de ' + c.total + '</span>' +
+                      '<span>' + (tasa ? 'pidió el ' + tasa + '%' : '') + '</span></div>' +
+                      '<div class="barra-progreso fina' + (c.estado === 'andando' ? ' viva' : '') + '">' +
+                      '<span data-ancho="' + pct + '" style="' +
+                      (c.estado === 'pausada' ? '--b1:#fbbf24;--b2:#d97706' : '') + '"></span></div></div>'
+                    : '') +
+                  '</div>'
+                );
+              })
+              .join('')
+          : '<p style="text-align:center;color:var(--tinta-suave);padding:40px 0">No hay ninguna así.</p>';
+
+        animarBarras($('vista-campanas'));
+      }
+
+      /* ── Ritmo ──────────────────────────────────────────────────────── */
+      function pintarPerillas() {
+        $('lista-perillas').innerHTML = PERILLAS.map((p, i) => {
+          let control = '';
+          if (p.tipo === 'llave')
+            control = '<button class="llave' + (p.prendida ? ' prendida' : '') + '" data-per="' + i + '"></button>';
+          else if (p.tipo === 'numero')
+            control = '<input class="campo num" type="number" value="' + p.valor + '" data-num="' + i + '" style="width:92px">';
+          else if (p.tipo === 'rango')
+            control =
+              '<input class="campo num" type="number" value="' + p.de + '" style="width:70px;min-width:0"> ' +
+              '<span style="color:var(--tinta-suave)">a</span> ' +
+              '<input class="campo num" type="number" value="' + p.a + '" style="width:70px;min-width:0">' +
+              '<span style="color:var(--tinta-suave)">seg</span>';
+          else if (p.tipo === 'dias')
+            control = '<select class="campo"><option>Domingos</option><option>Ninguno</option><option>Sáb y dom</option></select>';
+
+          return (
+            '<div class="perilla">' +
+            '<span class="baldosa" style="--t1:' + p.t1 + ';--t2:' + p.t2 + '">' + p.icono + '</span>' +
+            '<span class="cuerpo-perilla"><b style="font-size:14px">' + p.nombre + '</b>' +
+            '<div class="explica">' + p.explica + '</div></span>' +
+            '<span class="control">' + control + '</span></div>'
+          );
+        }).join('');
+
+        $('lista-perillas').querySelectorAll('[data-per]').forEach((b) => {
+          b.onclick = () => {
+            PERILLAS[Number(b.dataset.per)].prendida = !PERILLAS[Number(b.dataset.per)].prendida;
+            pintarPerillas();
+            calcularRiesgo();
+          };
+        });
+
+        $('lista-perillas').querySelectorAll('[data-num]').forEach((inp) => {
+          inp.oninput = () => {
+            PERILLAS[Number(inp.dataset.num)].valor = Number(inp.value) || 0;
+            calcularRiesgo();
+          };
+        });
+      }
+
+      function calcularRiesgo() {
+        const porDia = PERILLAS[3].valor;
+        const porHora = PERILLAS[2].valor;
+        const pausa = PERILLAS[1].prendida;
+        const unaVez = PERILLAS[5].prendida;
+
+        let r = 1;
+        if (porDia > 400) r += 1;
+        if (porDia > 800) r += 1;
+        if (porHora > 90) r += 1;
+        if (!pausa) r += 1;
+        if (!unaVez) r += 1;
+        r = Math.min(5, r);
+
+        const term = $('term-ritmo');
+        term.className = 'termometro' + (r >= 4 ? ' alto' : r === 3 ? ' medio' : '');
+        term.innerHTML = Array.from({ length: 5 }, (_, i) =>
+          i < r ? '<i class="on"></i>' : '<i></i>'
+        ).join('');
+
+        const niveles = [
+          null,
+          ['Prudente', 'var(--verde)', 'Es el ritmo de alguien escribiendo, no de un programa.', '#25d366,#0fb98b'],
+          ['Prudente', 'var(--verde)', 'Es el ritmo de alguien escribiendo, no de un programa.', '#25d366,#0fb98b'],
+          ['Movido', 'var(--ambar)', 'Va a andar bien casi siempre, pero está más cerca del límite.', '#fbbf24,#d97706'],
+          ['Arriesgado', 'var(--ambar)', 'Con este volumen ya conviene mirar el número seguido.', '#fbbf24,#d97706'],
+          ['Peligroso', 'var(--marca)', 'Así es como WhatsApp limita un número. Y ese número es el que usan tus clientes para pedir.', '#ff5a5f,#dc1f2d'],
+        ];
+        const [txt, color, det, cinta] = niveles[r];
+        $('nivel-ritmo').textContent = txt;
+        $('nivel-ritmo').style.color = color;
+        $('detalle-ritmo').textContent = det;
+        $('tarjeta-riesgo').style.setProperty('--cinta', 'linear-gradient(90deg,' + cinta + ')');
+
+        const horas = porHora ? Math.ceil(porDia / porHora) : 0;
+        $('proyeccion').innerHTML =
+          '<div style="display:flex;gap:14px;flex-wrap:wrap">' +
+          [
+            ['Por día', porDia.toLocaleString('es-AR')],
+            ['Por hora', porHora],
+            ['Horas de envío', horas],
+          ]
+            .map(
+              ([k, v]) =>
+                '<span style="flex:1;min-width:78px"><div class="etiqueta-chica" style="margin:0">' + k + '</div>' +
+                '<b class="num" style="font-size:19px">' + v + '</b></span>'
+            )
+            .join('') +
+          '</div>';
+      }
+
+      function volverADefectos() {
+        PERILLAS[1].prendida = true;
+        PERILLAS[2].valor = 60;
+        PERILLAS[3].valor = 300;
+        PERILLAS[5].prendida = true;
+        pintarPerillas();
+        calcularRiesgo();
+        avisar('Volvió a los valores recomendados');
+      }
+
+      /* ── Automáticas ────────────────────────────────────────────────── */
+      function pintarAutos() {
+        $('lista-autos').innerHTML = AUTOS.map(
+          (a, i) =>
+            '<div class="perilla">' +
+            '<span class="baldosa" style="--t1:' + a.t1 + ';--t2:' + a.t2 + '">' + a.icono + '</span>' +
+            '<span class="cuerpo-perilla"><b style="font-size:14px">' + a.nombre + '</b>' +
+            '<div class="explica">' + a.explica + '</div>' +
+            (a.ultimo && a.prendida
+              ? '<span class="chapa lista" style="margin-top:8px">' + a.ultimo + '</span>'
+              : '') +
+            '</span>' +
+            '<button class="llave' + (a.prendida ? ' prendida' : '') + '" data-auto="' + i + '"></button></div>'
+        ).join('');
+
+        $('lista-autos').querySelectorAll('[data-auto]').forEach((b) => {
+          b.onclick = () => {
+            const a = AUTOS[Number(b.dataset.auto)];
+            a.prendida = !a.prendida;
+            pintarAutos();
+            avisar(a.nombre + (a.prendida ? ' · activada' : ' · desactivada'));
+          };
+        });
+      }
+
+      /* ── Respuestas ─────────────────────────────────────────────────── */
+      const MARCAS = {
+        interesado: ['Quiere pedir', 'var(--verde-suave)', 'var(--verde)', '#34d399,#059669'],
+        baja: ['Pidió la baja', 'var(--marca-suave)', 'var(--marca)', '#ff5a5f,#dc1f2d'],
+        reclamo: ['Reclamo', 'var(--ambar-suave)', 'var(--ambar)', '#fbbf24,#d97706'],
+        otro: ['Otra cosa', '#f1f3f7', 'var(--tinta-media)', '#cbd5e1,#94a3b8'],
+      };
+
+      const FILTROS_R = ['Todas', 'Quiere pedir', 'Reclamo', 'Pidió la baja'];
+      let filtroResp = 'Todas';
+
+      function pintarRespuestas() {
+        $('filtros-resp').innerHTML = FILTROS_R.map((f) => {
+          const n =
+            f === 'Todas'
+              ? RESPUESTAS.length
+              : RESPUESTAS.filter((r) => MARCAS[r.tipo][0] === f).length;
+          return (
+            '<button class="' + (f === filtroResp ? 'boton-principal' : 'boton-suave') +
+            '" style="height:38px;font-size:12.5px" data-fr="' + f + '">' + f +
+            ' <span style="opacity:.65">' + n + '</span></button>'
+          );
+        }).join('');
+
+        $('filtros-resp').querySelectorAll('[data-fr]').forEach((b) => {
+          b.onclick = () => {
+            filtroResp = b.dataset.fr;
+            pintarRespuestas();
+          };
+        });
+
+        const visibles = RESPUESTAS.filter(
+          (r) => filtroResp === 'Todas' || MARCAS[r.tipo][0] === filtroResp
+        );
+
+        $('lista-respuestas').innerHTML = visibles.length
+          ? visibles
+              .map((r) => {
+                const [et, bg, fg, grad] = MARCAS[r.tipo];
+                return (
+                  '<div class="tarjeta viva" style="margin-bottom:12px">' +
+                  '<div style="display:flex;gap:14px;align-items:flex-start">' +
+                  '<span class="con-sello">' + cara(r.i, 'grande') +
+                  '<span class="sello" style="background:linear-gradient(135deg,' + grad + ')"></span></span>' +
+                  '<span style="flex:1;min-width:0">' +
+                  '<b style="font-size:14.5px">' + r.quien + '</b>' +
+                  '<span style="color:var(--tinta-suave)"> · ' + r.tel + ' · ' + r.cuando + '</span>' +
+                  '<div style="margin:7px 0 10px;line-height:1.5;font-size:14px">' + r.texto + '</div>' +
+                  '<span class="chapa" style="background:' + bg + ';color:' + fg + '">' + et + '</span>' +
+                  '</span>' +
+                  '<span style="display:flex;gap:8px;flex-shrink:0">' +
+                  '<button class="boton-suave" style="height:38px" onclick="avisar(\'Se abriría el chat\')">Abrir chat</button>' +
+                  '<button class="boton-ia" onclick="avisar(\'Chispita propone una respuesta\')">✨</button>' +
+                  '</span></div></div>'
+                );
+              })
+              .join('')
+          : '<p style="text-align:center;color:var(--tinta-suave);padding:40px 0">Nada acá.</p>';
+      }
+
+      /* ── Resultados ─────────────────────────────────────────────────── */
+      function pintarResultados() {
+        const mejores = CAMPANAS.filter((c) => c.vendio).sort((a, b) => b.vendio - a.vendio);
+        const tope = mejores[0]?.vendio || 1;
+
+        $('ranking').innerHTML = mejores
+          .map((c, i) => {
+            const tasa = c.mandados ? Math.round((c.pidieron / c.mandados) * 100) : 0;
+            return (
+              '<div style="display:flex;align-items:center;gap:13px;padding:12px 0;border-top:1px solid var(--linea)">' +
+              '<b style="width:22px;color:var(--tinta-suave);font-size:15px">' + (i + 1) + '</b>' +
+              '<span class="baldosa" style="--t1:' + c.c1 + ';--t2:' + c.c2 + ';width:38px;height:38px;border-radius:12px;font-size:17px">' +
+              c.icono + '</span>' +
+              '<span style="flex:1;min-width:0"><b>' + c.nombre + '</b>' +
+              '<div class="barra-progreso fina" style="margin-top:7px"><span data-ancho="' +
+              Math.round((c.vendio / tope) * 100) + '" style="--b1:#34d399;--b2:#059669"></span></div>' +
+              '<div style="color:var(--tinta-suave);font-size:11.5px;margin-top:5px">' +
+              c.mandados + ' mandados · pidió el ' + tasa + '%</div></span>' +
+              '<b class="num" style="font-size:16px">' + pesos(c.vendio) + '</b></div>'
+            );
+          })
+          .join('');
+
+        const HORAS = [
+          ['11 a 13', 22],
+          ['13 a 16', 14],
+          ['16 a 19', 31],
+          ['19 a 21', 58],
+          ['21 a 23', 41],
+        ];
+        const t2 = Math.max(...HORAS.map((h) => h[1]));
+        $('horas').innerHTML = HORAS.map(
+          ([h, v]) =>
+            '<div style="display:flex;align-items:center;gap:11px;margin-bottom:10px">' +
+            '<span style="width:58px;color:var(--tinta-media)">' + h + '</span>' +
+            '<span style="flex:1"><span class="barra-progreso fina"><span data-ancho="' +
+            Math.round((v / t2) * 100) + '" style="--b1:' + (v === t2 ? '#60a5fa' : '#c7d2fe') +
+            ';--b2:' + (v === t2 ? '#2563eb' : '#a5b4fc') + '"></span></span></span>' +
+            '<b class="num" style="width:36px;text-align:right">' + v + '%</b></div>'
+        ).join('');
+
+        animarBarras($('vista-resultados'));
+      }
+
+      /* ── Bajas ──────────────────────────────────────────────────────── */
+      function pintarBajas() {
+        $('lista-bajas').innerHTML =
+          BAJAS.map(
+            (b) =>
+              '<div class="fila-cola"><span class="con-sello">' + cara(b.i) +
+              '<span class="sello" style="background:linear-gradient(135deg,#ff5a5f,#dc1f2d)">✕</span></span>' +
+              '<span class="quien"><b>' + b.quien + '</b>' +
+              '<div class="tel">' + b.tel + ' · ' + b.como + '</div></span>' +
+              '<span class="reloj">' + b.cuando + '</span></div>'
+          ).join('') +
+          '<button class="boton-suave" style="width:100%;margin-top:12px" onclick="avisar(\'Se abriría para pegar números\')">Agregar a mano</button>';
+
+        const pastilla = (p, fuerte) =>
+          '<span class="chapa" style="background:' + (fuerte ? 'var(--marca-suave)' : '#f1f3f7') +
+          ';color:' + (fuerte ? 'var(--marca)' : 'var(--tinta-media)') + '">' + p + '</span>';
+
+        $('palabras-exactas').innerHTML = EXACTAS.map((p) => pastilla(p, false)).join('');
+        $('palabras-libres').innerHTML = LIBRES.map((p) => pastilla(p, true)).join('');
+      }
+
+      /* ── Alertas ────────────────────────────────────────────────────── */
+      const filaAlerta = (a) =>
+        '<button class="fila-alerta' + (a.hay ? ' hay' : '') + '" onclick="verVista(\'alertas\')">' +
+        '<span style="flex:1"><div style="font-weight:550">' + a.texto + '</div>' +
+        (a.detalle ? '<div style="color:var(--tinta-suave);font-size:11.5px;margin-top:2px">' + a.detalle + '</div>' : '') +
+        '</span><span class="cuenta-alerta">' + a.cuantos + '</span></button>';
+
+      function pintarAlertas() {
+        $('alertas-inicio').innerHTML = ALERTAS.map(filaAlerta).join('');
+        $('alertas-todas').innerHTML = ALERTAS.map(filaAlerta).join('');
+        const total = ALERTAS.reduce((s, a) => s + a.cuantos, 0);
+        $('globo-alertas').textContent = total;
+        $('globo-alertas').style.display = total ? '' : 'none';
+      }
+
+      /* ── Arranque ───────────────────────────────────────────────────── */
+      $('texto').addEventListener('input', actualizarPrevia);
+
+      pintarKpis('kpis', KPIS);
+      pintarKpis('kpis-resultados', KPIS_RES);
+      pintarCola();
+      pintarSemana();
+      pintarAudiencias();
+      pintarHerramientas();
+      actualizarPrevia();
+      pintarPasos();
+      pintarCampanas();
+      pintarPerillas();
+      calcularRiesgo();
+      pintarAutos();
+      pintarRespuestas();
+      pintarResultados();
+      pintarBajas();
+      pintarAlertas();
+
+      setTimeout(() => {
+        animarBarras($('vista-inicio'));
+        $('aro-cupo').style.setProperty('--p', 47);
+      }, 150);
+
+      /* ── Datos reales de Modo Sabor ───────────────────────────────────
+       * La maqueta se conserva visualmente intacta. El panel autenticado le
+       * pasa estos datos por postMessage para que nunca muestre clientes,
+       * campañas ni resultados de ejemplo como si fueran información real.
+       */
+      const numeroReal = (valor) => Number(valor || 0).toLocaleString('es-AR');
+      const fechaReal = (valor) => {
+        if (!valor) return 'sin fecha';
+        const fecha = new Date(String(valor).replace(' ', 'T'));
+        return Number.isNaN(fecha.getTime())
+          ? String(valor)
+          : fecha.toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' });
+      };
+      const estadoVisual = (estado) => {
+        const mapa = {
+          enviando: 'andando', activa: 'andando', pausada: 'pausada',
+          terminada: 'lista', completada: 'lista', programada: 'programada',
+          borrador: 'borrador',
+        };
+        return mapa[String(estado || '').toLowerCase()] || 'borrador';
+      };
+
+      function aplicarDatosReales(datos) {
+        const estado = datos?.estado || {};
+        const hoy = estado.hoy || {};
+        const whatsapp = estado.whatsapp || {};
+        const respuestas = Array.isArray(datos?.respuestas) ? datos.respuestas : [];
+        const excluidos = Array.isArray(datos?.excluidos) ? datos.excluidos : [];
+        const campanas = Array.isArray(datos?.campanas) ? datos.campanas : [];
+        const audiencias = datos?.audiencias || {};
+        const enviados = Number(hoy.enviados || 0);
+        const cupo = Number(hoy.cupoTotal || 0);
+        const usados = Number(hoy.cupoUsado || 0);
+        const pendientes = Number(estado.pendientes || 0);
+        const enviadosCampanas = campanas.reduce((total, campana) => total + Number(campana.enviados || 0), 0);
+
+        const estadoLinea = document.querySelector('.estado-linea');
+        if (estadoLinea) {
+          estadoLinea.innerHTML = '<span class="latido"></span>' +
+            (whatsapp.estado === 'conectado'
+              ? 'Conectado' + (whatsapp.numero ? ' · ' + whatsapp.numero : '')
+              : (whatsapp.detalle || 'WhatsApp sin conectar'));
+        }
+
+        KPIS.splice(0, KPIS.length,
+          { n: numeroReal(enviados), t: 'Enviados hoy', icono: '📤', c1: '#25d366', c2: '#0f8a6a', tend: numeroReal(usados) + ' usados en la ventana' },
+          { n: numeroReal(respuestas.length), t: 'Respuestas recientes', icono: '💬', c1: '#a855f7', c2: '#7c3aed', tend: 'sin datos inventados' },
+          { n: numeroReal(campanas.length), t: 'Campañas registradas', icono: '📋', c1: '#34d399', c2: '#059669', tend: numeroReal(enviadosCampanas) + ' envíos acumulados' },
+          { n: numeroReal(excluidos.length), t: 'Bajas y excluidos', icono: '🚫', c1: '#ff5a5f', c2: '#dc1f2d', tend: 'protegidos de campañas', baja: true }
+        );
+        KPIS_RES.splice(0, KPIS_RES.length,
+          { n: numeroReal(enviadosCampanas), t: 'Envíos de campañas', icono: '📨', c1: '#25d366', c2: '#0f8a6a', tend: 'historial disponible' },
+          { n: numeroReal(respuestas.length), t: 'Respuestas recientes', icono: '💬', c1: '#a855f7', c2: '#7c3aed', tend: 'registradas por el sistema' },
+          { n: numeroReal(campanas.length), t: 'Campañas', icono: '🛵', c1: '#34d399', c2: '#059669', tend: 'sin conversiones estimadas' },
+          { n: numeroReal(excluidos.length), t: 'Bajas protegidas', icono: '🚫', c1: '#ff5a5f', c2: '#dc1f2d', tend: 'no reciben más mensajes', baja: true }
+        );
+
+        AUDIENCIAS.splice(0, AUDIENCIAS.length,
+          { icono: '👥', t1: '#d1fae5', t2: '#6ee7b7', nombre: 'Todos los habilitados', explica: 'Clientes con teléfono válido y sin baja.', gente: (audiencias.todos || []).length, elegida: true },
+          { icono: '⭐', t1: '#dbeafe', t2: '#93c5fd', nombre: 'Frecuentes', explica: 'Cinco o más pedidos registrados.', gente: (audiencias.frecuentes || []).length, elegida: false },
+          { icono: '🆕', t1: '#ede9fe', t2: '#c4b5fd', nombre: 'Nuevos', explica: 'Hasta un pedido registrado.', gente: (audiencias.nuevos || []).length, elegida: false },
+          { icono: '😴', t1: '#fef3c7', t2: '#fcd34d', nombre: 'Inactivos', explica: 'Sin compra hace treinta días.', gente: (audiencias.inactivos || []).length, elegida: false }
+        );
+        CAMPANAS.splice(0, CAMPANAS.length, ...campanas.map((campana) => ({
+          nombre: campana.nombre || 'Campaña #' + campana.id,
+          estado: estadoVisual(campana.estado), total: Number(campana.total || 0),
+          mandados: Number(campana.enviados || 0), contestaron: Number(campana.respuestas || 0),
+          pidieron: 0, vendio: 0, icono: '📣', c1: '#dbeafe', c2: '#93c5fd',
+        })));
+        RESPUESTAS.splice(0, RESPUESTAS.length, ...respuestas.map((respuesta, indice) => ({
+          i: indice, quien: respuesta.telefonoLegible || respuesta.telefono || 'Sin teléfono',
+          tel: '', texto: respuesta.texto || 'Sin texto', cuando: fechaReal(respuesta.recibido_en),
+          tipo: Number(respuesta.es_baja) ? 'baja' : 'otro',
+        })));
+        BAJAS.splice(0, BAJAS.length, ...excluidos.map((excluido, indice) => ({
+          i: indice, quien: excluido.telefonoLegible || excluido.telefono || 'Sin teléfono', tel: '',
+          cuando: fechaReal(excluido.creado_en), como: excluido.motivo || 'baja registrada',
+        })));
+        ALERTAS.splice(0, ALERTAS.length,
+          { texto: 'Mensajes que no salieron', detalle: 'Fallidos registrados en campañas', cuantos: campanas.reduce((total, campana) => total + Number(campana.fallidos || 0), 0), hay: true },
+          { texto: 'Bajas protegidas', detalle: 'Se excluyen antes de preparar campañas', cuantos: excluidos.length, hay: false },
+          { texto: 'Problemas con la conexión', detalle: estado.gateway?.ultimoError || '', cuantos: estado.gateway?.ultimoError ? 1 : 0, hay: Boolean(estado.gateway?.ultimoError) }
+        );
+        if (datos?.config) {
+          PERILLAS[2].valor = Number(datos.config.maxPorVentana || PERILLAS[2].valor);
+          PERILLAS[3].valor = Number(hoy.tope || datos.config.maxPorVentana || PERILLAS[3].valor);
+        }
+
+        pintarKpis('kpis', KPIS);
+        pintarKpis('kpis-resultados', KPIS_RES);
+        pintarAudiencias(); pintarCampanas(); pintarRespuestas(); pintarBajas(); pintarAlertas(); pintarPerillas(); calcularRiesgo(); pintarResultados();
+        $('cola').innerHTML = '<p style="text-align:center;color:var(--tinta-suave);margin:14px 0">' +
+          (pendientes ? numeroReal(pendientes) + ' destinatarios pendientes en la cola' : 'No hay destinatarios pendientes en la cola') + '</p>';
+        const aroNumero = document.querySelector('#aro-cupo .numero-grande');
+        const aroDetalle = document.querySelector('#aro-cupo .etiqueta-chica');
+        if (aroNumero) aroNumero.textContent = numeroReal(usados);
+        if (aroDetalle) aroDetalle.textContent = 'de ' + numeroReal(cupo) + ' en la ventana';
+        $('aro-cupo').style.setProperty('--p', cupo ? Math.min(100, Math.round((usados / cupo) * 100)) : 0);
+      }
+
+      window.addEventListener('message', (evento) => {
+        if (evento.origin !== window.location.origin || evento.source !== window.parent) return;
+        if (evento.data?.tipo === 'modosabor:whatsapp-masivo') aplicarDatosReales(evento.data.datos);
+      });
+    </script>
+  </body>
+</html>
