@@ -49,8 +49,8 @@ const DEFECTOS = {
   calentamientoInicio: 20,
   calentamientoIncremento: 10,
 
-  /* Un contacto no recibe dos veces el mismo día aunque se corra de nuevo. */
-  noRepetirMismoDia: true,
+  /* Un contacto no recibe dos veces durante el mismo turno operativo. */
+  noRepetirMismoTurno: true,
 
   reintentos: 1,
 };

@@ -1,9 +1,12 @@
 const fs = require('fs');
 const path = require('path');
 const { EventEmitter } = require('events');
+const pino = require('pino');
 
 const logger = require('../../utils/logger');
 const { dataDir, ensureDir } = require('../../utils/storagePaths');
+const db = require('../../db');
+const { deJid, normalizarTelefono } = require('./telefono');
 
 /**
  * Conexión con WhatsApp, desde el servidor.
@@ -37,8 +40,15 @@ const { dataDir, ensureDir } = require('../../utils/storagePaths');
 
 const CARPETA_SESION = path.join(dataDir, 'whatsapp-sesion');
 
+// Baileys registra estructuras internas de Signal cuando su logger queda en el
+// nivel por defecto. Esas estructuras pueden incluir material efimero de la
+// sesion y no pertenecen a los logs operativos del negocio. Los estados que el
+// operador necesita siguen saliendo por nuestro logger, sin datos sensibles.
+const BAILEYS_LOGGER = pino({ level: 'silent' });
+
 /** Espera creciente entre reintentos, en milisegundos. */
 const ESPERAS_RECONEXION = [3000, 8000, 20000, 60000, 120000];
+
 function contenidoInterno(message = {}) {
   let content = message?.message || {};
   // WhatsApp puede envolver una nota de voz en más de una capa. Si sólo
@@ -54,7 +64,6 @@ function contenidoInterno(message = {}) {
     content = wrapped;
   }
 }
-
 class ConexionWhatsapp extends EventEmitter {
   constructor({ carpetaSesion = CARPETA_SESION } = {}) {
     super();
@@ -161,6 +170,7 @@ class ConexionWhatsapp extends EventEmitter {
         version,
         auth: state,
         // Sin esto Baileys escupe el QR por consola con caracteres de bloque,
+        logger: BAILEYS_LOGGER,
         // que en los logs de Railway es basura ilegible. El QR lo mostramos
         // nosotros en el panel.
         printQRInTerminal: false,
@@ -181,6 +191,23 @@ class ConexionWhatsapp extends EventEmitter {
         messages.forEach((message) => {
           const jid = String(message?.key?.remoteJid || '');
           if (!jid || jid === 'status@broadcast' || jid.endsWith('@g.us')) return;
+          const telefono = normalizarTelefono(deJid(jid));
+          if (telefono) {
+            db.prepare(
+              `INSERT INTO wa_contactos (jid, telefono, nombre, ultimo_mensaje_en, origen)
+               VALUES (?, ?, ?, CURRENT_TIMESTAMP, 'gateway')
+               ON CONFLICT(jid) DO UPDATE SET
+                 telefono = excluded.telefono,
+                 nombre = CASE WHEN excluded.nombre <> '' THEN excluded.nombre ELSE wa_contactos.nombre END,
+                 ultimo_mensaje_en = CURRENT_TIMESTAMP, actualizado_en = CURRENT_TIMESTAMP`
+            ).run(
+              `${telefono}@s.whatsapp.net`,
+              telefono,
+              String(message?.pushName || '')
+                .trim()
+                .slice(0, 160)
+            );
+          }
           const messageId = String(message?.key?.id || '');
           const texto = String(
             message?.message?.conversation ||
@@ -331,6 +358,28 @@ class ConexionWhatsapp extends EventEmitter {
       image: buffer,
       caption: epigrafe || undefined,
     });
+    const id = String(result?.key?.id || '');
+    if (id) this.enviadosPorSistema.add(id);
+    return result;
+  }
+
+  /** Envía una pieza de campaña como imagen o documento, con el texto como caption. */
+  async enviarArchivo(jid, buffer, { mimetype, fileName, caption = '' } = {}) {
+    if (!this.listo) throw new Error('WhatsApp no está conectado');
+    const esImagen = String(mimetype || '').startsWith('image/');
+    const texto = String(caption || '').trim();
+    this.enviosEsperados.push({ jid, texto, hasta: Date.now() + 60000 });
+    const result = await this.socket.sendMessage(
+      jid,
+      esImagen
+        ? { image: buffer, caption: texto || undefined }
+        : {
+            document: buffer,
+            mimetype,
+            fileName: fileName || 'archivo.pdf',
+            caption: texto || undefined,
+          }
+    );
     const id = String(result?.key?.id || '');
     if (id) this.enviadosPorSistema.add(id);
     return result;

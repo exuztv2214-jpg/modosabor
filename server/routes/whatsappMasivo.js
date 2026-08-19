@@ -1,4 +1,6 @@
+const path = require('path');
 const express = require('express');
+const multer = require('multer');
 const QRCode = require('qrcode');
 
 const db = require('../db');
@@ -7,15 +9,36 @@ const auth = require('../middleware/auth');
 const { requirePermission } = require('../utils/permissions');
 const { conexion } = require('../services/whatsappMasivo/conexion');
 const { motor, registrarRespuesta } = require('../services/whatsappMasivo/motor');
-const { normalizarTelefono, formatearTelefono } = require('../services/whatsappMasivo/telefono');
+const {
+  normalizarTelefono,
+  formatearTelefono,
+  deJid,
+} = require('../services/whatsappMasivo/telefono');
 const reglas = require('../services/whatsappMasivo/reglas');
 const { resumenGateway, gatewayConfig } = require('../services/whatsappGateway');
 const {
   testEmergencyProvider,
   applyEmergencyProvider,
 } = require('../services/whatsappEmergencyProvider');
+const { uploadsDir, ensureDir } = require('../utils/storagePaths');
 
 const router = express.Router();
+const whatsappMediaDir = path.join(uploadsDir, 'whatsapp-campanas');
+ensureDir(whatsappMediaDir);
+const uploadMedia = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, whatsappMediaDir),
+    filename: (_req, file, cb) => {
+      const ext = path.extname(file.originalname || '').toLowerCase();
+      cb(null, `${Date.now()}-${Math.random().toString(36).slice(2, 8)}${ext}`);
+    },
+  }),
+  limits: { fileSize: 16 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const ok = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'].includes(file.mimetype);
+    cb(ok ? null : new Error('Sólo se permiten imágenes JPG, PNG, WEBP o PDF'), ok);
+  },
+});
 
 /**
  * Envío masivo de WhatsApp, desde el sistema.
@@ -50,6 +73,16 @@ router.get('/conversaciones/esperando-persona', auth, (_req, res) => {
 });
 
 router.use(auth, requirePermission('marketing.edit'));
+
+router.post('/media', uploadMedia.single('archivo'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'Elegí una imagen o un PDF' });
+  res.status(201).json({
+    path: `/uploads/whatsapp-campanas/${req.file.filename}`,
+    nombre: path.basename(req.file.originalname || req.file.filename),
+    mimetype: req.file.mimetype,
+    size: req.file.size,
+  });
+});
 
 /**
  * El código QR, ya dibujado, como imagen embebida en la respuesta.
@@ -298,8 +331,9 @@ router.get('/metricas-atencion', (_req, res) => {
  * Va con el teléfono formateado porque trece dígitos pegados no se leen ni se
  * comparan de un vistazo, y el operador tiene que poder reconocer al cliente.
  */
-router.get('/destinatarios', (_req, res) => {
-  const lista = motor.destinatarios();
+router.get('/destinatarios', (req, res) => {
+  const segmento = String(req.query.segmento || 'todos');
+  const lista = motor.destinatarios({ segmento });
   res.json({
     total: lista.length,
     items: lista.map((c) => ({
@@ -312,6 +346,95 @@ router.get('/destinatarios', (_req, res) => {
   });
 });
 
+// ── Agenda de chats de WhatsApp ──────────────────────────────────────────
+
+function contactoPublico(contacto) {
+  return {
+    ...contacto,
+    excluido: Boolean(contacto.excluido),
+    telefonoLegible: formatearTelefono(contacto.telefono),
+  };
+}
+
+router.get('/contactos', (req, res) => {
+  const limite = Math.min(Math.max(Number(req.query.limite) || 60, 1), 200);
+  const pagina = Math.max(Number(req.query.pagina) || 1, 1);
+  const buscar = String(req.query.buscar || '')
+    .trim()
+    .slice(0, 100);
+  const filtro = String(req.query.filtro || 'todos');
+  const where = [];
+  const valores = [];
+  if (buscar) {
+    where.push('(nombre LIKE ? OR telefono LIKE ?)');
+    valores.push(`%${buscar}%`, `%${buscar.replace(/\D/g, '')}%`);
+  }
+  if (filtro === 'excluidos') where.push('excluido = 1');
+  if (filtro === 'activos') where.push('excluido = 0');
+  const condicion = where.length ? `WHERE ${where.join(' AND ')}` : '';
+  const total = db
+    .prepare(`SELECT COUNT(*) AS total FROM wa_contactos ${condicion}`)
+    .get(...valores).total;
+  const items = db
+    .prepare(
+      `SELECT * FROM wa_contactos ${condicion}
+       ORDER BY COALESCE(ultimo_mensaje_en, creado_en) DESC, nombre COLLATE NOCASE
+       LIMIT ? OFFSET ?`
+    )
+    .all(...valores, limite, (pagina - 1) * limite)
+    .map(contactoPublico);
+  res.json({ total: Number(total), pagina, limite, items });
+});
+
+/**
+ * Importación explícita de un snapshot de WhatsApp Web. Railway guarda los
+ * chats en su propia base: nunca lee una ruta local ni la sesión de otra app.
+ */
+router.post('/contactos/importar', (req, res) => {
+  const contactos = Array.isArray(req.body?.contactos) ? req.body.contactos : null;
+  if (!contactos) return res.status(400).json({ error: 'Falta la lista de contactos' });
+  if (contactos.length > 5000)
+    return res.status(400).json({ error: 'La lista supera el máximo permitido' });
+  const guardar = db.prepare(
+    `INSERT INTO wa_contactos (jid, telefono, nombre, foto, ultimo_mensaje_en, excluido, origen)
+     VALUES (?, ?, ?, ?, ?, ?, 'importacion')
+     ON CONFLICT(jid) DO UPDATE SET
+       telefono = excluded.telefono,
+       nombre = CASE WHEN excluded.nombre <> '' THEN excluded.nombre ELSE wa_contactos.nombre END,
+       foto = CASE WHEN excluded.foto <> '' THEN excluded.foto ELSE wa_contactos.foto END,
+       ultimo_mensaje_en = COALESCE(excluded.ultimo_mensaje_en, wa_contactos.ultimo_mensaje_en),
+       excluido = excluded.excluido,
+       origen = 'importacion', actualizado_en = CURRENT_TIMESTAMP`
+  );
+  let importados = 0;
+  let ignorados = 0;
+  db.transaction(() => {
+    contactos.forEach((entrada) => {
+      const jidCrudo = String(entrada?.jid || entrada?.numero || entrada?.telefono || '').trim();
+      const jidBase = jidCrudo.split('@')[0].split(':')[0];
+      const telefono = normalizarTelefono(deJid(jidCrudo) || jidBase);
+      if (!telefono) {
+        ignorados += 1;
+        return;
+      }
+      guardar.run(
+        `${telefono}@s.whatsapp.net`,
+        telefono,
+        String(entrada?.nombre || entrada?.name || '')
+          .trim()
+          .slice(0, 160),
+        String(entrada?.foto || '')
+          .trim()
+          .slice(0, 1000),
+        entrada?.ultimoMensaje || entrada?.ultimo_mensaje_en || null,
+        entrada?.excluido ? 1 : 0
+      );
+      importados += 1;
+    });
+  })();
+  res.json({ ok: true, importados, ignorados });
+});
+
 // ── Campañas ──────────────────────────────────────────────────────────────
 
 router.post('/preparar', (req, res) => {
@@ -319,7 +442,7 @@ router.post('/preparar', (req, res) => {
   if (gateway.pausaTotal || !gateway.masivos) {
     return res.status(409).json({ error: 'WhatsApp masivo está desactivado en Configuración' });
   }
-  const { mensaje, nombre, imagen, simulacro, clientesIds } = req.body || {};
+  const { mensaje, nombre, imagen, simulacro, clientesIds, segmento } = req.body || {};
   try {
     res.json(
       motor.preparar({
@@ -328,6 +451,7 @@ router.post('/preparar', (req, res) => {
         imagen: String(imagen || ''),
         simulacro: Boolean(simulacro),
         clientesIds: Array.isArray(clientesIds) && clientesIds.length ? clientesIds : null,
+        segmento: String(segmento || 'todos'),
       })
     );
   } catch (error) {

@@ -1,10 +1,13 @@
 const { EventEmitter } = require('events');
+const fs = require('fs');
 
 const db = require('../../db');
 const logger = require('../../utils/logger');
+const { uploadPublicPathToFile } = require('../../utils/storagePaths');
 const { conexion } = require('./conexion');
 const { aJid, normalizarTelefono } = require('./telefono');
 const reglas = require('./reglas');
+const { getShiftForDate, getBusinessTimeParts } = require('../../utils/shifts');
 
 /**
  * El bucle de envío.
@@ -39,6 +42,47 @@ const HOY = () => {
   const d = new Date(Date.now() - 3 * 60 * 60 * 1000);
   return d.toISOString().slice(0, 10);
 };
+
+function fechaArgentina(date = new Date()) {
+  const partes = Object.fromEntries(
+    new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Argentina/Buenos_Aires',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    })
+      .formatToParts(date)
+      .map((part) => [part.type, part.value])
+  );
+  return `${partes.year}-${partes.month}-${partes.day}`;
+}
+
+function minutos(value) {
+  const [horas, minutosTurno] = String(value || '00:00')
+    .split(':')
+    .map((parte) => Number(parte || 0));
+  return horas * 60 + minutosTurno;
+}
+
+/**
+ * Una noche que cruza medianoche sigue siendo el mismo turno: 00:30 pertenece
+ * a la noche que empezó ayer, no a una noche nueva. Esa distinción es la que
+ * reemplaza el viejo bloqueo de "una vez por día".
+ */
+function claveTurno(config, date = new Date()) {
+  const turno = getShiftForDate(config, date);
+  let fecha = fechaArgentina(date);
+  if (!turno?.id) return `${fecha}:fuera-de-turno`;
+
+  const ahora = getBusinessTimeParts(date);
+  const ahoraMinutos = ahora.hours * 60 + ahora.minutes;
+  if (minutos(turno.hasta) < minutos(turno.desde) && ahoraMinutos <= minutos(turno.hasta)) {
+    fecha = new Date(Date.parse(`${fecha}T12:00:00Z`) - 24 * 60 * 60 * 1000)
+      .toISOString()
+      .slice(0, 10);
+  }
+  return `${fecha}:${String(turno.id).trim().toLowerCase()}`;
+}
 
 class Motor extends EventEmitter {
   constructor() {
@@ -80,6 +124,18 @@ class Motor extends EventEmitter {
     return reglas.conDefectos(crudo);
   }
 
+  leerConfigNegocio() {
+    return {
+      turnos_negocio:
+        db.prepare("SELECT valor FROM configuracion WHERE clave = 'turnos_negocio'").get()?.valor ||
+        '[]',
+    };
+  }
+
+  turnoClaveActual(date = new Date()) {
+    return claveTurno(this.leerConfigNegocio(), date);
+  }
+
   /** Cuántos salieron en la ventana de cupo. Se pregunta a la base. */
   enviadosEnVentana(minutos) {
     const fila = db
@@ -113,16 +169,16 @@ class Motor extends EventEmitter {
   /**
    * A quiénes se les puede escribir.
    *
-   * Sale de `clientes`, no de los chats de WhatsApp: son los que compraron.
-   * Se descartan los que pidieron la baja, los que ya recibieron hoy y los
-   * que tienen un teléfono que no se puede normalizar.
+   * Sale de la agenda propia de WhatsApp. Así la campaña ve los chats reales
+   * del número vinculado y no sólo quienes ya tienen una compra en el TPV.
    */
-  destinatarios({ soloIds = null } = {}) {
+  destinatarios({ soloIds = null, segmento = 'todos', turnoClave = this.turnoClaveActual() } = {}) {
     const filas = db
       .prepare(
-        `SELECT c.id, c.nombre, c.telefono, c.total_pedidos
-           FROM clientes c
-          WHERE COALESCE(c.telefono, '') <> ''`
+        `SELECT id, nombre, telefono, 0 AS total_pedidos,
+                COALESCE(ultimo_mensaje_en, '') AS ultima_compra
+           FROM wa_contactos
+          WHERE COALESCE(telefono, '') <> '' AND excluido = 0`
       )
       .all();
 
@@ -132,24 +188,37 @@ class Motor extends EventEmitter {
         .all()
         .map((x) => x.telefono)
     );
-    const yaHoy = new Set(
+    const yaEnTurno = new Set(
       db
         .prepare(
           `SELECT telefono FROM wa_envios
-            WHERE estado = 'enviado' AND DATE(enviado_en, '-3 hours') = ?`
+            WHERE estado = 'enviado' AND turno_clave = ?`
         )
-        .all(HOY())
+        .all(turnoClave)
         .map((x) => x.telefono)
     );
 
     const permitidos = soloIds ? new Set(soloIds.map(Number)) : null;
+
+    const tipo = ['todos', 'frecuentes', 'nuevos', 'inactivos'].includes(segmento)
+      ? segmento
+      : 'todos';
+    const haceTreintaDias = Date.now() - 30 * 24 * 60 * 60 * 1000;
 
     return filas
       .map((c) => ({ ...c, tel: normalizarTelefono(c.telefono) }))
       .filter((c) => c.tel)
       .filter((c) => !permitidos || permitidos.has(Number(c.id)))
       .filter((c) => !excluidos.has(c.tel))
-      .filter((c) => !yaHoy.has(c.tel));
+      .filter((c) => !yaEnTurno.has(c.tel))
+      .filter((c) => {
+        const pedidos = Number(c.total_pedidos || 0);
+        const ultima = new Date(c.ultima_compra || 0).getTime();
+        if (tipo === 'frecuentes') return pedidos >= 5;
+        if (tipo === 'nuevos') return pedidos <= 1;
+        if (tipo === 'inactivos') return pedidos > 0 && (!ultima || ultima < haceTreintaDias);
+        return true;
+      });
   }
 
   /**
@@ -158,9 +227,17 @@ class Motor extends EventEmitter {
    * Es el paso de "revisar antes de disparar": devuelve a cuántos les va a
    * llegar y con qué texto, y recién con el id de la campaña se arranca.
    */
-  preparar({ mensaje, nombre = '', imagen = '', simulacro = false, clientesIds = null }) {
+  preparar({
+    mensaje,
+    nombre = '',
+    imagen = '',
+    simulacro = false,
+    clientesIds = null,
+    segmento = 'todos',
+  }) {
     const config = this.leerConfig();
-    const lista = this.destinatarios({ soloIds: clientesIds });
+    const turnoClave = this.turnoClaveActual();
+    const lista = this.destinatarios({ soloIds: clientesIds, segmento, turnoClave });
 
     const permitido = reglas.puedeArrancar({
       config,
@@ -185,8 +262,8 @@ class Motor extends EventEmitter {
        VALUES (?, ?, ?, 'borrador', ?, ?)`
     );
     const insertar = db.prepare(
-      `INSERT OR IGNORE INTO wa_envios (campana_id, cliente_id, telefono, nombre)
-       VALUES (?, ?, ?, ?)`
+      `INSERT OR IGNORE INTO wa_envios (campana_id, cliente_id, telefono, nombre, turno_clave)
+       VALUES (?, ?, ?, ?, ?)`
     );
 
     let campanaId;
@@ -198,7 +275,7 @@ class Motor extends EventEmitter {
         simulacro ? 1 : 0,
         elegidos.length
       ).lastInsertRowid;
-      elegidos.forEach((c) => insertar.run(campanaId, c.id, c.tel, c.nombre || ''));
+      elegidos.forEach((c) => insertar.run(campanaId, c.id, c.tel, c.nombre || '', turnoClave));
     })();
 
     return {
@@ -207,6 +284,8 @@ class Motor extends EventEmitter {
       dejadosAfuera: lista.length - elegidos.length,
       tope,
       simulacro,
+      segmento,
+      turnoClave,
       muestra: elegidos.slice(0, 40).map((c) => ({ nombre: c.nombre, telefono: c.tel })),
     };
   }
@@ -271,6 +350,24 @@ class Motor extends EventEmitter {
     for (const destino of pendientes) {
       if (this.detenerPedido) break;
 
+      // Dos campañas pueden haberse preparado antes de que la primera
+      // arrancara. Se revalida justo antes de enviar para que la segunda no
+      // repita un contacto dentro del mismo turno.
+      const yaRecibioEnEsteTurno = db
+        .prepare(
+          `SELECT 1 FROM wa_envios
+            WHERE telefono = ? AND turno_clave = ? AND estado = 'enviado' AND id <> ?
+            LIMIT 1`
+        )
+        .get(destino.telefono, destino.turno_clave, destino.id);
+      if (yaRecibioEnEsteTurno) {
+        db.prepare(
+          "UPDATE wa_envios SET estado = 'salteado', error = 'Ya recibió un mensaje en este turno' WHERE id = ?"
+        ).run(destino.id);
+        this.stats.hechos += 1;
+        continue;
+      }
+
       // La pausa se revisa acá y no adentro de la espera: pausar no tiene que
       // consumir el turno del contacto que venía.
       while (this.pausado && !this.detenerPedido) {
@@ -306,6 +403,19 @@ class Motor extends EventEmitter {
       try {
         if (campana.simulacro) {
           this.emit('linea', { tipo: 'sim', texto: `[SIM] ${destino.telefono}` });
+        } else if (campana.imagen) {
+          const archivo = uploadPublicPathToFile(campana.imagen);
+          if (!archivo || !fs.existsSync(archivo)) {
+            throw new Error('El adjunto de la campaña ya no está disponible');
+          }
+          const ext = String(archivo).toLowerCase().split('.').pop();
+          const mimetype =
+            ext === 'pdf' ? 'application/pdf' : `image/${ext === 'jpg' ? 'jpeg' : ext}`;
+          await conexion.enviarArchivo(aJid(destino.telefono), fs.readFileSync(archivo), {
+            mimetype,
+            fileName: String(campana.imagen).split('/').pop(),
+            caption: texto,
+          });
         } else {
           await conexion.enviarTexto(aJid(destino.telefono), texto);
         }
@@ -397,4 +507,4 @@ function registrarRespuesta({ telefono, texto }) {
   return { baja };
 }
 
-module.exports = { motor, registrarRespuesta, HOY };
+module.exports = { motor, registrarRespuesta, HOY, claveTurno };

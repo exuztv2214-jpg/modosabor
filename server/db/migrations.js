@@ -1171,6 +1171,12 @@ function runMigrations(db) {
 
   crearBaseMultisucursal(db);
   crearTablasWhatsapp(db);
+  // Cada contacto puede recibir una promoción por turno operativo. El valor
+  // persiste con el envío para que un reinicio no vuelva a habilitarlo.
+  ensureColumn(db, 'wa_envios', 'turno_clave', "TEXT DEFAULT ''");
+  db.exec(
+    'CREATE INDEX IF NOT EXISTS idx_wa_envios_turno_telefono ON wa_envios(turno_clave, telefono, estado)'
+  );
   crearTablasSocial(db);
   migrateMoneyColumns(db);
   migrarUmbralesDeNivel(db);
@@ -1527,6 +1533,21 @@ function crearBaseMultisucursal(db) {
  */
 function crearTablasWhatsapp(db) {
   db.exec(`
+    -- Agenda propia de WhatsApp. No se mezcla con clientes: un chat puede no
+    -- haber comprado todavía y no por eso deja de ser un contacto válido.
+    CREATE TABLE IF NOT EXISTS wa_contactos (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      jid TEXT NOT NULL UNIQUE,
+      telefono TEXT DEFAULT '',
+      nombre TEXT DEFAULT '',
+      foto TEXT DEFAULT '',
+      ultimo_mensaje_en DATETIME,
+      excluido INTEGER DEFAULT 0,
+      origen TEXT DEFAULT 'gateway',
+      creado_en DATETIME DEFAULT CURRENT_TIMESTAMP,
+      actualizado_en DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE TABLE IF NOT EXISTS wa_excluidos (
       telefono TEXT PRIMARY KEY,
       motivo TEXT DEFAULT '',
@@ -1558,6 +1579,7 @@ function crearTablasWhatsapp(db) {
       -- pendiente | enviado | fallido | salteado
       estado TEXT DEFAULT 'pendiente',
       error TEXT DEFAULT '',
+      turno_clave TEXT DEFAULT '',
       enviado_en DATETIME,
       UNIQUE(campana_id, telefono)
     );
@@ -1576,6 +1598,8 @@ function crearTablasWhatsapp(db) {
     CREATE INDEX IF NOT EXISTS idx_wa_envios_fecha ON wa_envios(enviado_en);
     CREATE INDEX IF NOT EXISTS idx_wa_envios_campana ON wa_envios(campana_id);
     CREATE INDEX IF NOT EXISTS idx_wa_respuestas_fecha ON wa_respuestas(recibido_en);
+    CREATE INDEX IF NOT EXISTS idx_wa_contactos_nombre ON wa_contactos(nombre COLLATE NOCASE);
+    CREATE INDEX IF NOT EXISTS idx_wa_contactos_telefono ON wa_contactos(telefono);
   `);
 }
 

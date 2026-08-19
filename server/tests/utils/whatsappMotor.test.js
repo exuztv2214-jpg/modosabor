@@ -97,9 +97,12 @@ function cargarMotor(db, { fallaEn = [] } = {}) {
 }
 
 function sembrarClientes(db, cantidad) {
-  const ins = db.prepare('INSERT INTO clientes (id, nombre, telefono) VALUES (?, ?, ?)');
+  const ins = db.prepare(
+    "INSERT INTO wa_contactos (id, jid, nombre, telefono, origen) VALUES (?, ?, ?, ?, 'test')"
+  );
   for (let i = 1; i <= cantidad; i += 1) {
-    ins.run(i, `Cliente ${i}`, `38155${String(50000 + i).slice(-5)}`);
+    const telefono = `54938155${String(50000 + i).slice(-5)}`;
+    ins.run(i, `${telefono}@s.whatsapp.net`, `Cliente ${i}`, telefono);
   }
 }
 
@@ -141,7 +144,45 @@ async function testNadieRecibeDosVeces() {
     'la segunda campaña del día volvió a agarrar a los mismos'
   );
 
-  console.log('  OK nadie recibe dos veces, ni en la corrida ni al día siguiente');
+  console.log('  OK nadie recibe dos veces dentro del mismo turno');
+}
+
+function testUnEnvioPorTurno() {
+  const db = crearBase();
+  sembrarClientes(db, 3);
+  configRapida(db);
+  const { motor, claveTurno } = cargarMotor(db);
+  const claveManana = '2026-08-19:manana';
+  const claveNoche = '2026-08-19:noche';
+
+  db.prepare(
+    "INSERT INTO wa_campanas (id, mensaje, estado) VALUES (1, 'Prueba', 'terminada')"
+  ).run();
+  db.prepare(
+    "INSERT INTO wa_envios (campana_id, cliente_id, telefono, nombre, estado, turno_clave) VALUES (1, 1, ?, 'Cliente 1', 'enviado', ?)"
+  ).run('5493815550001', claveManana);
+
+  assert.strictEqual(
+    motor.destinatarios({ turnoClave: claveManana }).length,
+    2,
+    'un contacto que ya recibió durante la mañana no debe repetir en la mañana'
+  );
+  assert.strictEqual(
+    motor.destinatarios({ turnoClave: claveNoche }).length,
+    3,
+    'el contacto debe volver a quedar disponible en el turno noche'
+  );
+
+  const turnos = {
+    turnos_negocio: JSON.stringify([
+      { id: 'manana', desde: '10:00', hasta: '14:30', activo: true },
+      { id: 'noche', desde: '20:30', hasta: '02:00', activo: true },
+    ]),
+  };
+  assert.strictEqual(claveTurno(turnos, new Date('2026-08-20T02:30:00Z')), '2026-08-19:noche');
+  assert.strictEqual(claveTurno(turnos, new Date('2026-08-20T03:30:00Z')), '2026-08-19:noche');
+
+  console.log('  OK se limita por turno y la noche que cruza medianoche no se parte en dos');
 }
 
 async function testLosFallidosSeAnotan() {
@@ -274,11 +315,11 @@ function testLaBajaExcluye() {
 
 function testSinTelefonoUsableNoEntra() {
   const db = crearBase();
-  const ins = db.prepare('INSERT INTO clientes (id, nombre, telefono) VALUES (?, ?, ?)');
-  ins.run(1, 'Con teléfono bueno', '0381 15 555-4433');
-  ins.run(2, 'Sin teléfono', '');
-  ins.run(3, 'Teléfono ilegible', 'llamar al local');
-  ins.run(4, 'Muy corto', '12345');
+  const ins = db.prepare('INSERT INTO wa_contactos (jid, nombre, telefono) VALUES (?, ?, ?)');
+  ins.run('5493815554433@s.whatsapp.net', 'Con teléfono bueno', '0381 15 555-4433');
+  ins.run('sin-telefono@s.whatsapp.net', 'Sin teléfono', '');
+  ins.run('ilegible@s.whatsapp.net', 'Teléfono ilegible', 'llamar al local');
+  ins.run('corto@s.whatsapp.net', 'Muy corto', '12345');
   configRapida(db);
   const { motor } = cargarMotor(db);
 
@@ -293,6 +334,7 @@ async function run() {
   console.log('\nTests del motor de envío de WhatsApp');
   testSinTelefonoUsableNoEntra();
   testLaBajaExcluye();
+  testUnEnvioPorTurno();
   await testNadieRecibeDosVeces();
   await testLosFallidosSeAnotan();
   await testSePuedeDetener();
