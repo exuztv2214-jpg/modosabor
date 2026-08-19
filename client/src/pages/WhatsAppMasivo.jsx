@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef } from 'react';
 import toast from 'react-hot-toast';
 
 import api from '../lib/api.js';
-import maquetaWhatsappMasivo from '../../../maqueta-whatsapp-masivo.html?url';
+
+const maquetaWhatsappMasivo = '/whatsapp-masivo.html';
 
 export default function WhatsAppMasivo() {
   const frameRef = useRef(null);
