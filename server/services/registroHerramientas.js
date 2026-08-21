@@ -46,6 +46,48 @@ function telefonoSeguro(args, contexto) {
   return telefono;
 }
 
+function textoComparable(valor) {
+  return String(valor || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/*
+  La IA no decide por sí sola cuándo un "sí" crea un pedido. Ese mensaje
+  también puede estar confirmando una dirección, una variante o una bebida.
+  La escritura se habilita únicamente cuando Chispita acaba de presentar el
+  resumen y pidió confirmación de forma explícita.
+*/
+function esConfirmacionNatural(texto) {
+  const normalizado = textoComparable(texto);
+  return /^(?:si|si confirmo|confirmo|dale|dale nomas|ok|okay|de una|mandalo|mandale|listo|esta bien|correcto)(?: por favor| por fa| porfa| gracias)?$/.test(
+    normalizado
+  );
+}
+
+function pidioConfirmacionExplicita(texto) {
+  const normalizado = textoComparable(texto);
+  if (!normalizado) return false;
+  const mencionaPedido = /\b(?:pedido|resumen|total|direccion|envio)\b/.test(normalizado);
+  const pideConfirmar =
+    /\bconfirm(?:a|ame|as|amos)\b/.test(normalizado) ||
+    /\b(?:lo mando|lo mandamos|lo envio|lo enviamos|queda asi|esta todo bien)\b/.test(normalizado);
+  return mencionaPedido && pideConfirmar;
+}
+
+function exigirConfirmacionPedido(contexto = {}) {
+  if (!esConfirmacionNatural(contexto.mensajeActual)) {
+    throw new Error('El cliente todavía no confirmó el resumen del pedido');
+  }
+  if (!pidioConfirmacionExplicita(contexto.ultimoMensajeAsistente)) {
+    throw new Error('Primero hay que enviar el resumen completo y pedir confirmación');
+  }
+}
+
 const HERRAMIENTAS_BASE = [
   {
     nombre: 'consultar_estado',
@@ -250,12 +292,14 @@ const HERRAMIENTAS_BASE = [
     parametros: schemaVacio,
     permiso: 'CREATE_ORDER',
     escribe: true,
-    ejecutar: (_args, contexto = {}) =>
-      crearCarritoWhatsapp(contexto.db || defaultDb).confirmarCarrito(
+    ejecutar: (_args, contexto = {}) => {
+      exigirConfirmacionPedido(contexto);
+      return crearCarritoWhatsapp(contexto.db || defaultDb).confirmarCarrito(
         telefonoSeguro({}, contexto),
         { whatsappMessageId: contexto.mensajeId },
         contexto.dependenciasPedido || {}
-      ),
+      );
+    },
   },
 ];
 
@@ -312,6 +356,9 @@ async function ejecutarRegistrada(nombre, args, contexto = {}, perfil = 'cliente
 module.exports = {
   HERRAMIENTAS_BASE,
   PERMISOS_CLIENTE,
+  esConfirmacionNatural,
+  pidioConfirmacionExplicita,
+  exigirConfirmacionPedido,
   telefonoSeguro,
   herramientasParaPerfil,
   catalogoParaPerfil,

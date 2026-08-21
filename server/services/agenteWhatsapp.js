@@ -230,6 +230,9 @@ async function atenderConMotorPropio(payload, dependencias = {}) {
     ultimo?.rol === 'usuario' && ultimo.texto === textoActual
       ? historial
       : [...historial, { rol: 'usuario', texto: textoActual }];
+  contexto.mensajeActual = textoActual;
+  contexto.ultimoMensajeAsistente =
+    [...historial].reverse().find((mensaje) => mensaje?.rol === 'asistente')?.texto || '';
   const herramientasUsadas = [];
   const guardarMetrica = dependencias.registrarMetrica || registrarMetricaAgente;
   try {
