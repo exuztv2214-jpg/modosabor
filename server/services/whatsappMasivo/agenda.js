@@ -178,11 +178,14 @@ function sincronizarHistorial(
 ) {
   const lidAPn = new Map();
   lidPnMappings.forEach(({ lid, pn } = {}) => {
-    if (lid && pn) lidAPn.set(String(lid), String(pn));
+    if (lid && pn) {
+      lidAPn.set(String(lid), String(pn));
+    }
   });
   contacts.forEach((contact = {}) => {
-    if (contact.lid && contact.phoneNumber)
+    if (contact.lid && contact.phoneNumber) {
       lidAPn.set(String(contact.lid), String(contact.phoneNumber));
+    }
   });
 
   let contactos = 0;
@@ -192,8 +195,9 @@ function sincronizarHistorial(
     const nombre =
       item.name || item.displayName || item.notify || item.verifiedName || item.subject || '';
     const fecha = fechaIso(item.conversationTimestamp || item.timestamp);
-    if (guardarContacto({ jid, telefono, nombre, fecha, origen: 'historial', lidAPn }, db))
+    if (guardarContacto({ jid, telefono, nombre, fecha, origen: 'historial', lidAPn }, db)) {
       contactos += 1;
+    }
   });
 
   const guardarMensaje = db.prepare(
@@ -256,16 +260,18 @@ function segmentosDeContacto(
     respuestas.some(
       (item) => String(item.recibido_en || '').slice(0, 10) === ayer && parecePedido(item.texto)
     )
-  )
+  ) {
     segments.push('pidio_ayer');
+  }
   if (respuestas.length) segments.push('respondio');
   if (diasUltimo !== null && diasUltimo <= 7 && enviados <= 1) segments.push('nuevo');
   if (diasUltimo !== null && diasUltimo <= 7 && enviados === 0) segments.push('nuevo_sin_enviar');
   if (
     (diasRespuesta !== null && diasRespuesta <= 14) ||
     (diasUltimo !== null && diasUltimo <= 14 && respuestas.length)
-  )
+  ) {
     segments.push('activo');
+  }
   if (enviados >= 3 && !respuestas.length) segments.push('frio');
   if (diasUltimo !== null && diasUltimo >= 45) segments.push('viejo');
   if (enviados === 0) segments.push('sin_enviar');
