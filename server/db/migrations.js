@@ -2166,7 +2166,11 @@ function destrabarFechasProgramadas(db) {
     const existe = db
       .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
       .get(tabla);
-    if (!existe) return 0;
+    // Una base anterior puede tener la tabla pero todavía no la columna. Esto
+    // sucede durante el arranque: Social migra antes que WhatsApp termine de
+    // agregar `programada_para`. Consultarla antes del ALTER aborta todo el
+    // servidor, así que una migración de limpieza sólo actúa si existen ambos.
+    if (!existe || !hasColumn(db, tabla, columna)) return 0;
 
     return db
       .prepare(
@@ -2372,4 +2376,4 @@ function crearTablasSocial(db) {
   `);
 }
 
-module.exports = { runMigrations };
+module.exports = { runMigrations, destrabarFechasProgramadas };
