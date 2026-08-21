@@ -248,7 +248,7 @@ function replacePedidoItems(db, pedidoId, items = []) {
       pedido_id, producto_id, nombre, cantidad, precio_unitario, costo_unitario, subtotal,
       variantes_json, extras_json, categoria_id, descripcion,
       descuento_item, descuento_motivo, creado_en
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
   `);
 
   deleteStmt.run(pedidoId);

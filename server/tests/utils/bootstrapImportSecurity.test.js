@@ -7,7 +7,7 @@ function run() {
   const source = fs.readFileSync(routePath, 'utf8');
 
   const backupRoute = source.match(
-    /router\.post\('\/backup\/bootstrap-import',[\s\S]*?backupUpload\.single\('backup'\)/
+    /router\.post\(\s*'\/backup\/bootstrap-import',[\s\S]*?backupUpload\.single\('backup'\)/
   );
   assert.ok(backupRoute, 'la importación de backup tiene que existir');
   assert.ok(
