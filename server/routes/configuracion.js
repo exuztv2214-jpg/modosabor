@@ -333,6 +333,7 @@ function normalizeConfigUpdates(rawUpdates = {}) {
     whatsapp_agente_reglas_generales: 6000,
     whatsapp_agente_reglas_turnos: 12000,
     whatsapp_agente_ejemplos: 6000,
+    whatsapp_datos_transferencia: 1200,
   };
   Object.entries(whatsappTrainingLimits).forEach(([key, max]) => {
     if (updates[key] === undefined) return;

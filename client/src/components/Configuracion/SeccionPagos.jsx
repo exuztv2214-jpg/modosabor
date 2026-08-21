@@ -5,6 +5,7 @@ import { paymentBrand } from '../TPV/paymentBrands.jsx';
 import {
   SectionCard,
   InputField,
+  TextareaField,
   ToggleSwitch,
   SECRET_PLACEHOLDER,
   limpiarSecretoAlEnfocar,
@@ -166,6 +167,18 @@ export default function SeccionPagos({ config, setConfig, f, setToggle }) {
             placeholder="modosabor.mp o 0000003100010000000001"
             hint="Se le muestra al cliente cuando elige transferencia en la web."
           />
+          <div className="mt-4">
+            <TextareaField
+              label="Datos de transferencia para Chispita"
+              value={config.whatsapp_datos_transferencia || ''}
+              onChange={(event) =>
+                setConfig((prev) => ({ ...prev, whatsapp_datos_transferencia: event.target.value }))
+              }
+              rows={4}
+              placeholder="Alias: …\nTitular: …\nBanco o billetera: …"
+              description="Chispita comparte este texto únicamente si el cliente dice que pagará por transferencia. Revisalo antes de guardar: no inventa ni modifica estos datos."
+            />
+          </div>
           <div className="mt-3">
             <ToggleSwitch
               checked={config.pagos_validar_transferencia === '1'}

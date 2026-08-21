@@ -18,6 +18,13 @@ function clean(value, max = 4000) {
 function buildAgentTraining(config = {}, shift = null) {
   const rulesByShift = parseObject(config.whatsapp_agente_reglas_turnos);
   const shiftId = clean(shift?.id, 80);
+  // Es información comercial editable por el dueño, no una instrucción que la
+  // IA pueda inventar. Se conserva el campo existente como respaldo para que
+  // un local que ya configuró un alias no tenga que volver a cargarlo.
+  const datosTransferencia = clean(
+    config.whatsapp_datos_transferencia || config.pagos_cbu_transferencia,
+    1200
+  );
 
   return {
     nombre: clean(config.whatsapp_agente_nombre || 'Chispita', 80),
@@ -28,6 +35,7 @@ function buildAgentTraining(config = {}, shift = null) {
     ),
     reglas_generales: clean(config.whatsapp_agente_reglas_generales, 6000),
     ejemplos: clean(config.whatsapp_agente_ejemplos, 6000),
+    datos_transferencia: datosTransferencia,
     turno: shift
       ? {
           id: shiftId,

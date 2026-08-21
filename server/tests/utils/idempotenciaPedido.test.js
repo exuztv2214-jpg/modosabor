@@ -37,12 +37,16 @@ function dependenciasPedido(db) {
       const result = db
         .prepare(
           `INSERT INTO pedidos
-            (numero, cliente_telefono, items, subtotal, total, origen, idempotency_key)
-           VALUES (?, ?, ?, ?, ?, 'whatsapp', ?)`
+            (numero, cliente_nombre, cliente_telefono, cliente_direccion, metodo_pago,
+             items, subtotal, total, origen, idempotency_key)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'whatsapp', ?)`
         )
         .run(
           numero,
+          payload.cliente_nombre || '',
           payload.cliente_telefono,
+          payload.cliente_direccion || '',
+          payload.metodo_pago || '',
           JSON.stringify(payload.items),
           500000,
           500000,
@@ -94,8 +98,16 @@ async function run() {
     );
 
     const telefono = '5493815550202';
+    db.prepare("INSERT INTO clientes (nombre, telefono) VALUES ('Nombre de ficha', ?)").run(telefono);
     const carrito = crearCarritoWhatsapp(db);
     carrito.agregarItem(telefono, { producto_id: producto.id, cantidad: 1 });
+    carrito.actualizarDatos(telefono, {
+      // El modelo podría traer una variante de este dato: la ficha existente
+      // debe ser la que llegue al pedido real.
+      cliente_nombre: 'Nombre equivocado del modelo',
+      cliente_direccion: 'Las Piedras 415',
+      metodo_pago: 'transferencia',
+    });
     const creado = await carrito.confirmarCarrito(
       telefono,
       { whatsappMessageId: 'confirmacion-1' },
@@ -107,9 +119,19 @@ async function run() {
       { createRealOrder, ...deps }
     );
     assert.strictEqual(segundaConfirmacion.id, creado.id);
+    const pedidoConfirmado = db.prepare('SELECT * FROM pedidos WHERE id = ?').get(creado.id);
+    assert.strictEqual(pedidoConfirmado.cliente_nombre, 'Nombre de ficha');
+    assert.strictEqual(pedidoConfirmado.cliente_direccion, 'Las Piedras 415');
+    assert.strictEqual(pedidoConfirmado.metodo_pago, 'transferencia');
 
     const telefonoFallido = '5493815550303';
     carrito.agregarItem(telefonoFallido, { producto_id: producto.id, cantidad: 1 });
+    await assert.rejects(
+      () => carrito.confirmarCarrito(telefonoFallido, { whatsappMessageId: 'sin-direccion' }),
+      /Falta la dirección de entrega/,
+      'un delivery no se puede confirmar sin una dirección'
+    );
+    carrito.actualizarDatos(telefonoFallido, { cliente_direccion: 'Dirección de prueba 10' });
     await assert.rejects(
       () =>
         carrito.confirmarCarrito(

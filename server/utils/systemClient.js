@@ -1363,6 +1363,14 @@ function findClienteByPhone(db, phone) {
   return pickBestPhoneRow(rows, 'telefono', phone);
 }
 
+function nombreClienteCanonico(clienteExistente, nombreSolicitado) {
+  // Un modelo no puede reemplazar la ficha de un cliente habitual con un
+  // apodo, un saludo o un nombre inferido. La ficha sólo cede cuando todavía
+  // no tiene nombre; en ese caso el pedido conserva el nombre declarado.
+  const registrado = cleanText(clienteExistente?.nombre || '');
+  return registrado || cleanText(nombreSolicitado || '');
+}
+
 function getLastOrderByPhone(db, phone) {
   const comparable = comparablePhone(phone);
   if (!comparable) return null;
@@ -1566,7 +1574,7 @@ async function createRealOrder(db, body = {}, dependencias = {}) {
   }
   const normalizedBody = {
     ...body,
-    cliente_nombre: cleanText(body.cliente_nombre || existingCustomer?.nombre || ''),
+    cliente_nombre: nombreClienteCanonico(existingCustomer, body.cliente_nombre),
     cliente_telefono: cleanText(existingCustomer?.telefono || body.cliente_telefono || ''),
     cliente_direccion: cleanText(body.cliente_direccion || ''),
     items: enrichedItems,
@@ -1616,6 +1624,7 @@ module.exports = {
   quoteProduct,
   getDeliveryInfo,
   findClienteByPhone,
+  nombreClienteCanonico,
   getLastOrderByPhone,
   getCustomerSnapshot,
   getCurrentOrderSnapshot,

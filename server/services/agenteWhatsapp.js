@@ -4,12 +4,15 @@ const defaultDb = require('../db');
 const { getConfigMap } = require('../utils/mercadoPago');
 const { getCurrentShiftInfo } = require('../utils/shifts');
 const { getCustomerSnapshot, formatMoney } = require('../utils/systemClient');
+const logger = require('../utils/logger');
 const { crearCarritoWhatsapp } = require('./carritoWhatsapp');
 const { ejecutarAgente } = require('./motorAgente');
+const { conversar, conversarConProveedor } = require('./iaProveedor');
 const { crearMemoriaConversacion } = require('./memoriaConversacion');
 const { buildAgentTraining } = require('./whatsappAgentTraining');
 const { catalogoParaPerfil, ejecutarRegistrada } = require('./registroHerramientas');
 const { registrarMetricaAgente } = require('./metricasAgente');
+const { desencriptar } = require('../utils/encryptConfig');
 
 function historialAMensajes(historial = '') {
   return String(historial || '')
@@ -36,7 +39,13 @@ La ficha y el teléfono del cliente son los del contexto; nunca consultes a otra
 Si falta un dato indispensable, preguntá solamente ese dato. Si el cliente pide una persona, derivá.
 Saludá una sola vez por conversación: si hay historial reciente, continuá sin reiniciar ni repetir el nombre.
 Conservá los detalles de cocina que diga el cliente (por ejemplo “con ají” o “sin cebolla”) dentro de la descripción/notas del ítem y repetilos en el resumen antes de confirmar.
+Antes de crear_pedido, enviá un resumen completo (ítems, variantes/notas, dirección y total) y esperá una confirmación posterior. Aceptá como confirmación natural “sí”, “si”, “confirmo”, “dale”, “ok”, “okay”, “de una”, “mandalo”, “listo”, “está bien”, “correcto” y variantes equivalentes, pero sólo si acabás de enviar ese resumen y no falta ningún dato.
 Después de crear un pedido real, respondé agradecimientos y referencias al mismo pedido sin abrir una venta nueva; para demora o estado usá consultar_pedido_actual.
+El nombre que figura en la ficha del cliente es el dato principal. No lo cambies ni inventes otro nombre. Sólo registrá un nombre distinto si el cliente lo declara expresamente (por ejemplo, “me llamo…” o “mi nombre es…”), usando actualizar_datos_pedido.
+No preguntes cómo va a pagar por iniciativa propia. Si el cliente dice que pagará por transferencia, registrá “transferencia” con actualizar_datos_pedido y compartí exactamente los datos de transferencia configurados abajo. No inventes alias, titulares ni bancos. Si esos datos están vacíos, derivá a una persona en vez de dar información de pago incompleta.
+
+Datos de transferencia configurados:
+${atencion.datos_transferencia || '(sin datos cargados)'}
 
 Estilo configurado:
 ${atencion.estilo || ''}
@@ -62,6 +71,47 @@ function leerPoliticaConversacional() {
   } catch {
     return '';
   }
+}
+
+/*
+  El respaldo de WhatsApp es independiente del asistente del panel. Así una
+  cuota agotada o una rotación de la clave principal no deja sin respuesta a
+  los clientes. No devolvemos una configuración incompleta: marcar el switch
+  sin guardar clave no puede aparentar que existe un plan B.
+*/
+function proveedorRespaldoWhatsapp(config = {}) {
+  if (String(config.whatsapp_emergencia_activa || '0') !== '1') return null;
+
+  const nombre = String(config.whatsapp_emergencia_proveedor || 'Respaldo WhatsApp').trim();
+  const usaGemini = /\b(?:google\s+)?gemini\b/i.test(nombre);
+  const baseConfigurada = String(config.whatsapp_emergencia_base_url || '')
+    .trim()
+    .replace(/\/+$/, '');
+  const modeloConfigurado = String(config.whatsapp_emergencia_modelo || '').trim();
+  const clavePropia = desencriptar(config.whatsapp_emergencia_api_key) || '';
+  // Gemini ya se usa para alertas y transcripción. Reutilizar esa clave desde
+  // el servidor evita copiarla a otro campo y no la envía nunca al navegador.
+  const clave = usaGemini ? clavePropia || desencriptar(config.gemini_api_key) || '' : clavePropia;
+  const baseUrl = usaGemini
+    ? /generativelanguage\.googleapis\.com/i.test(baseConfigurada)
+      ? baseConfigurada
+      : 'https://generativelanguage.googleapis.com/v1beta'
+    : baseConfigurada;
+  const modelo = usaGemini
+    ? /^gemini-/i.test(modeloConfigurado)
+      ? modeloConfigurado
+      : 'gemini-2.5-flash'
+    : modeloConfigurado;
+  if (!baseUrl || !modelo || !clave) return null;
+
+  return {
+    id: usaGemini ? 'gemini_whatsapp_emergencia' : 'whatsapp_emergencia',
+    nombre,
+    familia: usaGemini ? 'gemini' : 'openai',
+    baseUrl,
+    modelo,
+    clave,
+  };
 }
 
 /*
@@ -107,6 +157,37 @@ async function atenderConMotorPropio(payload, dependencias = {}) {
   const ejecutarMotor = dependencias.ejecutarAgente || ejecutarAgente;
   const memoria = dependencias.memoria || crearMemoriaConversacion(db);
   const config = getConfigMap(db);
+  const resolverPrincipal = dependencias.conversarPrincipal || conversar;
+  const obtenerRespaldo = dependencias.obtenerRespaldo || proveedorRespaldoWhatsapp;
+  const resolverRespaldo = dependencias.conversarRespaldo || conversarConProveedor;
+  const respaldo = obtenerRespaldo(config);
+  let usandoRespaldo = false;
+  const conversarConRespaldo = async (opciones) => {
+    if (usandoRespaldo) return resolverRespaldo({ ...opciones, proveedor: respaldo });
+    try {
+      return await resolverPrincipal(opciones);
+    } catch (errorPrincipal) {
+      if (!respaldo) throw errorPrincipal;
+      try {
+        const respuesta = await resolverRespaldo({ ...opciones, proveedor: respaldo });
+        usandoRespaldo = true;
+        return {
+          ...respuesta,
+          _meta: {
+            ...(respuesta?._meta || {}),
+            fallback: true,
+            proveedorOriginal: respuesta?._meta?.proveedorOriginal || 'principal',
+          },
+        };
+      } catch (errorRespaldo) {
+        // El error final conserva los dos motivos, sin incluir claves ni texto
+        // de clientes. Sirve para diagnosticar el panel de WhatsApp.
+        throw new Error(
+          `Falló la IA principal y el respaldo: ${String(errorPrincipal.message || errorPrincipal).slice(0, 160)} / ${String(errorRespaldo.message || errorRespaldo).slice(0, 160)}`
+        );
+      }
+    }
+  };
   const turno = payload?.turno_actual || getCurrentShiftInfo(config).turno_actual;
   const atencion = payload?.atencion || buildAgentTraining(config, turno);
   const telefono = String(payload?.telefono || '').trim();
@@ -125,7 +206,21 @@ async function atenderConMotorPropio(payload, dependencias = {}) {
     dependenciasPedido: dependencias.dependenciasPedido,
   };
   const herramientas = catalogoParaPerfil('cliente', contexto);
-  const memoriaActual = await memoria.obtenerContexto(telefono);
+  /*
+    Resumir una charla larga también usa IA. Es una mejora de contexto, no una
+    condición para atender: si el proveedor está lento, sin cuota o el resumen
+    falla, seguimos con los últimos mensajes en vez de dejar al cliente sin
+    respuesta. El gateway registrará el fallo de la respuesta real si ésa sí
+    ocurre; este aviso no incluye contenido ni teléfono.
+  */
+  let memoriaActual = { resumen: '', mensajes: [] };
+  try {
+    memoriaActual = await memoria.obtenerContexto(telefono);
+  } catch (error) {
+    logger.warn('WhatsApp: no se pudo resumir el contexto; se atiende igual', {
+      detalle: String(error?.message || error).slice(0, 200),
+    });
+  }
   const historial = memoriaActual.mensajes?.length
     ? memoriaActual.mensajes.map(({ rol, texto }) => ({ rol, texto }))
     : historialAMensajes(payload?.historial);
@@ -146,6 +241,7 @@ async function atenderConMotorPropio(payload, dependencias = {}) {
       }\n\n${resumenDelCarrito(db, telefono)}`,
       mensajes,
       herramientas,
+      _conversar: conversarConRespaldo,
       ejecutar: (nombre, argumentos) => ejecutarRegistrada(nombre, argumentos, contexto, 'cliente'),
       onPaso: async (paso) => {
         herramientasUsadas.push(paso.llamada.nombre);
@@ -203,5 +299,6 @@ module.exports = {
   historialAMensajes,
   instruccionesCliente,
   leerPoliticaConversacional,
+  proveedorRespaldoWhatsapp,
   resumenDelCarrito,
 };

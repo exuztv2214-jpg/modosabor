@@ -16,9 +16,12 @@ const {
 function run() {
   console.log('\nTests de reglas del gateway de WhatsApp');
   assert.strictEqual(asksForCarta('Hola, me pasás la carta?'), true);
-  assert.strictEqual(asksForCarta('quiero ver el menu'), true);
+  assert.strictEqual(asksForCarta('quiero ver el menu'), false);
+  assert.strictEqual(asksForCarta('quiero ver el menú completo'), true);
   assert.strictEqual(asksForCarta('qué hay de menú del día?'), false);
   assert.strictEqual(shouldAnswerMenuDayDirectly('Q hay de menu'), true);
+  assert.strictEqual(shouldAnswerMenuDayDirectly('Qué tienen hoy?'), true);
+  assert.strictEqual(shouldAnswerMenuDayDirectly('Qué pizzas tienen hoy?'), false);
   assert.strictEqual(
     shouldAnswerMenuDayDirectly('Cuánto valen', 'Chispita: Te paso el menú del día'),
     true
@@ -100,9 +103,10 @@ function run() {
     { nombre: 'Turno mañana', desde: '10:00', hasta: '15:00' },
     { nombre: 'Turno noche', desde: '20:30', hasta: '02:00' },
   ]);
+  assert.match(cierre, /Gracias por escribir a Modo Sabor/i);
   assert.match(cierre, /10:00 a 15:00/);
   assert.match(cierre, /20:30 a 02:00/);
-  assert.doesNotMatch(cierre, /avis|notific|emoji|👋/i);
+  assert.match(cierre, /preparamos algo rico para vos/i);
   process.env.NODE_ENV = previousNodeEnv;
   const agentRoute = fs.readFileSync(
     path.join(__dirname, '..', '..', 'routes', 'agente.js'),

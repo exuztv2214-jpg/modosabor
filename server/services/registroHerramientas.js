@@ -223,6 +223,28 @@ const HERRAMIENTAS_BASE = [
       crearCarritoWhatsapp(contexto.db || defaultDb).vaciarCarrito(telefonoSeguro({}, contexto)),
   },
   {
+    nombre: 'actualizar_datos_pedido',
+    descripcion:
+      'Guarda datos declarados por este cliente para el carrito actual: nombre, dirección, pago o notas. El nombre sólo se usa si el cliente lo dijo explícitamente.',
+    parametros: {
+      type: 'object',
+      properties: {
+        cliente_nombre: { type: 'string' },
+        cliente_direccion: { type: 'string' },
+        tipo_entrega: { type: 'string', enum: ['delivery', 'retiro'] },
+        metodo_pago: { type: 'string', enum: ['efectivo', 'transferencia'] },
+        notas: { type: 'string' },
+      },
+    },
+    permiso: 'WRITE_CART',
+    escribe: true,
+    ejecutar: (args, contexto = {}) =>
+      crearCarritoWhatsapp(contexto.db || defaultDb).actualizarDatos(
+        telefonoSeguro({}, contexto),
+        args
+      ),
+  },
+  {
     nombre: 'crear_pedido',
     descripcion: 'Confirma una sola vez el carrito actual con precios del servidor.',
     parametros: schemaVacio,

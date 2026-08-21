@@ -162,6 +162,9 @@ export default function SeccionWhatsapp({ config, setConfig }) {
   const conectado = wa.estado === 'conectado';
   const turnos = parseShifts(config?.turnos_negocio || config?.negocio_horarios);
   const reglasTurnos = parseShiftRules(config?.whatsapp_agente_reglas_turnos);
+  const respaldoEsGemini = /\b(?:google\s+)?gemini\b/i.test(
+    String(config?.whatsapp_emergencia_proveedor || '')
+  );
   const conversacionDestacada = Number(
     new URLSearchParams(window.location.search).get('conversacion') || 0
   );
@@ -424,14 +427,24 @@ export default function SeccionWhatsapp({ config, setConfig }) {
         <div className="mt-4">
           <InputField
             label="Dirección de la API"
-            description="Debe ser compatible con OpenAI y terminar normalmente en /v1."
+            description={
+              respaldoEsGemini
+                ? 'Para Gemini se usa la API nativa de Google.'
+                : 'Debe ser compatible con OpenAI y terminar normalmente en /v1.'
+            }
             value={config?.whatsapp_emergencia_base_url || ''}
             onChange={(event) => editar('whatsapp_emergencia_base_url', event.target.value)}
             placeholder="https://api.proveedor.com/v1"
           />
         </div>
 
-        <div className="mt-4">
+        {respaldoEsGemini ? (
+          <p className="mt-4 rounded-xl bg-emerald-50 px-4 py-3 text-[12px] leading-relaxed text-emerald-800">
+            Gemini reutiliza la clave cifrada que ya usa el sistema para las alertas y la
+            transcripción. No hace falta pegarla otra vez.
+          </p>
+        ) : (
+          <div className="mt-4">
           <InputField
             label="Clave de la API"
             type="password"
@@ -446,7 +459,8 @@ export default function SeccionWhatsapp({ config, setConfig }) {
                 : 'Se guarda cifrada y nunca vuelve a mostrarse en el navegador.'
             }
           />
-        </div>
+          </div>
+        )}
 
         <div className="mt-4 flex flex-wrap items-center gap-3 rounded-xl bg-gray-50 p-4">
           <button
@@ -462,6 +476,7 @@ export default function SeccionWhatsapp({ config, setConfig }) {
             )}
             Probar API guardada
           </button>
+          {!respaldoEsGemini ? (
           <button
             type="button"
             onClick={aplicarEmergencia}
@@ -476,8 +491,11 @@ export default function SeccionWhatsapp({ config, setConfig }) {
             )}
             Aplicar en n8n
           </button>
+          ) : null}
           <p className="w-full text-[11px] leading-relaxed text-gray-500">
-            Primero guardá los cambios generales. Después probá y, si responde, aplicala en n8n.
+            {respaldoEsGemini
+              ? 'Primero guardá los cambios generales. Después probá la conexión: el motor propio lo usa automáticamente si NVIDIA falla.'
+              : 'Primero guardá los cambios generales. Después probá y, si responde, aplicala en n8n.'}
           </p>
           {resultadoEmergencia ? (
             <p
