@@ -158,7 +158,7 @@ async function run() {
       { familia: gemini.familia, modelo: gemini.modelo, baseUrl: gemini.baseUrl },
       {
         familia: 'gemini',
-        modelo: 'gemini-2.5-flash',
+        modelo: 'gemini-3.6-flash',
         baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
       }
     );

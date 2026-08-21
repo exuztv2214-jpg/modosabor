@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const defaultDb = require('../db');
+const { desencriptar } = require('../utils/encryptConfig');
 const { getConfigMap } = require('../utils/mercadoPago');
 const { getCurrentShiftInfo } = require('../utils/shifts');
 const { getCustomerSnapshot, formatMoney } = require('../utils/systemClient');
@@ -12,7 +13,6 @@ const { crearMemoriaConversacion } = require('./memoriaConversacion');
 const { buildAgentTraining } = require('./whatsappAgentTraining');
 const { catalogoParaPerfil, ejecutarRegistrada } = require('./registroHerramientas');
 const { registrarMetricaAgente } = require('./metricasAgente');
-const { desencriptar } = require('../utils/encryptConfig');
 
 function historialAMensajes(historial = '') {
   return String(historial || '')
@@ -100,7 +100,7 @@ function proveedorRespaldoWhatsapp(config = {}) {
   const modelo = usaGemini
     ? /^gemini-/i.test(modeloConfigurado)
       ? modeloConfigurado
-      : 'gemini-2.5-flash'
+      : 'gemini-3.6-flash'
     : modeloConfigurado;
   if (!baseUrl || !modelo || !clave) return null;
 

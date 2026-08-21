@@ -30,7 +30,7 @@ function emergencyConfig() {
         : 'https://generativelanguage.googleapis.com/v1beta'
       : baseConfigurada,
     modelo: usaGemini && !/^gemini-/i.test(modeloConfigurado)
-      ? 'gemini-2.5-flash'
+      ? 'gemini-3.6-flash'
       : modeloConfigurado,
     apiKey: usaGemini ? clavePropia || desencriptar(configValue('gemini_api_key')) : clavePropia,
   };

@@ -29,7 +29,7 @@ const { desencriptar } = require('../utils/encryptConfig');
  * de esto.
  */
 
-const MODELO_POR_DEFECTO = 'gemini-2.5-flash';
+const MODELO_POR_DEFECTO = 'gemini-3.6-flash';
 const TIMEOUT_MS = 45000;
 
 /*
