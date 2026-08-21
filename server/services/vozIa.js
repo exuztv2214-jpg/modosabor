@@ -55,6 +55,8 @@ const { desencriptar } = require('../utils/encryptConfig');
 const CARPETA_VOZ = path.join(uploadsDir, 'voz');
 const MODELO_POR_DEFECTO = 'gemini-2.5-flash-preview-tts';
 const TIMEOUT_MS = 15000;
+const COOLDOWN_429_MS = 15 * 60 * 1000;
+let proveedorBloqueadoHasta = 0;
 
 function asegurarCarpeta() {
   if (!fs.existsSync(CARPETA_VOZ)) fs.mkdirSync(CARPETA_VOZ, { recursive: true });
@@ -124,6 +126,7 @@ function obtenerAudio(texto) {
 
   const config = leerConfig();
   if (!vozIaHabilitada(config)) return null;
+  if (Date.now() < proveedorBloqueadoHasta) return null;
 
   const voz = config.voz_ia_nombre || 'Kore';
   const archivo = nombreArchivo(limpio, voz);
@@ -183,6 +186,11 @@ async function generarAudio(limpio, config) {
     );
 
     if (!respuesta.ok) {
+      if (respuesta.status === 429) {
+        const retryAfterSeconds = Number(respuesta.headers.get('retry-after') || 0);
+        proveedorBloqueadoHasta =
+          Date.now() + (retryAfterSeconds > 0 ? retryAfterSeconds * 1000 : COOLDOWN_429_MS);
+      }
       logger.warn('[vozIa] La API no devolvió audio', { estado: respuesta.status });
       return null;
     }

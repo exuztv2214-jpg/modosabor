@@ -46,6 +46,48 @@ function telefonoSeguro(args, contexto) {
   return telefono;
 }
 
+function textoComparable(valor) {
+  return String(valor || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/*
+  La IA no decide por sí sola cuándo un "sí" crea un pedido. Ese mensaje
+  también puede estar confirmando una dirección, una variante o una bebida.
+  La escritura se habilita únicamente cuando Chispita acaba de presentar el
+  resumen y pidió confirmación de forma explícita.
+*/
+function esConfirmacionNatural(texto) {
+  const normalizado = textoComparable(texto);
+  return /^(?:si|si confirmo|confirmo|dale|dale nomas|ok|okay|de una|mandalo|mandale|listo|esta bien|correcto)(?: por favor| por fa| porfa| gracias)?$/.test(
+    normalizado
+  );
+}
+
+function pidioConfirmacionExplicita(texto) {
+  const normalizado = textoComparable(texto);
+  if (!normalizado) return false;
+  const mencionaPedido = /\b(?:pedido|resumen|total|direccion|envio)\b/.test(normalizado);
+  const pideConfirmar =
+    /\bconfirm(?:a|ame|as|amos)\b/.test(normalizado) ||
+    /\b(?:lo mando|lo mandamos|lo envio|lo enviamos|queda asi|esta todo bien)\b/.test(normalizado);
+  return mencionaPedido && pideConfirmar;
+}
+
+function exigirConfirmacionPedido(contexto = {}) {
+  if (!esConfirmacionNatural(contexto.mensajeActual)) {
+    throw new Error('El cliente todavía no confirmó el resumen del pedido');
+  }
+  if (!pidioConfirmacionExplicita(contexto.ultimoMensajeAsistente)) {
+    throw new Error('Primero hay que enviar el resumen completo y pedir confirmación');
+  }
+}
+
 const HERRAMIENTAS_BASE = [
   {
     nombre: 'consultar_estado',
@@ -223,17 +265,41 @@ const HERRAMIENTAS_BASE = [
       crearCarritoWhatsapp(contexto.db || defaultDb).vaciarCarrito(telefonoSeguro({}, contexto)),
   },
   {
+    nombre: 'actualizar_datos_pedido',
+    descripcion:
+      'Guarda datos declarados por este cliente para el carrito actual: nombre, dirección, pago o notas. El nombre sólo se usa si el cliente lo dijo explícitamente.',
+    parametros: {
+      type: 'object',
+      properties: {
+        cliente_nombre: { type: 'string' },
+        cliente_direccion: { type: 'string' },
+        tipo_entrega: { type: 'string', enum: ['delivery', 'retiro'] },
+        metodo_pago: { type: 'string', enum: ['efectivo', 'transferencia'] },
+        notas: { type: 'string' },
+      },
+    },
+    permiso: 'WRITE_CART',
+    escribe: true,
+    ejecutar: (args, contexto = {}) =>
+      crearCarritoWhatsapp(contexto.db || defaultDb).actualizarDatos(
+        telefonoSeguro({}, contexto),
+        args
+      ),
+  },
+  {
     nombre: 'crear_pedido',
     descripcion: 'Confirma una sola vez el carrito actual con precios del servidor.',
     parametros: schemaVacio,
     permiso: 'CREATE_ORDER',
     escribe: true,
-    ejecutar: (_args, contexto = {}) =>
-      crearCarritoWhatsapp(contexto.db || defaultDb).confirmarCarrito(
+    ejecutar: (_args, contexto = {}) => {
+      exigirConfirmacionPedido(contexto);
+      return crearCarritoWhatsapp(contexto.db || defaultDb).confirmarCarrito(
         telefonoSeguro({}, contexto),
         { whatsappMessageId: contexto.mensajeId },
         contexto.dependenciasPedido || {}
-      ),
+      );
+    },
   },
 ];
 
@@ -290,6 +356,9 @@ async function ejecutarRegistrada(nombre, args, contexto = {}, perfil = 'cliente
 module.exports = {
   HERRAMIENTAS_BASE,
   PERMISOS_CLIENTE,
+  esConfirmacionNatural,
+  pidioConfirmacionExplicita,
+  exigirConfirmacionPedido,
   telefonoSeguro,
   herramientasParaPerfil,
   catalogoParaPerfil,

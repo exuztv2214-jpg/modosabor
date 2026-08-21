@@ -9,6 +9,7 @@ const {
 const {
   persistMenuDiaItems,
   loadMenuDiaLibrary,
+  buildMenuDiaManagerPayload,
   createMenuDiaProduct,
   updateMenuDiaProduct,
   archiveMenuDiaProduct,
@@ -390,7 +391,7 @@ function prepararMenuDia(args = {}) {
   const pedidos = Array.isArray(args.platos) ? args.platos : [];
   if (!pedidos.length) throw new ErrorDeAccion('Decime qué platos van en el menú del día.');
 
-  const biblioteca = loadMenuDiaLibrary();
+  const biblioteca = buildMenuDiaManagerPayload().items;
   const resueltos = pedidos.map((plato) => {
     const nombre = String(plato?.nombre || plato || '').trim();
     if (!nombre) throw new ErrorDeAccion('Uno de los platos vino sin nombre.');
@@ -404,11 +405,36 @@ function prepararMenuDia(args = {}) {
       enBiblioteca.length === 1 ? enBiblioteca[0] : buscarUnico(enBiblioteca, nombre, 'plato');
 
     const precioPesos = Number(plato?.precio ?? args.precio ?? 0);
+    const tipo = plato?.tipo === 'ejecutivo' ? 'ejecutivo' : producto.tipo_hoy || 'economico';
+    const precioEconomicoPedido = Number(plato?.precio_economico || 0);
+    const precioEjecutivoPedido = Number(plato?.precio_ejecutivo || 0);
+    const precioEconomicoCentavos =
+      precioEconomicoPedido > 0 ? aCentavos(precioEconomicoPedido) : 0;
+    const precioEjecutivoCentavos =
+      precioEjecutivoPedido > 0 ? aCentavos(precioEjecutivoPedido) : 0;
+    const precio =
+      (precioPesos > 0 ? aCentavos(precioPesos) : 0) ||
+      precioEconomicoCentavos ||
+      precioEjecutivoCentavos ||
+      producto.precio_hoy;
     return {
       id: producto.id,
       nombre: producto.nombre,
-      precio: precioPesos > 0 ? aCentavos(precioPesos) : producto.precio,
-      stock: roundStock(plato?.stock ?? args.stock ?? producto.stock_directo ?? 0),
+      tipo,
+      precio,
+      precioEconomico:
+        precioEconomicoCentavos > 0
+          ? precioEconomicoCentavos
+          : precioPesos > 0 && tipo === 'economico'
+            ? precio
+            : producto.precio_economico_hoy,
+      precioEjecutivo:
+        precioEjecutivoCentavos > 0
+          ? precioEjecutivoCentavos
+          : precioPesos > 0 && tipo === 'ejecutivo'
+            ? precio
+            : producto.precio_ejecutivo_hoy,
+      stock: roundStock(plato?.stock ?? args.stock ?? producto.stock_hoy ?? 0),
     };
   });
 
@@ -429,7 +455,10 @@ function ejecutarMenuDia(argumentos) {
     id: p.id,
     disponible_hoy: 1,
     precio_hoy: p.precio,
+    precio_economico_hoy: p.precioEconomico,
+    precio_ejecutivo_hoy: p.precioEjecutivo,
     stock_hoy: p.stock,
+    tipo_hoy: p.tipo,
     orden_hoy: indice,
   }));
   persistMenuDiaItems(items);
@@ -541,7 +570,22 @@ function prepararEditarPlatoMenuDia(args = {}) {
       throw new ErrorDeAccion('El precio tiene que ser mayor que cero.');
     }
     cambios.precio_hoy = aCentavos(precio);
-    agregar('Precio', pesos(plato.precio), pesos(cambios.precio_hoy));
+    const tipoPrecio = args.tipo === 'ejecutivo' ? 'ejecutivo' : plato.tipo_hoy || 'economico';
+    cambios[tipoPrecio === 'ejecutivo' ? 'precio_ejecutivo_hoy' : 'precio_economico_hoy'] =
+      cambios.precio_hoy;
+    agregar('Precio', pesos(plato.precio_hoy), pesos(cambios.precio_hoy));
+  }
+  for (const [campo, destino, etiqueta] of [
+    ['precio_economico', 'precio_economico_hoy', 'Precio económico'],
+    ['precio_ejecutivo', 'precio_ejecutivo_hoy', 'Precio ejecutivo'],
+  ]) {
+    if (args[campo] === undefined) continue;
+    const precio = Number(args[campo]);
+    if (!Number.isFinite(precio) || precio <= 0) {
+      throw new ErrorDeAccion(`${etiqueta} tiene que ser mayor que cero.`);
+    }
+    cambios[destino] = aCentavos(precio);
+    agregar(etiqueta, pesos(plato[destino] || 0), pesos(cambios[destino]));
   }
   if (args.stock !== undefined) {
     const stock = roundStock(args.stock);
@@ -1097,6 +1141,9 @@ const ACCIONES = [
             properties: {
               nombre: { type: 'string' },
               precio: { type: 'number', description: 'En pesos. Opcional.' },
+              precio_economico: { type: 'number', description: 'Porción económica, en pesos.' },
+              precio_ejecutivo: { type: 'number', description: 'Porción ejecutiva, en pesos.' },
+              tipo: { type: 'string', enum: ['economico', 'ejecutivo'] },
               stock: { type: 'number', description: 'Stock disponible para hoy. Opcional.' },
             },
             required: ['nombre'],
@@ -1146,6 +1193,8 @@ const ACCIONES = [
         nombre: { type: 'string' },
         descripcion: { type: 'string' },
         precio: { type: 'number', description: 'Precio en pesos.' },
+        precio_economico: { type: 'number', description: 'Precio económico en pesos.' },
+        precio_ejecutivo: { type: 'number', description: 'Precio ejecutivo en pesos.' },
         stock: { type: 'number', description: 'Stock disponible hoy.' },
         tipo: { type: 'string', enum: ['economico', 'ejecutivo'] },
         tiempo_preparacion: { type: 'number', description: 'Minutos.' },

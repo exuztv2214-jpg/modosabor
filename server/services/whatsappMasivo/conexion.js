@@ -6,7 +6,7 @@ const pino = require('pino');
 const logger = require('../../utils/logger');
 const { dataDir, ensureDir } = require('../../utils/storagePaths');
 const db = require('../../db');
-const { deJid, normalizarTelefono } = require('./telefono');
+const { guardarContacto, sincronizarHistorial } = require('./agenda');
 
 /**
  * Conexión con WhatsApp, desde el servidor.
@@ -64,6 +64,7 @@ function contenidoInterno(message = {}) {
     content = wrapped;
   }
 }
+
 class ConexionWhatsapp extends EventEmitter {
   constructor({ carpetaSesion = CARPETA_SESION } = {}) {
     super();
@@ -175,7 +176,11 @@ class ConexionWhatsapp extends EventEmitter {
         // nosotros en el panel.
         printQRInTerminal: false,
         browser: ['Modo Sabor', 'Chrome', '1.0.0'],
-        syncFullHistory: false,
+        // Kimi sincronizaba toda la agenda leyendo getChats() al vincular.
+        // En Baileys el equivalente es aceptar el history sync: persiste sólo
+        // los datos de CRM y jamás reinyecta esos mensajes en la IA.
+        syncFullHistory: true,
+        shouldSyncHistoryMessage: () => true,
         markOnlineOnConnect: false,
       });
       this.socket = socket;
@@ -191,23 +196,7 @@ class ConexionWhatsapp extends EventEmitter {
         messages.forEach((message) => {
           const jid = String(message?.key?.remoteJid || '');
           if (!jid || jid === 'status@broadcast' || jid.endsWith('@g.us')) return;
-          const telefono = normalizarTelefono(deJid(jid));
-          if (telefono) {
-            db.prepare(
-              `INSERT INTO wa_contactos (jid, telefono, nombre, ultimo_mensaje_en, origen)
-               VALUES (?, ?, ?, CURRENT_TIMESTAMP, 'gateway')
-               ON CONFLICT(jid) DO UPDATE SET
-                 telefono = excluded.telefono,
-                 nombre = CASE WHEN excluded.nombre <> '' THEN excluded.nombre ELSE wa_contactos.nombre END,
-                 ultimo_mensaje_en = CURRENT_TIMESTAMP, actualizado_en = CURRENT_TIMESTAMP`
-            ).run(
-              `${telefono}@s.whatsapp.net`,
-              telefono,
-              String(message?.pushName || '')
-                .trim()
-                .slice(0, 160)
-            );
-          }
+          guardarContacto({ jid, nombre: message?.pushName, fecha: new Date().toISOString() }, db);
           const messageId = String(message?.key?.id || '');
           const texto = String(
             message?.message?.conversation ||
@@ -226,6 +215,109 @@ class ConexionWhatsapp extends EventEmitter {
           if (enviadoPorSistema) this.enviadosPorSistema.delete(messageId);
           if (indiceEsperado >= 0) this.enviosEsperados.splice(indiceEsperado, 1);
           this.emit('mensaje', { ...message, enviadoPorSistema });
+        });
+      });
+
+      /*
+        En Baileys 7 el evento real de la sincronización inicial se llama
+        `messaging-history.set`; `chats.set` era de versiones previas. Escuchar
+        ambos deja compatibilidad, pero el primero es el que reproduce el
+        comportamiento útil de Kimi: después del QR aparecen los chats ya
+        existentes, con fecha, nombre y segmentos.
+      */
+      socket.ev.on('messaging-history.set', (history = {}) => {
+        try {
+          const resumen = sincronizarHistorial(history, db);
+          if (resumen.contactos || resumen.respuestas) {
+            logger.info('WhatsApp: agenda sincronizada desde historial', {
+              contactos: resumen.contactos,
+              respuestas: resumen.respuestas,
+            });
+          }
+        } catch (error) {
+          logger.warn('WhatsApp: no se pudo sincronizar la agenda', { message: error.message });
+        }
+      });
+      socket.ev.on('chats.set', ({ chats = [] } = {}) => {
+        chats.forEach((chat) => {
+          guardarContacto(
+            {
+              jid: chat?.id,
+              nombre: chat?.name || chat?.subject || '',
+              fecha:
+                Number.isFinite(Number(chat?.conversationTimestamp)) &&
+                Number(chat.conversationTimestamp) > 0
+                  ? new Date(Number(chat.conversationTimestamp) * 1000).toISOString()
+                  : null,
+            },
+            db
+          );
+        });
+      });
+      /**
+       * Recibos: entregado y leído.
+       *
+       * ── Qué significan los números ─────────────────────────────────────
+       *
+       * Baileys manda el estado como un número, y los nombres importan:
+       *
+       *   2 · el servidor de WhatsApp lo recibió (salió, nada más)
+       *   3 · le llegó al teléfono del cliente
+       *   4 · el cliente lo abrió
+       *   5 · escuchó el audio
+       *
+       * Sin esto, "enviado" sólo quería decir que salió de acá. Un número al
+       * que WhatsApp empezó a frenar se veía igual que uno sano: los mensajes
+       * figuraban enviados y no llegaban a nadie.
+       *
+       * ── Por qué nunca se retrocede ─────────────────────────────────────
+       *
+       * Los recibos llegan desordenados y repetidos: puede venir el de leído
+       * antes que el de entregado, o el mismo dos veces. Por eso el que
+       * escucha esto sólo escribe la fecha si estaba vacía. Un mensaje que ya
+       * se leyó no puede volver a estar sin entregar.
+       */
+      socket.ev.on('messages.update', (updates = []) => {
+        updates.forEach((item) => {
+          const id = String(item?.key?.id || '');
+          if (!id) return;
+
+          /*
+            Hoy Baileys manda el estado como número. Se acepta también el
+            nombre del enum —DELIVERY_ACK, READ— porque si algún día cambiara
+            de forma, `Number('READ')` daría NaN y los recibos dejarían de
+            registrarse **sin un solo error en el log**. Una falla silenciosa
+            en algo que nadie mira todos los días puede vivir meses.
+          */
+          const crudo = item?.update?.status;
+          const porNombre = { DELIVERY_ACK: 3, READ: 4, PLAYED: 5 }[String(crudo)];
+          const estado = Number.isFinite(Number(crudo)) ? Number(crudo) : porNombre;
+
+          if (!Number.isFinite(estado) || estado < 3) return;
+          this.emit('recibo', { id, entregado: estado >= 3, leido: estado >= 4 });
+        });
+      });
+
+      socket.ev.on('contacts.set', ({ contacts = [] } = {}) => {
+        contacts.forEach((contact) => {
+          guardarContacto(
+            {
+              jid: contact?.id,
+              nombre: contact?.name || contact?.notify || contact?.verifiedName || '',
+            },
+            db
+          );
+        });
+      });
+      socket.ev.on('contacts.update', (contacts = []) => {
+        contacts.forEach((contact) => {
+          guardarContacto(
+            {
+              jid: contact?.id,
+              nombre: contact?.name || contact?.notify || contact?.verifiedName || '',
+            },
+            db
+          );
         });
       });
 
@@ -436,6 +528,35 @@ class ConexionWhatsapp extends EventEmitter {
       // Ante la duda se asume que sí: perder un cliente real por un chequeo
       // que falló es peor que mandarle a uno que no está.
       return true;
+    }
+  }
+
+  /**
+   * La URL de la foto de perfil, o null.
+   *
+   * ── Por qué devuelve null y no tira error ──────────────────────────────
+   *
+   * Que un contacto no tenga foto visible es lo normal, no una falla: en
+   * WhatsApp la foto se puede ocultar a quien no está en la agenda, y buena
+   * parte de los clientes la tienen así. Si esto tirara excepción, el que
+   * llama tendría que envolver cada contacto en un try/catch y el registro se
+   * llenaría de errores que no son errores.
+   *
+   * El plazo de espera existe porque este pedido a veces se queda colgado sin
+   * responder nunca. Sin corte, sincronizar 500 contactos se traba en el
+   * primero que no contesta y no termina más.
+   */
+  async fotoDePerfil(jid, { esperaMs = 12000 } = {}) {
+    if (!this.listo) throw new Error('WhatsApp no está conectado');
+    try {
+      return await Promise.race([
+        this.socket.profilePictureUrl(jid, 'image'),
+        new Promise((_, rechazar) =>
+          setTimeout(() => rechazar(new Error('La foto tardó demasiado')), esperaMs)
+        ),
+      ]);
+    } catch {
+      return null;
     }
   }
 }

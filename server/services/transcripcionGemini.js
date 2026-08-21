@@ -29,7 +29,7 @@ const { desencriptar } = require('../utils/encryptConfig');
  * de esto.
  */
 
-const MODELO_POR_DEFECTO = 'gemini-2.5-flash';
+const MODELO_POR_DEFECTO = 'gemini-3.6-flash';
 const TIMEOUT_MS = 45000;
 
 /*
@@ -51,13 +51,17 @@ const INSTRUCCION =
   'Si no se entiende ninguna palabra, devolvé exactamente: SIN_VOZ';
 
 function claveGemini(config = {}) {
-  const desdeEntorno = String(process.env.GEMINI_API_KEY || '').trim();
-  if (desdeEntorno) return desdeEntorno;
+  // La configuración almacenada es la fuente de verdad. Un .env de ejemplo
+  // con el placeholder no debe pisar una clave real ni romper las pruebas.
   try {
-    return String(desencriptar(config.gemini_api_key) || '').trim();
+    const configurada = String(desencriptar(config.gemini_api_key) || '').trim();
+    if (configurada) return configurada;
   } catch {
-    return String(config.gemini_api_key || '').trim();
+    const configurada = String(config.gemini_api_key || '').trim();
+    if (configurada) return configurada;
   }
+  const desdeEntorno = String(process.env.GEMINI_API_KEY || '').trim();
+  return /^pegá_tu|your.*key|changeme/i.test(desdeEntorno) ? '' : desdeEntorno;
 }
 
 /**

@@ -94,9 +94,9 @@ function gatewayConfig() {
     pausaTotal: enabled('whatsapp_gateway_pausa_total', false),
     atencionIa: enabled('whatsapp_atencion_ia_activa', false),
     masivos: enabled('whatsapp_masivos_activo', false),
-    // Experimental y apagado por defecto. Si se apaga, n8n sigue atendiendo
-    // exactamente por el mismo webhook que se usaba antes.
-    motorPropio: enabled('whatsapp_motor_propio', false),
+    // Un solo motor canónico: reglas, memoria, herramientas e idempotencia
+    // viven en el backend. Gemini es el respaldo del proveedor, no otro flujo.
+    motorPropio: true,
     agruparMs: Math.min(
       8000,
       Math.max(0, Number(configValue('whatsapp_agrupar_ms', '2000')) || 2000)
@@ -122,8 +122,8 @@ function closedBusinessMessage(turnos = []) {
     .map((turno) => `${turno.nombre || 'Turno'}: ${turno.desde} a ${turno.hasta}`)
     .join(' · ');
   return horarios
-    ? `Ahora estamos cerrados. Nuestros horarios son: ${horarios}. Cuando abramos, escribinos y te atendemos.`
-    : 'Ahora estamos cerrados. Escribinos más tarde y te atendemos.';
+    ? `¡Hola! Gracias por escribir a Modo Sabor. En este momento el local está cerrado. Nuestros horarios son: ${horarios}. Escribinos en ese horario y preparamos algo rico para vos 😊`
+    : '¡Hola! Gracias por escribir a Modo Sabor. En este momento el local está cerrado. Escribinos más tarde y preparamos algo rico para vos 😊';
 }
 
 function textFromMessage(message) {
@@ -212,20 +212,35 @@ function usableWhatsappName(value) {
   return name;
 }
 
-function syncCustomerFromWhatsapp(telefono, whatsappName = '') {
+function nombreDeclaradoPorCliente(texto) {
+  const match = String(texto || '').match(
+    /\b(?:me\s+llamo|mi\s+nombre\s+es|soy)\s+([a-záéíóúüñ][a-záéíóúüñ' -]{1,80})/i
+  );
+  if (!match) return '';
+  const nombre = usableWhatsappName(match[1].replace(/[,.!?:;].*$/, '').trim());
+  // “Soy de la esquina” o “soy el que…” no son nombres: nunca los usemos
+  // para ensuciar una ficha de cliente por una frase común.
+  if (/^(?:el|la|un|una|de|para|quien|que)\b/i.test(nombre)) return '';
+  return nombre;
+}
+
+function syncCustomerFromWhatsapp(telefono, whatsappName = '', nombreDeclarado = '') {
   const existing = findClienteByPhone(db, telefono);
   const visibleName = usableWhatsappName(whatsappName);
+  const explicitName = usableWhatsappName(nombreDeclarado);
   if (existing) {
-    if (!cleanText(existing.nombre) && visibleName) {
-      db.prepare('UPDATE clientes SET nombre = ? WHERE id = ?').run(visibleName, existing.id);
-      return { ...existing, nombre: visibleName };
+    const nombreCanonico = explicitName || cleanText(existing.nombre) || visibleName;
+    if (nombreCanonico && nombreCanonico !== cleanText(existing.nombre)) {
+      db.prepare('UPDATE clientes SET nombre = ? WHERE id = ?').run(nombreCanonico, existing.id);
+      return { ...existing, nombre: nombreCanonico };
     }
     return existing;
   }
-  if (!visibleName) return null;
+  const nombreNuevo = explicitName || visibleName;
+  if (!nombreNuevo) return null;
   const result = db
     .prepare("INSERT INTO clientes (nombre, telefono, direccion, notas) VALUES (?, ?, '', ?)")
-    .run(visibleName, telefono, 'Alta automática desde WhatsApp');
+    .run(nombreNuevo, telefono, 'Alta automática desde WhatsApp');
   return db.prepare('SELECT * FROM clientes WHERE id = ?').get(result.lastInsertRowid);
 }
 
@@ -235,7 +250,14 @@ function asksForCarta(text) {
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '');
   if (/menu\s+del\s+dia/.test(normalized)) return false;
-  return /\b(carta|menu completo|menu de la carta|ver el menu)\b/.test(normalized);
+  /*
+    "Ver el menú" no significa necesariamente "mandame las cinco imágenes".
+    A la mañana los clientes lo usan para preguntar qué hay de menú del día;
+    si lo clasificamos como carta antes de mirar el turno, salteamos la oferta
+    vigente y mandamos cinco imágenes sin que las hayan pedido. La carta se
+    dispara únicamente ante una petición inequívoca.
+  */
+  return /\b(carta|menu completo|menu de la carta)\b/.test(normalized);
 }
 
 function normalizeIntentText(value) {
@@ -267,8 +289,22 @@ function shouldAnswerMenuDayDirectly(text, recentHistory = '') {
   );
   const correctsWrongMenu = /^(?:eso\s+no|no\s+son|esos\s+no|esta\s+mal)/.test(current);
 
+  /*
+    En el turno de la mañana, "qué hay" es la forma más común de pedir el
+    menú del día. No debe depender de que el modelo recuerde consultar la foto
+    fechada: el gateway la lee del servidor y nunca mezcla platos históricos.
+    Excluimos categorías concretas para que "qué pizzas hay" siga yendo al
+    catálogo de pizzas, no al menú diario.
+  */
+  const asksGenericOffer =
+    /\b(?:que\s+hay|que\s+tienen|que\s+venden|que\s+ofrecen|hay\s+para\s+comer)\b/.test(current) &&
+    !/\b(?:pizza|empanada|hamburguesa|milanesa|mila|lomito|sandwich|sanguche|papa|bebida|gaseosa|pepsi|jugo|pasta|fideo|raviol|canelon|noqui)\b/.test(
+      current
+    );
+
   return (
     asksGeneralMenu ||
+    asksGenericOffer ||
     (asksPrices && recentMenuContext) ||
     (affirmative && offeredAllPrices) ||
     (correctsWrongMenu && recentMenuContext)
@@ -504,10 +540,11 @@ async function handleIncoming(message) {
   }
   if (!usableText) return;
 
-  const customer = syncCustomerFromWhatsapp(telefono, message?.pushName || '');
+  const direction = message?.key?.fromMe ? 'saliente' : 'entrante';
+  const nombreDeclarado = direction === 'entrante' ? nombreDeclaradoPorCliente(usableText) : '';
+  const customer = syncCustomerFromWhatsapp(telefono, message?.pushName || '', nombreDeclarado);
   const knownName = customer?.nombre || message?.pushName || '';
   const conversation = upsertConversation(telefono, knownName);
-  const direction = message?.key?.fromMe ? 'saliente' : 'entrante';
   if (direction === 'entrante') {
     const duplicate = db
       .prepare(
@@ -540,7 +577,7 @@ async function handleIncoming(message) {
   if (message?.key?.fromMe) return;
 
   recibidos += 1;
-  registrarRespuesta({ telefono, texto: usableText });
+  registrarRespuesta({ telefono, texto: usableText, mensajeId: id });
   const config = gatewayConfig();
   if (config.pausaTotal || !config.atencionIa || conversation.pausa_humana) return;
 
@@ -908,6 +945,7 @@ module.exports = {
   requestedMenuDayKind,
   buildMenuDayReply,
   usableWhatsappName,
+  nombreDeclaradoPorCliente,
   claimsOrderWasCreated,
   enqueueIncoming,
   serializeByKey,

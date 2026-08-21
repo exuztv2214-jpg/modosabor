@@ -4,10 +4,12 @@ const fs = require('fs');
 const db = require('../../db');
 const logger = require('../../utils/logger');
 const { uploadPublicPathToFile } = require('../../utils/storagePaths');
+const { getShiftForDate, getBusinessTimeParts } = require('../../utils/shifts');
+const { sqlFecha } = require('../../utils/fechaLocal');
 const { conexion } = require('./conexion');
 const { aJid, normalizarTelefono } = require('./telefono');
 const reglas = require('./reglas');
-const { getShiftForDate, getBusinessTimeParts } = require('../../utils/shifts');
+const { audiencia, resumenSegmentos } = require('./agenda');
 
 /**
  * El bucle de envío.
@@ -173,14 +175,7 @@ class Motor extends EventEmitter {
    * del número vinculado y no sólo quienes ya tienen una compra en el TPV.
    */
   destinatarios({ soloIds = null, segmento = 'todos', turnoClave = this.turnoClaveActual() } = {}) {
-    const filas = db
-      .prepare(
-        `SELECT id, nombre, telefono, 0 AS total_pedidos,
-                COALESCE(ultimo_mensaje_en, '') AS ultima_compra
-           FROM wa_contactos
-          WHERE COALESCE(telefono, '') <> '' AND excluido = 0`
-      )
-      .all();
+    const filas = audiencia(db).filter((contacto) => !contacto.excluido);
 
     const excluidos = new Set(
       db
@@ -200,10 +195,7 @@ class Motor extends EventEmitter {
 
     const permitidos = soloIds ? new Set(soloIds.map(Number)) : null;
 
-    const tipo = ['todos', 'frecuentes', 'nuevos', 'inactivos'].includes(segmento)
-      ? segmento
-      : 'todos';
-    const haceTreintaDias = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    const tipo = String(segmento || 'todos');
 
     return filas
       .map((c) => ({ ...c, tel: normalizarTelefono(c.telefono) }))
@@ -211,14 +203,11 @@ class Motor extends EventEmitter {
       .filter((c) => !permitidos || permitidos.has(Number(c.id)))
       .filter((c) => !excluidos.has(c.tel))
       .filter((c) => !yaEnTurno.has(c.tel))
-      .filter((c) => {
-        const pedidos = Number(c.total_pedidos || 0);
-        const ultima = new Date(c.ultima_compra || 0).getTime();
-        if (tipo === 'frecuentes') return pedidos >= 5;
-        if (tipo === 'nuevos') return pedidos <= 1;
-        if (tipo === 'inactivos') return pedidos > 0 && (!ultima || ultima < haceTreintaDias);
-        return true;
-      });
+      .filter((c) => tipo === 'todos' || c.segmentos.includes(tipo));
+  }
+
+  resumenSegmentos() {
+    return resumenSegmentos(db);
   }
 
   /**
@@ -258,8 +247,8 @@ class Motor extends EventEmitter {
     const elegidos = lista.slice(0, tope);
 
     const crear = db.prepare(
-      `INSERT INTO wa_campanas (nombre, mensaje, imagen, estado, simulacro, total)
-       VALUES (?, ?, ?, 'borrador', ?, ?)`
+      `INSERT INTO wa_campanas (nombre, mensaje, imagen, segmento, estado, simulacro, total)
+       VALUES (?, ?, ?, ?, 'borrador', ?, ?)`
     );
     const insertar = db.prepare(
       `INSERT OR IGNORE INTO wa_envios (campana_id, cliente_id, telefono, nombre, turno_clave)
@@ -272,6 +261,7 @@ class Motor extends EventEmitter {
         nombre || `Promo ${HOY()}`,
         mensaje,
         imagen,
+        segmento,
         simulacro ? 1 : 0,
         elegidos.length
       ).lastInsertRowid;
@@ -311,6 +301,16 @@ class Motor extends EventEmitter {
       e.httpStatus = 404;
       throw e;
     }
+    if (!campana.simulacro && !conexion.listo) {
+      const e = new Error('WhatsApp no está conectado');
+      e.httpStatus = 409;
+      throw e;
+    }
+    if (!['borrador', 'programada'].includes(campana.estado)) {
+      const e = new Error('La campaña no está disponible para iniciar');
+      e.httpStatus = 409;
+      throw e;
+    }
 
     this.corriendo = true;
     this.pausado = false;
@@ -346,6 +346,7 @@ class Motor extends EventEmitter {
     const marcar = db.prepare(
       'UPDATE wa_envios SET estado = ?, error = ?, enviado_en = CURRENT_TIMESTAMP WHERE id = ?'
     );
+    const anotarId = db.prepare('UPDATE wa_envios SET mensaje_id = ? WHERE id = ?');
 
     for (const destino of pendientes) {
       if (this.detenerPedido) break;
@@ -394,6 +395,19 @@ class Motor extends EventEmitter {
       });
 
       /*
+        Un simulacro nunca debe consumir el turno de nadie. Antes se marcaba
+        "enviado" antes de entrar a esta rama: después de una prueba, la
+        campaña real dejaba a todos afuera hasta el turno siguiente.
+      */
+      if (campana.simulacro) {
+        marcar.run('salteado', 'Simulacro: no se envió ningún mensaje', destino.id);
+        this.emit('linea', { tipo: 'sim', texto: `[SIM] ${destino.telefono}` });
+        this.stats.hechos += 1;
+        this.emitir();
+        continue;
+      }
+
+      /*
         Se marca ANTES de mandar. Si el proceso muere entre el envío y el
         registro, este contacto queda como intentado y no lo recibe dos
         veces. Un mensaje perdido molesta; uno repetido hace que te reporten.
@@ -401,9 +415,8 @@ class Motor extends EventEmitter {
       marcar.run('enviado', '', destino.id);
 
       try {
-        if (campana.simulacro) {
-          this.emit('linea', { tipo: 'sim', texto: `[SIM] ${destino.telefono}` });
-        } else if (campana.imagen) {
+        let resultado;
+        if (campana.imagen) {
           const archivo = uploadPublicPathToFile(campana.imagen);
           if (!archivo || !fs.existsSync(archivo)) {
             throw new Error('El adjunto de la campaña ya no está disponible');
@@ -411,14 +424,27 @@ class Motor extends EventEmitter {
           const ext = String(archivo).toLowerCase().split('.').pop();
           const mimetype =
             ext === 'pdf' ? 'application/pdf' : `image/${ext === 'jpg' ? 'jpeg' : ext}`;
-          await conexion.enviarArchivo(aJid(destino.telefono), fs.readFileSync(archivo), {
-            mimetype,
-            fileName: String(campana.imagen).split('/').pop(),
-            caption: texto,
-          });
+          resultado = await conexion.enviarArchivo(
+            aJid(destino.telefono),
+            fs.readFileSync(archivo),
+            {
+              mimetype,
+              fileName: String(campana.imagen).split('/').pop(),
+              caption: texto,
+            }
+          );
         } else {
-          await conexion.enviarTexto(aJid(destino.telefono), texto);
+          resultado = await conexion.enviarTexto(aJid(destino.telefono), texto);
         }
+
+        /*
+          El id que devuelve WhatsApp es lo único que ata este envío con los
+          recibos que van a llegar después —entregado, leído—, que vienen
+          sueltos y sin ninguna otra referencia.
+        */
+        const mensajeId = String(resultado?.key?.id || '');
+        if (mensajeId) anotarId.run(mensajeId, destino.id);
+
         this.stats.ok += 1;
       } catch (error) {
         marcar.run('fallido', String(error.message || '').slice(0, 200), destino.id);
@@ -477,9 +503,110 @@ class Motor extends EventEmitter {
     this.emitir();
     return this.resumen();
   }
+
+  programar(campanaId, fecha) {
+    const when = new Date(fecha);
+    if (!Number.isFinite(when.getTime()) || when.getTime() <= Date.now()) {
+      const e = new Error('Elegí una fecha y hora futura para programar');
+      e.httpStatus = 400;
+      throw e;
+    }
+    const result = db
+      .prepare(
+        "UPDATE wa_campanas SET estado = 'programada', programada_para = ? WHERE id = ? AND estado = 'borrador'"
+      )
+      .run(sqlFecha(when), campanaId);
+    if (!result.changes) {
+      const e = new Error('La campaña ya no está disponible para programar');
+      e.httpStatus = 409;
+      throw e;
+    }
+    /* La respuesta va en ISO: es para el navegador, no para la base. */
+    return { campanaId, programadaPara: when.toISOString(), estado: 'programada' };
+  }
+
+  async procesarProgramadas() {
+    if (this.corriendo) return null;
+    const next = db
+      .prepare(
+        "SELECT id FROM wa_campanas WHERE estado = 'programada' AND programada_para <= CURRENT_TIMESTAMP ORDER BY programada_para ASC LIMIT 1"
+      )
+      .get();
+    if (!next) return null;
+    try {
+      return await this.arrancar(next.id);
+    } catch (error) {
+      db.prepare("UPDATE wa_campanas SET estado = 'cancelada', ultimo_error = ? WHERE id = ?").run(
+        String(error.message || 'No se pudo iniciar').slice(0, 220),
+        next.id
+      );
+      logger.warn('WhatsApp: campaña programada cancelada', {
+        campanaId: next.id,
+        message: error.message,
+      });
+      return null;
+    }
+  }
 }
 
 const motor = new Motor();
+const scheduler = setInterval(() => {
+  motor
+    .procesarProgramadas()
+    .catch((error) =>
+      logger.warn('WhatsApp: no se pudo revisar campañas programadas', { message: error.message })
+    );
+}, 30_000);
+scheduler.unref?.();
+
+/**
+ * Anota que un mensaje se entregó o se leyó.
+ *
+ * ── Por qué sólo escribe si estaba vacío ───────────────────────────────────
+ *
+ * Los recibos de WhatsApp llegan desordenados y repetidos: puede venir el de
+ * leído antes que el de entregado, o el mismo tres veces. Con un UPDATE a
+ * secas, el segundo recibo pisaría la hora del primero y la marca terminaría
+ * diciendo cuándo llegó el último aviso en vez de cuándo pasó la cosa.
+ *
+ * `COALESCE(columna, ...)` deja la primera y descarta el resto. Es la
+ * diferencia entre "lo leyó a las 20:15" y "el último recibo entró a las
+ * 20:47".
+ */
+function registrarRecibo({ id, entregado = false, leido = false } = {}) {
+  const mensajeId = String(id || '');
+  if (!mensajeId) return false;
+
+  const r = db
+    .prepare(
+      `UPDATE wa_envios
+          SET entregado_en = CASE WHEN ? THEN COALESCE(entregado_en, CURRENT_TIMESTAMP) ELSE entregado_en END,
+              leido_en     = CASE WHEN ? THEN COALESCE(leido_en, CURRENT_TIMESTAMP) ELSE leido_en END
+        WHERE mensaje_id = ?`
+    )
+    .run(entregado ? 1 : 0, leido ? 1 : 0, mensajeId);
+
+  return r.changes > 0;
+}
+
+/*
+  Se engancha una sola vez, al cargar el módulo. La conexión avisa de cada
+  recibo y esto lo persiste; si el enganche viviera adentro de una campaña,
+  los recibos que llegan después de terminarla —que son la mayoría— se
+  perderían.
+*/
+// La implementación real es un EventEmitter. La guarda deja que el motor se
+// cargue también con conectores mínimos en pruebas o recuperación, sin perder
+// el seguimiento de recibos en el gateway real.
+if (typeof conexion?.on === 'function') {
+  conexion.on('recibo', (dato) => {
+    try {
+      registrarRecibo(dato);
+    } catch (error) {
+      logger.warn('WhatsApp: no se pudo anotar el recibo', { message: error.message });
+    }
+  });
+}
 
 /**
  * Baja automática.
@@ -487,16 +614,33 @@ const motor = new Motor();
  * Es lo que protege el número: alguien que no puede salir de la lista
  * termina reportando, y los reportes son lo que dispara el bloqueo.
  */
-function registrarRespuesta({ telefono, texto }) {
+function registrarRespuesta({ telefono, texto, mensajeId = '', recibidoEn = null }) {
   const tel = normalizarTelefono(telefono);
   if (!tel) return null;
   const baja = reglas.pideLaBaja(texto);
 
-  db.prepare('INSERT INTO wa_respuestas (telefono, texto, es_baja) VALUES (?, ?, ?)').run(
-    tel,
-    String(texto || '').slice(0, 2000),
-    baja ? 1 : 0
-  );
+  const result = db
+    .prepare(
+      `INSERT OR IGNORE INTO wa_respuestas (telefono, texto, es_baja, mensaje_id, recibido_en)
+     VALUES (?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))`
+    )
+    .run(
+      tel,
+      String(texto || '').slice(0, 2000),
+      baja ? 1 : 0,
+      String(mensajeId || '').slice(0, 180),
+      recibidoEn || null
+    );
+
+  if (result.changes > 0) {
+    motor.emit('respuesta', {
+      telefono: tel,
+      texto,
+      esBaja: baja,
+      mensajeId,
+      recibidoEn: recibidoEn || new Date().toISOString(),
+    });
+  }
 
   if (baja) {
     db.prepare(
@@ -507,4 +651,4 @@ function registrarRespuesta({ telefono, texto }) {
   return { baja };
 }
 
-module.exports = { motor, registrarRespuesta, HOY, claveTurno };
+module.exports = { motor, registrarRespuesta, registrarRecibo, HOY, claveTurno };

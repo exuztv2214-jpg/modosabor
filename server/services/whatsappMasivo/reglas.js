@@ -240,6 +240,61 @@ function armarMensaje({
   return texto.trim();
 }
 
+/**
+ * Salud del número, a partir de lo que pasó en la ventana.
+ *
+ * ── Por qué existe el caso "sin datos" ─────────────────────────────────────
+ *
+ * La versión anterior calculaba el puntaje siempre, incluso con cero envíos.
+ * Con todo en cero la cuenta daba:
+ *
+ *     0 × 0,4  +  min(0, 30)  +  max(0, 30 − 0)  =  30
+ *
+ * y como todo lo que baja de 50 es riesgo alto, la pantalla mostraba
+ * "Crítico" en rojo. Un número recién conectado, que nunca mandó un mensaje,
+ * aparecía como si estuviera quemado.
+ *
+ * No estaba midiendo mal: no había nada que medir. Eso hay que decirlo, no
+ * disfrazarlo de diagnóstico. Un dato que falta y un dato malo no son lo
+ * mismo, y confundirlos hace perder tiempo persiguiendo un problema que no
+ * existe.
+ */
+function evaluarSalud({ enviados = 0, exitosos = 0, respuestas = 0, bajas = 0 } = {}) {
+  if (!enviados) {
+    return {
+      sinDatos: true,
+      score: null,
+      riesgo: null,
+      tasaExito: null,
+      tasaRespuesta: null,
+      tasaBaja: null,
+    };
+  }
+
+  const tasaExito = Math.round((exitosos / enviados) * 100);
+  const tasaRespuesta = exitosos > 0 ? Math.round((respuestas / exitosos) * 100) : 0;
+  const tasaBaja = exitosos > 0 ? Math.round((bajas / exitosos) * 100) : 0;
+
+  const score = Math.min(
+    100,
+    Math.max(
+      0,
+      Math.round(
+        tasaExito * 0.4 + Math.min(tasaRespuesta * 2, 30) + Math.max(0, 30 - tasaBaja * 10)
+      )
+    )
+  );
+
+  return {
+    sinDatos: false,
+    score,
+    riesgo: score >= 80 ? 'bajo' : score >= 50 ? 'medio' : 'alto',
+    tasaExito,
+    tasaRespuesta,
+    tasaBaja,
+  };
+}
+
 module.exports = {
   DEFECTOS,
   PALABRAS_BAJA,
@@ -253,5 +308,6 @@ module.exports = {
   cupoDisponible,
   puedeArrancar,
   armarMensaje,
+  evaluarSalud,
   normalizar,
 };

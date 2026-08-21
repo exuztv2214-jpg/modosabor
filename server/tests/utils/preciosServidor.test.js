@@ -38,6 +38,16 @@ const PRODUCTOS = {
     variantes: '[]',
     extras: '[]',
   },
+  68: {
+    id: 68,
+    nombre: 'Menú con dos tamaños',
+    precio: 500000,
+    activo: 1,
+    variantes: '[]',
+    extras: '[]',
+    menu_dia_precio_economico: 500000,
+    menu_dia_precio_ejecutivo: 700000,
+  },
 };
 
 /**
@@ -63,6 +73,8 @@ const LISTAS_POR_PRODUCTO = {
   ],
 };
 
+const PRECIOS_DELIVERY = new Map([[67, 650000]]);
+
 /*
   La base falsa tiene que saber responder `.all` y no sólo `.get`: al resolver
   las listas compartidas, preciosServidor hace dos consultas que devuelven
@@ -73,6 +85,27 @@ const LISTAS_POR_PRODUCTO = {
 */
 const dbFalsa = {
   prepare(sql) {
+    if (sql.includes('FROM configuracion')) {
+      return {
+        get: (clave) => (clave === 'lista_precios_delivery' ? { valor: '9' } : undefined),
+        all: () => [],
+      };
+    }
+    if (sql.includes('FROM listas_precios')) {
+      return {
+        get: (id) => (Number(id) === 9 ? { id: 9, nombre: 'Delivery' } : undefined),
+        all: () => [],
+      };
+    }
+    if (sql.includes('FROM producto_precios')) {
+      return {
+        get: () => undefined,
+        all: (listaId) =>
+          Number(listaId) === 9
+            ? [...PRECIOS_DELIVERY].map(([producto_id, precio]) => ({ producto_id, precio }))
+            : [],
+      };
+    }
     return {
       get: (...args) => PRODUCTOS[Number(args.at(-1))] || undefined,
       all: (...ids) => {
@@ -159,6 +192,21 @@ test('un precio en cero tampoco pasa', () => {
   assert.strictEqual(items[0].precio_unitario, 500000);
 });
 
+test('la lista de delivery se cobra también al validar el pedido', () => {
+  const items = recalcularPreciosPublicos([{ producto_id: 67, cantidad: 1 }], 'delivery');
+  assert.strictEqual(items[0].precio_unitario, 650000, 'delivery usa su precio de lista');
+});
+
+test('el canal autenticado conserva un descuento por ítem ya autorizado', () => {
+  const items = recalcularPreciosPublicos(
+    [{ producto_id: 67, cantidad: 1, descuento_item: 100000 }],
+    'delivery',
+    { permitirDescuentoItems: true }
+  );
+  assert.strictEqual(items[0].descuento_item, 100000);
+  assert.strictEqual(items[0].subtotal, 550000);
+});
+
 // ── Variantes y adicionales ────────────────────────────────────────────────
 test('suma el adicional real del producto', () => {
   const items = recalcularPreciosPublicos([
@@ -187,6 +235,17 @@ test('rechaza una guarnición inventada', () => {
       ]),
     PrecioInvalidoError
   );
+});
+
+test('el tamaño diario es obligatorio y cobra el precio real', () => {
+  assert.throws(
+    () => recalcularPreciosPublicos([{ producto_id: 68, cantidad: 1 }]),
+    PrecioInvalidoError
+  );
+  const items = recalcularPreciosPublicos([
+    { producto_id: 68, cantidad: 1, variantes: { Tamaño: 'Ejecutivo' } },
+  ]);
+  assert.strictEqual(items[0].precio_unitario, 700000);
 });
 
 // ── Listas de opciones compartidas ─────────────────────────────────────────

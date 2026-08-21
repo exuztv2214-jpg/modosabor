@@ -229,11 +229,23 @@ function loadPedidoItems(db, pedidoOrId, options = {}) {
 function replacePedidoItems(db, pedidoId, items = []) {
   const normalizedItems = parsePedidoItems(items);
   const deleteStmt = db.prepare('DELETE FROM pedido_items WHERE pedido_id = ?');
-  const findProductStmt = db.prepare('SELECT id, categoria_id FROM productos WHERE id = ?');
+  const existingCostByLine = new Map(
+    db
+      .prepare(
+        `SELECT producto_id, nombre, precio_unitario, costo_unitario
+         FROM pedido_items WHERE pedido_id = ? ORDER BY id ASC`
+      )
+      .all(pedidoId)
+      .map((row) => [
+        `${Number(row.producto_id || 0)}|${String(row.nombre || '').trim()}|${Number(row.precio_unitario || 0)}`,
+        Number(row.costo_unitario || 0),
+      ])
+  );
+  const findProductStmt = db.prepare('SELECT id, categoria_id, costo FROM productos WHERE id = ?');
   const findCategoryStmt = db.prepare('SELECT id FROM categorias WHERE id = ?');
   const insertStmt = db.prepare(`
     INSERT INTO pedido_items (
-      pedido_id, producto_id, nombre, cantidad, precio_unitario, subtotal,
+      pedido_id, producto_id, nombre, cantidad, precio_unitario, costo_unitario, subtotal,
       variantes_json, extras_json, categoria_id, descripcion,
       descuento_item, descuento_motivo, creado_en
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
@@ -255,6 +267,10 @@ function replacePedidoItems(db, pedidoId, items = []) {
       Number.isFinite(categoryCandidate) && categoryCandidate > 0
         ? findCategoryStmt.get(categoryCandidate)
         : null;
+    const costKey = `${Number(product?.id || 0)}|${String(item.nombre || '').trim()}|${Number(item.precio_unitario || 0)}`;
+    const costoUnitario = existingCostByLine.has(costKey)
+      ? existingCostByLine.get(costKey)
+      : Number(product?.costo || 0);
 
     insertStmt.run(
       pedidoId,
@@ -262,6 +278,7 @@ function replacePedidoItems(db, pedidoId, items = []) {
       item.nombre || '',
       Number(item.cantidad || 0),
       Number(item.precio_unitario || 0),
+      costoUnitario,
       roundAmount(
         item.subtotal !== undefined
           ? item.subtotal

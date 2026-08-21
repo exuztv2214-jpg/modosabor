@@ -147,6 +147,30 @@ async function testNadieRecibeDosVeces() {
   console.log('  OK nadie recibe dos veces dentro del mismo turno');
 }
 
+async function testSimulacroNoConsumeElTurno() {
+  const db = crearBase();
+  sembrarClientes(db, 3);
+  configRapida(db);
+  const { motor, enviados } = cargarMotor(db);
+
+  const prueba = motor.preparar({ mensaje: 'Prueba sin enviar', simulacro: true });
+  await motor.arrancar(prueba.campanaId);
+  await new Promise((resolve) => setTimeout(resolve, 120));
+
+  assert.strictEqual(enviados.length, 0, 'un simulacro no debe escribir por WhatsApp');
+  assert.strictEqual(
+    db.prepare("SELECT COUNT(*) AS total FROM wa_envios WHERE estado = 'enviado'").get().total,
+    0,
+    'un simulacro no debe registrar destinatarios como enviados'
+  );
+  assert.strictEqual(
+    motor.destinatarios().length,
+    3,
+    'el simulacro dejó a contactos bloqueados durante el turno'
+  );
+  console.log('  OK el simulacro no consume el turno ni bloquea contactos');
+}
+
 function testUnEnvioPorTurno() {
   const db = crearBase();
   sembrarClientes(db, 3);
@@ -336,6 +360,7 @@ async function run() {
   testLaBajaExcluye();
   testUnEnvioPorTurno();
   await testNadieRecibeDosVeces();
+  await testSimulacroNoConsumeElTurno();
   await testLosFallidosSeAnotan();
   await testSePuedeDetener();
   await testElCupoFrena();

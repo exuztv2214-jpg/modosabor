@@ -87,6 +87,16 @@ function run() {
     });
     assert.strictEqual(distintaNota.carrito.items.length, 2, 'Unidades diferentes van separadas');
 
+    const datosActualizados = carrito.actualizarDatos(telefono, {
+      cliente_nombre: 'Nombre declarado',
+      cliente_direccion: 'Dirección 123',
+      metodo_pago: 'transferencia',
+      notas: 'timbre negro',
+    });
+    assert.strictEqual(datosActualizados.cliente_nombre, 'Nombre declarado');
+    assert.strictEqual(datosActualizados.cliente_direccion, 'Dirección 123');
+    assert.strictEqual(datosActualizados.metodo_pago, 'transferencia');
+
     db.pragma('foreign_keys = OFF');
     db.prepare(
       "UPDATE whatsapp_pedidos_borrador SET pedido_id = 999, estado = 'confirmado' WHERE telefono = ?"

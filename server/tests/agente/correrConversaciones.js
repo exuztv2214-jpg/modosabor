@@ -145,14 +145,21 @@ function evaluar(db, telefono, caso, respuestas, herramientas) {
       ?.map((valor) => Number(valor.replace(/\D/g, '')) * 100) || [];
   const preciosInventados = importesDichos.filter((valor) => !importesPermitidos.has(valor));
   const errores = [];
-  if (faltantes.length) errores.push(`Faltan items: ${faltantes.join(', ')}`);
-  if (!caso.esperado.confirmar && pedidos.length)
+  if (faltantes.length) {
+    errores.push(`Faltan items: ${faltantes.join(', ')}`);
+  }
+  if (!caso.esperado.confirmar && pedidos.length) {
     errores.push('Creó un pedido antes de confirmarlo');
-  if (caso.esperado.confirmar && pedidos.length !== 1)
+  }
+  if (caso.esperado.confirmar && pedidos.length !== 1) {
     errores.push(`Creó ${pedidos.length} pedidos`);
-  if (preciosInventados.length)
+  }
+  if (preciosInventados.length) {
     errores.push(`Precios sin respaldo: ${preciosInventados.join(', ')}`);
-  if (herramientas.length > 12) errores.push(`Usó ${herramientas.length} herramientas`);
+  }
+  if (herramientas.length > 12) {
+    errores.push(`Usó ${herramientas.length} herramientas`);
+  }
   return { ok: errores.length === 0, errores, items, pedidos: pedidos.length, herramientas };
 }
 

@@ -10,6 +10,7 @@ function run() {
       whatsapp_agente_estilo: 'Mensajes cortos.',
       whatsapp_agente_reglas_generales: 'No inventar.',
       whatsapp_agente_reglas_turnos: JSON.stringify({ noche: 'No ofrecer menú del día.' }),
+      whatsapp_datos_transferencia: 'Alias: prueba.alias · Titular: Cliente Prueba',
     },
     { id: 'noche', nombre: 'Turno noche', desde: '20:30', hasta: '01:30' }
   );
@@ -17,6 +18,7 @@ function run() {
   assert.strictEqual(training.nombre, 'Mica');
   assert.strictEqual(training.turno.instrucciones, 'No ofrecer menú del día.');
   assert.match(training.regla_catalogo, /precios salen de las herramientas/i);
+  assert.match(training.datos_transferencia, /prueba\.alias/i);
   assert.doesNotThrow(() => buildAgentTraining({ whatsapp_agente_reglas_turnos: '{mal' }));
   console.log('  ✓ personalidad, turno y catálogo quedan separados');
   console.log('✅ Entrenamiento de WhatsApp verificado\n');

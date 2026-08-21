@@ -90,6 +90,47 @@ function parseFechaHoraArgentina(value) {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
+/**
+ * Una fecha en el formato que entiende SQLite: `YYYY-MM-DD HH:MM:SS`, en UTC.
+ *
+ * ── Por qué no vale `toISOString()` ────────────────────────────────────────
+ *
+ * SQLite no tiene tipo fecha: guarda texto y compara **texto**.
+ * `CURRENT_TIMESTAMP` escribe `2026-08-21 14:19:13`, con un espacio.
+ * `toISOString()` escribe `2026-08-21T13:19:13.931Z`, con una T.
+ *
+ * Y la T (0x54) es mayor que el espacio (0x20) en cualquier comparación de
+ * texto. O sea que una fecha guardada en ISO es **siempre "mayor" que ahora**,
+ * aunque sea de hace una hora.
+ *
+ * Eso rompía las dos colas del sistema sin dar ningún error:
+ *
+ *   - Social: `claimWork` busca destinos con `programada_para <= CURRENT_TIMESTAMP`
+ *     y `queueCampaign` guardaba ahí un ISO.
+ *   - WhatsApp Masivo: `procesarProgramadas` busca campañas con la misma
+ *     comparación, y `programar()` guardaba un ISO.
+ *
+ * En los dos casos la condición nunca daba verdadero: las campañas quedaban
+ * "programadas" para siempre y no había nada en los logs que lo explicara.
+ *
+ * Ojo: envolver la columna en `datetime(...)` también lo arregla, y por eso el
+ * resto de las consultas del sistema —que sí lo hacen— nunca tuvieron el
+ * problema. Estas dos comparaban la columna pelada.
+ */
+function sqlFecha(fecha = new Date()) {
+  const d = fecha instanceof Date ? fecha : new Date(fecha);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toISOString().replace('T', ' ').slice(0, 19);
+}
+
+/** Lee una fecha de la base, venga en formato SQLite o en ISO. */
+function desdeSql(valor) {
+  if (!valor) return null;
+  const texto = String(valor);
+  const fecha = new Date(/[TZ]/.test(texto) ? texto : `${texto.replace(' ', 'T')}Z`);
+  return Number.isNaN(fecha.getTime()) ? null : fecha;
+}
+
 function esFechaIso(value) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const parsed = new Date(`${value}T00:00:00Z`);
@@ -102,6 +143,8 @@ module.exports = {
   hoyLocal,
   hoyArgentina,
   parseFechaHoraArgentina,
+  sqlFecha,
+  desdeSql,
   esFechaIso,
   OFFSET_ARGENTINA,
 };

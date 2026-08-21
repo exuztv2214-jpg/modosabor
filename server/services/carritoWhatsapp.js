@@ -1,5 +1,5 @@
 const defaultDb = require('../db');
-const { quoteProduct } = require('../utils/systemClient');
+const { quoteProduct, findClienteByPhone } = require('../utils/systemClient');
 
 function json(value, fallback) {
   try {
@@ -44,13 +44,19 @@ function crearCarritoWhatsapp(db = defaultDb) {
     const conversacion = db
       .prepare('SELECT id, nombre FROM whatsapp_conversaciones WHERE telefono = ?')
       .get(String(telefono));
+    const cliente = findClienteByPhone(db, telefono);
     const result = db
       .prepare(
         `INSERT INTO whatsapp_pedidos_borrador
-          (conversacion_id, telefono, cliente_nombre, estado)
-         VALUES (?, ?, ?, 'abierto')`
+          (conversacion_id, telefono, cliente_nombre, cliente_direccion, estado)
+         VALUES (?, ?, ?, ?, 'abierto')`
       )
-      .run(conversacion?.id || null, String(telefono), conversacion?.nombre || '');
+      .run(
+        conversacion?.id || null,
+        String(telefono),
+        cliente?.nombre || conversacion?.nombre || '',
+        cliente?.direccion || ''
+      );
     return db
       .prepare('SELECT * FROM whatsapp_pedidos_borrador WHERE id = ?')
       .get(result.lastInsertRowid);
@@ -208,6 +214,49 @@ function crearCarritoWhatsapp(db = defaultDb) {
     return verCarrito(telefono);
   }
 
+  function actualizarDatos(telefono, datos = {}) {
+    const borrador = asegurarBorrador(telefono);
+    exigirEditable(borrador);
+
+    const nombre = String(datos.cliente_nombre || '')
+      .replace(/\0/g, '')
+      .trim()
+      .slice(0, 120);
+    const direccion = String(datos.cliente_direccion || '')
+      .replace(/\0/g, '')
+      .trim()
+      .slice(0, 500);
+    const notas = String(datos.notas || '')
+      .replace(/\0/g, '')
+      .trim()
+      .slice(0, 1000);
+    const entrega = String(datos.tipo_entrega || '')
+      .trim()
+      .toLowerCase();
+    const pago = String(datos.metodo_pago || '')
+      .trim()
+      .toLowerCase();
+    const tipoEntrega =
+      entrega === 'retiro' ? 'retiro' : entrega === 'delivery' ? 'delivery' : null;
+    const metodoPago = pago.includes('transfer')
+      ? 'transferencia'
+      : pago === 'efectivo'
+        ? 'efectivo'
+        : null;
+
+    db.prepare(
+      `UPDATE whatsapp_pedidos_borrador
+          SET cliente_nombre = CASE WHEN ? != '' THEN ? ELSE cliente_nombre END,
+              cliente_direccion = CASE WHEN ? != '' THEN ? ELSE cliente_direccion END,
+              tipo_entrega = COALESCE(?, tipo_entrega),
+              metodo_pago = COALESCE(?, metodo_pago),
+              notas = CASE WHEN ? != '' THEN ? ELSE notas END,
+              actualizado_en = CURRENT_TIMESTAMP
+        WHERE id = ?`
+    ).run(nombre, nombre, direccion, direccion, tipoEntrega, metodoPago, notas, notas, borrador.id);
+    return verCarrito(telefono);
+  }
+
   async function confirmarCarrito(telefono, datos = {}, dependencias = {}) {
     const borrador = ultimoBorrador(telefono);
     if (!borrador) throw new Error('No hay un carrito para confirmar');
@@ -227,6 +276,9 @@ function crearCarritoWhatsapp(db = defaultDb) {
         extras: json(item.extras, []),
       }));
     if (!items.length) throw new Error('El carrito está vacío');
+    if (borrador.tipo_entrega !== 'retiro' && !String(borrador.cliente_direccion || '').trim()) {
+      throw new Error('Falta la dirección de entrega antes de confirmar el pedido');
+    }
 
     const mensajeId = String(datos.whatsappMessageId || '').trim();
     if (!mensajeId) throw new Error('Falta el identificador del mensaje de confirmación');
@@ -278,6 +330,7 @@ function crearCarritoWhatsapp(db = defaultDb) {
     quitarItem,
     modificarItem,
     vaciarCarrito,
+    actualizarDatos,
     confirmarCarrito,
   };
 }

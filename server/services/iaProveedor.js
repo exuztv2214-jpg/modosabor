@@ -56,14 +56,8 @@ const PROVEEDORES = {
     nombre: 'Google Gemini',
     familia: 'gemini',
     baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
-    modeloPorDefecto: 'gemini-2.0-flash',
-    modelos: [
-      'gemini-2.0-flash',
-      'gemini-2.0-flash-lite',
-      'gemini-2.0-pro',
-      'gemini-1.5-flash',
-      'gemini-1.5-pro',
-    ],
+    modeloPorDefecto: 'gemini-3.6-flash',
+    modelos: ['gemini-3.6-flash'],
     envKey: 'GEMINI_API_KEY',
     donde: 'aistudio.google.com/apikey',
     nota: 'Tiene nivel gratuito.',
@@ -573,6 +567,42 @@ async function intentarConProveedor(opciones) {
   });
 }
 
+/*
+  Ejecuta una conversación con una configuración explícita. Se usa cuando un
+  canal tiene su propio respaldo (WhatsApp) y no puede depender de variables
+  globales del proceso. La clave nunca se registra: sólo llega al adaptador de
+  la API y el resultado conserva qué proveedor atendió para la métrica.
+*/
+async function conversarConProveedor({ sistema, mensajes, herramientas = [], proveedor }) {
+  const baseUrl = String(proveedor?.baseUrl || '').replace(/\/+$/, '');
+  if (!esBaseUrlSegura(baseUrl)) {
+    throw new Error('La dirección del proveedor de respaldo no es segura');
+  }
+
+  const resultado = await intentarConProveedor({
+    id: String(proveedor?.id || 'respaldo'),
+    definicion: {
+      nombre: String(proveedor?.nombre || proveedor?.id || 'Proveedor de respaldo'),
+    },
+    familia: proveedor?.familia || 'openai',
+    clave: String(proveedor?.clave || ''),
+    baseUrl,
+    modelo: String(proveedor?.modelo || ''),
+    sistema,
+    mensajes,
+    herramientas,
+  });
+
+  return {
+    ...resultado,
+    _meta: {
+      proveedor: String(proveedor?.id || 'respaldo'),
+      modelo: String(proveedor?.modelo || ''),
+      fallback: true,
+    },
+  };
+}
+
 /**
  * Manda una conversación al modelo configurado.
  *
@@ -695,6 +725,7 @@ module.exports = {
   PROVEEDORES,
   catalogoDeProveedores,
   conversar,
+  conversarConProveedor,
   iaHabilitada,
   proveedorActivo,
   proveedoresFallback,

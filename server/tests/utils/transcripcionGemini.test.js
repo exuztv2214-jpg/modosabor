@@ -64,6 +64,11 @@ function run() {
           'clave-de-prueba',
           'la clave va en el encabezado'
         );
+        assert.match(
+          pedido.url,
+          /models\/gemini-3\.6-flash:generateContent$/,
+          'usa el modelo de Gemini disponible actualmente'
+        );
         assert.strictEqual(
           cuerpo.generationConfig.temperature,
           0,

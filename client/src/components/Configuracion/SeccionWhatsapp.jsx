@@ -11,7 +11,6 @@ import {
   UserRound,
   RotateCcw,
   ShieldCheck,
-  Save,
 } from 'lucide-react';
 
 import api from '../../lib/api.js';
@@ -76,7 +75,6 @@ export default function SeccionWhatsapp({ config, setConfig }) {
   const [conversaciones, setConversaciones] = useState([]);
   const [metricas, setMetricas] = useState(null);
   const [probandoEmergencia, setProbandoEmergencia] = useState(false);
-  const [aplicandoEmergencia, setAplicandoEmergencia] = useState(false);
   const [resultadoEmergencia, setResultadoEmergencia] = useState(null);
 
   const cargar = useCallback(async () => {
@@ -162,6 +160,9 @@ export default function SeccionWhatsapp({ config, setConfig }) {
   const conectado = wa.estado === 'conectado';
   const turnos = parseShifts(config?.turnos_negocio || config?.negocio_horarios);
   const reglasTurnos = parseShiftRules(config?.whatsapp_agente_reglas_turnos);
+  const respaldoEsGemini = /\b(?:google\s+)?gemini\b/i.test(
+    String(config?.whatsapp_emergencia_proveedor || '')
+  );
   const conversacionDestacada = Number(
     new URLSearchParams(window.location.search).get('conversacion') || 0
   );
@@ -195,20 +196,6 @@ export default function SeccionWhatsapp({ config, setConfig }) {
       setResultadoEmergencia({ ok: false, error: error?.error || 'No se pudo probar la API' });
     } finally {
       setProbandoEmergencia(false);
-    }
-  };
-
-  const aplicarEmergencia = async () => {
-    setAplicandoEmergencia(true);
-    setResultadoEmergencia(null);
-    try {
-      const result = await api.post('/whatsapp/emergencia/aplicar');
-      setResultadoEmergencia(result);
-      toast.success('Proveedor de emergencia aplicado en n8n');
-    } catch (error) {
-      setResultadoEmergencia({ ok: false, error: error?.error || 'No se pudo aplicar en n8n' });
-    } finally {
-      setAplicandoEmergencia(false);
     }
   };
 
@@ -280,7 +267,7 @@ export default function SeccionWhatsapp({ config, setConfig }) {
         ) : null}
       </div>
 
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 md:grid-cols-3">
         <Switch
           checked={gateway.pausaTotal === true}
           disabled={ocupado}
@@ -305,14 +292,11 @@ export default function SeccionWhatsapp({ config, setConfig }) {
           icon={Megaphone}
           onChange={(value) => cambiar('masivos', value)}
         />
-        <Switch
-          checked={gateway.motorPropio === true}
-          disabled={ocupado || !conectado || gateway.pausaTotal}
-          label="Motor de IA propio (experimental)"
-          description="Si lo apagás, vuelve a atender por n8n."
-          icon={Bot}
-          onChange={(value) => cambiar('motorPropio', value)}
-        />
+      </div>
+
+      <div className="rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-[12px] text-emerald-800">
+        <b>Motor propio activo.</b> Chispita usa un único historial, reglas y herramientas dentro de
+        Modo Sabor. Si falla el proveedor principal, intenta Gemini automáticamente.
       </div>
 
       <SectionCard
@@ -424,35 +408,46 @@ export default function SeccionWhatsapp({ config, setConfig }) {
         <div className="mt-4">
           <InputField
             label="Dirección de la API"
-            description="Debe ser compatible con OpenAI y terminar normalmente en /v1."
+            description={
+              respaldoEsGemini
+                ? 'Para Gemini se usa la API nativa de Google.'
+                : 'Debe ser compatible con OpenAI y terminar normalmente en /v1.'
+            }
             value={config?.whatsapp_emergencia_base_url || ''}
             onChange={(event) => editar('whatsapp_emergencia_base_url', event.target.value)}
             placeholder="https://api.proveedor.com/v1"
           />
         </div>
 
-        <div className="mt-4">
-          <InputField
-            label="Clave de la API"
-            type="password"
-            value={config?.whatsapp_emergencia_api_key || ''}
-            onChange={(event) => editar('whatsapp_emergencia_api_key', event.target.value)}
-            onFocus={limpiarSecretoAlEnfocar(setConfig, 'whatsapp_emergencia_api_key')}
-            placeholder="..."
-            hint={
-              config?.whatsapp_emergencia_api_key_configured &&
-              config?.whatsapp_emergencia_api_key === SECRET_PLACEHOLDER
-                ? 'Ya hay una clave cifrada. Pegá otra solamente si querés reemplazarla.'
-                : 'Se guarda cifrada y nunca vuelve a mostrarse en el navegador.'
-            }
-          />
-        </div>
+        {respaldoEsGemini ? (
+          <p className="mt-4 rounded-xl bg-emerald-50 px-4 py-3 text-[12px] leading-relaxed text-emerald-800">
+            Gemini reutiliza la clave cifrada que ya usa el sistema para las alertas y la
+            transcripción. No hace falta pegarla otra vez.
+          </p>
+        ) : (
+          <div className="mt-4">
+            <InputField
+              label="Clave de la API"
+              type="password"
+              value={config?.whatsapp_emergencia_api_key || ''}
+              onChange={(event) => editar('whatsapp_emergencia_api_key', event.target.value)}
+              onFocus={limpiarSecretoAlEnfocar(setConfig, 'whatsapp_emergencia_api_key')}
+              placeholder="..."
+              hint={
+                config?.whatsapp_emergencia_api_key_configured &&
+                config?.whatsapp_emergencia_api_key === SECRET_PLACEHOLDER
+                  ? 'Ya hay una clave cifrada. Pegá otra solamente si querés reemplazarla.'
+                  : 'Se guarda cifrada y nunca vuelve a mostrarse en el navegador.'
+              }
+            />
+          </div>
+        )}
 
         <div className="mt-4 flex flex-wrap items-center gap-3 rounded-xl bg-gray-50 p-4">
           <button
             type="button"
             onClick={probarEmergencia}
-            disabled={probandoEmergencia || aplicandoEmergencia}
+            disabled={probandoEmergencia}
             className="inline-flex h-11 items-center gap-2 rounded-xl bg-gray-900 px-5 text-[13px] font-semibold text-white disabled:opacity-50"
           >
             {probandoEmergencia ? (
@@ -462,22 +457,9 @@ export default function SeccionWhatsapp({ config, setConfig }) {
             )}
             Probar API guardada
           </button>
-          <button
-            type="button"
-            onClick={aplicarEmergencia}
-            disabled={probandoEmergencia || aplicandoEmergencia}
-            style={{ background: BRAND }}
-            className="inline-flex h-11 items-center gap-2 rounded-xl px-5 text-[13px] font-semibold text-white disabled:opacity-50"
-          >
-            {aplicandoEmergencia ? (
-              <Loader2 size={15} className="animate-spin" />
-            ) : (
-              <Save size={15} />
-            )}
-            Aplicar en n8n
-          </button>
           <p className="w-full text-[11px] leading-relaxed text-gray-500">
-            Primero guardá los cambios generales. Después probá y, si responde, aplicala en n8n.
+            Primero guardá los cambios generales. Después probá la conexión: el motor propio usa
+            este respaldo automáticamente si falla el proveedor principal.
           </p>
           {resultadoEmergencia ? (
             <p
