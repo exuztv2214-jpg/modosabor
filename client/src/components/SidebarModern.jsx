@@ -205,20 +205,6 @@ const GRUPOS = [
         permission: 'marketing.view',
         moduleKey: 'marketing',
       },
-      {
-        to: '/admin/social',
-        icon: Megaphone,
-        label: 'Modo Sabor Social',
-        permission: 'marketing.view',
-        moduleKey: 'marketing',
-      },
-      {
-        to: '/admin/whatsapp-masivo',
-        icon: Megaphone,
-        label: 'WhatsApp masivo',
-        permission: 'marketing.view',
-        moduleKey: 'marketing',
-      },
     ],
   },
   {

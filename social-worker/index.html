@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Modo Sabor Social Worker</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { font-family: 'Segoe UI', system-ui, sans-serif; }
+    .log-info { color: #334155; }
+    .log-warn { color: #b45309; }
+    .log-error { color: #be123c; }
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 h-screen flex flex-col overflow-hidden">
+  <!-- Header -->
+  <header class="bg-slate-900 text-white px-5 py-3 flex items-center justify-between shrink-0">
+    <div class="flex items-center gap-2">
+      <div class="w-7 h-7 rounded bg-red-600 flex items-center justify-center text-xs font-bold">MS</div>
+      <div>
+        <h1 class="text-sm font-bold leading-tight">Modo Sabor Social</h1>
+        <p class="text-[10px] text-slate-400">Worker de escritorio</p>
+      </div>
+    </div>
+    <div id="status-badge" class="px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide bg-slate-700 text-slate-300">
+      Detenido
+    </div>
+  </header>
+
+  <!-- Main -->
+  <main class="flex-1 flex flex-col min-h-0">
+    <!-- Facebook connection -->
+    <div class="bg-amber-50 border-b border-amber-200 px-4 py-3 shrink-0">
+      <p class="text-[11px] text-amber-800 leading-relaxed">
+        <b>Conectá Facebook desde acá.</b> La aplicación abre un perfil protegido y local: iniciás sesión una vez y queda recordada para las próximas publicaciones.
+      </p>
+      <div class="mt-2 flex gap-2">
+        <button id="btn-facebook" class="rounded bg-blue-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-blue-700 transition">Abrir Facebook y conectar</button>
+        <span class="self-center text-[10px] text-amber-700">No se copian cookies ni contraseñas.</span>
+      </div>
+    </div>
+
+    <!-- Config Panel -->
+    <div class="bg-white border-b border-slate-200 p-4 space-y-3 shrink-0">
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-[10px] font-bold uppercase tracking-wide text-slate-400 mb-1">URL del servidor</label>
+          <input id="cfg-apiUrl" type="text" class="w-full rounded border border-slate-200 px-2 py-1.5 text-sm focus:border-red-400 focus:outline-none" />
+        </div>
+        <div>
+          <label class="block text-[10px] font-bold uppercase tracking-wide text-slate-400 mb-1">API Key</label>
+          <input id="cfg-apiKey" type="password" class="w-full rounded border border-slate-200 px-2 py-1.5 text-sm focus:border-red-400 focus:outline-none" />
+        </div>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-[10px] font-bold uppercase tracking-wide text-slate-400 mb-1">Chrome CDP URL</label>
+          <input id="cfg-cdpUrl" type="text" class="w-full rounded border border-slate-200 px-2 py-1.5 text-sm bg-slate-50" readonly />
+        </div>
+        <div>
+          <label class="block text-[10px] font-bold uppercase tracking-wide text-slate-400 mb-1">Intervalo (seg)</label>
+          <input id="cfg-pollSeconds" type="number" min="3" max="60" class="w-full rounded border border-slate-200 px-2 py-1.5 text-sm focus:border-red-400 focus:outline-none" />
+        </div>
+      </div>
+      <div class="flex items-center gap-3">
+        <label class="flex items-center gap-2 text-sm cursor-pointer">
+          <input id="cfg-capture" type="checkbox" class="accent-red-600" />
+          <span class="text-xs font-medium">Capturar screenshots de errores</span>
+        </label>
+      </div>
+      <div class="flex gap-2">
+        <button id="btn-start" class="flex-1 rounded bg-emerald-600 text-white text-xs font-bold py-2 hover:bg-emerald-700 transition">▶ Iniciar Worker</button>
+        <button id="btn-stop" class="flex-1 rounded bg-rose-600 text-white text-xs font-bold py-2 hover:bg-rose-700 transition hidden">⏹ Detener</button>
+        <button id="btn-save" class="px-4 rounded border border-slate-300 text-xs font-bold py-2 hover:bg-slate-50 transition">Guardar</button>
+      </div>
+    </div>
+
+    <!-- Logs -->
+    <div class="flex-1 min-h-0 flex flex-col">
+      <div class="px-4 py-2 bg-slate-100 border-b border-slate-200 flex items-center justify-between shrink-0">
+        <span class="text-[10px] font-bold uppercase tracking-wide text-slate-500">Logs en vivo</span>
+        <button id="btn-clear" class="text-[10px] text-slate-400 hover:text-slate-600">Limpiar</button>
+      </div>
+      <div id="log-container" class="flex-1 overflow-y-auto p-3 space-y-1 font-mono text-[11px]"></div>
+    </div>
+  </main>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const btnStart = $('btn-start');
+    const btnStop = $('btn-stop');
+    const badge = $('status-badge');
+    const logContainer = $('log-container');
+
+    const STATUS_COLORS = {
+      starting: 'bg-blue-100 text-blue-700',
+      connecting: 'bg-blue-100 text-blue-700',
+      online: 'bg-emerald-100 text-emerald-700',
+      busy: 'bg-amber-100 text-amber-700',
+      stopped: 'bg-slate-100 text-slate-600',
+      error: 'bg-rose-100 text-rose-700',
+      session_expired: 'bg-orange-100 text-orange-700',
+    };
+
+    async function loadConfig() {
+      const cfg = await window.electronAPI.getConfig();
+      $('cfg-apiUrl').value = cfg.apiUrl;
+      $('cfg-apiKey').value = cfg.apiKey;
+      $('cfg-cdpUrl').value = cfg.cdpUrl;
+      $('cfg-pollSeconds').value = cfg.pollSeconds;
+      $('cfg-capture').checked = cfg.captureScreenshots;
+    }
+
+    function setBadge(status, detail) {
+      badge.textContent = detail || status;
+      badge.className = `px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide ${STATUS_COLORS[status] || 'bg-slate-700 text-slate-300'}`;
+    }
+
+    function addLog(level, message) {
+      const div = document.createElement('div');
+      div.className = `log-${level} leading-tight`;
+      const time = new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      div.textContent = `[${time}] ${message}`;
+      logContainer.prepend(div);
+      if (logContainer.children.length > 150) logContainer.lastChild.remove();
+    }
+
+    btnStart.addEventListener('click', async () => {
+      await window.electronAPI.setConfig({
+        apiUrl: $('cfg-apiUrl').value.trim(),
+        apiKey: $('cfg-apiKey').value.trim(),
+        cdpUrl: $('cfg-cdpUrl').value.trim(),
+        pollSeconds: Number($('cfg-pollSeconds').value),
+        captureScreenshots: $('cfg-capture').checked,
+      });
+      await window.electronAPI.startWorker();
+      btnStart.classList.add('hidden');
+      btnStop.classList.remove('hidden');
+      setBadge('starting', 'Iniciando…');
+    });
+
+    $('btn-facebook').addEventListener('click', async () => {
+      try {
+        await window.electronAPI.openFacebookSession();
+        addLog('info', 'Facebook abierto para vincular la sesión local.');
+        setBadge('connecting', 'Esperando Facebook…');
+      } catch (error) {
+        addLog('error', error.message || 'No se pudo abrir Facebook.');
+        setBadge('error', 'No se pudo abrir Facebook');
+      }
+    });
+
+    btnStop.addEventListener('click', async () => {
+      await window.electronAPI.stopWorker();
+      btnStop.classList.add('hidden');
+      btnStart.classList.remove('hidden');
+      setBadge('stopped', 'Detenido');
+    });
+
+    $('btn-save').addEventListener('click', async () => {
+      await window.electronAPI.setConfig({
+        apiUrl: $('cfg-apiUrl').value.trim(),
+        apiKey: $('cfg-apiKey').value.trim(),
+        cdpUrl: $('cfg-cdpUrl').value.trim(),
+        pollSeconds: Number($('cfg-pollSeconds').value),
+        captureScreenshots: $('cfg-capture').checked,
+      });
+      addLog('info', 'Configuración guardada');
+    });
+
+    $('btn-clear').addEventListener('click', async () => {
+      await window.electronAPI.clearLogs();
+      logContainer.innerHTML = '';
+    });
+
+    // IPC events
+    window.electronAPI.onStatus((data) => {
+      setBadge(data.status, data.detail);
+    });
+
+    window.electronAPI.onLog((entry) => {
+      addLog(entry.level, entry.message);
+    });
+
+    // Init
+    loadConfig();
+  </script>
+</body>
+</html>

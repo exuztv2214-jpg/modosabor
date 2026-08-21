@@ -6,6 +6,7 @@ const {
   shouldAutoSettleOnEntrega,
 } = require('../utils/paymentStatus');
 const { backfillPedidoItems } = require('../utils/pedidoItems');
+const { encriptar, estaEncriptado } = require('../utils/encryptConfig');
 
 function hasColumn(db, table, column) {
   const columns = db.prepare(`PRAGMA table_info(${table})`).all();
@@ -16,6 +17,139 @@ function ensureColumn(db, table, column, definition) {
   if (!hasColumn(db, table, column)) {
     db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
   }
+}
+
+/**
+ * Las dos identidades con las que Modo Sabor publica en Facebook.
+ *
+ * No son "la cuenta de Facebook": son dos formas distintas de publicar, con
+ * grupos y permisos propios. El mismo grupo puede estar disponible para una y
+ * no para la otra.
+ */
+const IDENTIDADES_FACEBOOK = [
+  { clave: 'fb_perfil', nombre: 'Perfil Modo Sabor', tipo: 'perfil' },
+  { clave: 'fb_page', nombre: 'Fan Page Modo Sabor Delivery', tipo: 'page' },
+];
+
+/**
+ * Pasa `social_destinations` a tener la identidad adentro de la clave única.
+ *
+ * ── Por qué hay que reconstruir la tabla ───────────────────────────────────
+ *
+ * SQLite no sabe modificar una restricción `UNIQUE` con `ALTER TABLE`. La
+ * única forma es crear la tabla nueva, copiar las filas, borrar la vieja y
+ * renombrar. Es incómodo pero es el camino oficial.
+ *
+ * ── Por qué se hace ahora ──────────────────────────────────────────────────
+ *
+ * Porque hoy no hay ningún destino cargado. La misma migración dentro de un
+ * mes, con trescientos grupos sincronizados y campañas apuntándoles, es un
+ * problema serio. Ahora es copiar cero filas.
+ *
+ * ── El detalle de las claves foráneas ──────────────────────────────────────
+ *
+ * Tres tablas apuntan a `social_destinations`. Con las claves activas, borrar
+ * la tabla original haría cascada y se llevaría campañas y logs por delante.
+ * Por eso se apagan durante la operación y se vuelven a encender al final —y
+ * se verifica que quedaron consistentes antes de dar por buena la migración.
+ */
+function migrarIdentidadesSociales(db) {
+  const tabla = db
+    .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'social_destinations'")
+    .get();
+
+  /* Instalación nueva: la tabla ya nace bien y sólo hay que sembrar. */
+  if (tabla?.sql && !/UNIQUE\s*\(\s*provider\s*,\s*tipo/i.test(tabla.sql)) {
+    sembrarIdentidades(db);
+    return;
+  }
+  if (!tabla) return;
+
+  const identidadPorDefecto = sembrarIdentidades(db);
+
+  const huerfanos = db
+    .prepare('SELECT COUNT(*) AS total FROM social_destinations WHERE cuenta_id IS NULL')
+    .get();
+
+  db.pragma('foreign_keys = OFF');
+  try {
+    db.exec(`
+      CREATE TABLE social_destinations_nueva (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        cuenta_id INTEGER NOT NULL REFERENCES social_accounts(id) ON DELETE CASCADE,
+        provider TEXT NOT NULL,
+        tipo TEXT NOT NULL,
+        nombre TEXT NOT NULL,
+        identificador_externo TEXT DEFAULT '',
+        url TEXT DEFAULT '',
+        metadata TEXT DEFAULT '{}',
+        habilitada INTEGER DEFAULT 1,
+        favorita INTEGER DEFAULT 0,
+        ultimo_estado TEXT DEFAULT 'pendiente',
+        creado_en DATETIME DEFAULT CURRENT_TIMESTAMP,
+        actualizado_en DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(provider, cuenta_id, tipo, identificador_externo)
+      );
+    `);
+
+    /*
+      Los destinos que no tenían identidad se adjudican al Perfil, que es la
+      identidad principal. Se conserva el id para que las campañas y los logs
+      que ya apuntaban a esos destinos sigan apuntando bien.
+    */
+    db.prepare(
+      `INSERT INTO social_destinations_nueva
+         (id, cuenta_id, provider, tipo, nombre, identificador_externo, url,
+          metadata, habilitada, favorita, ultimo_estado, creado_en, actualizado_en)
+       SELECT id, COALESCE(cuenta_id, ?), provider, tipo, nombre, identificador_externo, url,
+              metadata, habilitada, favorita, ultimo_estado, creado_en, actualizado_en
+         FROM social_destinations`
+    ).run(identidadPorDefecto);
+
+    db.exec('DROP TABLE social_destinations');
+    db.exec('ALTER TABLE social_destinations_nueva RENAME TO social_destinations');
+  } finally {
+    db.pragma('foreign_keys = ON');
+  }
+
+  /*
+    Si la copia dejó algo inconsistente, es mejor enterarse acá que descubrirlo
+    el día que una campaña apunte a un destino que no existe.
+  */
+  const rotas = db.pragma('foreign_key_check');
+  if (Array.isArray(rotas) && rotas.length > 0) {
+    throw new Error(`La migración de identidades sociales dejó ${rotas.length} referencias rotas`);
+  }
+
+  if (Number(huerfanos?.total || 0) > 0) {
+    logger.info(
+      `  Social: ${huerfanos.total} destinos sin identidad quedaron asignados al Perfil.`
+    );
+  }
+}
+
+/** Crea las identidades si faltan. Devuelve el id de la principal. */
+function sembrarIdentidades(db) {
+  const alta = db.prepare(
+    `INSERT INTO social_accounts (provider, nombre, identificador_externo, estado, metadata)
+     VALUES ('facebook', ?, ?, 'desconectada', ?)
+     ON CONFLICT DO NOTHING`
+  );
+
+  IDENTIDADES_FACEBOOK.forEach((identidad) => {
+    const existe = db
+      .prepare("SELECT id FROM social_accounts WHERE provider = 'facebook' AND nombre = ?")
+      .get(identidad.nombre);
+    if (!existe) {
+      alta.run(identidad.nombre, identidad.clave, JSON.stringify({ tipo: identidad.tipo }));
+    }
+  });
+
+  const perfil = db
+    .prepare("SELECT id FROM social_accounts WHERE provider = 'facebook' AND nombre = ?")
+    .get(IDENTIDADES_FACEBOOK[0].nombre);
+
+  return Number(perfil?.id || 0);
 }
 
 function runMigrations(db) {
@@ -159,6 +293,9 @@ function runMigrations(db) {
   */
   ensureColumn(db, 'pedido_items', 'descuento_item', 'INTEGER DEFAULT 0');
   ensureColumn(db, 'pedido_items', 'descuento_motivo', "TEXT DEFAULT ''");
+  // El costo se congela al crear el renglón: los reportes históricos no deben
+  // cambiar cuando más adelante se actualiza el costo del producto.
+  ensureColumn(db, 'pedido_items', 'costo_unitario', 'INTEGER DEFAULT 0');
 
   /*
     ── PIN de autorización del mozo ───────────────────────────────────────────
@@ -1170,14 +1307,28 @@ function runMigrations(db) {
   } catch {}
 
   crearBaseMultisucursal(db);
+  configurarMotorCanonicoWhatsapp(db);
+  encriptarClavesSensiblesExistentes(db);
+  // WhatsApp actualiza compatibilidades de identidades sociales: la tabla
+  // social_accounts debe existir antes de correr esas migraciones.
+  crearTablasSocial(db);
   crearTablasWhatsapp(db);
   // Cada contacto puede recibir una promoción por turno operativo. El valor
   // persiste con el envío para que un reinicio no vuelva a habilitarlo.
   ensureColumn(db, 'wa_envios', 'turno_clave', "TEXT DEFAULT ''");
+  ensureColumn(db, 'wa_campanas', 'segmento', "TEXT DEFAULT 'todos'");
+  ensureColumn(db, 'wa_campanas', 'programada_para', 'DATETIME');
+  ensureColumn(db, 'wa_campanas', 'ultimo_error', "TEXT DEFAULT ''");
+  // El id de WhatsApp hace idempotente la importación del historial al volver
+  // a vincular el número: un history sync repetido no duplica respuestas ni
+  // altera los segmentos de la agenda.
+  ensureColumn(db, 'wa_respuestas', 'mensaje_id', "TEXT DEFAULT ''");
   db.exec(
     'CREATE INDEX IF NOT EXISTS idx_wa_envios_turno_telefono ON wa_envios(turno_clave, telefono, estado)'
   );
-  crearTablasSocial(db);
+  db.exec(
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_wa_respuestas_mensaje_id ON wa_respuestas(mensaje_id) WHERE mensaje_id <> ''"
+  );
   migrateMoneyColumns(db);
   migrarUmbralesDeNivel(db);
   migrarPuntosInflados(db);
@@ -1425,6 +1576,7 @@ function migrateMoneyColumns(db) {
     { table: 'cupones_usados', column: 'monto_descuento' },
     { table: 'pedido_items', column: 'cantidad' },
     { table: 'pedido_items', column: 'precio_unitario' },
+    { table: 'pedido_items', column: 'costo_unitario' },
     { table: 'pedido_items', column: 'subtotal' },
     { table: 'inventario_compras', column: 'total' },
     { table: 'inventario_compra_items', column: 'cantidad' },
@@ -1485,6 +1637,54 @@ function migrateMoneyColumns(db) {
  * personal: activar una separación parcial sería más peligroso que seguir
  * operando como un solo local.
  */
+/**
+ * Chispita se ejecuta dentro del backend. n8n deja de ser un segundo motor
+ * operativo: duplicaba memoria, reglas y herramientas, y podía confirmar algo
+ * distinto de lo que realmente quedó en la base. Gemini queda exclusivamente
+ * como respaldo del proveedor principal y reutiliza la clave cifrada existente.
+ *
+ * La marca evita pisar una elección posterior del administrador en cada inicio.
+ */
+function configurarMotorCanonicoWhatsapp(db) {
+  // v2 reemplaza 2.5-flash, retirado por Google para cuentas nuevas.
+  const marca = 'migracion_motor_whatsapp_propio_gemini_v2';
+  const aplicada = db.prepare('SELECT valor FROM configuracion WHERE clave = ?').get(marca);
+  if (aplicada?.valor === '1') return;
+
+  const guardar = db.prepare(
+    `INSERT INTO configuracion (clave, valor) VALUES (?, ?)
+     ON CONFLICT(clave) DO UPDATE SET valor = excluded.valor`
+  );
+  db.transaction(() => {
+    guardar.run('whatsapp_motor_propio', '1');
+    guardar.run('whatsapp_emergencia_activa', '1');
+    guardar.run('whatsapp_emergencia_proveedor', 'Gemini');
+    guardar.run('whatsapp_emergencia_base_url', 'https://generativelanguage.googleapis.com/v1beta');
+    guardar.run('whatsapp_emergencia_modelo', 'gemini-3.6-flash');
+    guardar.run(marca, '1');
+  })();
+}
+
+/**
+ * Las instalaciones anteriores a la bóveda guardaban estas claves como texto.
+ * La lectura conserva compatibilidad, pero dejar el valor así en el volumen
+ * vuelve inútil el cifrado de las altas nuevas. Esta migración es idempotente:
+ * sólo transforma valores presentes que todavía no tengan el prefijo `enc:`.
+ */
+function encriptarClavesSensiblesExistentes(db) {
+  const claves = ['ia_api_key', 'gemini_api_key', 'whatsapp_emergencia_api_key'];
+  const leer = db.prepare('SELECT valor FROM configuracion WHERE clave = ?');
+  const guardar = db.prepare('UPDATE configuracion SET valor = ? WHERE clave = ?');
+
+  db.transaction(() => {
+    for (const clave of claves) {
+      const valor = String(leer.get(clave)?.valor || '');
+      if (!valor || estaEncriptado(valor)) continue;
+      guardar.run(encriptar(valor), clave);
+    }
+  })();
+}
+
 function crearBaseMultisucursal(db) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS sucursales (
@@ -1544,6 +1744,8 @@ function crearTablasWhatsapp(db) {
       ultimo_mensaje_en DATETIME,
       excluido INTEGER DEFAULT 0,
       origen TEXT DEFAULT 'gateway',
+      score INTEGER DEFAULT 0,
+      pausado_hasta TEXT DEFAULT '',
       creado_en DATETIME DEFAULT CURRENT_TIMESTAMP,
       actualizado_en DATETIME DEFAULT CURRENT_TIMESTAMP
     );
@@ -1565,6 +1767,9 @@ function crearTablasWhatsapp(db) {
       total INTEGER DEFAULT 0,
       enviados INTEGER DEFAULT 0,
       fallidos INTEGER DEFAULT 0,
+      segmento TEXT DEFAULT 'todos',
+      programada_para DATETIME,
+      ultimo_error TEXT DEFAULT '',
       creado_en DATETIME DEFAULT CURRENT_TIMESTAMP,
       iniciado_en DATETIME,
       terminado_en DATETIME
@@ -1580,6 +1785,10 @@ function crearTablasWhatsapp(db) {
       estado TEXT DEFAULT 'pendiente',
       error TEXT DEFAULT '',
       turno_clave TEXT DEFAULT '',
+      -- Identifica el mensaje remoto para registrar sus recibos.
+      mensaje_id TEXT DEFAULT '',
+      entregado_en DATETIME,
+      leido_en DATETIME,
       enviado_en DATETIME,
       UNIQUE(campana_id, telefono)
     );
@@ -1589,7 +1798,82 @@ function crearTablasWhatsapp(db) {
       telefono TEXT NOT NULL,
       texto TEXT DEFAULT '',
       es_baja INTEGER DEFAULT 0,
+      mensaje_id TEXT DEFAULT '',
       recibido_en DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS wa_plantillas (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      nombre TEXT NOT NULL UNIQUE,
+      mensaje TEXT NOT NULL,
+      imagen TEXT DEFAULT '',
+      segmento TEXT DEFAULT 'todos',
+      activa INTEGER DEFAULT 1,
+      creado_en DATETIME DEFAULT CURRENT_TIMESTAMP,
+      actualizado_en DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- CRM ligero sobre respuestas de campañas
+    CREATE TABLE IF NOT EXISTS wa_crm (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      respuesta_id INTEGER REFERENCES wa_respuestas(id) ON DELETE CASCADE,
+      telefono TEXT NOT NULL,
+      estado TEXT DEFAULT 'nuevo',
+      nota TEXT DEFAULT '',
+      actor_id INTEGER,
+      actor_nombre TEXT DEFAULT '',
+      creado_en DATETIME DEFAULT CURRENT_TIMESTAMP,
+      actualizado_en DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Etiquetas por contacto (tags libres)
+    CREATE TABLE IF NOT EXISTS wa_etiquetas (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      contacto_id INTEGER NOT NULL REFERENCES wa_contactos(id) ON DELETE CASCADE,
+      etiqueta TEXT NOT NULL,
+      creado_en DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(contacto_id, etiqueta)
+    );
+
+    -- Notas por contacto
+    CREATE TABLE IF NOT EXISTS wa_notas (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      contacto_id INTEGER NOT NULL REFERENCES wa_contactos(id) ON DELETE CASCADE,
+      nota TEXT NOT NULL,
+      actor_id INTEGER,
+      actor_nombre TEXT DEFAULT '',
+      creado_en DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Recordatorios por contacto
+    CREATE TABLE IF NOT EXISTS wa_recordatorios (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      contacto_id INTEGER NOT NULL REFERENCES wa_contactos(id) ON DELETE CASCADE,
+      texto TEXT NOT NULL,
+      vence DATETIME,
+      hecho INTEGER DEFAULT 0,
+      creado_en DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Plantillas sugeridas por segmento (promociones específicas)
+    CREATE TABLE IF NOT EXISTS wa_plantillas_segmento (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      segmento TEXT NOT NULL,
+      mensaje TEXT NOT NULL,
+      activo INTEGER DEFAULT 1,
+      creado_en DATETIME DEFAULT CURRENT_TIMESTAMP,
+      actualizado_en DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Cierre diario de jornada (embudo, salud, métricas)
+    CREATE TABLE IF NOT EXISTS wa_cierres_dia (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      fecha TEXT NOT NULL UNIQUE,
+      enviados INTEGER DEFAULT 0,
+      respuestas INTEGER DEFAULT 0,
+      salud_score INTEGER DEFAULT 0,
+      embudo_json TEXT DEFAULT '{}',
+      creado_en DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
     -- El cupo por ventana pregunta "cuántos salieron en los últimos 60
@@ -1600,7 +1884,307 @@ function crearTablasWhatsapp(db) {
     CREATE INDEX IF NOT EXISTS idx_wa_respuestas_fecha ON wa_respuestas(recibido_en);
     CREATE INDEX IF NOT EXISTS idx_wa_contactos_nombre ON wa_contactos(nombre COLLATE NOCASE);
     CREATE INDEX IF NOT EXISTS idx_wa_contactos_telefono ON wa_contactos(telefono);
+    CREATE INDEX IF NOT EXISTS idx_wa_crm_telefono ON wa_crm(telefono, estado);
+    CREATE INDEX IF NOT EXISTS idx_wa_etiquetas_contacto ON wa_etiquetas(contacto_id);
+    CREATE INDEX IF NOT EXISTS idx_wa_notas_contacto ON wa_notas(contacto_id, creado_en DESC);
+    CREATE INDEX IF NOT EXISTS idx_wa_recordatorios_contacto ON wa_recordatorios(contacto_id, hecho, vence);
+    CREATE INDEX IF NOT EXISTS idx_wa_cierres_dia_fecha ON wa_cierres_dia(fecha);
   `);
+
+  // En instalaciones anteriores la tabla ya existía sin estos campos. Deben
+  // agregarse después del CREATE para que también funcione una base nueva.
+  ensureColumn(db, 'wa_contactos', 'score', 'INTEGER DEFAULT 0');
+  ensureColumn(db, 'wa_contactos', 'pausado_hasta', "TEXT DEFAULT ''");
+
+  /*
+    Recibos de WhatsApp.
+
+    Hasta acá `wa_envios.estado = 'enviado'` sólo quería decir "salió de este
+    servidor". No decía nada sobre si le llegó al cliente ni si lo abrió, y sin
+    eso un número que WhatsApp empezó a frenar se ve exactamente igual que uno
+    sano: los dos muestran "enviado".
+
+    `mensaje_id` es lo que permite atar el recibo con el envío. Sin él, cuando
+    WhatsApp avisa "el mensaje tal se entregó" no hay forma de saber a qué
+    campaña ni a qué contacto corresponde.
+  */
+  /*
+    Cuándo se revisó por última vez si este contacto tiene foto.
+
+    Hace falta para distinguir "todavía no lo miramos" de "lo miramos y no
+    tiene foto visible". Sin esta marca, el que oculta su foto por privacidad
+    —que es mucha gente— queda como pendiente para siempre, y el goteo
+    automático se la pasaría reintentando los mismos veinte contactos sin
+    llegar nunca a los que faltan de verdad.
+  */
+  migrarIdentidadesSociales(db);
+
+  /*
+    El freno de mano de cada identidad.
+
+    Va en la base y no en memoria a propósito: si el proceso se reinicia
+    mientras algo está pausado, tiene que seguir pausado. Un freno que se
+    suelta solo con un deploy no es un freno.
+
+    `pausada_en` guarda desde cuándo, para poder decirlo en pantalla en vez de
+    mostrar sólo un interruptor sin contexto.
+  */
+  ensureColumn(db, 'social_accounts', 'pausada', 'INTEGER DEFAULT 0');
+  ensureColumn(db, 'social_accounts', 'pausada_en', 'DATETIME');
+  ensureColumn(db, 'social_accounts', 'pausada_motivo', "TEXT DEFAULT ''");
+
+  /*
+    Cuántas veces seguidas falló esta identidad.
+
+    Se usa para la pausa automática: si una identidad acumula fallos, algo
+    cambió del otro lado —la sesión venció, Facebook cambió la interfaz, el
+    grupo bloqueó— y seguir intentando sólo empeora las cosas.
+
+    Se reinicia con cada publicación exitosa.
+  */
+  ensureColumn(db, 'social_accounts', 'fallos_seguidos', 'INTEGER DEFAULT 0');
+
+  ensureColumn(db, 'wa_contactos', 'foto_revisada_en', 'DATETIME');
+
+  ensureColumn(db, 'wa_envios', 'mensaje_id', "TEXT DEFAULT ''");
+  ensureColumn(db, 'wa_envios', 'entregado_en', 'DATETIME');
+  ensureColumn(db, 'wa_envios', 'leido_en', 'DATETIME');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_wa_envios_mensaje ON wa_envios(mensaje_id)');
+
+  /*
+    ── Las reglas de cada grupo ─────────────────────────────────────────────
+
+    Cada grupo de Facebook tiene sus propias reglas, y no las inventa el
+    sistema: las pone el administrador del grupo. "Sólo ventas los martes",
+    "prohibido publicar comercios", "una vez por semana". Romperlas es la forma
+    más rápida de que te echen, y una vez que te echan no hay vuelta atrás.
+
+    Hasta ahora esas reglas vivían en la cabeza de quien publicaba. Estas
+    columnas las ponen en la base para que el sistema pueda respetarlas solo.
+
+    Van como columnas y no adentro de `metadata` porque hay que filtrar por
+    ellas al armar una campaña, y filtrar por un campo escondido en un JSON en
+    SQLite es lento y frágil.
+  */
+  ensureColumn(db, 'social_destinations', 'permite_comercial', 'INTEGER DEFAULT 1');
+  ensureColumn(db, 'social_destinations', 'frecuencia_maxima_horas', 'INTEGER');
+  ensureColumn(db, 'social_destinations', 'bloqueado_manualmente', 'INTEGER DEFAULT 0');
+  ensureColumn(db, 'social_destinations', 'notas', "TEXT DEFAULT ''");
+
+  /*
+    ── La huella del contenido ──────────────────────────────────────────────
+
+    Un resumen del texto y las imágenes de la publicación, guardado en el
+    destino en el momento de encolarlo.
+
+    Sirve para no repetir: si ya se publicó exactamente esto en este grupo hace
+    tres días, publicarlo de nuevo es lo que hace que la gente del grupo te
+    silencie.
+
+    Se guarda en el destino y no en la campaña a propósito. Es una foto del
+    momento: si mañana se edita el texto de la campaña, lo que ya se publicó no
+    cambió, y el historial tiene que seguir diciendo la verdad.
+  */
+  ensureColumn(db, 'social_post_targets', 'contenido_hash', "TEXT DEFAULT ''");
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_social_targets_dedupe
+       ON social_post_targets(destino_id, contenido_hash, estado)`
+  );
+
+  /*
+    ── Por dónde sale cada destino ──────────────────────────────────────────
+
+    `browser` lo publica el Worker abriendo Chrome en la PC del local.
+    `api` lo publica el servidor hablando con la API oficial, sin navegador.
+
+    Va en columna y no se deduce del tipo porque la Fan Page va a migrar de una
+    clase a la otra, y ese día hay que poder cambiar una fila sin tocar código.
+    Mientras tanto todo lo existente sigue por navegador, que es donde estaba.
+
+    `provider_clave` permite fijar un provider a mano. Con eso, migrar la Page a
+    la API es cambiarle dos campos a un destino.
+  */
+  ensureColumn(db, 'social_destinations', 'execution_class', "TEXT DEFAULT 'browser'");
+  ensureColumn(db, 'social_destinations', 'provider_clave', "TEXT DEFAULT ''");
+
+  /*
+    El ensayo: recorrer toda la cola sin publicar nada.
+
+    Va en la campaña porque es una decisión de esa publicación —"probemos esta
+    antes de mandarla"—, no del destino.
+  */
+  ensureColumn(db, 'social_campaigns', 'ensayo', 'INTEGER DEFAULT 0');
+
+  crearAutolistas(db);
+  destrabarFechasProgramadas(db);
+  marcarClaseDeEjecucion(db);
+}
+
+/**
+ * Las autolistas: contenido que se publica solo, para siempre.
+ *
+ * ── El problema que resuelven ──────────────────────────────────────────────
+ *
+ * Un local no tiene a nadie dedicado a las redes. Lo que pasa siempre es que
+ * se publica tres días seguidos con entusiasmo y después nada por dos meses.
+ *
+ * Hay contenido que no caduca: que hacemos delivery hasta las 23, la pizza a
+ * la piedra, cómo llegar, las fotos del salón. Eso se puede cargar una vez y
+ * dejar girando.
+ *
+ * ── El modo circular ───────────────────────────────────────────────────────
+ *
+ * Cuando una publicación de la lista sale, **vuelve al final de la fila** en
+ * vez de gastarse. Con diez piezas y tres salidas por semana, el mismo
+ * contenido reaparece cada tres semanas y medio: suficiente para que nadie lo
+ * sienta repetido, y sin que haya que escribir nada nuevo.
+ *
+ * Sin modo circular, cada pieza sale una vez y la lista se vacía. Sirve para
+ * una campaña con principio y fin.
+ */
+function crearAutolistas(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS social_autolistas (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      nombre TEXT NOT NULL,
+      activa INTEGER DEFAULT 1,
+
+      -- Con qué identidad publica y adónde.
+      cuenta_id INTEGER REFERENCES social_accounts(id) ON DELETE CASCADE,
+      destinos TEXT DEFAULT '[]',
+
+      -- Cuándo. Días de la semana (0 domingo) y horas, en hora de Argentina.
+      dias TEXT DEFAULT '[1,3,5]',
+      horas TEXT DEFAULT '[11,20]',
+
+      -- Si al publicarse la pieza vuelve al final de la fila.
+      circular INTEGER DEFAULT 1,
+
+      ultima_salida DATETIME,
+      creado_en DATETIME DEFAULT CURRENT_TIMESTAMP,
+      actualizado_en DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS social_autolista_piezas (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      autolista_id INTEGER NOT NULL REFERENCES social_autolistas(id) ON DELETE CASCADE,
+      texto TEXT NOT NULL,
+      media_id INTEGER REFERENCES social_media(id) ON DELETE SET NULL,
+
+      /*
+        El lugar en la fila. Al publicarse, la pieza recibe el orden más alto
+        de la lista + 1, y con eso pasa al final sin tener que renumerar todo.
+      */
+      orden INTEGER DEFAULT 0,
+
+      veces_publicada INTEGER DEFAULT 0,
+      ultima_vez DATETIME,
+      creado_en DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_autolista_piezas
+      ON social_autolista_piezas(autolista_id, orden);
+  `);
+}
+
+/**
+ * Le pone a cada destino la clase de ejecución que le corresponde.
+ *
+ * ── Qué estaba mal ─────────────────────────────────────────────────────────
+ *
+ * La columna se creó con `DEFAULT 'browser'` y `createDestination` nunca la
+ * escribía. Así que **todos** los destinos quedaban en `browser`, incluidos la
+ * Fan Page e Instagram, que sí tienen API oficial.
+ *
+ * Consecuencia: cargar el token de Meta no servía de nada. El destino seguía
+ * yendo al Worker —que para la Page no tiene camino— y el despachador del
+ * servidor no lo miraba nunca porque filtra por esta columna.
+ *
+ * ── Por qué la lista está escrita acá y no se pregunta al registro ─────────
+ *
+ * Las migraciones corren antes que todo lo demás y no pueden depender de un
+ * servicio que a su vez depende de la base. Son dos tipos: si aparece un
+ * tercero, `createDestination` ya lo marca solo al darlo de alta.
+ */
+function marcarClaseDeEjecucion(db) {
+  const existe = db
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'social_destinations'")
+    .get();
+  if (!existe) return;
+
+  const porApi = {
+    facebook_page: 'facebook_page_api',
+    instagram_feed: 'instagram_feed_api',
+  };
+
+  let corregidos = 0;
+  for (const [tipo, clave] of Object.entries(porApi)) {
+    corregidos += db
+      .prepare(
+        `UPDATE social_destinations
+            SET execution_class = 'api', provider_clave = ?
+          WHERE tipo = ? AND COALESCE(execution_class, 'browser') <> 'api'`
+      )
+      .run(clave, tipo).changes;
+  }
+
+  if (corregidos) {
+    logger.info(
+      `[migración] ${corregidos} destinos pasaron a publicarse por la API oficial de Meta`
+    );
+  }
+}
+
+/**
+ * Destraba las campañas que quedaron programadas para siempre.
+ *
+ * ── Qué pasaba ─────────────────────────────────────────────────────────────
+ *
+ * SQLite no tiene tipo fecha: guarda texto y compara texto. `CURRENT_TIMESTAMP`
+ * escribe `2026-08-21 14:19:13`, con un espacio; `toISOString()` escribe
+ * `2026-08-21T13:19:13.931Z`, con una T. La T es mayor que el espacio.
+ *
+ * Las dos colas del sistema comparan la columna pelada:
+ *
+ *   social_post_targets.programada_para <= CURRENT_TIMESTAMP
+ *   wa_campanas.programada_para        <= CURRENT_TIMESTAMP
+ *
+ * Con un ISO guardado ahí, esa condición **nunca daba verdadero**. Programabas
+ * una campaña para las 20:00 y no salía nunca: sin error, sin log, sin nada.
+ *
+ * El código ya no guarda ISO. Esto arregla lo que quedó escrito antes, que si
+ * no seguiría trabado para siempre.
+ *
+ * ── Por qué se hace con SQL y no leyendo fila por fila ─────────────────────
+ *
+ * `replace(campo, 'T', ' ')` más `substr(..., 1, 19)` deja exactamente el
+ * formato de SQLite, y sólo toca las filas que tienen la T. Las que ya están
+ * bien no se tocan, así que correr la migración dos veces no cambia nada.
+ */
+function destrabarFechasProgramadas(db) {
+  const arreglar = (tabla, columna) => {
+    const existe = db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
+      .get(tabla);
+    if (!existe) return 0;
+
+    return db
+      .prepare(
+        `UPDATE ${tabla}
+            SET ${columna} = substr(replace(replace(${columna}, 'T', ' '), 'Z', ''), 1, 19)
+          WHERE ${columna} IS NOT NULL AND ${columna} LIKE '%T%'`
+      )
+      .run().changes;
+  };
+
+  const destrabadas =
+    arreglar('social_post_targets', 'programada_para') +
+    arreglar('social_campaigns', 'programada_para') +
+    arreglar('wa_campanas', 'programada_para');
+
+  if (destrabadas) {
+    logger.info(`[migración] ${destrabadas} campañas destrabadas: la fecha estaba en formato ISO`);
+  }
 }
 
 /**
@@ -1626,9 +2210,35 @@ function crearTablasSocial(db) {
       actualizado_en DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    /*
+      Un destino pertenece siempre a una identidad.
+
+      -- Por qué cuenta_id entra en la clave unica --
+
+      El mismo grupo de Facebook es un destino distinto segun con que identidad
+      se publique: "Compra Venta Monteros como Perfil Modo Sabor" y "Compra
+      Venta Monteros como Fan Page Modo Sabor Delivery" son dos cosas
+      separadas, con permisos distintos y resultados distintos.
+
+      La clave anterior era UNIQUE(provider, tipo, identificador_externo), sin
+      la identidad. Con esa clave, sincronizar los grupos de la Page pisaba los
+      del Perfil: quedaba una sola fila que cambiaba de dueno con la ultima
+      sincronizacion.
+
+      -- Por que NOT NULL y no opcional --
+
+      Ademas de que un destino sin identidad no significa nada, hay un motivo
+      tecnico: en SQLite los NULL son distintos entre si dentro de un UNIQUE.
+      Con cuenta_id nullable, diez filas con identidad nula y el mismo grupo
+      convivirian sin conflicto, y el ON CONFLICT del alta nunca se dispararia.
+      La restriccion existiria y no restringiria nada.
+
+      CASCADE y no SET NULL por lo mismo: si se borra la identidad, sus
+      destinos dejan de tener sentido.
+    */
     CREATE TABLE IF NOT EXISTS social_destinations (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      cuenta_id INTEGER REFERENCES social_accounts(id) ON DELETE SET NULL,
+      cuenta_id INTEGER NOT NULL REFERENCES social_accounts(id) ON DELETE CASCADE,
       provider TEXT NOT NULL,
       tipo TEXT NOT NULL,
       nombre TEXT NOT NULL,
@@ -1640,7 +2250,7 @@ function crearTablasSocial(db) {
       ultimo_estado TEXT DEFAULT 'pendiente',
       creado_en DATETIME DEFAULT CURRENT_TIMESTAMP,
       actualizado_en DATETIME DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE(provider, tipo, identificador_externo)
+      UNIQUE(provider, cuenta_id, tipo, identificador_externo)
     );
 
     CREATE TABLE IF NOT EXISTS social_destination_sets (

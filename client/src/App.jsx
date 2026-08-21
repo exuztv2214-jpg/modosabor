@@ -8,6 +8,7 @@ import PrivateRoute from './components/PrivateRoute.jsx';
 import AppErrorBoundary from './components/AppErrorBoundary.jsx';
 import AppConfigWarning from './components/AppConfigWarning.jsx';
 import { isNativeRiderApp } from './lib/nativeRiderGps.js';
+import { isMasivosSurface, isSocialSurface } from './lib/appSurface.js';
 
 /*
   WebPublica se deja como import directo a propósito: es la carta, la pantalla
@@ -65,14 +66,138 @@ const RiderPanel = lazy(() => import('./pages/RiderPanel.jsx'));
 const EstadoPedidosPublico = lazy(() => import('./pages/EstadoPedidosPublico.jsx'));
 const IntercambioDatos = lazy(() => import('./pages/IntercambioDatos.jsx'));
 
+function MasivosRoutes() {
+  return (
+    <Routes>
+      <Route
+        path="/admin"
+        element={
+          <Login
+            redirectTo="/"
+            panelTitle="Modo Sabor Masivos"
+            panelSubtitle="Campañas de WhatsApp"
+          />
+        }
+      />
+      <Route
+        element={
+          <PrivateRoute
+            permission="marketing.edit"
+            moduleKey="marketing"
+            loginTo="/admin"
+            unauthorizedTo="/admin"
+          />
+        }
+      >
+        <Route path="/" element={<WhatsAppMasivo />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Route>
+    </Routes>
+  );
+}
+
+function SocialRoutes() {
+  return (
+    <Routes>
+      <Route
+        path="/admin"
+        element={
+          <Login
+            redirectTo="/"
+            panelTitle="Modo Sabor Social"
+            panelSubtitle="Publicaciones y campañas"
+          />
+        }
+      />
+      <Route
+        element={
+          <PrivateRoute
+            permission="marketing.edit"
+            moduleKey="marketing"
+            loginTo="/admin"
+            unauthorizedTo="/admin"
+          />
+        }
+      >
+        <Route path="/" element={<Social />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Route>
+    </Routes>
+  );
+}
+
+function MasivosPathRoutes() {
+  return (
+    <Routes>
+      <Route
+        path="admin"
+        element={
+          <Login
+            redirectTo="/masivos"
+            panelTitle="Modo Sabor Masivos"
+            panelSubtitle="Campañas de WhatsApp"
+          />
+        }
+      />
+      <Route
+        element={
+          <PrivateRoute
+            permission="marketing.edit"
+            moduleKey="marketing"
+            loginTo="/masivos/admin"
+            unauthorizedTo="/masivos/admin"
+          />
+        }
+      >
+        <Route index element={<WhatsAppMasivo />} />
+        <Route path="*" element={<Navigate to="/masivos" replace />} />
+      </Route>
+    </Routes>
+  );
+}
+
+// Social es un panel operativo autónomo. Mantenerlo fuera de Layout evita que
+// el sidebar del administrador mezcle Marketing con la operación diaria.
+function SocialPathRoutes() {
+  return (
+    <Routes>
+      <Route
+        path="admin"
+        element={
+          <Login
+            redirectTo="/social"
+            panelTitle="Modo Sabor Social"
+            panelSubtitle="Publicaciones y campañas"
+          />
+        }
+      />
+      <Route
+        element={
+          <PrivateRoute
+            permission="marketing.edit"
+            moduleKey="marketing"
+            loginTo="/social/admin"
+            unauthorizedTo="/social/admin"
+          />
+        }
+      >
+        <Route index element={<Social />} />
+        <Route path="*" element={<Navigate to="/social" replace />} />
+      </Route>
+    </Routes>
+  );
+}
+
 export default function App() {
+  const masivosSurface = isMasivosSurface();
+  const socialSurface = isSocialSurface();
   return (
     <AuthProvider>
       <AppConfigProvider>
         <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <AppErrorBoundary>
             <Toaster position="top-right" toastOptions={{ duration: 3000 }} />
-            <AppConfigWarning />
+            {!masivosSurface && !socialSurface && <AppConfigWarning />}
             <Suspense
               fallback={
                 <div className="flex h-screen items-center justify-center">
@@ -80,111 +205,130 @@ export default function App() {
                 </div>
               }
             >
-              <Routes>
-                <Route
-                  path="/"
-                  element={isNativeRiderApp() ? <Navigate to="/rider" replace /> : <WebPublica />}
-                />
-                <Route path="/kiosco" element={<WebPublica mode="kiosco" />} />
-                <Route path="/club" element={<ClubFidelidad />} />
-                <Route path="/club/terminos" element={<TerminosCondiciones />} />
-                <Route path="/club/:codigo" element={<ClubFidelidad />} />
-                <Route path="/personal/reloj" element={<PersonalClock />} />
-                <Route path="/personal/reloj/:token" element={<PersonalClock />} />
-                <Route path="/seguimiento/:id" element={<SeguimientoPedido />} />
-                <Route path="/estado-pedidos" element={<EstadoPedidosPublico />} />
-                <Route path="/rider" element={<RiderPanel />} />
-                <Route path="/rider/:id/:codigo" element={<RiderPanel />} />
-                <Route path="/admin" element={<Login />} />
-                <Route element={<PrivateRoute />}>
-                  <Route element={<Layout />}>
-                    <Route element={<PrivateRoute permission="dashboard.view" />}>
-                      <Route path="/admin/dashboard" element={<Dashboard />} />
-                      <Route path="/admin/operacion" element={<Operacion />} />
+              {masivosSurface ? (
+                <MasivosRoutes />
+              ) : socialSurface ? (
+                <SocialRoutes />
+              ) : (
+                <Routes>
+                  <Route
+                    path="/"
+                    element={isNativeRiderApp() ? <Navigate to="/rider" replace /> : <WebPublica />}
+                  />
+                  <Route path="/kiosco" element={<WebPublica mode="kiosco" />} />
+                  <Route path="/club" element={<ClubFidelidad />} />
+                  <Route path="/club/terminos" element={<TerminosCondiciones />} />
+                  <Route path="/club/:codigo" element={<ClubFidelidad />} />
+                  <Route path="/personal/reloj" element={<PersonalClock />} />
+                  <Route path="/personal/reloj/:token" element={<PersonalClock />} />
+                  <Route path="/seguimiento/:id" element={<SeguimientoPedido />} />
+                  <Route path="/estado-pedidos" element={<EstadoPedidosPublico />} />
+                  <Route path="/rider" element={<RiderPanel />} />
+                  <Route path="/rider/:id/:codigo" element={<RiderPanel />} />
+                  <Route path="/admin" element={<Login />} />
+                  {/* Panel autónomo de campañas: no carga Layout ni sidebar. */}
+                  <Route path="/masivos/*" element={<MasivosPathRoutes />} />
+                  {/* Panel autónomo de redes: no carga Layout ni sidebar. */}
+                  <Route path="/social/*" element={<SocialPathRoutes />} />
+                  <Route element={<PrivateRoute />}>
+                    <Route element={<Layout />}>
+                      <Route element={<PrivateRoute permission="dashboard.view" />}>
+                        <Route path="/admin/dashboard" element={<Dashboard />} />
+                        <Route path="/admin/operacion" element={<Operacion />} />
+                      </Route>
+                      <Route element={<PrivateRoute permission="tpv.use" moduleKey="tpv" />}>
+                        <Route path="/admin/tpv" element={<TPV />} />
+                      </Route>
+                      <Route element={<PrivateRoute permission="pedidos.view" />}>
+                        <Route path="/admin/pedidos" element={<Pedidos />} />
+                      </Route>
+                      <Route element={<PrivateRoute permission="pedidos.edit" />}>
+                        <Route path="/admin/direcciones" element={<Direcciones />} />
+                      </Route>
+                      <Route element={<PrivateRoute permission="caja.view" moduleKey="caja" />}>
+                        <Route path="/admin/caja" element={<Caja />} />
+                      </Route>
+                      <Route element={<PrivateRoute permission="kds.view" moduleKey="kds" />}>
+                        <Route path="/admin/kds" element={<KDS />} />
+                      </Route>
+                      <Route element={<PrivateRoute permission="mesas.view" moduleKey="mesas" />}>
+                        <Route path="/admin/mesas" element={<Mesas />} />
+                      </Route>
+                      <Route
+                        element={<PrivateRoute permission="delivery.view" moduleKey="delivery" />}
+                      >
+                        <Route path="/admin/delivery" element={<Delivery />} />
+                      </Route>
+                      <Route element={<PrivateRoute permission="productos.edit" />}>
+                        <Route path="/admin/productos" element={<Productos />} />
+                        <Route path="/admin/categorias" element={<Categorias />} />
+                        <Route path="/admin/listas-opciones" element={<ListasOpciones />} />
+                        <Route path="/admin/listas-precios" element={<ListasPrecios />} />
+                        <Route path="/admin/costos-productos" element={<CostosProductos />} />
+                        <Route path="/admin/menu-del-dia" element={<MenuDelDia />} />
+                      </Route>
+                      <Route
+                        element={
+                          <PrivateRoute permission="productos.edit" moduleKey="inventario" />
+                        }
+                      >
+                        <Route path="/admin/inventario" element={<Inventario />} />
+                        <Route path="/admin/compras" element={<Compras />} />
+                      </Route>
+                      <Route
+                        element={<PrivateRoute permission="clientes.view" moduleKey="clientes" />}
+                      >
+                        <Route path="/admin/clientes" element={<Clientes />} />
+                        <Route path="/admin/cuenta-corriente" element={<CuentaCorriente />} />
+                      </Route>
+                      <Route
+                        element={<PrivateRoute permission="config.manage" moduleKey="clientes" />}
+                      >
+                        <Route path="/admin/fidelizacion" element={<Fidelizacion />} />
+                      </Route>
+                      <Route
+                        element={<PrivateRoute permission="marketing.view" moduleKey="marketing" />}
+                      >
+                        <Route path="/admin/marketing" element={<MarketingDigital />} />
+                      </Route>
+                      <Route
+                        element={<PrivateRoute permission="marketing.edit" moduleKey="marketing" />}
+                      >
+                        <Route
+                          path="/admin/whatsapp-masivo"
+                          element={<Navigate to="/masivos" replace />}
+                        />
+                        <Route path="/admin/social" element={<Navigate to="/social" replace />} />
+                      </Route>
+                      <Route path="/admin/cuenta" element={<Cuenta />} />
+                      <Route
+                        element={<PrivateRoute permission="reportes.view" moduleKey="reportes" />}
+                      >
+                        <Route path="/admin/reportes" element={<Reportes />} />
+                        <Route path="/admin/estado-resultados" element={<EstadoResultados />} />
+                        <Route path="/admin/reportes-delivery" element={<ReportesDelivery />} />
+                      </Route>
+                      <Route element={<PrivateRoute permission="config.manage" />}>
+                        <Route path="/admin/configuracion" element={<Configuracion />} />
+                        <Route path="/admin/usuarios" element={<Usuarios />} />
+                        <Route path="/admin/auditoria" element={<Auditoria />} />
+                        <Route path="/admin/intercambio-datos" element={<IntercambioDatos />} />
+                      </Route>
+                      <Route
+                        element={<PrivateRoute permission="config.manage" moduleKey="personal" />}
+                      >
+                        <Route path="/admin/personal" element={<Personal />} />
+                      </Route>
+                      <Route
+                        element={<PrivateRoute permission="config.manage" moduleKey="cupones" />}
+                      >
+                        <Route path="/admin/cupones" element={<Cupones />} />
+                      </Route>
+                      <Route path="/admin/*" element={<Navigate to="/admin/dashboard" replace />} />
                     </Route>
-                    <Route element={<PrivateRoute permission="tpv.use" moduleKey="tpv" />}>
-                      <Route path="/admin/tpv" element={<TPV />} />
-                    </Route>
-                    <Route element={<PrivateRoute permission="pedidos.view" />}>
-                      <Route path="/admin/pedidos" element={<Pedidos />} />
-                    </Route>
-                    <Route element={<PrivateRoute permission="pedidos.edit" />}>
-                      <Route path="/admin/direcciones" element={<Direcciones />} />
-                    </Route>
-                    <Route element={<PrivateRoute permission="caja.view" moduleKey="caja" />}>
-                      <Route path="/admin/caja" element={<Caja />} />
-                    </Route>
-                    <Route element={<PrivateRoute permission="kds.view" moduleKey="kds" />}>
-                      <Route path="/admin/kds" element={<KDS />} />
-                    </Route>
-                    <Route element={<PrivateRoute permission="mesas.view" moduleKey="mesas" />}>
-                      <Route path="/admin/mesas" element={<Mesas />} />
-                    </Route>
-                    <Route
-                      element={<PrivateRoute permission="delivery.view" moduleKey="delivery" />}
-                    >
-                      <Route path="/admin/delivery" element={<Delivery />} />
-                    </Route>
-                    <Route element={<PrivateRoute permission="productos.edit" />}>
-                      <Route path="/admin/productos" element={<Productos />} />
-                      <Route path="/admin/categorias" element={<Categorias />} />
-                      <Route path="/admin/listas-opciones" element={<ListasOpciones />} />
-                      <Route path="/admin/listas-precios" element={<ListasPrecios />} />
-                      <Route path="/admin/costos-productos" element={<CostosProductos />} />
-                      <Route path="/admin/menu-del-dia" element={<MenuDelDia />} />
-                    </Route>
-                    <Route
-                      element={<PrivateRoute permission="productos.edit" moduleKey="inventario" />}
-                    >
-                      <Route path="/admin/inventario" element={<Inventario />} />
-                      <Route path="/admin/compras" element={<Compras />} />
-                    </Route>
-                    <Route
-                      element={<PrivateRoute permission="clientes.view" moduleKey="clientes" />}
-                    >
-                      <Route path="/admin/clientes" element={<Clientes />} />
-                      <Route path="/admin/cuenta-corriente" element={<CuentaCorriente />} />
-                    </Route>
-                    <Route
-                      element={<PrivateRoute permission="config.manage" moduleKey="clientes" />}
-                    >
-                      <Route path="/admin/fidelizacion" element={<Fidelizacion />} />
-                    </Route>
-                    <Route
-                      element={<PrivateRoute permission="marketing.view" moduleKey="marketing" />}
-                    >
-                      <Route path="/admin/marketing" element={<MarketingDigital />} />
-                      <Route path="/admin/whatsapp-masivo" element={<WhatsAppMasivo />} />
-                      <Route path="/admin/social" element={<Social />} />
-                    </Route>
-                    <Route path="/admin/cuenta" element={<Cuenta />} />
-                    <Route
-                      element={<PrivateRoute permission="reportes.view" moduleKey="reportes" />}
-                    >
-                      <Route path="/admin/reportes" element={<Reportes />} />
-                      <Route path="/admin/estado-resultados" element={<EstadoResultados />} />
-                      <Route path="/admin/reportes-delivery" element={<ReportesDelivery />} />
-                    </Route>
-                    <Route element={<PrivateRoute permission="config.manage" />}>
-                      <Route path="/admin/configuracion" element={<Configuracion />} />
-                      <Route path="/admin/usuarios" element={<Usuarios />} />
-                      <Route path="/admin/auditoria" element={<Auditoria />} />
-                      <Route path="/admin/intercambio-datos" element={<IntercambioDatos />} />
-                    </Route>
-                    <Route
-                      element={<PrivateRoute permission="config.manage" moduleKey="personal" />}
-                    >
-                      <Route path="/admin/personal" element={<Personal />} />
-                    </Route>
-                    <Route
-                      element={<PrivateRoute permission="config.manage" moduleKey="cupones" />}
-                    >
-                      <Route path="/admin/cupones" element={<Cupones />} />
-                    </Route>
-                    <Route path="/admin/*" element={<Navigate to="/admin/dashboard" replace />} />
                   </Route>
-                </Route>
-              </Routes>
+                </Routes>
+              )}
             </Suspense>
           </AppErrorBoundary>
         </BrowserRouter>

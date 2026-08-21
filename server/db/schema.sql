@@ -533,6 +533,7 @@ CREATE TABLE IF NOT EXISTS pedido_items (
   nombre TEXT NOT NULL,
   cantidad INTEGER NOT NULL DEFAULT 1,
   precio_unitario INTEGER NOT NULL DEFAULT 0,
+  costo_unitario INTEGER NOT NULL DEFAULT 0,
   subtotal INTEGER NOT NULL DEFAULT 0,
   variantes_json TEXT DEFAULT '{}',
   extras_json TEXT DEFAULT '[]',

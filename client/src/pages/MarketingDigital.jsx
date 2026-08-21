@@ -44,7 +44,7 @@ import {
  *  · Resumen — qué está corriendo y qué trajo.
  *  · Campañas — la unidad real; junta promo, contenido, canal y código.
  *  · Biblioteca — promos y contenido, que son insumos de una campaña.
- *  · Agenda — qué publicar y cuándo, con el publicador de Facebook al lado.
+ *  · Agenda — qué publicar y cuándo. La ejecución vive en Modo Sabor Social.
  */
 /*
   `inicio` es la portada con los cuadros grandes y es adonde se entra. Las

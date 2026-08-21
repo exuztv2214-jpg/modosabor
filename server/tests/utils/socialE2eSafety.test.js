@@ -49,10 +49,13 @@ assert.ok(service.includes('ids.length !== 1'));
 assert.ok(service.includes('un único destino: una Page o un grupo'));
 assert.ok(scheduler.includes("estado = 'ambiguous'"));
 assert.ok(scheduler.includes('PUBLICATION_AMBIGUOUS'));
-assert.ok(worker.includes("facebook_session: login ? 'EXPIRED' : 'ACTIVE'"));
+assert.ok(
+  worker.includes("facebook_session: checkpoint ? 'CHECKPOINT' : login ? 'EXPIRED' : 'ACTIVE'"),
+  'el worker debe distinguir un checkpoint de una sesion vencida y una sesion activa'
+);
 assert.ok(worker.includes("estado: 'ambiguous'"));
 assert.ok(!worker.includes('context.cookies('));
-assert.ok(ui.includes('MODO DE PRUEBA'));
+assert.ok(/modo de prueba/i.test(ui));
 assert.ok(ui.includes('Reintentar fallidos'));
 console.log('  ✓ modo prueba, retry limitado, sesión vencida y ambigüedad protegidos');
 console.log('✅ Seguridad E2E de Social verificada\n');

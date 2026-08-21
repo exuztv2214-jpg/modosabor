@@ -65,8 +65,9 @@ router.post('/publicaciones/:id/screenshot', screenshotUpload.single('screenshot
     )
     .get(targetId, lockToken);
   const file = req.file;
-  if (!target || !file || file.mimetype !== 'image/png')
+  if (!target || !file || file.mimetype !== 'image/png') {
     return res.status(400).json({ error: 'Captura no válida' });
+  }
   const name = `target-${targetId}-${Date.now()}.png`;
   fs.writeFileSync(path.join(screenshotDir, name), file.buffer);
   const cutoff = Date.now() - 14 * 24 * 60 * 60 * 1000;
@@ -81,8 +82,9 @@ router.get('/media/:id', (req, res) => {
     .prepare('SELECT nombre, ruta, mime FROM social_media WHERE id = ?')
     .get(Number(req.params.id));
   const file = media && uploadPublicPathToFile(media.ruta);
-  if (!media || !file || !fs.existsSync(file))
+  if (!media || !file || !fs.existsSync(file)) {
     return res.status(404).json({ error: 'Archivo no encontrado' });
+  }
   res.type(media.mime || 'application/octet-stream');
   return res.sendFile(file);
 });

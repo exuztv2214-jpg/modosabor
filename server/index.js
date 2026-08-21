@@ -49,7 +49,31 @@ const { pesosToCents, centsToPesos } = require('./utils/moneyConversion');
 // (comparando contra /api/productos, que sí pasa por el middleware) y ya
 // puede sumarse a la conversión normal. /api/tpv/espera sigue afuera por
 // prudencia hasta probarla de nuevo.
-const MONEY_MIDDLEWARE_SKIP_PATHS = ['/api/tpv/espera'];
+/*
+  ── Por qué WhatsApp queda afuera del conversor de plata ────────────────────
+
+  El middleware divide por 100 cualquier campo cuyo nombre contenga "total",
+  porque la base guarda la plata en centavos. En el TPV eso está bien.
+
+  En WhatsApp Masivo no hay un solo peso: son mensajes, contactos y cupos. Y
+  ahí ese "contiene total" hacía estragos:
+
+    · `total` de un segmento con 1 contacto llegaba como **0,01 personas**
+    · `cupoTotal` de 60 mensajes por hora llegaba como **0,6**
+
+  No es que la pantalla los mostrara mal: el servidor los mandaba así. Lo
+  descubrimos porque el selector de audiencia decía "Todos los chats
+  habilitados · 0.01".
+
+  Se podría ir agregando cada nombre a EXCLUDED_KEYS, que es lo que se venía
+  haciendo —ahí ya hay ocho contadores parchados uno por uno—, pero eso deja
+  la trampa armada para el próximo campo que alguien agregue. Como este módulo
+  no tiene plata en ninguna de sus respuestas, se lo excluye entero y listo.
+
+  Si algún día WhatsApp Masivo empieza a manejar importes, hay que sacarlo de
+  esta lista y convertirlos a mano.
+*/
+const MONEY_MIDDLEWARE_SKIP_PATHS = ['/api/tpv/espera', '/api/whatsapp'];
 function shouldSkipMoneyMiddleware(req) {
   return MONEY_MIDDLEWARE_SKIP_PATHS.some((path) => req.path.startsWith(path));
 }
@@ -91,6 +115,9 @@ function buildAllowedOrigins() {
 
   return uniqueOrigins(
     ...configuredOrigins,
+    // Panel independiente de campañas. Aunque normalmente usa API relativa
+    // (misma origin), queda permitido si se configura VITE_API_URL.
+    'https://masivos.modosabor.com.ar',
     process.env.PUBLIC_APP_URL,
     process.env.PUBLIC_API_URL,
     process.env.FRONTEND_URL,
@@ -403,6 +430,7 @@ startAutomaticBackups(db);
 // necesita que lo atienda una persona. Antes eso sólo dejaba una marca en la
 // base y nadie se enteraba.
 require('./services/whatsappGateway').iniciarWhatsappGateway(io);
+require('./services/whatsappMasivo/webhookEmisor').iniciarWebhookEmisor(io);
 
 // One-time catalog import: if catalog-export.json exists inside the
 // container, import it into the database and delete the file so it only

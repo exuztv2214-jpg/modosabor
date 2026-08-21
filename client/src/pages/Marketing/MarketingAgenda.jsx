@@ -3,7 +3,6 @@ import { CalendarClock, Check, Pencil, Plus, Trash2 } from 'lucide-react';
 
 import { BRAND, STROKE } from '../../lib/theme.js';
 import { Card, Empty } from '../Clientes/clientesUi.jsx';
-import PublicadorFacebookPanel from '../../components/Marketing/PublicadorFacebookPanel.jsx';
 import { CALENDAR_STATES, canalLabel, estadoLabel, fmtDate } from './marketingUtils.js';
 
 const TONOS = {
@@ -29,8 +28,8 @@ const inicioDeHoy = () => {
  * Ahora está agrupada por atrasadas / hoy / próximas, que es la única
  * pregunta que le hacés a una agenda.
  *
- * El "Publicador" de Facebook era una pestaña aparte, aunque publicar es
- * exactamente lo que hacés cuando mirás esta lista. Va abajo.
+ * La publicación automática vive únicamente en el panel independiente Social.
+ * Esta agenda organiza contenido; no mantiene una segunda sesión de Facebook.
  */
 export default function MarketingAgenda({
   calendario,
@@ -212,8 +211,6 @@ export default function MarketingAgenda({
           </div>
         )}
       </Card>
-
-      <PublicadorFacebookPanel />
     </div>
   );
 }

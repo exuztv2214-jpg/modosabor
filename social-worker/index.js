@@ -61,12 +61,37 @@ async function checkFacebook() {
     const url = page.url();
     const login =
       /login|checkpoint/i.test(url) || (await page.locator('input[name="email"]').count()) > 0;
+
+    /*
+      Se distingue la sesión vencida del pedido de verificación.
+
+      Los dos dejan a Facebook sin funcionar, pero se arreglan distinto: una
+      vencida se resuelve iniciando sesión de nuevo; un checkpoint hay que
+      resolverlo a mano en el navegador, y volver a iniciar sesión no sirve de
+      nada. Decir "EXPIRED" en los dos casos manda a la persona a hacer algo
+      que no funciona.
+    */
+    const checkpoint = /checkpoint/i.test(url);
+
     return {
       worker: 'READY',
       chrome: 'READY',
-      facebook_session: login ? 'EXPIRED' : 'ACTIVE',
-      facebook_page: 'PENDING_SELECTION',
+      facebook_session: checkpoint ? 'CHECKPOINT' : login ? 'EXPIRED' : 'ACTIVE',
+      /*
+        El Perfil está listo si la sesión está viva: es la identidad con la que
+        Facebook abre por defecto.
+
+        La Fan Page queda como pendiente de validar, y no por prudencia
+        excesiva: el cambio de identidad todavía no está implementado, así que
+        decir READY sería mentir. La especificación pide exactamente esto — no
+        mostrar como operativo lo que no fue validado de punta a punta.
+      */
+      facebook_profile: login ? 'BLOCKED' : 'READY',
+      facebook_page: 'PENDIENTE_DE_VALIDACION',
+      groups_profile: login ? 'BLOCKED' : 'READY',
+      groups_page: 'PENDIENTE_DE_VALIDACION',
       groups_sync: login ? 'BLOCKED' : 'READY',
+      instagram: 'PENDIENTE_DE_VALIDACION',
       url,
     };
   } finally {
@@ -74,7 +99,78 @@ async function checkFacebook() {
   }
 }
 
-async function syncGroups() {
+/**
+ * Con qué identidad está parado Facebook ahora mismo.
+ *
+ * ── Por qué se comprueba y no se asume ─────────────────────────────────────
+ *
+ * Facebook recuerda con qué identidad estuviste la última vez. Si alguien dejó
+ * el navegador en la Fan Page y el sistema pide sincronizar el Perfil, sin
+ * comprobar traeríamos los grupos de la Page y los guardaríamos como si fueran
+ * del Perfil. El error no se ve: la lista aparece llena y con nombres
+ * plausibles. Se descubre recién cuando una publicación falla, semanas después.
+ *
+ * Devuelve el nombre que Facebook muestra como identidad activa, o null si no
+ * se pudo leer. `null` es un resultado válido: preferimos frenar antes que
+ * adivinar.
+ */
+async function identidadActiva(page) {
+  try {
+    /*
+      Se prioriza el rol y el texto accesible por sobre las clases CSS, que
+      Facebook cambia seguido. Si esto deja de encontrar nada, el resultado es
+      null y el comando falla con un error claro — que es mucho mejor que
+      seguir de largo con la identidad equivocada.
+    */
+    const boton = page.locator('[aria-label*="Tu perfil"], [aria-label*="Your profile"]').first();
+    if ((await boton.count()) === 0) return null;
+    const etiqueta = await boton.getAttribute('aria-label');
+    return (
+      String(etiqueta || '')
+        .replace(/^(Tu perfil|Your profile)[,:\s]*/i, '')
+        .trim() || null
+    );
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Los grupos donde puede publicar una identidad.
+ *
+ * ── Por qué el pedido tiene que decir cuál ─────────────────────────────────
+ *
+ * Los grupos del Perfil y los de la Fan Page son listas distintas, y el mismo
+ * grupo puede estar en las dos siendo dos destinos separados. Sincronizar "los
+ * grupos de Facebook" a secas no significa nada.
+ *
+ * ── Lo que todavía no hace, y se dice en voz alta ──────────────────────────
+ *
+ * Para la Fan Page hay que cambiar de identidad en Facebook antes de mirar, y
+ * ese cambio todavía no está implementado. En vez de traer los grupos del
+ * Perfil y hacerlos pasar por los de la Page —que es la peor salida posible—
+ * el comando falla con un motivo entendible.
+ *
+ * Es lo que pide la especificación: no mostrar como operativo algo que no fue
+ * validado de punta a punta.
+ */
+async function syncGroups(payload = {}) {
+  const identidad = payload.identityNombre || '';
+
+  /*
+    El tipo viene explícito desde el servidor ('perfil' o 'page'). Adivinarlo
+    del nombre con una expresión regular sería frágil: alcanza con que alguien
+    renombre la identidad para que el sistema empiece a tratar al Perfil como
+    si fuera la Page, en silencio.
+
+    Si el tipo no viene, se frena en vez de suponer.
+  */
+  const tipo = String(payload.identityTipo || '').toLowerCase();
+  if (!tipo) {
+    throw new Error('IDENTITY_NOT_AVAILABLE: el pedido no dice si es el Perfil o la Fan Page.');
+  }
+  const esPagina = tipo === 'page';
+
   const { browser, page } = await facebookPage();
   try {
     await page.goto('https://www.facebook.com/groups/joined/', {
@@ -82,6 +178,16 @@ async function syncGroups() {
       timeout: 45_000,
     });
     await page.waitForTimeout(1200);
+
+    const activa = await identidadActiva(page);
+
+    if (esPagina) {
+      throw new Error(
+        'IDENTITY_NOT_AVAILABLE: todavía no se puede sincronizar los grupos de la Fan Page. ' +
+          'Falta implementar el cambio de identidad en Facebook. Los del Perfil sí funcionan.'
+      );
+    }
+
     const grupos = await page.locator('a[href*="/groups/"]').evaluateAll((links) => {
       const found = new Map();
       links.forEach((link) => {
@@ -97,7 +203,13 @@ async function syncGroups() {
       });
       return [...found.values()];
     });
-    return { grupos };
+
+    return {
+      grupos,
+      /* Se informa con qué identidad se miró, para poder auditarlo después. */
+      identidadActiva: activa,
+      identidadPedida: identidad || null,
+    };
   } finally {
     await browser.close().catch(() => {});
   }
@@ -243,8 +355,14 @@ async function reportPublication(item, result) {
 async function runCommand(command) {
   try {
     let result;
+    /*
+      El payload del comando llega desde el servidor y dice, entre otras cosas,
+      con qué identidad hay que trabajar. El worker no la elige: la obedece.
+    */
+    const payload = command.payload || {};
+
     if (command.tipo === 'health_check') result = await checkFacebook();
-    else if (command.tipo === 'sync_facebook_groups') result = await syncGroups();
+    else if (command.tipo === 'sync_facebook_groups') result = await syncGroups(payload);
     else throw new Error(`Comando no soportado: ${command.tipo}`);
     await request('POST', `/comandos/${command.id}/reportar`, {
       lockToken: command.lock,
