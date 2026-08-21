@@ -3,7 +3,12 @@ import { Navigate, Outlet } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useAppConfig } from '../context/AppConfigContext.jsx';
 
-export default function PrivateRoute({ permission, moduleKey }) {
+export default function PrivateRoute({
+  permission,
+  moduleKey,
+  loginTo = '/admin',
+  unauthorizedTo = '/admin/dashboard',
+}) {
   const { isAuth, loading, hasPermission } = useAuth();
   const { loading: configLoading, isModuleEnabled } = useAppConfig();
   if (loading)
@@ -25,8 +30,8 @@ export default function PrivateRoute({ permission, moduleKey }) {
       </div>
     );
   if (isAuth && permission && !hasPermission(permission))
-    return <Navigate to="/admin/dashboard" replace />;
+    return <Navigate to={unauthorizedTo} replace />;
   if (isAuth && moduleKey && !isModuleEnabled(moduleKey))
-    return <Navigate to="/admin/dashboard" replace />;
-  return isAuth ? <Outlet /> : <Navigate to="/admin" replace />;
+    return <Navigate to={unauthorizedTo} replace />;
+  return isAuth ? <Outlet /> : <Navigate to={loginTo} replace />;
 }

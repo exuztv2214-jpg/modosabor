@@ -3,7 +3,13 @@ import { CheckCircle, Clock, MessageCircle, Bike } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { fmt, buildWhatsAppUrl, buildTrackingLink } from '../../lib/webPublicaHelpers.js';
 
-export default function OrderConfirmation({ confirmado, config, colorPrimario, onReset }) {
+export default function OrderConfirmation({
+  confirmado,
+  config,
+  colorPrimario,
+  onReset,
+  modoKiosco = false,
+}) {
   const waConsultaUrl = buildWhatsAppUrl(
     config,
     `Hola! Hice el pedido #${confirmado.numero || ''} y quiero consultar sobre el estado.`
@@ -21,8 +27,15 @@ export default function OrderConfirmation({ confirmado, config, colorPrimario, o
           <CheckCircle size={40} strokeWidth={2} />
         </div>
         <div className="mb-8 text-center">
-          <h2 className="text-3xl font-bold text-gray-900">¡Pedido recibido!</h2>
+          <h2 className="text-3xl font-bold text-gray-900">
+            {modoKiosco ? '¡Pedido enviado!' : '¡Pedido recibido!'}
+          </h2>
           <p className="mt-2 text-lg font-semibold text-gray-400">Orden #{confirmado.numero}</p>
+          {modoKiosco && (
+            <p className="mt-4 rounded-xl bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">
+              Conservá este número y acercate a caja para pagar.
+            </p>
+          )}
         </div>
 
         {Array.isArray(confirmado._items) && confirmado._items.length > 0 && (
@@ -75,19 +88,21 @@ export default function OrderConfirmation({ confirmado, config, colorPrimario, o
         </div>
 
         <div className="space-y-3">
-          <Link
-            to={buildTrackingLink(confirmado)}
-            className="flex items-center justify-center gap-3 w-full rounded-xl py-3.5 text-sm font-semibold text-white shadow-lg transition hover:brightness-110 active:scale-[0.98]"
-            style={{ backgroundColor: colorPrimario }}
-          >
-            <span className="relative flex h-2.5 w-2.5">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white opacity-75"></span>
-              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-white"></span>
-            </span>
-            <Bike size={18} />
-            Seguir mi pedido en vivo
-          </Link>
-          {config?.negocio_telefono && (
+          {!modoKiosco && (
+            <Link
+              to={buildTrackingLink(confirmado)}
+              className="flex items-center justify-center gap-3 w-full rounded-xl py-3.5 text-sm font-semibold text-white shadow-lg transition hover:brightness-110 active:scale-[0.98]"
+              style={{ backgroundColor: colorPrimario }}
+            >
+              <span className="relative flex h-2.5 w-2.5">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white opacity-75"></span>
+                <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-white"></span>
+              </span>
+              <Bike size={18} />
+              Seguir mi pedido en vivo
+            </Link>
+          )}
+          {!modoKiosco && config?.negocio_telefono && (
             <a
               href={waConsultaUrl}
               target="_blank"
@@ -102,7 +117,7 @@ export default function OrderConfirmation({ confirmado, config, colorPrimario, o
             onClick={onReset}
             className="w-full pt-2 text-sm font-medium text-gray-400 transition hover:text-gray-600"
           >
-            Volver al menú
+            {modoKiosco ? 'Hacer otro pedido' : 'Volver al menú'}
           </button>
         </div>
       </motion.div>

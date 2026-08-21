@@ -34,7 +34,7 @@ import {
   buildWhatsAppUrl,
   isMenuDelDiaProduct,
   isVisibleOnPublicMenu,
-  useInitialFormState,
+  useInitialFormState as getInitialFormState,
   getInitialCart,
   getPublicBrandTheme,
 } from '../lib/webPublicaHelpers.js';
@@ -68,7 +68,8 @@ const VariantModal = lazy(() => import('../components/WebPublica/VariantModal.js
 const ProductDetailModal = lazy(() => import('../components/WebPublica/ProductDetailModal.jsx'));
 const OrderConfirmation = lazy(() => import('../components/WebPublica/OrderConfirmation.jsx'));
 
-export default function WebPublica() {
+export default function WebPublica({ mode = 'web' }) {
+  const modoKiosco = mode === 'kiosco';
   const [config, setConfig] = useState({});
   const [categorias, setCategorias] = useState([]);
   const [productos, setProductos] = useState([]);
@@ -77,11 +78,23 @@ export default function WebPublica() {
   const [retryCount, setRetryCount] = useState(0);
   const [badgePop, setBadgePop] = useState(0);
   const [catActiva, setCatActiva] = useState(null);
-  const [carrito, setCarrito] = useState(getInitialCart);
+  const [carrito, setCarrito] = useState(() => (modoKiosco ? [] : getInitialCart()));
   const [carritoOpen, setCarritoOpen] = useState(false);
   const [checkout, setCheckout] = useState(false);
   const [confirmado, setConfirmado] = useState(null);
-  const [form, setForm] = useState(useInitialFormState);
+  const [form, setForm] = useState(() => {
+    const inicial = getInitialFormState();
+    return modoKiosco
+      ? {
+          ...inicial,
+          nombre: '',
+          telefono: '',
+          direccion: '',
+          tipo_entrega: 'retiro',
+          metodo_pago: 'efectivo',
+        }
+      : inicial;
+  });
   const [variantModal, setVariantModal] = useState(null);
   const [loading, setLoading] = useState(false);
   const [deliveryQuote, setDeliveryQuote] = useState(() =>
@@ -125,6 +138,7 @@ export default function WebPublica() {
   }, [retryCount]);
 
   useEffect(() => {
+    if (modoKiosco) return;
     const params = new URLSearchParams(window.location.search);
     const pedidoId = params.get('pedido_id');
     const mpStatus = params.get('mp');
@@ -159,15 +173,16 @@ export default function WebPublica() {
       .finally(() => {
         window.history.replaceState({}, '', '/');
       });
-  }, []);
+  }, [modoKiosco]);
 
   useEffect(() => {
+    if (modoKiosco) return;
     try {
       sessionStorage.setItem('ms_carrito', JSON.stringify(carrito));
     } catch {
       /* noop */
     }
-  }, [carrito]);
+  }, [modoKiosco, carrito]);
 
   useEffect(() => {
     try {
@@ -184,12 +199,12 @@ export default function WebPublica() {
     } catch {
       /* noop */
     }
-  }, [form.nombre, form.telefono, form.direccion, form.tipo_entrega, form.metodo_pago]);
+  }, [modoKiosco, form.nombre, form.telefono, form.direccion, form.tipo_entrega, form.metodo_pago]);
 
   useEffect(() => {
     if (!config?.negocio_nombre) return;
     const nombre = config.negocio_nombre;
-    const title = `${nombre} | Carta online`;
+    const title = `${nombre} | ${modoKiosco ? 'Kiosco de autoservicio' : 'Carta online'}`;
     const desc = config.negocio_descripcion
       ? String(config.negocio_descripcion).slice(0, 160)
       : `Pedí online en ${nombre}. Mirá nuestro menú completo, delivery y retiro.`;
@@ -221,6 +236,7 @@ export default function WebPublica() {
       setMeta('twitter:image', socialImage);
     }
   }, [
+    modoKiosco,
     config?.negocio_nombre,
     config?.negocio_descripcion,
     config?.negocio_logo,
@@ -244,6 +260,12 @@ export default function WebPublica() {
   }, []);
 
   useEffect(() => {
+    if (modoKiosco) {
+      if (form.tipo_entrega !== 'retiro' || form.metodo_pago !== 'efectivo') {
+        setForm((prev) => ({ ...prev, tipo_entrega: 'retiro', metodo_pago: 'efectivo' }));
+      }
+      return;
+    }
     const deliveryOk = isEnabledDefault(config.delivery_activo, true);
     const retiroOk = isEnabledDefault(config.retiro_activo, true);
     if (!deliveryOk && form.tipo_entrega === 'delivery' && retiroOk) {
@@ -251,7 +273,13 @@ export default function WebPublica() {
     } else if (!retiroOk && form.tipo_entrega === 'retiro' && deliveryOk) {
       setForm((prev) => ({ ...prev, tipo_entrega: 'delivery' }));
     }
-  }, [config.delivery_activo, config.retiro_activo, form.tipo_entrega]);
+  }, [
+    modoKiosco,
+    config.delivery_activo,
+    config.retiro_activo,
+    form.tipo_entrega,
+    form.metodo_pago,
+  ]);
 
   useEffect(() => {
     if (form.tipo_entrega !== 'delivery') {
@@ -334,17 +362,16 @@ export default function WebPublica() {
   const colorPrimario = theme.primary;
   const deliveryActivo = isEnabledDefault(config.delivery_activo, true);
   const retiroActivo = isEnabledDefault(config.retiro_activo, true);
-  const tiposEntregaDisponibles = [
-    ...(deliveryActivo ? ['delivery'] : []),
-    ...(retiroActivo ? ['retiro'] : []),
-  ];
+  const tiposEntregaDisponibles = modoKiosco
+    ? ['retiro']
+    : [...(deliveryActivo ? ['delivery'] : []), ...(retiroActivo ? ['retiro'] : [])];
   const pedidoMinimo = Number(config?.pedido_minimo || config?.minimo_pedido || 0);
   const faltaParaMinimo = pedidoMinimo > 0 ? Math.max(0, pedidoMinimo - subtotal) : 0;
   const tiempoEstimado =
     form.tipo_entrega === 'retiro'
       ? Number(config?.tiempo_retiro || 20)
       : Number(deliveryQuote?.tiempo_estimado_min || config?.tiempo_delivery || 30);
-  const browseAll = !catActiva && !busqueda;
+  const browseAll = !catActiva && !busqueda && quickFilter === 'all';
 
   const cantidadesEnCarrito = useMemo(() => {
     const map = {};
@@ -456,10 +483,30 @@ export default function WebPublica() {
   const menuDelDiaItems = useMemo(
     () =>
       menuDelDiaCategoria
-        ? productos.filter(
-            (producto) =>
-              producto.categoria_id === menuDelDiaCategoria.id && isVisibleOnPublicMenu(producto)
-          )
+        ? productos
+            .filter(
+              (producto) =>
+                producto.categoria_id === menuDelDiaCategoria.id && isVisibleOnPublicMenu(producto)
+            )
+            /*
+              En el orden que el dueño acomodó las tarjetas en Menú del Día.
+              Antes esto salía alfabético y el arrastre no cambiaba nada de lo
+              que ve el cliente.
+
+              Los que no tienen orden —platos que hoy no se cargaron desde esa
+              pantalla— van al final y entre ellos por nombre, para que el
+              listado no baile de una carga a la otra.
+            */
+            .sort((a, b) => {
+              const ordenA = Number.isFinite(Number(a?.menu_dia_orden))
+                ? Number(a.menu_dia_orden)
+                : Number.POSITIVE_INFINITY;
+              const ordenB = Number.isFinite(Number(b?.menu_dia_orden))
+                ? Number(b.menu_dia_orden)
+                : Number.POSITIVE_INFINITY;
+              if (ordenA !== ordenB) return ordenA - ordenB;
+              return String(a?.nombre || '').localeCompare(String(b?.nombre || ''));
+            })
         : [],
     [productos, menuDelDiaCategoria]
   );
@@ -764,33 +811,33 @@ export default function WebPublica() {
   };
 
   const hacerPedido = async () => {
-    if (!form.nombre.trim()) return toast.error('Ingresá tu nombre');
-    if (!form.telefono.trim()) return toast.error('Ingresá tu teléfono');
+    if (!modoKiosco && !form.nombre.trim()) return toast.error('Ingresá tu nombre');
+    if (!modoKiosco && !form.telefono.trim()) return toast.error('Ingresá tu teléfono');
     const telefonoLimpio = form.telefono.replace(/[\s\-().+]/g, '');
-    if (!/^\d{7,15}$/.test(telefonoLimpio))
+    if (!modoKiosco && !/^\d{7,15}$/.test(telefonoLimpio))
       return toast.error('Teléfono inválido — solo números, mínimo 7 dígitos');
-    if (form.tipo_entrega === 'delivery' && !form.direccion.trim())
+    if (!modoKiosco && form.tipo_entrega === 'delivery' && !form.direccion.trim())
       return toast.error('Ingresá tu dirección de entrega');
-    if (form.tipo_entrega === 'delivery' && deliveryQuote.available === false) {
+    if (!modoKiosco && form.tipo_entrega === 'delivery' && deliveryQuote.available === false) {
       return toast.error(deliveryQuote.message || 'Dirección fuera de zona de entrega');
     }
     setLoading(true);
     try {
       const payload = buildPedidoPayload({
         customer: {
-          nombre: form.nombre,
-          telefono: form.telefono,
-          direccion: form.direccion,
-          latitud: customerGeo.latitud,
-          longitud: customerGeo.longitud,
-          ubicacionExacta: customerGeo.ready,
+          nombre: modoKiosco ? '' : form.nombre,
+          telefono: modoKiosco ? '' : form.telefono,
+          direccion: modoKiosco ? '' : form.direccion,
+          latitud: modoKiosco ? null : customerGeo.latitud,
+          longitud: modoKiosco ? null : customerGeo.longitud,
+          ubicacionExacta: modoKiosco ? false : customerGeo.ready,
         },
         items: carrito,
         summary,
-        tipoEntrega: form.tipo_entrega,
-        metodoPago: form.metodo_pago,
+        tipoEntrega: modoKiosco ? 'retiro' : form.tipo_entrega,
+        metodoPago: modoKiosco ? 'efectivo' : form.metodo_pago,
         notas: form.notas,
-        origen: 'web',
+        origen: modoKiosco ? 'kiosco' : 'web',
         extra: {
           cupon_id: cupon.aplicado?.cupon?.id || null,
           cupon_codigo: cupon.aplicado?.cupon?.codigo || null,
@@ -885,7 +932,11 @@ export default function WebPublica() {
           confirmado={confirmado}
           config={config}
           colorPrimario={colorPrimario}
-          onReset={() => setConfirmado(null)}
+          onReset={() => {
+            setConfirmado(null);
+            if (modoKiosco) setForm((prev) => ({ ...prev, notas: '' }));
+          }}
+          modoKiosco={modoKiosco}
         />
       </Suspense>
     );
@@ -920,7 +971,7 @@ export default function WebPublica() {
             )}
             <div>
               <p className="text-[12px] font-medium" style={{ color: colorPrimario }}>
-                Carta online
+                {modoKiosco ? 'Kiosco de autoservicio' : 'Carta online'}
               </p>
               <h1 className="text-lg font-semibold leading-tight">
                 {config?.negocio_nombre || 'Modo Sabor'}
@@ -936,13 +987,15 @@ export default function WebPublica() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <button
-              onClick={compartirCarta}
-              aria-label="Compartir carta"
-              className="hidden h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 active:scale-95 transition-all sm:flex backdrop-blur-sm"
-            >
-              <Share2 size={18} />
-            </button>
+            {!modoKiosco && (
+              <button
+                onClick={compartirCarta}
+                aria-label="Compartir carta"
+                className="hidden h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 active:scale-95 transition-all sm:flex backdrop-blur-sm"
+              >
+                <Share2 size={18} />
+              </button>
+            )}
             <button
               onClick={() => setCarritoOpen(true)}
               className="relative h-11 px-5 md:px-6 rounded-xl text-white flex items-center gap-2 shadow-lg active:scale-95 transition-all hover:brightness-110"
@@ -980,15 +1033,17 @@ export default function WebPublica() {
         sirve para el que ya bajó y está decidiendo, no para el que recién
         llega con hambre.
       */}
-      <HeroSection
-        config={config}
-        colorPrimario={colorPrimario}
-        onAction={handleAction}
-        abierto={Boolean(config?.abierto_ahora)}
-        demoraTexto={
-          config?.tiempo_delivery ? `Listo en ~${Number(config.tiempo_delivery)} min` : ''
-        }
-      />
+      {!modoKiosco && (
+        <HeroSection
+          config={config}
+          colorPrimario={colorPrimario}
+          onAction={handleAction}
+          abierto={Boolean(config?.abierto_ahora)}
+          demoraTexto={
+            config?.tiempo_delivery ? `Listo en ~${Number(config.tiempo_delivery)} min` : ''
+          }
+        />
+      )}
 
       <MenuNav
         categoriasVisibles={categoriasVisibles}
@@ -1040,26 +1095,36 @@ export default function WebPublica() {
       {/* Todo esto vivía arriba, entre la portada y la comida. Acá abajo sigue
           cumpliendo su función —reforzar la decisión de quien ya miró la
           carta— sin demorar al que entró con hambre. */}
-      <PromoSection
-        promosBanner={promosBanner}
-        promoPrincipal={promoPrincipal}
-        promoSecundarias={promoSecundarias}
-        colorPrimario={colorPrimario}
-        theme={theme}
-        onAction={handleAction}
-      />
+      {!modoKiosco && (
+        <PromoSection
+          promosBanner={promosBanner}
+          promoPrincipal={promoPrincipal}
+          promoSecundarias={promoSecundarias}
+          colorPrimario={colorPrimario}
+          theme={theme}
+          onAction={handleAction}
+        />
+      )}
 
-      <HighlightsGrid heroHighlights={heroHighlights} colorPrimario={colorPrimario} theme={theme} />
+      {!modoKiosco && (
+        <HighlightsGrid
+          heroHighlights={heroHighlights}
+          colorPrimario={colorPrimario}
+          theme={theme}
+        />
+      )}
 
-      <TrustSection
-        trustBadges={trustBadges}
-        orderSteps={orderSteps}
-        totalItems={totalItems}
-        colorPrimario={colorPrimario}
-        theme={theme}
-      />
+      {!modoKiosco && (
+        <TrustSection
+          trustBadges={trustBadges}
+          orderSteps={orderSteps}
+          totalItems={totalItems}
+          colorPrimario={colorPrimario}
+          theme={theme}
+        />
+      )}
 
-      <Footer config={config} colorPrimario={colorPrimario} theme={theme} />
+      {!modoKiosco && <Footer config={config} colorPrimario={colorPrimario} theme={theme} />}
 
       <FloatingCart
         totalItems={totalItems}
@@ -1072,9 +1137,9 @@ export default function WebPublica() {
         onOpenCart={() => setCarritoOpen(true)}
       />
 
-      <WhatsAppFloat config={config} totalItems={totalItems} />
+      {!modoKiosco && <WhatsAppFloat config={config} totalItems={totalItems} />}
 
-      <ScrollTop show={showScrollTop} config={config} totalItems={totalItems} />
+      {!modoKiosco && <ScrollTop show={showScrollTop} config={config} totalItems={totalItems} />}
 
       {popupVisible && (
         <Suspense fallback={null}>
@@ -1125,6 +1190,7 @@ export default function WebPublica() {
             productosPorCategoria={productosPorCategoria}
             setCatActiva={setCatActiva}
             setBusqueda={setBusqueda}
+            modoKiosco={modoKiosco}
           />
         </Suspense>
       )}

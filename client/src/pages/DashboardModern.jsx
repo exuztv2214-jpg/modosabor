@@ -45,6 +45,16 @@ import { APP_BG, BRAND, STROKE, estadoTono } from '../lib/theme.js';
 import { parseFechaServidor } from '../lib/fechas.js';
 const fmtNumber = (value) => Number(value || 0).toLocaleString('es-AR');
 
+const DASHBOARD_STATE_LABELS = {
+  nuevo: 'Nuevos',
+  confirmado: 'Confirmados',
+  preparando: 'Preparando',
+  listo: 'Listos',
+  en_camino: 'En camino',
+  entregado: 'Entregados',
+  cancelado: 'Cancelados',
+};
+
 /**
  * Colores del gráfico de cobros.
  *
@@ -283,6 +293,10 @@ export default function DashboardModern() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
+  const [periodo, setPeriodo] = useState(() => {
+    const hoy = format(new Date(), 'yyyy-MM-dd');
+    return { desde: hoy, hasta: hoy };
+  });
   const personalEnabled = isModuleEnabled('personal');
   const personalVisible = personalEnabled && hasPermission('personal.view');
 
@@ -300,7 +314,7 @@ export default function DashboardModern() {
       const hasta = format(new Date(), 'yyyy-MM-dd');
       const desde = format(subDays(new Date(), 6), 'yyyy-MM-dd');
       const [response, operacion] = await Promise.all([
-        api.get('/reportes/dashboard'),
+        api.get(`/reportes/dashboard?desde=${periodo.desde}&hasta=${periodo.hasta}`),
         api
           .get('/operacion/resumen')
           .then((value) => {
@@ -373,7 +387,7 @@ export default function DashboardModern() {
     };
     // El efecto se reinicia sólo si cambia el acceso a Personal; las recargas usan el estado vigente.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [personalVisible]);
+  }, [personalVisible, periodo.desde, periodo.hasta]);
 
   const ticketPromedio = useMemo(() => {
     if (!data?.ventasHoy?.pedidos) return 0;
@@ -416,12 +430,29 @@ export default function DashboardModern() {
   }, [data]);
 
   const margenHelper = useMemo(() => {
+    if (!data?.periodo?.esHoy) {
+      return `${data?.periodo?.margenPct || 0}% de lo vendido en el período`;
+    }
     if (data?.margenPctHoy == null) return undefined;
     if (Number(data.margenPctHoy) >= 99) {
       return 'Margen casi 100%: revisá que los costos estén cargados en Inventario.';
     }
     return `${data.margenPctHoy}% de lo vendido`;
   }, [data]);
+
+  const usaPeriodoCompleto = !data?.periodo?.esHoy;
+  const ventasPrincipal = usaPeriodoCompleto
+    ? Number(data?.periodo?.total || 0)
+    : Number(data?.ventasHoy?.total || 0);
+  const pedidosPrincipal = usaPeriodoCompleto
+    ? Number(data?.periodo?.pedidos || 0)
+    : Number(data?.ventasHoy?.pedidos || 0);
+  const ticketPrincipal = usaPeriodoCompleto
+    ? Number(data?.periodo?.ticketPromedio || 0)
+    : ticketPromedio;
+  const margenPrincipal = usaPeriodoCompleto
+    ? Number(data?.periodo?.margenBruto || 0)
+    : Number(data?.margenBrutoHoy || 0);
 
   const personalHeadline = useMemo(() => {
     const ranking = Array.isArray(personalPulse?.attendance?.ranking)
@@ -448,16 +479,38 @@ export default function DashboardModern() {
   }, [personalPulse]);
 
   const quickActions = [
-    { key: 'tpv', icon: Plus, label: 'Nueva venta', to: '/admin/tpv' },
-    { key: 'kds', icon: ChefHat, label: 'Cocina', to: '/admin/kds' },
-    { key: 'caja', icon: Wallet, label: 'Caja', to: '/admin/caja' },
-    { key: 'inventario', icon: Package, label: 'Stock', to: '/admin/inventario' },
-  ].filter((action) => isModuleEnabled(action.key));
+    { key: 'tpv', permission: 'tpv.use', icon: Plus, label: 'Nueva venta', to: '/admin/tpv' },
+    { key: 'kds', permission: 'kds.view', icon: ChefHat, label: 'Cocina', to: '/admin/kds' },
+    { key: 'caja', permission: 'caja.view', icon: Wallet, label: 'Caja', to: '/admin/caja' },
+    {
+      key: 'inventario',
+      permission: 'productos.edit',
+      icon: Package,
+      label: 'Stock',
+      to: '/admin/inventario',
+    },
+  ].filter((action) => isModuleEnabled(action.key) && hasPermission(action.permission));
 
   const cajaCerrada = !data?.cajaEstado?.abierta && isModuleEnabled('caja');
   const stockCritico = isModuleEnabled('inventario') ? data?.stockCritico || [] : [];
   const puntosSalud = operationHealth?.puntos || [];
   const puntosConProblema = puntosSalud.filter((point) => !point.ok);
+  const resumenPeriodo = data?.periodo || {};
+  const maxEstadoPeriodo = Math.max(
+    1,
+    ...(Array.isArray(resumenPeriodo.estados)
+      ? resumenPeriodo.estados.map((item) => Number(item.cantidad || 0))
+      : [0])
+  );
+
+  const aplicarPeriodoRapido = (dias) => {
+    const hasta = new Date();
+    const desde = subDays(hasta, Math.max(0, Number(dias || 1) - 1));
+    setPeriodo({
+      desde: format(desde, 'yyyy-MM-dd'),
+      hasta: format(hasta, 'yyyy-MM-dd'),
+    });
+  };
 
   if (loading && !data) {
     return <LoadingScreen message="Cargando tu dashboard..." />;
@@ -510,7 +563,39 @@ export default function DashboardModern() {
               {lastUpdate ? ` · actualizado ${lastUpdate}` : ''}
             </p>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              aria-label="Período del resumen"
+              onChange={(event) => aplicarPeriodoRapido(event.target.value)}
+              defaultValue="1"
+              className="h-11 rounded-xl border-0 bg-white px-3 text-[13px] font-semibold text-gray-700 shadow-[0_1px_2px_rgba(15,23,42,0.06)] outline-none"
+            >
+              <option value="1">Hoy</option>
+              <option value="7">Últimos 7 días</option>
+              <option value="30">Últimos 30 días</option>
+              <option value="90">Últimos 90 días</option>
+            </select>
+            <input
+              type="date"
+              aria-label="Desde"
+              value={periodo.desde}
+              max={periodo.hasta}
+              onChange={(event) =>
+                setPeriodo((actual) => ({ ...actual, desde: event.target.value }))
+              }
+              className="h-11 rounded-xl border-0 bg-white px-3 text-[13px] text-gray-600 shadow-[0_1px_2px_rgba(15,23,42,0.06)] outline-none"
+            />
+            <input
+              type="date"
+              aria-label="Hasta"
+              value={periodo.hasta}
+              min={periodo.desde}
+              max={format(new Date(), 'yyyy-MM-dd')}
+              onChange={(event) =>
+                setPeriodo((actual) => ({ ...actual, hasta: event.target.value }))
+              }
+              className="h-11 rounded-xl border-0 bg-white px-3 text-[13px] text-gray-600 shadow-[0_1px_2px_rgba(15,23,42,0.06)] outline-none"
+            />
             {quickActions.map((action) => (
               <button
                 type="button"
@@ -620,31 +705,31 @@ export default function DashboardModern() {
         {/* ── Métricas ── */}
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
           <Metric
-            label="Ventas del día"
-            value={fmtMoney(data.ventasHoy?.total || 0)}
-            trend={`${ventasTrendInfo.trend}%`}
+            label={usaPeriodoCompleto ? 'Ventas del período' : 'Ventas del día'}
+            value={fmtMoney(ventasPrincipal)}
+            trend={usaPeriodoCompleto ? undefined : `${ventasTrendInfo.trend}%`}
             trendUp={ventasTrendInfo.trendUp}
             hasComparison={ventasTrendInfo.hasComparison}
             tono="verde"
           />
           <Metric
-            label="Pedidos de hoy"
-            value={fmtNumber(data.ventasHoy?.pedidos || 0)}
-            trend={`${pedidosTrendInfo.trend}%`}
+            label={usaPeriodoCompleto ? 'Pedidos del período' : 'Pedidos de hoy'}
+            value={fmtNumber(pedidosPrincipal)}
+            trend={usaPeriodoCompleto ? undefined : `${pedidosTrendInfo.trend}%`}
             trendUp={pedidosTrendInfo.trendUp}
             hasComparison={pedidosTrendInfo.hasComparison}
             tono="azul"
           />
           <Metric
-            label="Ticket promedio"
-            value={fmtMoney(ticketPromedio)}
-            helper="Promedio por orden"
+            label={usaPeriodoCompleto ? 'Ticket del período' : 'Ticket promedio'}
+            value={fmtMoney(ticketPrincipal)}
+            helper={usaPeriodoCompleto ? 'Promedio del período' : 'Promedio por orden'}
             tono="ambar"
           />
           <Metric
-            label="Margen de hoy"
-            value={fmtMoney(data.margenBrutoHoy || 0)}
-            trend={`${margenTrendInfo.trend}%`}
+            label={usaPeriodoCompleto ? 'Margen bruto del período' : 'Margen bruto de hoy'}
+            value={fmtMoney(margenPrincipal)}
+            trend={usaPeriodoCompleto ? undefined : `${margenTrendInfo.trend}%`}
             trendUp={margenTrendInfo.trendUp}
             hasComparison={margenTrendInfo.hasComparison}
             helper={margenHelper}
@@ -657,6 +742,79 @@ export default function DashboardModern() {
             tono="azul"
           />
         </div>
+
+        <Card
+          title="Resumen del período"
+          helper={`${safeFormat(resumenPeriodo.desde, 'dd/MM/yyyy', periodo.desde)} al ${safeFormat(
+            resumenPeriodo.hasta,
+            'dd/MM/yyyy',
+            periodo.hasta
+          )}`}
+        >
+          <div className="grid gap-4 xl:grid-cols-[0.85fr_1.15fr]">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="rounded-xl bg-emerald-50 p-3">
+                <p className="text-[11px] font-medium text-emerald-700">Ventas</p>
+                <p className="mt-1 text-xl font-bold tabular-nums text-emerald-950">
+                  {fmtMoney(resumenPeriodo.total || 0)}
+                </p>
+              </div>
+              <div className="rounded-xl bg-blue-50 p-3">
+                <p className="text-[11px] font-medium text-blue-700">Pedidos</p>
+                <p className="mt-1 text-xl font-bold tabular-nums text-blue-950">
+                  {fmtNumber(resumenPeriodo.pedidos || 0)}
+                </p>
+              </div>
+              <div className="rounded-xl bg-amber-50 p-3">
+                <p className="text-[11px] font-medium text-amber-700">Ticket promedio</p>
+                <p className="mt-1 text-xl font-bold tabular-nums text-amber-950">
+                  {fmtMoney(resumenPeriodo.ticketPromedio || 0)}
+                </p>
+              </div>
+              <div className="rounded-xl bg-violet-50 p-3">
+                <p className="text-[11px] font-medium text-violet-700">Clientes identificados</p>
+                <p className="mt-1 text-xl font-bold tabular-nums text-violet-950">
+                  {fmtNumber(resumenPeriodo.clientes || 0)}
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-2.5">
+              {(resumenPeriodo.estados || []).length ? (
+                resumenPeriodo.estados.map((item) => {
+                  const tono = estadoTono(item.estado);
+                  return (
+                    <div key={item.estado}>
+                      <div className="mb-1 flex items-center justify-between gap-3 text-[12px]">
+                        <span className="font-medium text-gray-700">
+                          {DASHBOARD_STATE_LABELS[item.estado] || item.estado}
+                        </span>
+                        <span className="font-bold tabular-nums text-gray-900">
+                          {fmtNumber(item.cantidad)}
+                        </span>
+                      </div>
+                      <div className="h-2 overflow-hidden rounded-full bg-gray-100">
+                        <div
+                          className="h-full rounded-full transition-all"
+                          style={{
+                            width: `${Math.max(3, (Number(item.cantidad || 0) / maxEstadoPeriodo) * 100)}%`,
+                            background: tono.fg,
+                          }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                <EmptyState
+                  icon={ShoppingBag}
+                  title="Sin pedidos en el período"
+                  description="Elegí otro rango para consultar el movimiento histórico."
+                />
+              )}
+            </div>
+          </div>
+        </Card>
 
         {/* ── Gráfico + últimas órdenes ── */}
         <div className="grid gap-4 xl:grid-cols-3">
@@ -944,7 +1102,11 @@ export default function DashboardModern() {
           <Card
             title="Clientes VIP"
             helper="Score combinado de gasto, frecuencia, nivel y actividad reciente"
-            action={<LinkAction label="Fidelización" onClick={() => navigate('/admin/clientes')} />}
+            action={
+              hasPermission('config.manage') ? (
+                <LinkAction label="Fidelización" onClick={() => navigate('/admin/fidelizacion')} />
+              ) : null
+            }
           >
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
               {data.clientesVIP.map((cli, idx) => (

@@ -184,7 +184,7 @@ function buildVipCustomers(limit = 5) {
 }
 
 function buildCriticalStock(limit = 10) {
-  return db
+  const insumos = db
     .prepare(
       `
     SELECT
@@ -212,7 +212,30 @@ function buildCriticalStock(limit = 10) {
     LIMIT ?
   `
     )
-    .all(limit);
+    .all(limit)
+    .map((item) => ({ ...item, tipo: 'insumo' }));
+
+  // Los productos de stock directo no estaban en la alerta del Dashboard.
+  // Sólo incluimos los rubros que se controlan por unidades/porciones y que
+  // realmente quedaron agotados; no confundimos toda la carta con inventario.
+  const productosAgotados = db
+    .prepare(
+      `
+    SELECT p.id, p.nombre, p.stock_directo AS stock_actual, 1 AS stock_minimo,
+           'u' AS unidad, 0 AS cobertura_pct
+    FROM productos p
+    JOIN categorias c ON c.id = p.categoria_id
+    WHERE p.activo = 1
+      AND COALESCE(p.stock_mode, 'direct') != 'recipe'
+      AND lower(c.nombre) IN ('empanadas', 'papas', 'bebidas')
+      AND COALESCE(p.stock_directo, 0) <= 0
+    ORDER BY c.orden ASC, p.nombre ASC
+  `
+    )
+    .all()
+    .map((item) => ({ ...item, tipo: 'producto' }));
+
+  return [...insumos, ...productosAgotados].slice(0, limit);
 }
 
 function getPedidoItemRows(orderIds = []) {
@@ -240,7 +263,7 @@ function getPedidoItemRows(orderIds = []) {
         pi.precio_unitario,
         pi.subtotal,
         pi.descripcion,
-        p.costo,
+        COALESCE(NULLIF(pi.costo_unitario, 0), p.costo, 0) AS costo,
         p.imagen,
         COALESCE(c.nombre, 'Sin categoria') AS categoria
       FROM pedido_items pi
@@ -887,6 +910,12 @@ router.get('/dashboard', auth, requirePermission('dashboard.view'), (req, res) =
     (total, pedido) => total + Number(pedido.total || 0),
     0
   );
+  const itemsPeriodo = getPedidoItemRows(pedidosValidosPeriodo.map((pedido) => pedido.id));
+  const costoPeriodo = itemsPeriodo.reduce(
+    (total, item) => total + Number(item.costo || 0) * Number(item.cantidad || 0),
+    0
+  );
+  const margenBrutoPeriodo = totalPeriodo - costoPeriodo;
 
   // Estado de caja actual
   const cajaActiva = db
@@ -920,6 +949,7 @@ router.get('/dashboard', auth, requirePermission('dashboard.view'), (req, res) =
     margenBrutoAyer: margenAyer,
     periodo: {
       ...rangoDashboard,
+      esHoy: rangoDashboard.desde === hoy && rangoDashboard.hasta === hoy,
       pedidos: pedidosValidosPeriodo.length,
       total: totalPeriodo,
       ticketPromedio: pedidosValidosPeriodo.length
@@ -927,6 +957,8 @@ router.get('/dashboard', auth, requirePermission('dashboard.view'), (req, res) =
         : 0,
       clientes: clientesPeriodo.size,
       estados: estadosPeriodo,
+      margenBruto: margenBrutoPeriodo,
+      margenPct: totalPeriodo > 0 ? Math.round((margenBrutoPeriodo / totalPeriodo) * 100) : 0,
     },
   });
 });

@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const express = require('express');
 const router = express.Router();
 const multer = require('multer');
@@ -105,6 +106,24 @@ const uploadRestore = multer({
   }),
 });
 const bootstrapImportKey = String(process.env.BOOTSTRAP_IMPORT_KEY || '').trim();
+const bootstrapRateLimit = createRateLimiter({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  message: 'Demasiados intentos de importación. Probá de nuevo más tarde.',
+  store: createSqliteRateLimitStore(db, 'bootstrap-import'),
+});
+
+function requireBootstrapKey(req, res, next) {
+  if (!bootstrapImportKey) {
+    return res.status(404).json({ error: 'Bootstrap import deshabilitado' });
+  }
+  const providedKey = String(req.headers['x-bootstrap-key'] || '').trim();
+  const expected = Buffer.from(bootstrapImportKey);
+  const received = Buffer.from(providedKey);
+  const valid = received.length === expected.length && crypto.timingSafeEqual(received, expected);
+  if (!valid) return res.status(401).json({ error: 'No autorizado' });
+  return next();
+}
 
 /*
   Claves que nunca salen del servidor.
@@ -333,6 +352,7 @@ function normalizeConfigUpdates(rawUpdates = {}) {
     whatsapp_agente_reglas_generales: 6000,
     whatsapp_agente_reglas_turnos: 12000,
     whatsapp_agente_ejemplos: 6000,
+    whatsapp_datos_transferencia: 1200,
   };
   Object.entries(whatsappTrainingLimits).forEach(([key, max]) => {
     if (updates[key] === undefined) return;
@@ -768,52 +788,40 @@ router.post(
   }
 );
 
-router.post('/backup/bootstrap-import', backupUpload.single('backup'), (req, res) => {
-  if (!bootstrapImportKey) {
-    return res.status(404).json({ error: 'Bootstrap import deshabilitado' });
+router.post(
+  '/backup/bootstrap-import',
+  bootstrapRateLimit,
+  requireBootstrapKey,
+  backupUpload.single('backup'),
+  (req, res) => {
+    if (!req.file) {
+      return res.status(400).json({ error: 'Debes adjuntar un backup .sqlite' });
+    }
+
+    if (path.extname(req.file.filename).toLowerCase() !== '.sqlite') {
+      try {
+        fs.unlinkSync(req.file.path);
+      } catch {}
+      return res.status(400).json({ error: 'El archivo debe ser .sqlite' });
+    }
+
+    const safetyBackup = createDatabaseBackup(db, {
+      reason: 'pre-bootstrap-import',
+      maxFiles: Number(getFullConfig().backup_max_archivos || 14),
+    });
+    const restored = restoreDatabaseBackup(db, req.file.filename, { mode: 'full' });
+
+    return res.json({
+      ok: true,
+      message: 'Backup bootstrap importado correctamente',
+      restored,
+      safety_backup: safetyBackup,
+      backups: listBackups(),
+    });
   }
+);
 
-  const providedKey = String(req.headers['x-bootstrap-key'] || '').trim();
-  if (!providedKey || providedKey !== bootstrapImportKey) {
-    return res.status(401).json({ error: 'No autorizado' });
-  }
-
-  if (!req.file) {
-    return res.status(400).json({ error: 'Debes adjuntar un backup .sqlite' });
-  }
-
-  if (path.extname(req.file.filename).toLowerCase() !== '.sqlite') {
-    try {
-      fs.unlinkSync(req.file.path);
-    } catch {}
-    return res.status(400).json({ error: 'El archivo debe ser .sqlite' });
-  }
-
-  const safetyBackup = createDatabaseBackup(db, {
-    reason: 'pre-bootstrap-import',
-    maxFiles: Number(getFullConfig().backup_max_archivos || 14),
-  });
-  const restored = restoreDatabaseBackup(db, req.file.filename, { mode: 'full' });
-
-  return res.json({
-    ok: true,
-    message: 'Backup bootstrap importado correctamente',
-    restored,
-    safety_backup: safetyBackup,
-    backups: listBackups(),
-  });
-});
-
-router.post('/uploads/bootstrap-import', (req, res) => {
-  if (!bootstrapImportKey) {
-    return res.status(404).json({ error: 'Bootstrap import deshabilitado' });
-  }
-
-  const providedKey = String(req.headers['x-bootstrap-key'] || '').trim();
-  if (!providedKey || providedKey !== bootstrapImportKey) {
-    return res.status(401).json({ error: 'No autorizado' });
-  }
-
+router.post('/uploads/bootstrap-import', bootstrapRateLimit, requireBootstrapKey, (req, res) => {
   const bootstrap = bootstrapUploadsFromBundle();
   const uploaded = fs.readdirSync(uploadsDir).map((file) => ({
     file,

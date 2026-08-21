@@ -46,9 +46,18 @@ api.interceptors.response.use(
     // ahí (por ejemplo, un visitante sin sesión de admin) no debe mandar
     // a nadie a /admin.
     const isProtectedAdminRoute = pathname.startsWith('/admin/');
+    const isMasivosRoute = pathname === '/masivos' || pathname.startsWith('/masivos/');
+    const isSocialRoute = pathname === '/social' || pathname.startsWith('/social/');
 
-    if (status === 401 && isProtectedAdminRoute) {
-      window.location.href = '/admin';
+    if (status === 401 && (isProtectedAdminRoute || isMasivosRoute || isSocialRoute)) {
+      // Los paneles de Marketing son autónomos y tienen su propio login. Sin
+      // este corte explícito una sesión vencida dejaba Social cargando para
+      // siempre porque sus siete consultas iniciales recibían 401.
+      window.location.href = isMasivosRoute
+        ? '/masivos/admin'
+        : isSocialRoute
+          ? '/social/admin'
+          : '/admin';
     }
 
     // Preserve status on the rejection so callers can inspect it

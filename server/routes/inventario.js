@@ -945,8 +945,9 @@ router.post('/insumos/:id/merma', (req, res) => {
   if (!insumo) return res.status(404).json({ error: 'Insumo no encontrado' });
 
   const cantidad = roundStock(req.body?.cantidad || 0);
-  if (cantidad <= 0)
+  if (cantidad <= 0) {
     return res.status(400).json({ error: 'La cantidad tiene que ser mayor a cero' });
+  }
 
   const motivo = cleanText(req.body?.motivo);
   if (!MOTIVOS_MERMA.includes(motivo)) {

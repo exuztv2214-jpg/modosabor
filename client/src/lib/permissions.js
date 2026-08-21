@@ -12,9 +12,16 @@ export const ROLE_PERMISSIONS = {
     'reportes.view',
     'caja.view',
     'caja.manage',
+    'configuracion.view',
   ],
   cocina: ['dashboard.view', 'kds.view', 'pedidos.view', 'pedidos.kitchen', 'pedidos.print'],
-  delivery: ['dashboard.view', 'delivery.view', 'delivery.manage', 'pedidos.view'],
+  delivery: [
+    'dashboard.view',
+    'delivery.view',
+    'delivery.manage',
+    'pedidos.view',
+    'configuracion.view',
+  ],
   mozo: ['mozo.use'],
 };
 

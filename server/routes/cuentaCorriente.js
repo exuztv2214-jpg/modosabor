@@ -103,8 +103,9 @@ router.post('/:clienteId/pago', auth, requirePermission('caja.manage'), (req, re
     nota: req.body?.nota,
     usuario: req.user,
   });
-  if (!resultado.ok)
+  if (!resultado.ok) {
     return res.status(400).json({ error: resultado.motivo, saldo: resultado.saldo });
+  }
 
   const actor = actorFromRequest(req);
   logAudit(db, {

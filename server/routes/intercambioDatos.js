@@ -160,10 +160,12 @@ function analyzeProducts(rows, overwrite) {
     const precio = parsePesos(row.precio);
     const costo = parsePesos(row.costo || 0);
     if (!nombre) return { index, row, error: 'Falta nombre' };
-    if (!categoria || !categories.has(categoria.toLowerCase()))
+    if (!categoria || !categories.has(categoria.toLowerCase())) {
       return { index, row, error: `Categoría inexistente: ${categoria || '(vacía)'}` };
-    if (precio === null || precio <= 0)
+    }
+    if (precio === null || precio <= 0) {
       return { index, row, error: `Precio inválido: ${row.precio || '(vacío)'}` };
+    }
     if (costo === null) return { index, row, error: `Costo inválido: ${row.costo}` };
     const found = existing.get(`${nombre.toLowerCase()}|${categoria.toLowerCase()}`);
     return {
@@ -235,8 +237,9 @@ router.post('/importar/:tipo', upload.single('archivo'), (req, res) => {
   if (!analysis) return res.status(404).json({ error: 'Tipo de importación inválido' });
   const summary = summarize(analysis);
   if (!aplicar) return res.json({ preview: true, ...summary });
-  if (summary.errores.length)
+  if (summary.errores.length) {
     return res.status(400).json({ error: 'Corregí los errores antes de importar', ...summary });
+  }
 
   const backup = createDatabaseBackup(db, { reason: `importacion-${tipo}` });
   const transaction = db.transaction(() => {
@@ -251,14 +254,15 @@ router.post('/importar/:tipo', upload.single('archivo'), (req, res) => {
           parseFlag(item.row.activo),
           String(item.row.turno_id || ''),
         ];
-        if (item.action === 'crear')
+        if (item.action === 'crear') {
           db.prepare(
             "INSERT INTO categorias (nombre,icono,color,orden,activo,imagen,subcategorias,turno_id) VALUES (?,?,?,?,?,'','[]',?)"
           ).run(...values);
-        else
+        } else {
           db.prepare(
             'UPDATE categorias SET nombre=?,icono=?,color=?,orden=?,activo=?,turno_id=? WHERE id=?'
           ).run(...values, item.found.id);
+        }
       } else if (tipo === 'productos') {
         const values = [
           item.nombre,
@@ -270,14 +274,15 @@ router.post('/importar/:tipo', upload.single('archivo'), (req, res) => {
           parseFlag(item.row.destacado, 0),
           Math.max(0, Number(item.row.tiempo_preparacion || 15)),
         ];
-        if (item.action === 'crear')
+        if (item.action === 'crear') {
           db.prepare(
             "INSERT INTO productos (nombre,descripcion,categoria_id,precio,costo,activo,destacado,tiempo_preparacion,imagen,variantes,extras) VALUES (?,?,?,?,?,?,?,?,'','[]','[]')"
           ).run(...values);
-        else
+        } else {
           db.prepare(
             'UPDATE productos SET nombre=?,descripcion=?,categoria_id=?,precio=?,costo=?,activo=?,destacado=?,tiempo_preparacion=? WHERE id=?'
           ).run(...values, item.found.id);
+        }
       } else {
         const values = [
           item.nombre,
@@ -289,14 +294,15 @@ router.post('/importar/:tipo', upload.single('archivo'), (req, res) => {
           String(item.row.notas || ''),
           parseFlag(item.row.activo_fidelizacion),
         ];
-        if (item.action === 'crear')
+        if (item.action === 'crear') {
           db.prepare(
             "INSERT INTO clientes (nombre,telefono,email,direccion,barrio,fecha_nacimiento,notas,tags,fidelizacion_activa) VALUES (?,?,?,?,?,?,?,'[]',?)"
           ).run(...values);
-        else
+        } else {
           db.prepare(
             'UPDATE clientes SET nombre=?,telefono=?,email=?,direccion=?,barrio=?,fecha_nacimiento=?,notas=?,fidelizacion_activa=? WHERE id=?'
           ).run(...values, item.found.id);
+        }
       }
     }
   });

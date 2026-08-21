@@ -7,7 +7,7 @@ import { useAuth } from '../context/AuthContext.jsx';
 import { useAppConfig } from '../context/AppConfigContext.jsx';
 import api from '../lib/api.js';
 
-export default function Login() {
+export default function Login({ redirectTo = '/admin/dashboard', panelTitle, panelSubtitle }) {
   const [form, setForm] = useState({ email: '', password: '' });
   const [showPw, setShowPw] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -17,9 +17,9 @@ export default function Login() {
 
   useEffect(() => {
     if (isAuth) {
-      navigate('/admin/dashboard', { replace: true });
+      navigate(redirectTo, { replace: true });
     }
-  }, [isAuth, navigate]);
+  }, [isAuth, navigate, redirectTo]);
 
   if (isAuth) return null;
 
@@ -29,7 +29,7 @@ export default function Login() {
     try {
       const res = await api.post('/auth/login', form);
       login(res.user);
-      navigate('/admin/dashboard');
+      navigate(redirectTo);
     } catch (err) {
       console.error('Login error:', err);
       const msg =
@@ -66,9 +66,11 @@ export default function Login() {
               </div>
             )}
             <h1 className="text-2xl font-semibold text-gray-900 tracking-tight">
-              {config?.negocio_nombre || 'Modo Sabor'}
+              {panelTitle || config?.negocio_nombre || 'Modo Sabor'}
             </h1>
-            <p className="text-gray-400 text-sm mt-1 font-medium italic">Panel de administración</p>
+            <p className="text-gray-400 text-sm mt-1 font-medium italic">
+              {panelSubtitle || 'Panel de administración'}
+            </p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-6">

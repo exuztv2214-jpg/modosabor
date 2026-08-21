@@ -3,6 +3,7 @@ import toast from 'react-hot-toast';
 import { ChevronDown, ChevronUp, ShieldCheck, Plus, Pencil, Save, UserCog, X } from 'lucide-react';
 
 import api from '../lib/api.js';
+import { ROLE_PERMISSIONS } from '../lib/permissions.js';
 import { Z } from '../lib/theme.js';
 
 const EMPTY_FORM = {
@@ -74,6 +75,13 @@ const PERMISSION_GROUPS = [
     permisos: [{ key: 'reportes.view', label: 'Ver reportes' }],
   },
   {
+    grupo: 'Marketing',
+    permisos: [
+      { key: 'marketing.view', label: 'Ver Marketing' },
+      { key: 'marketing.edit', label: 'Gestionar Marketing y WhatsApp' },
+    ],
+  },
+  {
     grupo: 'Configuración',
     permisos: [
       { key: 'configuracion.view', label: 'Ver configuración' },
@@ -82,36 +90,9 @@ const PERMISSION_GROUPS = [
   },
 ];
 
-const ROLE_PERMISSIONS_MAP = {
-  admin: '*',
-  caja: [
-    'dashboard.view',
-    'tpv.use',
-    'pedidos.view',
-    'pedidos.edit',
-    'pedidos.print',
-    'mesas.view',
-    'clientes.view',
-    'clientes.edit',
-    'reportes.view',
-    'caja.view',
-    'caja.manage',
-    'configuracion.view',
-  ],
-  cocina: ['dashboard.view', 'kds.view', 'pedidos.view', 'pedidos.kitchen', 'pedidos.print'],
-  delivery: [
-    'dashboard.view',
-    'delivery.view',
-    'delivery.manage',
-    'pedidos.view',
-    'configuracion.view',
-  ],
-  mozo: ['mozo.use'],
-};
-
 function hasRolePerm(rol, permKey) {
-  const perms = ROLE_PERMISSIONS_MAP[rol];
-  if (perms === '*') return true;
+  const perms = ROLE_PERMISSIONS[rol];
+  if (Array.isArray(perms) && perms.includes('*')) return true;
   return Array.isArray(perms) && perms.includes(permKey);
 }
 
@@ -183,7 +164,11 @@ function RolePermissionsMatrix() {
                         return (
                           <td key={r} className="px-4 py-3 text-center">
                             <span
-                              className={`inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold mx-auto ${has ? 'bg-emerald-100 text-emerald-600' : 'bg-gray-100 text-gray-300'}`}
+                              className={`inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold mx-auto ${
+                                has
+                                  ? 'bg-emerald-100 text-emerald-600'
+                                  : 'bg-gray-100 text-gray-300'
+                              }`}
                             >
                               {has ? '✓' : '—'}
                             </span>
@@ -343,7 +328,9 @@ export default function Usuarios() {
                         {usuario.rol}
                       </span>
                       <span
-                        className={`text-[10px] font-bold ${usuario.activo ? 'text-emerald-500' : 'text-rose-500'}`}
+                        className={`text-[10px] font-bold ${
+                          usuario.activo ? 'text-emerald-500' : 'text-rose-500'
+                        }`}
                       >
                         {usuario.activo ? '● ACTIVO' : '○ INACTIVO'}
                       </span>

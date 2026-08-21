@@ -47,6 +47,7 @@ export default function CartDrawer({
   productosPorCategoria,
   setCatActiva,
   setBusqueda,
+  modoKiosco = false,
 }) {
   const { totalItems, subtotal, total } = summary;
 
@@ -251,265 +252,289 @@ export default function CartDrawer({
                     <div>
                       <p className="text-xs font-semibold text-amber-700">Estamos cerrados</p>
                       <p className="text-xs font-semibold text-amber-600 mt-1">
-                        Podés dejar tu pedido y lo procesamos cuando abramos.
+                        Volvé a intentarlo durante el próximo horario de atención.
                       </p>
                     </div>
                   </div>
                 )}
 
                 <div className="space-y-5">
-                  <div>
-                    <label
-                      htmlFor="field-CartDrawer-jsx-262-0"
-                      className="text-xs font-medium text-gray-500 block mb-2"
-                    >
-                      Tu nombre
-                    </label>
-                    <input
-                      id="field-CartDrawer-jsx-262-0"
-                      value={form.nombre}
-                      onChange={(e) => setForm({ ...form, nombre: e.target.value })}
-                      className="h-12 w-full rounded-xl bg-gray-50 border border-gray-200 px-4 text-sm font-semibold focus:ring-2 outline-none focus:border-transparent transition"
-                      style={{ '--tw-ring-color': `${colorPrimario}30` }}
-                      placeholder="Ej: Juan Perez"
-                    />
-                  </div>
-                  <div>
-                    <label
-                      htmlFor="field-CartDrawer-jsx-274-1"
-                      className="text-xs font-medium text-gray-500 block mb-2"
-                    >
-                      Teléfono
-                    </label>
-                    <input
-                      id="field-CartDrawer-jsx-274-1"
-                      type="tel"
-                      inputMode="tel"
-                      value={form.telefono}
-                      onChange={(e) => setForm({ ...form, telefono: e.target.value })}
-                      className="h-12 w-full rounded-xl bg-gray-50 border border-gray-200 px-4 text-sm font-semibold focus:ring-2 outline-none focus:border-transparent transition"
-                      placeholder="Ej: 3811234567"
-                    />
-                    <p className="text-xs text-gray-400 mt-1 font-medium">
-                      Solo números, sin espacios ni guiones
-                    </p>
-                  </div>
-
-                  {tiposEntregaDisponibles.length > 1 ? (
-                    <div className="grid grid-cols-2 gap-3">
-                      {deliveryActivo && (
-                        <button
-                          onClick={() => setForm({ ...form, tipo_entrega: 'delivery' })}
-                          className={`h-12 rounded-xl flex items-center justify-center gap-2 text-xs font-semibold border-2 transition-all ${
-                            form.tipo_entrega === 'delivery'
-                              ? 'border-current'
-                              : 'border-gray-200 text-gray-400'
-                          }`}
-                          style={
-                            form.tipo_entrega === 'delivery'
-                              ? { color: colorPrimario, backgroundColor: `${colorPrimario}12` }
-                              : {}
-                          }
-                        >
-                          <Bike size={16} /> Delivery
-                        </button>
-                      )}
-                      {retiroActivo && (
-                        <button
-                          onClick={() => setForm({ ...form, tipo_entrega: 'retiro' })}
-                          className={`h-12 rounded-xl flex items-center justify-center gap-2 text-xs font-semibold border-2 transition-all ${
-                            form.tipo_entrega === 'retiro'
-                              ? 'border-current'
-                              : 'border-gray-200 text-gray-400'
-                          }`}
-                          style={
-                            form.tipo_entrega === 'retiro'
-                              ? { color: colorPrimario, backgroundColor: `${colorPrimario}12` }
-                              : {}
-                          }
-                        >
-                          <Store size={16} /> Retiro
-                        </button>
-                      )}
+                  {modoKiosco ? (
+                    <div className="rounded-xl border border-gray-200 bg-gray-50 p-5">
+                      <div className="flex items-center gap-3">
+                        <Store size={20} style={{ color: colorPrimario }} />
+                        <div>
+                          <p className="text-sm font-bold text-gray-900">Retiro en el local</p>
+                          <p className="mt-1 text-xs font-medium text-gray-500">
+                            Enviá el pedido a cocina y pagalo en caja cuando llamen tu número.
+                          </p>
+                        </div>
+                      </div>
                     </div>
                   ) : (
-                    <div
-                      className="h-12 rounded-xl bg-gray-50 border border-gray-200 flex items-center justify-center gap-2 text-xs font-semibold"
-                      style={{ color: colorPrimario }}
-                    >
-                      {form.tipo_entrega === 'delivery' ? (
-                        <>
-                          <Bike size={16} /> Solo delivery
-                        </>
-                      ) : (
-                        <>
-                          <Store size={16} /> Solo retiro en local
-                        </>
-                      )}
-                    </div>
-                  )}
-
-                  {form.tipo_entrega === 'delivery' && (
-                    <div className="space-y-4">
+                    <>
                       <div>
                         <label
-                          htmlFor="field-CartDrawer-jsx-337-2"
+                          htmlFor="field-CartDrawer-jsx-262-0"
                           className="text-xs font-medium text-gray-500 block mb-2"
                         >
-                          Dirección
+                          Tu nombre
                         </label>
-                        {zonasCobertura.length > 0 && (
-                          <p className="text-xs text-gray-400 mb-2 font-medium">
-                            Entregamos en: {zonasCobertura.join(' · ')}
-                          </p>
-                        )}
                         <input
-                          id="field-CartDrawer-jsx-337-2"
-                          value={form.direccion}
-                          onChange={(e) => setForm({ ...form, direccion: e.target.value })}
+                          id="field-CartDrawer-jsx-262-0"
+                          value={form.nombre}
+                          onChange={(e) => setForm({ ...form, nombre: e.target.value })}
                           className="h-12 w-full rounded-xl bg-gray-50 border border-gray-200 px-4 text-sm font-semibold focus:ring-2 outline-none focus:border-transparent transition"
-                          placeholder="Calle y número"
+                          style={{ '--tw-ring-color': `${colorPrimario}30` }}
+                          placeholder="Ej: Juan Perez"
                         />
-                        {form.direccion.trim() && deliveryQuote.pending && (
-                          <p className="text-xs font-semibold text-gray-400 mt-1 animate-pulse">
-                            Calculando costo de envío...
-                          </p>
-                        )}
-                        {form.direccion.trim() &&
-                          !deliveryQuote.pending &&
-                          deliveryQuote.message && (
-                            <p
-                              className={`text-xs font-semibold mt-1 ${
-                                deliveryQuote.available ? 'text-green-600' : 'text-red-500'
-                              }`}
-                            >
-                              {deliveryQuote.message}
-                            </p>
-                          )}
                       </div>
-                      <div className="rounded-xl border border-gray-200 bg-gray-50/70 p-5">
-                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                          <div>
-                            <p className="text-xs font-semibold" style={{ color: colorPrimario }}>
-                              Ubicación exacta
-                            </p>
-                            <p className="mt-1 text-xs text-gray-500 leading-relaxed font-medium">
-                              Sirve para que el delivery navegue mejor y el seguimiento sea más
-                              preciso.
-                            </p>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={captureCustomerLocation}
-                            disabled={customerGeo.loading}
-                            className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-white px-4 text-xs font-semibold shadow-sm disabled:opacity-60"
-                            style={{ color: colorPrimario }}
-                          >
-                            <LocateFixed size={16} />
-                            {customerGeo.loading
-                              ? 'Ubicando...'
-                              : customerGeo.ready
-                                ? 'Actualizar GPS'
-                                : 'Usar mi ubicación'}
-                          </button>
-                        </div>
-                        {customerGeo.ready && (
-                          <p className="mt-3 text-xs font-semibold text-green-600">
-                            Ubicación cargada para el tracking
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  {metodosDisponibles.length > 0 && (
-                    <div>
-                      <p className="mb-2 block text-xs font-medium text-gray-500">Forma de pago</p>
-                      <div
-                        className={`grid gap-2 ${
-                          metodosDisponibles.length === 1
-                            ? 'grid-cols-1'
-                            : metodosDisponibles.length === 2
-                              ? 'grid-cols-2'
-                              : 'grid-cols-3'
-                        }`}
-                      >
-                        {metodosDisponibles.map(({ key, label }) => (
-                          <button
-                            key={key}
-                            onClick={() => setForm({ ...form, metodo_pago: key })}
-                            className={`h-11 rounded-xl text-xs font-semibold border-2 transition-all ${
-                              form.metodo_pago === key
-                                ? 'border-current shadow-sm'
-                                : 'border-gray-200 text-gray-400'
-                            }`}
-                            style={
-                              form.metodo_pago === key
-                                ? { color: colorPrimario, backgroundColor: `${colorPrimario}12` }
-                                : {}
-                            }
-                          >
-                            {label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  <div>
-                    <label
-                      htmlFor="field-CartDrawer-jsx-428-3"
-                      className="text-xs font-medium text-gray-500 block mb-2"
-                    >
-                      Cupón de descuento
-                    </label>
-                    {cupon.aplicado ? (
-                      <div className="flex items-center justify-between rounded-xl bg-green-50 border border-green-200 px-4 py-3">
-                        <div>
-                          <p className="text-xs font-semibold text-green-700">
-                            {cupon.aplicado.cupon.codigo}
-                          </p>
-                          <p className="text-xs text-green-600 font-semibold">
-                            -{fmt(cupon.aplicado.monto_descuento)}
-                          </p>
-                        </div>
-                        <button
-                          onClick={quitarCupon}
-                          className="text-green-500 hover:text-green-700"
+                      <div>
+                        <label
+                          htmlFor="field-CartDrawer-jsx-274-1"
+                          className="text-xs font-medium text-gray-500 block mb-2"
                         >
-                          <X size={16} />
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="flex gap-2">
+                          Teléfono
+                        </label>
                         <input
-                          id="field-CartDrawer-jsx-428-3"
-                          value={cupon.codigo}
-                          onChange={(e) =>
-                            setCupon((prev) => ({
-                              ...prev,
-                              codigo: e.target.value.toUpperCase(),
-                              error: '',
-                            }))
-                          }
-                          onKeyDown={(e) => e.key === 'Enter' && aplicarCupon()}
-                          className="h-11 flex-1 rounded-xl bg-gray-50 border border-gray-200 px-4 text-sm font-semibold outline-none"
-                          placeholder="Código"
+                          id="field-CartDrawer-jsx-274-1"
+                          type="tel"
+                          inputMode="tel"
+                          value={form.telefono}
+                          onChange={(e) => setForm({ ...form, telefono: e.target.value })}
+                          className="h-12 w-full rounded-xl bg-gray-50 border border-gray-200 px-4 text-sm font-semibold focus:ring-2 outline-none focus:border-transparent transition"
+                          placeholder="Ej: 3811234567"
                         />
-                        <button
-                          onClick={aplicarCupon}
-                          disabled={cupon.loading || !cupon.codigo.trim()}
-                          className="h-11 px-5 rounded-xl text-xs font-semibold text-white shadow-sm disabled:opacity-50 shrink-0 transition hover:brightness-110"
-                          style={{ backgroundColor: colorPrimario }}
-                        >
-                          {cupon.loading ? '...' : 'Aplicar'}
-                        </button>
+                        <p className="text-xs text-gray-400 mt-1 font-medium">
+                          Solo números, sin espacios ni guiones
+                        </p>
                       </div>
-                    )}
-                    {cupon.error && (
-                      <p className="mt-2 text-xs font-semibold text-red-500">{cupon.error}</p>
-                    )}
-                  </div>
+
+                      {tiposEntregaDisponibles.length > 1 ? (
+                        <div className="grid grid-cols-2 gap-3">
+                          {deliveryActivo && (
+                            <button
+                              onClick={() => setForm({ ...form, tipo_entrega: 'delivery' })}
+                              className={`h-12 rounded-xl flex items-center justify-center gap-2 text-xs font-semibold border-2 transition-all ${
+                                form.tipo_entrega === 'delivery'
+                                  ? 'border-current'
+                                  : 'border-gray-200 text-gray-400'
+                              }`}
+                              style={
+                                form.tipo_entrega === 'delivery'
+                                  ? { color: colorPrimario, backgroundColor: `${colorPrimario}12` }
+                                  : {}
+                              }
+                            >
+                              <Bike size={16} /> Delivery
+                            </button>
+                          )}
+                          {retiroActivo && (
+                            <button
+                              onClick={() => setForm({ ...form, tipo_entrega: 'retiro' })}
+                              className={`h-12 rounded-xl flex items-center justify-center gap-2 text-xs font-semibold border-2 transition-all ${
+                                form.tipo_entrega === 'retiro'
+                                  ? 'border-current'
+                                  : 'border-gray-200 text-gray-400'
+                              }`}
+                              style={
+                                form.tipo_entrega === 'retiro'
+                                  ? { color: colorPrimario, backgroundColor: `${colorPrimario}12` }
+                                  : {}
+                              }
+                            >
+                              <Store size={16} /> Retiro
+                            </button>
+                          )}
+                        </div>
+                      ) : (
+                        <div
+                          className="h-12 rounded-xl bg-gray-50 border border-gray-200 flex items-center justify-center gap-2 text-xs font-semibold"
+                          style={{ color: colorPrimario }}
+                        >
+                          {form.tipo_entrega === 'delivery' ? (
+                            <>
+                              <Bike size={16} /> Solo delivery
+                            </>
+                          ) : (
+                            <>
+                              <Store size={16} /> Solo retiro en local
+                            </>
+                          )}
+                        </div>
+                      )}
+
+                      {form.tipo_entrega === 'delivery' && (
+                        <div className="space-y-4">
+                          <div>
+                            <label
+                              htmlFor="field-CartDrawer-jsx-337-2"
+                              className="text-xs font-medium text-gray-500 block mb-2"
+                            >
+                              Dirección
+                            </label>
+                            {zonasCobertura.length > 0 && (
+                              <p className="text-xs text-gray-400 mb-2 font-medium">
+                                Entregamos en: {zonasCobertura.join(' · ')}
+                              </p>
+                            )}
+                            <input
+                              id="field-CartDrawer-jsx-337-2"
+                              value={form.direccion}
+                              onChange={(e) => setForm({ ...form, direccion: e.target.value })}
+                              className="h-12 w-full rounded-xl bg-gray-50 border border-gray-200 px-4 text-sm font-semibold focus:ring-2 outline-none focus:border-transparent transition"
+                              placeholder="Calle y número"
+                            />
+                            {form.direccion.trim() && deliveryQuote.pending && (
+                              <p className="text-xs font-semibold text-gray-400 mt-1 animate-pulse">
+                                Calculando costo de envío...
+                              </p>
+                            )}
+                            {form.direccion.trim() &&
+                              !deliveryQuote.pending &&
+                              deliveryQuote.message && (
+                                <p
+                                  className={`text-xs font-semibold mt-1 ${
+                                    deliveryQuote.available ? 'text-green-600' : 'text-red-500'
+                                  }`}
+                                >
+                                  {deliveryQuote.message}
+                                </p>
+                              )}
+                          </div>
+                          <div className="rounded-xl border border-gray-200 bg-gray-50/70 p-5">
+                            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                              <div>
+                                <p
+                                  className="text-xs font-semibold"
+                                  style={{ color: colorPrimario }}
+                                >
+                                  Ubicación exacta
+                                </p>
+                                <p className="mt-1 text-xs text-gray-500 leading-relaxed font-medium">
+                                  Sirve para que el delivery navegue mejor y el seguimiento sea más
+                                  preciso.
+                                </p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={captureCustomerLocation}
+                                disabled={customerGeo.loading}
+                                className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-white px-4 text-xs font-semibold shadow-sm disabled:opacity-60"
+                                style={{ color: colorPrimario }}
+                              >
+                                <LocateFixed size={16} />
+                                {customerGeo.loading
+                                  ? 'Ubicando...'
+                                  : customerGeo.ready
+                                    ? 'Actualizar GPS'
+                                    : 'Usar mi ubicación'}
+                              </button>
+                            </div>
+                            {customerGeo.ready && (
+                              <p className="mt-3 text-xs font-semibold text-green-600">
+                                Ubicación cargada para el tracking
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {metodosDisponibles.length > 0 && (
+                        <div>
+                          <p className="mb-2 block text-xs font-medium text-gray-500">
+                            Forma de pago
+                          </p>
+                          <div
+                            className={`grid gap-2 ${
+                              metodosDisponibles.length === 1
+                                ? 'grid-cols-1'
+                                : metodosDisponibles.length === 2
+                                  ? 'grid-cols-2'
+                                  : 'grid-cols-3'
+                            }`}
+                          >
+                            {metodosDisponibles.map(({ key, label }) => (
+                              <button
+                                key={key}
+                                onClick={() => setForm({ ...form, metodo_pago: key })}
+                                className={`h-11 rounded-xl text-xs font-semibold border-2 transition-all ${
+                                  form.metodo_pago === key
+                                    ? 'border-current shadow-sm'
+                                    : 'border-gray-200 text-gray-400'
+                                }`}
+                                style={
+                                  form.metodo_pago === key
+                                    ? {
+                                        color: colorPrimario,
+                                        backgroundColor: `${colorPrimario}12`,
+                                      }
+                                    : {}
+                                }
+                              >
+                                {label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      <div>
+                        <label
+                          htmlFor="field-CartDrawer-jsx-428-3"
+                          className="text-xs font-medium text-gray-500 block mb-2"
+                        >
+                          Cupón de descuento
+                        </label>
+                        {cupon.aplicado ? (
+                          <div className="flex items-center justify-between rounded-xl bg-green-50 border border-green-200 px-4 py-3">
+                            <div>
+                              <p className="text-xs font-semibold text-green-700">
+                                {cupon.aplicado.cupon.codigo}
+                              </p>
+                              <p className="text-xs text-green-600 font-semibold">
+                                -{fmt(cupon.aplicado.monto_descuento)}
+                              </p>
+                            </div>
+                            <button
+                              onClick={quitarCupon}
+                              className="text-green-500 hover:text-green-700"
+                            >
+                              <X size={16} />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex gap-2">
+                            <input
+                              id="field-CartDrawer-jsx-428-3"
+                              value={cupon.codigo}
+                              onChange={(e) =>
+                                setCupon((prev) => ({
+                                  ...prev,
+                                  codigo: e.target.value.toUpperCase(),
+                                  error: '',
+                                }))
+                              }
+                              onKeyDown={(e) => e.key === 'Enter' && aplicarCupon()}
+                              className="h-11 flex-1 rounded-xl bg-gray-50 border border-gray-200 px-4 text-sm font-semibold outline-none"
+                              placeholder="Código"
+                            />
+                            <button
+                              onClick={aplicarCupon}
+                              disabled={cupon.loading || !cupon.codigo.trim()}
+                              className="h-11 px-5 rounded-xl text-xs font-semibold text-white shadow-sm disabled:opacity-50 shrink-0 transition hover:brightness-110"
+                              style={{ backgroundColor: colorPrimario }}
+                            >
+                              {cupon.loading ? '...' : 'Aplicar'}
+                            </button>
+                          </div>
+                        )}
+                        {cupon.error && (
+                          <p className="mt-2 text-xs font-semibold text-red-500">{cupon.error}</p>
+                        )}
+                      </div>
+                    </>
+                  )}
 
                   <div>
                     <label className="text-xs font-medium text-gray-500 block mb-2">
@@ -576,7 +601,9 @@ export default function CartDrawer({
                         ? 'Tienda cerrada'
                         : form.tipo_entrega === 'delivery' && deliveryQuote.pending
                           ? 'Calculando envío...'
-                          : 'Confirmar mi pedido'}
+                          : modoKiosco
+                            ? 'Enviar pedido a cocina'
+                            : 'Confirmar mi pedido'}
                   </button>
                 </div>
               </div>
