@@ -3,22 +3,22 @@
   "private": true,
   "version": "1.1.0",
   "description": "Worker local y visible para publicaciones sociales de Modo Sabor",
+  "author": "Modo Sabor",
   "main": "electron-main.js",
   "scripts": {
     "start": "electron .",
     "worker": "node index.js",
-    "check": "node --check index.js",
+    "check": "node --check index.js && node --check electron-main.js && node --check preload.js",
     "build": "electron-builder",
     "dist": "electron-builder --win"
   },
   "dependencies": {
-    "axios": "^1.7.0",
     "dotenv": "^16.4.5",
     "playwright-core": "^1.62.1"
   },
   "devDependencies": {
-    "electron": "^31.0.0",
-    "electron-builder": "^24.0.0"
+    "electron": "^43.4.1",
+    "electron-builder": "^26.15.3"
   },
   "build": {
     "appId": "com.modosabor.social-worker",
@@ -42,9 +42,15 @@
       ".env.example",
       "assets/**/*"
     ],
+    "asarUnpack": [
+      "index.js",
+      "package.json",
+      "node_modules/dotenv/**/*",
+      "node_modules/playwright-core/**/*"
+    ],
     "win": {
       "target": "nsis",
-      "icon": "assets/icon.ico"
+      "icon": "../assets/branding/logo.ico"
     }
   }
 }

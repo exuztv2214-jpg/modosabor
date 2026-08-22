@@ -6,6 +6,7 @@ server/whisper-models/
 agente-whatsapp/n8n/*.export.json
 agente-whatsapp/n8n/*.generated.json
 client/dist/
+social-worker/dist/
 server/data/
 server/backups/
 __pycache__/

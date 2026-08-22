@@ -8,9 +8,10 @@ const os = require('os');
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '.env') });
 const { chromium } = require('playwright-core');
+const workerVersion = require('./package.json').version;
 
 const apiRoot = String(
-  process.env.SOCIAL_API_URL || 'http://localhost:3001/api/social-worker'
+  process.env.SOCIAL_API_URL || 'https://modosabor.com.ar/api/social-worker'
 ).replace(/\/$/, '');
 const key = String(process.env.SOCIAL_WORKER_KEY || '');
 const cdpUrl = String(process.env.SOCIAL_CHROME_CDP_URL || 'http://127.0.0.1:9222');
@@ -381,7 +382,7 @@ async function runCommand(command) {
 async function tick() {
   await request('POST', '/heartbeat', {
     codigo: workerCode,
-    version: '1.0.0',
+    version: workerVersion,
     detalle: { cdpUrl },
   });
   const work = await request('POST', '/claim');

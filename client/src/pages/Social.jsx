@@ -408,7 +408,7 @@ export default function Social() {
       }
 
       toast.error(
-        'No se abrió nada. Abrí el Worker a mano una primera vez (npm start en la carpeta social-worker) y después este botón va a funcionar.',
+        'No se abrió nada. Abrí «Modo Sabor Social Worker» desde el menú Inicio una primera vez y después este botón va a funcionar.',
         { duration: 9000 }
       );
     } catch {
@@ -910,14 +910,13 @@ export default function Social() {
                   */}
                   <ol className="mt-3 space-y-1.5 border-t border-rose-200 pt-3 text-xs leading-relaxed">
                     <li>
-                      <strong>1.</strong> En la PC del local, abrí la carpeta{' '}
-                      <span className="font-mono">social-worker</span> y ejecutá{' '}
-                      <span className="rounded bg-white/70 px-1.5 py-0.5 font-mono">npm start</span>
-                      . La primera vez hay que hacerlo a mano, sí o sí.
+                      <strong>1.</strong> En la PC del local, abrí{' '}
+                      <span className="font-semibold">Modo Sabor Social Worker</span> desde el menú
+                      Inicio. Después vuelve a arrancar configurado automáticamente.
                     </li>
                     <li>
-                      <strong>2.</strong> Abrí Chrome con el acceso directo del Worker, el que tiene
-                      el puerto 9222. Un Chrome normal no sirve.
+                      <strong>2.</strong> Tocá «Conectar Facebook». El Worker abre su Chrome
+                      protegido automáticamente; un Chrome normal no comparte la sesión.
                     </li>
                     <li>
                       <strong>3.</strong> Iniciá sesión en Facebook <strong>vos</strong>. El sistema

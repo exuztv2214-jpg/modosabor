@@ -6,6 +6,8 @@ const os = require('os');
 
 const CONFIG_PATH = path.join(os.homedir(), '.modosabor-social-worker.json');
 const PROTOCOL = 'modosabor-social';
+const DEFAULT_API_URL = 'https://modosabor.com.ar/api/social-worker';
+const DEFAULT_CDP_URL = 'http://127.0.0.1:9222';
 
 let mainWindow;
 let workerProcess = null;
@@ -101,6 +103,11 @@ app.whenReady().then(() => {
   createWindow();
   handleProtocol(process.argv);
 
+  /* Una instalación ya configurada debe volver a trabajar al abrirse. */
+  mainWindow.webContents.once('did-finish-load', () => {
+    if (loadConfig().apiKey) startWorker();
+  });
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
@@ -129,14 +136,45 @@ function send(channel, data) {
 }
 
 function loadConfig() {
+  let guardada = {};
   try {
     if (fs.existsSync(CONFIG_PATH)) {
-      return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
+      guardada = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
     }
   } catch (e) {
     console.error('Error cargando config:', e.message);
   }
-  return {};
+
+  /*
+    Las instalaciones anteriores sólo tenían social-worker/.env. Reutilizarlo
+    evita pedir de nuevo la clave y evita volver silenciosamente a localhost.
+  */
+  let anterior = {};
+  const envPath = path.join(__dirname, '.env');
+  try {
+    if (fs.existsSync(envPath)) {
+      for (const linea of fs.readFileSync(envPath, 'utf-8').split(/\r?\n/)) {
+        const match = linea.match(/^([A-Z0-9_]+)=(.*)$/);
+        if (match) anterior[match[1]] = match[2].trim();
+      }
+    }
+  } catch (e) {
+    console.error('Error migrando config anterior:', e.message);
+  }
+
+  const combinada = {
+    apiUrl: anterior.SOCIAL_API_URL || DEFAULT_API_URL,
+    apiKey: anterior.SOCIAL_WORKER_KEY || '',
+    cdpUrl: anterior.SOCIAL_CHROME_CDP_URL || DEFAULT_CDP_URL,
+    pollSeconds: Math.max(Number(anterior.SOCIAL_POLL_MS || 8000) / 1000, 3),
+    workerCode: anterior.SOCIAL_WORKER_CODE || 'windows-local',
+    captureScreenshots: anterior.SOCIAL_CAPTURE_FAILURE_SCREENSHOTS === '1',
+    ...guardada,
+  };
+  if (!Object.keys(guardada).length && combinada.apiKey) {
+    saveConfig(combinada);
+  }
+  return combinada;
 }
 
 function saveConfig(cfg) {
@@ -148,16 +186,22 @@ function saveConfig(cfg) {
 }
 
 function writeEnvFile(cfg) {
+  if (app.isPackaged) return;
   const envPath = path.join(__dirname, '.env');
   const lines = [
     `SOCIAL_WORKER_KEY=${cfg.apiKey || ''}`,
-    `SOCIAL_API_URL=${cfg.apiUrl || 'http://localhost:3001/api/social-worker'}`,
-    `SOCIAL_CHROME_CDP_URL=${cfg.cdpUrl || 'http://127.0.0.1:9222'}`,
+    `SOCIAL_API_URL=${cfg.apiUrl || DEFAULT_API_URL}`,
+    `SOCIAL_CHROME_CDP_URL=${cfg.cdpUrl || DEFAULT_CDP_URL}`,
     `SOCIAL_POLL_MS=${(cfg.pollSeconds || 8) * 1000}`,
     `SOCIAL_WORKER_CODE=${cfg.workerCode || 'windows-local'}`,
     `SOCIAL_CAPTURE_FAILURE_SCREENSHOTS=${cfg.captureScreenshots ? '1' : ''}`,
   ];
   fs.writeFileSync(envPath, lines.join('\n') + '\n');
+}
+
+function workerEntryPath() {
+  if (!app.isPackaged) return path.join(__dirname, 'index.js');
+  return path.join(process.resourcesPath, 'app.asar.unpacked', 'index.js');
 }
 
 function startWorker() {
@@ -168,9 +212,19 @@ function startWorker() {
 
   send('worker-status', { status: 'starting', detail: 'Iniciando motor…' });
 
-  workerProcess = spawn('node', [path.join(__dirname, 'index.js')], {
-    cwd: __dirname,
-    env: { ...process.env, FORCE_COLOR: '0' },
+  workerProcess = spawn(process.execPath, [workerEntryPath()], {
+    cwd: app.isPackaged ? process.resourcesPath : __dirname,
+    env: {
+      ...process.env,
+      ELECTRON_RUN_AS_NODE: '1',
+      FORCE_COLOR: '0',
+      SOCIAL_WORKER_KEY: cfg.apiKey || '',
+      SOCIAL_API_URL: cfg.apiUrl || DEFAULT_API_URL,
+      SOCIAL_CHROME_CDP_URL: cfg.cdpUrl || DEFAULT_CDP_URL,
+      SOCIAL_POLL_MS: String((cfg.pollSeconds || 8) * 1000),
+      SOCIAL_WORKER_CODE: cfg.workerCode || 'windows-local',
+      SOCIAL_CAPTURE_FAILURE_SCREENSHOTS: cfg.captureScreenshots ? '1' : '',
+    },
   });
 
   workerProcess.stdout.on('data', (data) => {
@@ -232,9 +286,9 @@ function stopWorker() {
 ipcMain.handle('get-config', () => {
   const cfg = loadConfig();
   return {
-    apiUrl: cfg.apiUrl || 'http://localhost:3001/api/social-worker',
+    apiUrl: cfg.apiUrl || DEFAULT_API_URL,
     apiKey: cfg.apiKey || '',
-    cdpUrl: cfg.cdpUrl || 'http://127.0.0.1:9222',
+    cdpUrl: cfg.cdpUrl || DEFAULT_CDP_URL,
     pollSeconds: cfg.pollSeconds || 8,
     workerCode: cfg.workerCode || 'windows-local',
     captureScreenshots: !!cfg.captureScreenshots,
