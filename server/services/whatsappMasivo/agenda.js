@@ -239,6 +239,120 @@ function sincronizarHistorial(
   return { contactos, respuestas, lidAPn };
 }
 
+/**
+ * Recupera la agenda cuando la sesión ya estaba vinculada antes de que el
+ * módulo masivo empezara a escuchar `messaging-history.set`.
+ *
+ * Baileys entrega el historial completo al vincular, no en cada reconexión.
+ * El gateway de atención, en cambio, ya conserva en estas mismas tablas los
+ * chats y mensajes que realmente pasaron por el número. Reutilizarlos evita
+ * pedir otro QR y, sobre todo, no mezcla la agenda de WhatsApp con clientes
+ * cargados a mano en el TPV.
+ *
+ * Es idempotente: el JID y el id sintético de cada mensaje son únicos.
+ */
+function recuperarAgendaDesdeConversaciones(db = dbPrincipal) {
+  const existeTabla = (nombre) =>
+    Boolean(
+      db
+        .prepare("SELECT 1 AS existe FROM sqlite_master WHERE type = 'table' AND name = ?")
+        .get(nombre)
+    );
+  if (!existeTabla('whatsapp_conversaciones') || !existeTabla('whatsapp_mensajes')) {
+    return { contactos: 0, respuestas: 0, omitidos: 0 };
+  }
+
+  const conversaciones = db
+    .prepare(
+      `SELECT telefono, nombre, ultimo_mensaje_en
+         FROM whatsapp_conversaciones
+        WHERE COALESCE(telefono, '') <> ''`
+    )
+    .all();
+  const mensajes = db
+    .prepare(
+      `SELECT id, telefono, contenido, creado_en
+         FROM whatsapp_mensajes
+        WHERE direccion = 'entrante' AND COALESCE(contenido, '') <> ''
+        ORDER BY id ASC`
+    )
+    .all();
+  const guardarRespuesta = db.prepare(
+    `INSERT OR IGNORE INTO wa_respuestas (telefono, texto, es_baja, mensaje_id, recibido_en)
+     VALUES (?, ?, 0, ?, COALESCE(?, CURRENT_TIMESTAMP))`
+  );
+
+  let contactos = 0;
+  let respuestas = 0;
+  let omitidos = 0;
+  db.transaction(() => {
+    conversaciones.forEach((conversacion) => {
+      const telefono = normalizarTelefono(conversacion.telefono);
+      if (!telefono) {
+        omitidos += 1;
+        return;
+      }
+      // Un error antiguo guardó el nombre del negocio como nombre de varios
+      // clientes. Vacío es más honesto y permite que un evento futuro de
+      // WhatsApp complete el nombre correcto sin mostrar un dato falso.
+      const nombre = /^modo\s+sabor$/i.test(String(conversacion.nombre || '').trim())
+        ? ''
+        : conversacion.nombre;
+      if (
+        guardarContacto(
+          {
+            jid: `${telefono}@s.whatsapp.net`,
+            telefono,
+            nombre,
+            fecha: conversacion.ultimo_mensaje_en,
+            origen: 'conversaciones',
+          },
+          db
+        )
+      ) {
+        contactos += 1;
+      }
+    });
+
+    mensajes.forEach((mensaje) => {
+      const telefono = normalizarTelefono(mensaje.telefono);
+      if (!telefono) return;
+      const result = guardarRespuesta.run(
+        telefono,
+        String(mensaje.contenido || '').slice(0, 2000),
+        `conversacion-${mensaje.id}`,
+        mensaje.creado_en || null
+      );
+      respuestas += Number(result.changes || 0);
+    });
+  })();
+
+  return { contactos, respuestas, omitidos };
+}
+
+function contarConversacionesEsperandoPersona(db = dbPrincipal) {
+  if (
+    !db
+      .prepare(
+        "SELECT 1 AS existe FROM sqlite_master WHERE type = 'table' AND name = 'whatsapp_conversaciones'"
+      )
+      .get()
+  ) {
+    return 0;
+  }
+  return Number(
+    db
+      .prepare(
+        `SELECT COUNT(*) AS cantidad
+           FROM whatsapp_conversaciones
+          WHERE escalado_humano = 1
+            AND bot_silenciado = 1
+            AND (bot_silenciado_hasta IS NULL OR bot_silenciado_hasta > CURRENT_TIMESTAMP)`
+      )
+      .get().cantidad || 0
+  );
+}
+
 function diasDesde(value, ahora = Date.now()) {
   const time = new Date(value || 0).getTime();
   return Number.isFinite(time) && time > 0 ? Math.floor((ahora - time) / 86400000) : null;
@@ -340,6 +454,8 @@ module.exports = {
   audiencia,
   guardarContacto,
   parecePedido,
+  recuperarAgendaDesdeConversaciones,
   resumenSegmentos,
   sincronizarHistorial,
+  contarConversacionesEsperandoPersona,
 };

@@ -17,7 +17,11 @@ const {
 } = require('../services/whatsappMasivo/telefono');
 const reglas = require('../services/whatsappMasivo/reglas');
 const fotosPerfil = require('../services/whatsappMasivo/fotosPerfil');
-const { audiencia } = require('../services/whatsappMasivo/agenda');
+const {
+  audiencia,
+  contarConversacionesEsperandoPersona,
+  recuperarAgendaDesdeConversaciones,
+} = require('../services/whatsappMasivo/agenda');
 const { redactarCampana } = require('../services/whatsappMasivo/redactor');
 const { resumenGateway, gatewayConfig } = require('../services/whatsappGateway');
 const { testEmergencyProvider } = require('../services/whatsappEmergencyProvider');
@@ -64,13 +68,7 @@ const uploadMedia = multer({
  * masivo.
  */
 router.get('/conversaciones/esperando-persona', auth, (_req, res) => {
-  const { cantidad } = db
-    .prepare(
-      `SELECT COUNT(*) AS cantidad FROM whatsapp_conversaciones
-        WHERE escalado_humano = 1 AND bot_silenciado = 1`
-    )
-    .get();
-  res.json({ cantidad });
+  res.json({ cantidad: contarConversacionesEsperandoPersona(db) });
 });
 
 router.use(auth, requirePermission('marketing.edit'));
@@ -571,6 +569,15 @@ router.get('/contactos', (req, res) => {
       etiquetas: etiquetasPorContacto.get(c.id) || [],
     })),
   });
+});
+
+/**
+ * Reparación manual segura para una sesión que ya estaba vinculada antes de
+ * habilitar el history sync. No conecta, no envía y no importa clientes del
+ * TPV: sólo reconstruye la agenda con chats que WhatsApp IA ya registró.
+ */
+router.post('/contactos/recuperar', (_req, res) => {
+  res.json({ ok: true, ...recuperarAgendaDesdeConversaciones(db) });
 });
 
 /**

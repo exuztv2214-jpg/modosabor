@@ -6,7 +6,11 @@ const pino = require('pino');
 const logger = require('../../utils/logger');
 const { dataDir, ensureDir } = require('../../utils/storagePaths');
 const db = require('../../db');
-const { guardarContacto, sincronizarHistorial } = require('./agenda');
+const {
+  guardarContacto,
+  recuperarAgendaDesdeConversaciones,
+  sincronizarHistorial,
+} = require('./agenda');
 
 /**
  * Conexión con WhatsApp, desde el servidor.
@@ -335,6 +339,21 @@ class ConexionWhatsapp extends EventEmitter {
           this.numero = String(socket.user?.id || '').split(':')[0] || null;
           this.cambiarEstado('conectado');
           logger.info('WhatsApp conectado', { numero: this.numero });
+          try {
+            const recuperado = recuperarAgendaDesdeConversaciones(db);
+            if (recuperado.contactos || recuperado.respuestas) {
+              logger.info(
+                'WhatsApp: agenda recuperada desde conversaciones existentes',
+                recuperado
+              );
+            }
+          } catch (error) {
+            // La conexión y la atención no deben caerse porque falle una
+            // reparación de agenda de Marketing.
+            logger.warn('WhatsApp: no se pudo recuperar la agenda existente', {
+              message: error.message,
+            });
+          }
         }
 
         if (connection === 'close') {
