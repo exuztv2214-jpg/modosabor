@@ -60,6 +60,7 @@ export default function SeccionAlertas({ config, f, setConfig }) {
 
   const vozActiva = String(config.alertas_pedido_voz ?? '1') === '1';
   const vozIaActiva = String(config.voz_ia_activa ?? '0') === '1';
+  const transcripcionGeminiActiva = String(config.transcripcion_gemini_activa ?? '1') === '1';
   const claveGuardada =
     config.gemini_api_key_configured && config.gemini_api_key === SECRET_PLACEHOLDER;
 
@@ -119,9 +120,15 @@ export default function SeccionAlertas({ config, f, setConfig }) {
               description="Necesita una clave de Gemini. Si falla, usa la voz del navegador."
             />
           ) : null}
+          <ToggleSwitch
+            checked={transcripcionGeminiActiva}
+            onChange={(checked) => setToggle('transcripcion_gemini_activa', checked)}
+            label="Entender audios de WhatsApp con Gemini"
+            description="Es más liviano para Railway. Si falla, Chispita intenta Whisper automáticamente."
+          />
         </div>
 
-        {vozActiva && vozIaActiva ? (
+        {(vozActiva && vozIaActiva) || transcripcionGeminiActiva ? (
           <div className="mt-4 rounded-2xl border p-4" style={{ borderColor: STROKE }}>
             <InputField
               label="Clave de Gemini"
@@ -144,8 +151,9 @@ export default function SeccionAlertas({ config, f, setConfig }) {
               internet.
             </p>
             <p className="mt-2 text-[12px] leading-relaxed text-gray-500">
-              El aviso que se manda a Google incluye el nombre del cliente. Con el plan gratuito,
-              Google usa ese contenido para mejorar sus servicios.
+              La voz puede incluir el nombre del cliente y la transcripción envía el audio recibido
+              a Google. Con el plan gratuito, Google puede usar ese contenido para mejorar sus
+              servicios.
             </p>
           </div>
         ) : null}

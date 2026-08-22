@@ -73,6 +73,7 @@ function runSeed(db) {
     ['alertas_voz_nombre', ''],
     ['alertas_voz_velocidad', '0.92'],
     ['alertas_voz_tono', '1'],
+    ['transcripcion_gemini_activa', '1'],
     ['alertas_voz_reemplazos', ''],
     ['impresion_mostrar_logo', '1'],
     ['impresion_mostrar_nombre_negocio', '1'],
