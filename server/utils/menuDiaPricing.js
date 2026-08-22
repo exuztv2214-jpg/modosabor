@@ -54,4 +54,37 @@ function applyMenuDiaPricingList(products = []) {
   return products.map(applyMenuDiaPricing);
 }
 
-module.exports = { applyMenuDiaPricing, applyMenuDiaPricingList };
+/**
+ * La disponibilidad del menú es una foto fechada, no una propiedad permanente
+ * del producto. `menu_dia_disponible_hoy` se conserva en la tabla por
+ * compatibilidad con pantallas viejas, pero puede quedar con el valor de ayer.
+ *
+ * Las consultas de catálogo traen la disponibilidad de la fecha actual bajo
+ * `menu_dia_disponible_fecha`. Acá se transforma en el campo estable que ya
+ * consumen Web y TPV, y se elimina el alias interno antes de responder.
+ */
+function applyMenuDiaSnapshotAvailability(product = {}) {
+  const { menu_dia_disponible_fecha: disponibilidadDeLaFecha, ...cleanProduct } = product;
+  const esMenuDelDia =
+    normalize(product.categoria_nombre) === 'menu del dia' ||
+    Number(product.menu_dia_base || 0) === 1 ||
+    disponibilidadDeLaFecha !== undefined;
+
+  if (!esMenuDelDia) return cleanProduct;
+
+  return {
+    ...cleanProduct,
+    menu_dia_disponible_hoy: Number(disponibilidadDeLaFecha || 0) === 1 ? 1 : 0,
+  };
+}
+
+function applyMenuDiaSnapshotAvailabilityList(products = []) {
+  return products.map(applyMenuDiaSnapshotAvailability);
+}
+
+module.exports = {
+  applyMenuDiaPricing,
+  applyMenuDiaPricingList,
+  applyMenuDiaSnapshotAvailability,
+  applyMenuDiaSnapshotAvailabilityList,
+};

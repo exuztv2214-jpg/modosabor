@@ -743,14 +743,16 @@ function buildPointStatus() {
     .prepare(
       `
     SELECT COUNT(*) AS c
-    FROM productos p
+    FROM menu_dia_historial h
+    JOIN productos p ON p.id = h.producto_id
     JOIN categorias c ON c.id = p.categoria_id
-    WHERE p.activo = 1
+    WHERE h.fecha = ?
+      AND h.disponible = 1
+      AND p.activo = 1
       AND lower(c.nombre) = lower('Menu del Dia')
-      AND COALESCE(p.menu_dia_disponible_hoy, 0) = 1
   `
     )
-    .get().c;
+    .get(today()).c;
   const backups = listBackups();
   const latestBackup = backups[0] || null;
   const config = Object.fromEntries(
@@ -841,16 +843,21 @@ router.get('/resumen', requirePermission('dashboard.view'), (_req, res) => {
   const menuDelDia = db
     .prepare(
       `
-    SELECT p.id, p.nombre, p.precio, p.stock_directo, p.menu_dia_disponible_hoy
-    FROM productos p
+    SELECT p.id, p.nombre,
+           COALESCE(h.precio_economico, h.precio_ejecutivo, h.precio, p.precio) AS precio,
+           h.stock_directo,
+           h.disponible AS menu_dia_disponible_hoy
+    FROM menu_dia_historial h
+    JOIN productos p ON p.id = h.producto_id
     JOIN categorias c ON c.id = p.categoria_id
-    WHERE p.activo = 1
+    WHERE h.fecha = ?
+      AND h.disponible = 1
+      AND p.activo = 1
       AND lower(c.nombre) = lower('Menu del Dia')
-      AND COALESCE(p.menu_dia_disponible_hoy, 0) = 1
     ORDER BY p.nombre ASC
   `
     )
-    .all();
+    .all(today());
 
   res.json({
     puntos: buildPointStatus(),

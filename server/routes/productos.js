@@ -27,7 +27,10 @@ const { createProductoSchema, updateProductoSchema } = require('../schemas');
 const { pesosToCents } = require('../utils/moneyConversion');
 const authOpcional = require('../middleware/authOpcional');
 const { aplicarListasCompartidas } = require('../utils/opcionesCompartidas');
-const { applyMenuDiaPricingList } = require('../utils/menuDiaPricing');
+const {
+  applyMenuDiaPricingList,
+  applyMenuDiaSnapshotAvailabilityList,
+} = require('../utils/menuDiaPricing');
 const { fechaLocal, hoyArgentina, hoyLocal } = require('../utils/fechaLocal');
 const { aplicarListaDePrecios, CANALES } = require('../utils/listasPrecios');
 
@@ -74,6 +77,8 @@ const CAMPOS_PUBLICOS = [
   'destacado',
   'tiempo_preparacion',
   'menu_dia_tipo',
+  'menu_dia_base',
+  'menu_dia_disponible_hoy',
   'menu_dia_precio_economico',
   'menu_dia_precio_ejecutivo',
   /*
@@ -296,6 +301,7 @@ router.get('/', authOpcional, (req, res) => {
   */
   let q =
     'SELECT p.*, c.nombre as categoria_nombre, c.icono as categoria_icono, mdh.orden AS menu_dia_orden,' +
+    ' mdh.disponible AS menu_dia_disponible_fecha,' +
     ' mdh.precio_economico AS menu_dia_precio_economico,' +
     ' mdh.precio_ejecutivo AS menu_dia_precio_ejecutivo' +
     ' FROM productos p' +
@@ -337,7 +343,9 @@ router.get('/', authOpcional, (req, res) => {
   const canal = CANALES.includes(String(req.query.canal || '')) ? req.query.canal : 'mostrador';
   const conPrecioDeCanal = aplicarListaDePrecios(db, db.prepare(q).all(...params), canal);
   const productosConListas = aplicarListasCompartidas(db, conPrecioDeCanal);
-  const productos = applyMenuDiaPricingList(productosConListas);
+  const productos = applyMenuDiaSnapshotAvailabilityList(
+    applyMenuDiaPricingList(productosConListas)
+  );
   res.json(segunQuienPregunta(req, decorateProductsWithInventory(db, productos)));
 });
 
@@ -350,6 +358,7 @@ router.get('/', authOpcional, (req, res) => {
 router.get('/catalogo-tpv', auth, requirePermission('tpv.use'), (req, res) => {
   let q =
     'SELECT p.*, c.nombre as categoria_nombre, c.icono as categoria_icono, mdh.orden AS menu_dia_orden,' +
+    ' mdh.disponible AS menu_dia_disponible_fecha,' +
     ' mdh.precio_economico AS menu_dia_precio_economico,' +
     ' mdh.precio_ejecutivo AS menu_dia_precio_ejecutivo' +
     ' FROM productos p' +
@@ -362,7 +371,9 @@ router.get('/catalogo-tpv', auth, requirePermission('tpv.use'), (req, res) => {
   q += ' ORDER BY c.orden ASC, p.nombre ASC';
   const conPrecioDeCanal = aplicarListaDePrecios(db, db.prepare(q).all(...params), canal);
   const productosConListas = aplicarListasCompartidas(db, conPrecioDeCanal);
-  const productos = applyMenuDiaPricingList(productosConListas);
+  const productos = applyMenuDiaSnapshotAvailabilityList(
+    applyMenuDiaPricingList(productosConListas)
+  );
 
   // `paraElPublico` es la lista explícita de campos seguros: precio y opciones
   // sí, costo y cantidades reales de stock no.
