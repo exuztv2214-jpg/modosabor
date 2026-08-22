@@ -204,7 +204,7 @@ export default function Mesas() {
     setLoading(true);
     try {
       const [configData, pedidosData, reservasData] = await Promise.all([
-        api.get('/configuracion'),
+        api.get('/configuracion/panel'),
         api.get('/pedidos/activos'),
         api.get('/pedidos/mesas/reservas'),
       ]);

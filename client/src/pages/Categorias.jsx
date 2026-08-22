@@ -148,7 +148,7 @@ export default function Categorias() {
       const [cats, prods, config] = await Promise.all([
         api.get('/categorias'),
         api.get('/productos'),
-        api.get('/configuracion'),
+        api.get('/configuracion/panel'),
       ]);
       setCategorias(cats || []);
       setProductos(prods || []);

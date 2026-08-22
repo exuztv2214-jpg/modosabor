@@ -276,7 +276,7 @@ export default function Pedidos() {
   // ── Tiempo real ─────────────────────────────────────────────────
   useEffect(() => {
     api
-      .get('/configuracion')
+      .get('/configuracion/panel')
       .then((data) => {
         configRef.current = data;
         setConfigSnapshot(data || {});

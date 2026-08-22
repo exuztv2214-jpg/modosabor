@@ -199,7 +199,37 @@ function getAdminConfig() {
   });
 }
 
-function getPublicConfig() {
+const PUBLIC_CONFIG_KEYS = new Set([
+  'abierto_ahora',
+  'color_primario',
+  'delivery_activo',
+  'delivery_zonas',
+  'mercadopago_token_configured',
+  'metodos_pago',
+  'minimo_pedido',
+  'negocio_color_primario',
+  'negocio_descripcion',
+  'negocio_direccion',
+  'negocio_email',
+  'negocio_facebook',
+  'negocio_favicon',
+  'negocio_horario',
+  'negocio_horarios',
+  'negocio_instagram',
+  'negocio_localidad',
+  'negocio_logo',
+  'negocio_logo_url',
+  'negocio_nombre',
+  'negocio_telefono',
+  'pedido_minimo',
+  'retiro_activo',
+  'tiempo_delivery',
+  'tiempo_retiro',
+  'turno_actual',
+  'turnos',
+]);
+
+function getPanelConfig() {
   const full = getFullConfig();
   const config = sanitizeSensitiveConfig(full, { remove: true });
   config.mercadopago_token_configured = Boolean(full.mercadopago_token);
@@ -207,6 +237,15 @@ function getPublicConfig() {
   config.ia_api_key_configured = Boolean(full.ia_api_key);
   config.whatsapp_emergencia_api_key_configured = Boolean(full.whatsapp_emergencia_api_key);
   return config;
+}
+
+function getPublicConfig() {
+  const panel = getPanelConfig();
+  const publicConfig = {};
+  Object.entries(panel).forEach(([key, value]) => {
+    if (key.startsWith('web_') || PUBLIC_CONFIG_KEYS.has(key)) publicConfig[key] = value;
+  });
+  return publicConfig;
 }
 
 function isSensitivePlaceholder(value) {
@@ -462,6 +501,12 @@ router.get('/voz/estado', (req, res) => {
 
 router.get('/', (req, res) => {
   res.json(getPublicConfig());
+});
+
+// Configuración operativa sin secretos. La consumen caja, TPV y el resto del
+// panel después de que /auth/me confirmó una sesión válida.
+router.get('/panel', auth, (req, res) => {
+  res.json(getPanelConfig());
 });
 
 router.get('/admin', auth, requirePermission('config.manage'), (req, res) => {

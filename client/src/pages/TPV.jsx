@@ -344,7 +344,7 @@ export default function TPV() {
       // La configuración no se cachea: puede incluir datos operativos que no
       // corresponden a una copia offline. Sin red el TPV abre con sus valores
       // seguros por defecto y la carta ya cacheada.
-      api.get('/configuracion').catch(() => ({})),
+      api.get('/configuracion/panel').catch(() => ({})),
       api.get('/repartidores?turno_actual=1').catch(() => []),
       api.get('/caja/estado').catch(() => null),
       api.get('/fidelizacion/config').catch(() => null),
