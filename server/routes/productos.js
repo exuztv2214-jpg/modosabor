@@ -33,6 +33,7 @@ const {
 } = require('../utils/menuDiaPricing');
 const { fechaLocal, hoyArgentina, hoyLocal } = require('../utils/fechaLocal');
 const { aplicarListaDePrecios, CANALES } = require('../utils/listasPrecios');
+const { asegurarNombreProductoUnico } = require('../utils/productosDuplicados');
 
 /**
  * Lo que ve alguien que no está adentro del panel.
@@ -461,6 +462,12 @@ router.post(
   (req, res) => {
     try {
       const payload = buildProductPayload(req.body);
+      if (Number(payload.activo) === 1) {
+        asegurarNombreProductoUnico(db, {
+          nombre: payload.nombre,
+          categoriaId: payload.categoria_id,
+        });
+      }
       const stockDirecto = parseNonNegativeNumber(req.body?.stock, 0);
       if (stockDirecto === null) {
         throw new Error('Stock invalido');
@@ -528,6 +535,13 @@ router.put(
 
     try {
       const payload = buildProductPayload(req.body, { existing });
+      if (Number(payload.activo) === 1) {
+        asegurarNombreProductoUnico(db, {
+          nombre: payload.nombre,
+          categoriaId: payload.categoria_id,
+          excluirId: Number(existing.id),
+        });
+      }
       const wantsRemoveImage = String(req.body.remove_imagen || '0') === '1';
       const imagen = req.file
         ? uploadPathFromFilename(req.file.filename)

@@ -8,6 +8,7 @@ const { insertInventoryMovement, roundStock } = require('../utils/inventory');
 const { summarizePaymentRows } = require('../utils/paymentStatus');
 const { recalculateClienteStats } = require('../utils/loyalty');
 const { logAudit, actorFromRequest } = require('../utils/audit');
+const { asegurarNombreProductoUnico } = require('../utils/productosDuplicados');
 
 const { fechaLocal, hoyArgentina } = require('../utils/fechaLocal');
 const {
@@ -1127,6 +1128,11 @@ function createMenuDiaProduct(body = {}) {
   if (precio <= 0) {
     throw new Error('Precio inválido');
   }
+
+  asegurarNombreProductoUnico(db, {
+    nombre,
+    categoriaId: category.id,
+  });
 
   const result = db
     .prepare(
