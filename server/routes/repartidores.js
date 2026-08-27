@@ -290,7 +290,9 @@ router.get('/rider-diagnostics', auth, requirePermission('delivery.manage'), (_r
       `SELECT id, nombre, activo, fcm_platform, fcm_device_id, fcm_device_label,
               fcm_permission, fcm_actualizado_en,
               CASE WHEN TRIM(COALESCE(fcm_token, '')) <> '' THEN 1 ELSE 0 END AS push_registrado
-       FROM repartidores ORDER BY nombre COLLATE NOCASE ASC`
+       FROM repartidores
+       WHERE activo = 1
+       ORDER BY nombre COLLATE NOCASE ASC`
     )
     .all();
   res.json(riders);

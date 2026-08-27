@@ -69,4 +69,14 @@ assert.match(
   'la carga del servidor debe incluir todo pedido asignado que todavía no terminó'
 );
 
+const ridersRouteSource = fs.readFileSync(
+  path.join(__dirname, '..', '..', 'routes', 'repartidores.js'),
+  'utf8'
+);
+assert.match(
+  ridersRouteSource,
+  /FROM repartidores\s+WHERE activo = 1\s+ORDER BY nombre COLLATE NOCASE ASC/,
+  'el diagnóstico no debe volver a mostrar riders retirados'
+);
+
 console.log('deliveryTurnos.test.js OK');
