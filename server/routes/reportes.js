@@ -9,7 +9,7 @@ const { hydratePedido } = require('../services/pedidoService');
 
 const { fechaLocal, hoyArgentina } = require('../utils/fechaLocal');
 function toDateOnly(value) {
-  return new Date(value).toISOString().split('T')[0];
+  return hoyArgentina(value instanceof Date ? value : new Date(value));
 }
 
 function parseDateRange(req) {
@@ -263,6 +263,7 @@ function getPedidoItemRows(orderIds = []) {
         pi.precio_unitario,
         pi.subtotal,
         pi.descripcion,
+        COALESCE(pi.costo_unitario, 0) AS costo_snapshot,
         COALESCE(NULLIF(pi.costo_unitario, 0), p.costo, 0) AS costo,
         p.imagen,
         COALESCE(c.nombre, 'Sin categoria') AS categoria
@@ -431,6 +432,7 @@ function buildClientAnalytics(rows, desde, hasta) {
       clientesBase.length
     : 0;
 
+  const mesActual = hoyArgentina().slice(5, 7);
   const segmentos = clientesBase.reduce(
     (acc, cliente) => {
       const ultima = cliente.ultima_compra ? new Date(cliente.ultima_compra).getTime() : 0;
@@ -448,10 +450,7 @@ function buildClientAnalytics(rows, desde, hasta) {
       ) {
         acc.altoValor += 1;
       }
-      if (
-        cliente.fecha_nacimiento &&
-        String(cliente.fecha_nacimiento).slice(5, 7) === new Date().toISOString().slice(5, 7)
-      ) {
+      if (cliente.fecha_nacimiento && String(cliente.fecha_nacimiento).slice(5, 7) === mesActual) {
         acc.cumpleMes += 1;
       }
       return acc;
@@ -710,7 +709,7 @@ function buildTopCustomersAllTime(limit = 5) {
     .all(limit);
 }
 
-router.get('/dashboard', auth, requirePermission('dashboard.view'), (req, res) => {
+router.get('/dashboard', auth, requirePermission('dashboard.finanzas'), (req, res) => {
   const hoy = hoyArgentina();
   const ayer = hoyArgentina(new Date(Date.now() - 86400000));
   const rangoDashboard = parseDashboardRange(req);
@@ -791,17 +790,22 @@ router.get('/dashboard', auth, requirePermission('dashboard.view'), (req, res) =
 
   // Margen bruto hoy
   const itemsHoy = getPedidoItemRows(pedidosHoyDetallados.map((p) => p.id));
-  const costoHoy = itemsHoy.reduce((acc, item) => {
-    const prod =
-      productosPorId.get(String(item.producto_id || '')) ||
-      productosPorNombre.get(
-        String(item.nombre || '')
-          .trim()
-          .toLowerCase()
-      );
-    const costo = Number(prod?.costo || item.costo || 0);
-    return acc + costo * Number(item.cantidad || 1);
-  }, 0);
+  // El margen histórico usa el costo congelado al vender. Usar el costo
+  // actual del producto hace que una venta vieja cambie cuando se edita una
+  // receta. Los renglones legacy sin snapshot quedan como costo faltante y la
+  // cobertura se informa al panel, en vez de inventar una ganancia precisa.
+  const costoHoy = itemsHoy.reduce(
+    (acc, item) => acc + Number(item.costo_snapshot || 0) * Number(item.cantidad || 1),
+    0
+  );
+  const unidadesHoy = itemsHoy.reduce((acc, item) => acc + Number(item.cantidad || 1), 0);
+  const unidadesConCostoHoy = itemsHoy.reduce(
+    (acc, item) => acc + (Number(item.costo_snapshot || 0) > 0 ? Number(item.cantidad || 1) : 0),
+    0
+  );
+  const coberturaCostosHoy = unidadesHoy
+    ? Math.round((unidadesConCostoHoy / unidadesHoy) * 100)
+    : 100;
   const margenBrutoHoy = ventasHoy.total - costoHoy;
   const margenPctHoy =
     ventasHoy.total > 0 ? Math.round((margenBrutoHoy / ventasHoy.total) * 100) : 0;
@@ -811,17 +815,10 @@ router.get('/dashboard', auth, requirePermission('dashboard.view'), (req, res) =
     .prepare(`SELECT * FROM pedidos WHERE ${fechaLocal('creado_en')}=? AND estado!='cancelado'`)
     .all(ayer);
   const itemsAyer = getPedidoItemRows(pedidosAyerDetallados.map((p) => p.id));
-  const costoAyer = itemsAyer.reduce((acc, item) => {
-    const prod =
-      productosPorId.get(String(item.producto_id || '')) ||
-      productosPorNombre.get(
-        String(item.nombre || '')
-          .trim()
-          .toLowerCase()
-      );
-    const costo = Number(prod?.costo || item.costo || 0);
-    return acc + costo * Number(item.cantidad || 1);
-  }, 0);
+  const costoAyer = itemsAyer.reduce(
+    (acc, item) => acc + Number(item.costo_snapshot || 0) * Number(item.cantidad || 1),
+    0
+  );
   const margenAyer = ventasAyer - costoAyer;
   const tendenciaMargen =
     margenAyer > 0 ? Math.round(((margenBrutoHoy - margenAyer) / margenAyer) * 100) : 0;
@@ -912,9 +909,21 @@ router.get('/dashboard', auth, requirePermission('dashboard.view'), (req, res) =
   );
   const itemsPeriodo = getPedidoItemRows(pedidosValidosPeriodo.map((pedido) => pedido.id));
   const costoPeriodo = itemsPeriodo.reduce(
-    (total, item) => total + Number(item.costo || 0) * Number(item.cantidad || 0),
+    (total, item) => total + Number(item.costo_snapshot || 0) * Number(item.cantidad || 0),
     0
   );
+  const unidadesPeriodo = itemsPeriodo.reduce(
+    (total, item) => total + Number(item.cantidad || 0),
+    0
+  );
+  const unidadesConCostoPeriodo = itemsPeriodo.reduce(
+    (total, item) =>
+      total + (Number(item.costo_snapshot || 0) > 0 ? Number(item.cantidad || 0) : 0),
+    0
+  );
+  const coberturaCostosPeriodo = unidadesPeriodo
+    ? Math.round((unidadesConCostoPeriodo / unidadesPeriodo) * 100)
+    : 100;
   const margenBrutoPeriodo = totalPeriodo - costoPeriodo;
 
   // Estado de caja actual
@@ -941,6 +950,7 @@ router.get('/dashboard', auth, requirePermission('dashboard.view'), (req, res) =
     cajaEstado: cajaActiva ? { abierta: true, ...cajaActiva } : { abierta: false },
     margenBrutoHoy,
     margenPctHoy,
+    coberturaCostosHoy,
     tendenciaMargen,
     // El tablero necesita saber si la comparacion de margen es valida.
     // Antes usaba `ventasAyer` como sustituto, asi que un dia con ventas
@@ -959,6 +969,8 @@ router.get('/dashboard', auth, requirePermission('dashboard.view'), (req, res) =
       estados: estadosPeriodo,
       margenBruto: margenBrutoPeriodo,
       margenPct: totalPeriodo > 0 ? Math.round((margenBrutoPeriodo / totalPeriodo) * 100) : 0,
+      coberturaCostos: coberturaCostosPeriodo,
+      cancelados: Number(conteoEstados.cancelado || 0),
     },
   });
 });

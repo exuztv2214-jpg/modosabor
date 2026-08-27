@@ -85,6 +85,28 @@ router.post('/espera', (req, res) => {
   }
 });
 
+// Recupera y quita el pedido en una sola operación. Un GET seguido de DELETE
+// deja una ventana en la que dos cajas pueden abrir la misma venta y cobrarla
+// dos veces. La transacción síncrona hace que sólo la primera caja lo reclame.
+router.post('/espera/:id/reclamar', (req, res) => {
+  const id = String(req.params.id || '').trim();
+  if (!id) return res.status(400).json({ error: 'Falta id del pedido en espera' });
+
+  const reclamar = db.transaction(() => {
+    const row = db.prepare('SELECT * FROM tpv_pedidos_espera WHERE id = ?').get(id);
+    if (!row) return null;
+    db.prepare('DELETE FROM tpv_pedidos_espera WHERE id = ?').run(id);
+    return rowToOrder(row);
+  });
+  const order = reclamar();
+  if (!order) {
+    return res.status(409).json({
+      error: 'Ese pedido ya fue recuperado o eliminado desde otra caja',
+    });
+  }
+  return res.json(order);
+});
+
 router.delete('/espera/:id', (req, res) => {
   const id = String(req.params.id || '').trim();
   if (!id) return res.status(400).json({ error: 'Falta id del pedido en espera' });

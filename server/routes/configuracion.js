@@ -7,7 +7,7 @@ const multer = require('multer');
 const db = require('../db');
 const auth = require('../middleware/auth');
 const { getMe } = require('../utils/mercadoPago');
-const { requirePermission } = require('../utils/permissions');
+const { requirePermission, hasPermission } = require('../utils/permissions');
 const { logAudit, actorFromRequest } = require('../utils/audit');
 const { quoteDelivery, serializeZones } = require('../utils/deliveryZones');
 const { buildPrintTestDocument } = require('../utils/printTemplates');
@@ -903,7 +903,12 @@ router.post(
 router.post(
   '/web-publica/upload',
   auth,
-  requirePermission('config.manage'),
+  (req, res, next) => {
+    if (hasPermission(req.user, 'config.manage') || hasPermission(req.user, 'delivery.manage')) {
+      return next();
+    }
+    return res.status(403).json({ error: 'Sin permisos para subir imágenes' });
+  },
   upload.single('asset'),
   (req, res) => {
     if (!req.file) {

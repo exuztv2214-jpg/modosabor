@@ -42,6 +42,8 @@ const pedidoItemSchema = z.object({
   variantes: z.any().optional(),
   extras: z.any().optional(),
   descripcion: z.string().max(2000).default(''),
+  descuento_item: z.number().nonnegative().optional(),
+  descuento_motivo: z.string().max(500).optional(),
 });
 
 const createPedidoSchema = z.object({
@@ -71,6 +73,17 @@ const createPedidoSchema = z.object({
   notas: z.string().max(2000).default(''),
   origen: z.string().max(50).default('tpv'),
   repartidor_id: z.number().int().positive().nullable().optional(),
+  cupon_codigo: z.string().max(100).optional(),
+  puntos_a_canjear: z.number().int().nonnegative().optional(),
+  pago_detalle: z.string().max(10000).optional(),
+  marketing_campana_id: z.number().int().positive().nullable().optional(),
+  marketing_promo_id: z.number().int().positive().nullable().optional(),
+  marketing_origen: z.string().max(100).optional(),
+  marketing_codigo: z.string().max(255).optional(),
+  marketing_source: z.string().max(255).optional(),
+  marketing_medium: z.string().max(255).optional(),
+  marketing_campaign: z.string().max(255).optional(),
+  marketing_content: z.string().max(500).optional(),
   // La genera el dispositivo para poder reenviar un pedido offline sin que se
   // cree dos veces si la conexión vuelve durante la respuesta.
   idempotency_key: z.string().max(160).optional(),

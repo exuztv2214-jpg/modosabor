@@ -39,6 +39,23 @@ function emitToBackOffice(io, event, payload) {
 // Almacenamiento en memoria de tokens de seguimiento (podria moverse a Redis en el futuro)
 const trackingTokens = new Map();
 
+function usuarioActivoDesdeToken(token) {
+  const decoded = jwt.verify(token, getJwtSecret());
+  const current = db
+    .prepare('SELECT id, nombre, email, rol, activo FROM usuarios WHERE id = ?')
+    .get(decoded.id);
+  if (!current || Number(current.activo) !== 1) {
+    throw new Error('Usuario inactivo');
+  }
+  return {
+    ...decoded,
+    id: current.id,
+    nombre: current.nombre,
+    email: current.email,
+    rol: current.rol,
+  };
+}
+
 /**
  * Generar token unico de seguimiento para un pedido
  */
@@ -72,7 +89,12 @@ function validateTrackingToken(pedidoId, token) {
   // 2. Fallback: Validar contra Base de Datos (robusto ante reinicios)
   try {
     const pedido = db
-      .prepare('SELECT id, tracking_token, creado_en FROM pedidos WHERE id = ?')
+      .prepare(
+        `SELECT id, tracking_token, creado_en
+         FROM pedidos
+         WHERE id = ?
+           AND datetime(creado_en) >= datetime('now', '-7 days')`
+      )
       .get(pedidoId);
     if (pedido && pedido.tracking_token === token) {
       // Re-hidratar memoria para proximas consultas
@@ -115,7 +137,7 @@ function initSocketSecurity(io) {
         ?.split('=')[1];
 
       if (token) {
-        const user = jwt.verify(token, getJwtSecret());
+        const user = usuarioActivoDesdeToken(decodeURIComponent(token));
         socket.user = user;
         socket.authenticated = true;
       } else {
@@ -141,7 +163,7 @@ function initSocketSecurity(io) {
     // Evento de autenticacion legacy (para compatibilidad con clientes que usan token manual)
     socket.on('authenticate', (token) => {
       try {
-        const user = jwt.verify(token, getJwtSecret());
+        const user = usuarioActivoDesdeToken(token);
         socket.user = user;
         socket.authenticated = true;
         socket.join(`role_${user.rol}`);

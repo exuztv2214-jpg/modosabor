@@ -38,7 +38,7 @@ export default function GlobalOrderAlerts() {
   const printingPedidosRef = useRef(new Set());
 
   useEffect(() => {
-    if (!isAuth || !token) return undefined;
+    if (!isAuth) return undefined;
 
     let released = false;
     let unsubscribe = () => {};
@@ -235,7 +235,7 @@ export default function GlobalOrderAlerts() {
       );
     };
 
-    socketManager.retainAuthenticated(token).catch(() => {});
+    socketManager.retainSession(token).catch(() => {});
     const unsubscribeNuevo = socketManager.on('nuevo_pedido', (pedido) =>
       announceOrder(pedido, 'nuevo_pedido')
     );

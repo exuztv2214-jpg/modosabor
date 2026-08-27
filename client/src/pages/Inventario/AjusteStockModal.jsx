@@ -57,22 +57,17 @@ export default function AjusteStockModal({
 
   return (
     <div
-      role="button"
-      tabIndex={0}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter' || event.key === ' ') event.currentTarget.click();
-      }}
+      role="presentation"
       className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/35 p-4 backdrop-blur-sm"
-      onClick={onCloseMovementModal}
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onCloseMovementModal?.();
+      }}
     >
       <div
-        role="button"
-        tabIndex={0}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter' || event.key === ' ') event.currentTarget.click();
-        }}
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Ajustar stock de ${movementModal.nombre || 'insumo'}`}
         className="w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-2xl"
-        onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-center justify-between gap-4 border-b border-gray-100 px-5 py-4">
           <div className="min-w-0">
@@ -103,7 +98,9 @@ export default function AjusteStockModal({
           <div className="grid grid-cols-3 gap-2">
             <button
               type="button"
-              onClick={() => onSetMovementForm((prev) => ({ ...prev, tipo: 'entrada', motivo: '' }))}
+              onClick={() =>
+                onSetMovementForm((prev) => ({ ...prev, tipo: 'entrada', motivo: '' }))
+              }
               className={`flex h-11 items-center justify-center gap-1.5 rounded-xl border text-[13px] font-semibold transition ${
                 esEntrada
                   ? 'border-emerald-600 bg-emerald-50 text-emerald-700'

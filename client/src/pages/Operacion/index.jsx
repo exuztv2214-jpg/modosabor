@@ -25,6 +25,7 @@ export default function Operacion() {
   const [data, setData] = useState(null);
   const [stock, setStock] = useState({ insumos: [], productos: [] });
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [savingStock, setSavingStock] = useState(false);
 
   /**
@@ -37,12 +38,14 @@ export default function Operacion() {
   const haySinGuardar = stockSucio;
   const puedeEditarStock = hasPermission('productos.edit') && isModuleEnabled('inventario');
   const puedeEditarMenu = hasPermission('productos.edit');
+  const puedeVerFinanzas = hasPermission('dashboard.finanzas');
   const puedeVerCaja = hasPermission('caja.view') && isModuleEnabled('caja');
   const puedeConfigurar = hasPermission('config.manage');
-  const deliveryActivo = isModuleEnabled('delivery');
+  const deliveryActivo = isModuleEnabled('delivery') && hasPermission('delivery.view');
 
   const cargar = async () => {
     setLoading(true);
+    setError('');
     try {
       const resumen = await api.get('/operacion/resumen');
       setData(resumen);
@@ -52,6 +55,7 @@ export default function Operacion() {
       });
       setStockSucio(false);
     } catch {
+      setError('No se pudo cargar la información operativa. Revisá la conexión y reintentá.');
       toast.error('No se pudo cargar el control diario');
     } finally {
       setLoading(false);
@@ -162,6 +166,31 @@ export default function Operacion() {
     );
   }
 
+  if (!data) {
+    return (
+      <div
+        className="flex min-h-[70vh] items-center justify-center px-4"
+        style={{ background: APP_BG }}
+      >
+        <div className="w-full max-w-md rounded-2xl bg-white p-6 text-center shadow-sm">
+          <AlertTriangle size={28} strokeWidth={STROKE} className="mx-auto text-amber-500" />
+          <h1 className="mt-3 text-lg font-semibold text-gray-900">
+            No se pudo abrir Control diario
+          </h1>
+          <p className="mt-1 text-[13px] text-gray-500">{error}</p>
+          <button
+            type="button"
+            onClick={cargar}
+            style={{ background: BRAND }}
+            className="mt-5 h-11 rounded-xl px-5 text-[13px] font-semibold text-white"
+          >
+            Reintentar
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen px-4 py-6 sm:px-6" style={{ background: APP_BG }}>
       <div className="mx-auto max-w-[1400px] space-y-4">
@@ -256,44 +285,52 @@ export default function Operacion() {
         ) : null}
 
         {/* ── Números del día ── */}
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <Stat
-            index={0}
-            label="Ventas de hoy"
-            value={fmt(cierre.totalVentas)}
-            helper={`${cierre.pedidos || 0} pedidos · ticket ${fmt(cierre.ticketPromedio)}`}
-            icon={ShoppingBag}
-            tone={{ bg: '#FEF2F2', fg: BRAND }}
-          />
-          <Stat
-            index={1}
-            label="Efectivo en caja"
-            value={fmt(cierre.efectivo)}
-            helper={`Digitales ${fmt(cierre.digitales)}`}
-            icon={WalletCards}
-            tone={{ bg: '#ECFDF5', fg: '#059669' }}
-          />
-          <Stat
-            index={2}
-            label="Pendiente de cobro"
-            value={fmt(cierre.pendiente)}
-            helper={Number(cierre.pendiente || 0) > 0 ? 'Revisar antes de cerrar' : 'Todo cobrado'}
-            icon={AlertTriangle}
-            tone={
-              Number(cierre.pendiente || 0) > 0
-                ? { bg: '#FEF6E7', fg: '#B45309' }
-                : { bg: '#F3F4F6', fg: '#6B7280' }
-            }
-          />
-          <Stat
-            index={3}
-            label="Ganancia operativa"
-            value={fmt(cierre.gananciaOperativa)}
-            helper={`Gastos ${fmt(cierre.gastos)} · delivery ${fmt(cierre.deliveryDiario)}`}
-            icon={TrendingUp}
-            tone={{ bg: '#EFF6FF', fg: '#2563EB' }}
-          />
-        </div>
+        {puedeVerFinanzas ? (
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <Stat
+              index={0}
+              label="Ventas de hoy"
+              value={fmt(cierre.totalVentas)}
+              helper={`${cierre.pedidos || 0} pedidos · ticket ${fmt(cierre.ticketPromedio)}`}
+              icon={ShoppingBag}
+              tone={{ bg: '#FEF2F2', fg: BRAND }}
+            />
+            <Stat
+              index={1}
+              label="Cobrado en efectivo"
+              value={fmt(cierre.efectivo)}
+              helper={`Digitales ${fmt(cierre.digitales)}`}
+              icon={WalletCards}
+              tone={{ bg: '#ECFDF5', fg: '#059669' }}
+            />
+            <Stat
+              index={2}
+              label="Pendiente de cobro"
+              value={fmt(cierre.pendiente)}
+              helper={
+                Number(cierre.pendiente || 0) > 0 ? 'Revisar antes de cerrar' : 'Todo cobrado'
+              }
+              icon={AlertTriangle}
+              tone={
+                Number(cierre.pendiente || 0) > 0
+                  ? { bg: '#FEF6E7', fg: '#B45309' }
+                  : { bg: '#F3F4F6', fg: '#6B7280' }
+              }
+            />
+            <Stat
+              index={3}
+              label="Resultado operativo"
+              value={fmt(cierre.resultadoOperativo ?? cierre.gananciaOperativa)}
+              helper={
+                Number(cierre.coberturaCostos ?? 100) < 100
+                  ? `No confiable: ${cierre.coberturaCostos}% con costo guardado`
+                  : `Mercadería ${fmt(cierre.costoMercaderia)} · gastos ${fmt(cierre.gastos)} · delivery ${fmt(cierre.deliveryDiario)}${Number(cierre.ingresosExtra || 0) > 0 ? ` · extras +${fmt(cierre.ingresosExtra)}` : ''}`
+              }
+              icon={TrendingUp}
+              tone={{ bg: '#EFF6FF', fg: '#2563EB' }}
+            />
+          </div>
+        ) : null}
 
         <ChecklistPanel puntos={data?.puntos || []} />
 

@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const auth = require('../middleware/auth');
+const authOpcional = require('../middleware/authOpcional');
 const { requirePermission, hasPermission } = require('../utils/permissions');
 const { getConfigMap, createPreference, getPayment } = require('../utils/mercadoPago');
 const { logAudit, actorFromRequest } = require('../utils/audit');
@@ -20,6 +21,7 @@ const { validateBody } = require('../middleware/validate');
 const { createPedidoSchema } = require('../schemas');
 const { centsToPesos } = require('../utils/moneyConversion');
 const { fechaLocal } = require('../utils/fechaLocal');
+const { quoteDelivery } = require('../utils/deliveryZones');
 const {
   emitPedidoActualizado,
   emitDeliveryAssignment,
@@ -748,25 +750,12 @@ router.get('/:id/recorrido', (req, res) => {
   res.json({ puntos });
 });
 
-router.get('/:id', async (req, res) => {
+router.get('/:id', authOpcional, async (req, res) => {
   const pedido = db.prepare('SELECT * FROM pedidos WHERE id = ?').get(req.params.id);
   if (!pedido) return res.status(404).json({ error: 'Pedido no encontrado' });
 
   const trackingToken = req.query.token;
-  const authHeader = req.headers.authorization;
-  let isAuthenticated = false;
-
-  if (authHeader && authHeader.startsWith('Bearer ')) {
-    const jwt = require('jsonwebtoken');
-    const { getJwtSecret } = require('../utils/authConfig');
-    try {
-      const token = authHeader.split(' ')[1];
-      jwt.verify(token, getJwtSecret());
-      isAuthenticated = true;
-    } catch (_err) {
-      isAuthenticated = false;
-    }
-  }
+  const puedeVerPedidoCompleto = hasPermission(req.user, 'pedidos.view');
 
   let isTrackingValid = false;
   if (trackingToken) {
@@ -776,7 +765,7 @@ router.get('/:id', async (req, res) => {
     }
   }
 
-  if (!isAuthenticated && !isTrackingValid) {
+  if (!puedeVerPedidoCompleto && !isTrackingValid) {
     return res.json({
       id: pedido.id,
       numero: pedido.numero,
@@ -788,7 +777,7 @@ router.get('/:id', async (req, res) => {
 
   const hydrated = hydratePedido(pedido);
 
-  if (!isAuthenticated && isTrackingValid) {
+  if (!puedeVerPedidoCompleto && isTrackingValid) {
     return res.json(buildTrackingPayload(hydrated));
   }
 
@@ -1093,8 +1082,35 @@ router.put('/:id/pago', auth, requirePermission('pedidos.edit'), (req, res) => {
     pedido.propina = propina;
   }
 
-  const detalle = String(req.body?.detalle || '').trim();
-  const updated = hydratePedido(updatePedidoPaymentStatus(pedido, nextPagoEstado, { detalle }));
+  const notaPago = String(req.body?.detalle || '').trim();
+  let detallePago = null;
+  try {
+    const parsed = JSON.parse(pedido.pago_detalle || '{}');
+    detallePago = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    detallePago = {};
+  }
+
+  const pagosPrevios = getPagosParciales(pedido);
+  if (nextPagoEstado === 'pagado' && pagosPrevios.length > 0) {
+    const cobrado = pagosPrevios.reduce((total, pago) => total + Number(pago.monto || 0), 0);
+    const restante = Math.max(0, Number(pedido.total || 0) - cobrado);
+    if (restante > 0) {
+      detallePago.split_payments = [
+        ...(Array.isArray(detallePago.split_payments) ? detallePago.split_payments : []),
+        {
+          metodo: nextMetodoPago,
+          monto: restante,
+          creado_en: new Date().toISOString(),
+        },
+      ];
+    }
+  }
+  if (notaPago) detallePago.nota = notaPago;
+  const detalleSerializado = pagosPrevios.length > 0 || notaPago ? JSON.stringify(detallePago) : '';
+  const updated = hydratePedido(
+    updatePedidoPaymentStatus(pedido, nextPagoEstado, { detalle: detalleSerializado })
+  );
   const actor = actorFromRequest(req);
   logAudit(db, {
     modulo: 'pagos',
@@ -1108,7 +1124,7 @@ router.put('/:id/pago', auth, requirePermission('pedidos.edit'), (req, res) => {
       metodo_pago: updated.metodo_pago,
       desde: normalizePagoEstado(pedido.pago_estado, { metodoPago, origen: pedido.origen }),
       hacia: updated.pago_estado,
-      nota: detalle,
+      nota: notaPago,
       // Queda en la auditoría: la propina es plata que entra al cajón y
       // después se reparte. Tiene que poder reconstruirse quién la cargó.
       ...(propina === null ? {} : { propina }),
@@ -1506,7 +1522,7 @@ router.put('/:id/estado', auth, async (req, res) => {
       SET estado = ?,
           pago_estado = CASE WHEN ? THEN 'pagado' ELSE pago_estado END,
           pago_detalle = CASE
-            WHEN ? AND TRIM(COALESCE(pago_detalle, '')) = '' THEN 'Cobrado al entregar'
+            WHEN ? AND TRIM(COALESCE(pago_detalle, '')) = '' THEN '{"nota":"Cobrado al entregar"}'
             ELSE pago_detalle
           END,
           actualizado_en = CURRENT_TIMESTAMP
@@ -1668,6 +1684,42 @@ router.put('/:id', auth, requirePermission('pedidos.edit'), (req, res) => {
   } = req.body;
   const existing = getPedidoOr404(req.params.id, res);
   if (!existing) return;
+  const nextTipoEntrega = tipo_entrega ?? existing.tipo_entrega;
+  if (!['delivery', 'retiro', 'mesa'].includes(String(nextTipoEntrega))) {
+    return res.status(400).json({ error: 'La forma de entrega no es válida' });
+  }
+  const nextClienteNombre = cliente_nombre ?? existing.cliente_nombre ?? '';
+  const nextClienteTelefono = cliente_telefono ?? existing.cliente_telefono ?? '';
+  const nextClienteDireccion = cliente_direccion ?? existing.cliente_direccion ?? '';
+  const nextMesa = nextTipoEntrega === 'mesa' ? (mesa ?? existing.mesa ?? '') : '';
+  if (nextTipoEntrega === 'mesa' && !String(nextMesa).trim()) {
+    return res.status(400).json({ error: 'Indicá la mesa del pedido' });
+  }
+  if (nextTipoEntrega === 'delivery' && !String(nextClienteDireccion).trim()) {
+    return res.status(400).json({ error: 'Indicá la dirección del delivery' });
+  }
+
+  let nextCostoEnvio = Number(existing.costo_envio || 0);
+  let nextDeliveryZona = existing.delivery_zona || '';
+  let nextTiempoEstimado = Number(existing.tiempo_estimado_min || 0);
+  if (nextTipoEntrega === 'delivery') {
+    const quote = quoteDelivery(getConfigMap(db), nextClienteDireccion);
+    if (!quote.available) {
+      return res.status(400).json({ error: quote.message || 'La dirección no tiene delivery' });
+    }
+    nextCostoEnvio = Number(quote.costo_envio || 0);
+    nextDeliveryZona = quote.zone_name || '';
+    nextTiempoEstimado = Number(quote.tiempo_estimado_min || 0);
+  } else {
+    nextCostoEnvio = 0;
+    nextDeliveryZona = '';
+  }
+
+  const nextDescuento = descuento ?? existing.descuento ?? 0;
+  const nextTotal = Math.max(
+    0,
+    Number(existing.subtotal || 0) + nextCostoEnvio - Number(nextDescuento || 0)
+  );
   const nextMetodoPago = normalizeMetodoPago(metodo_pago ?? existing.metodo_pago);
   const nextPagoEstado = normalizePagoEstado(existing.pago_estado, {
     metodoPago: nextMetodoPago,
@@ -1687,20 +1739,28 @@ router.put('/:id', auth, requirePermission('pedidos.edit'), (req, res) => {
         mesa=?,
         hora_entrega=?,
         descuento=?,
+        costo_envio=?,
+        total=?,
+        delivery_zona=?,
+        tiempo_estimado_min=?,
         actualizado_en=CURRENT_TIMESTAMP
     WHERE id=?
   `
   ).run(
-    cliente_nombre,
-    cliente_telefono,
-    cliente_direccion,
-    notas,
+    nextClienteNombre,
+    nextClienteTelefono,
+    nextClienteDireccion,
+    notas ?? existing.notas ?? '',
     nextMetodoPago,
     nextPagoEstado,
-    tipo_entrega,
-    mesa,
+    nextTipoEntrega,
+    nextMesa,
     hora_entrega ?? existing.hora_entrega ?? '',
-    descuento,
+    nextDescuento,
+    nextCostoEnvio,
+    nextTotal,
+    nextDeliveryZona,
+    nextTiempoEstimado,
     req.params.id
   );
 
@@ -1715,6 +1775,8 @@ router.put('/:id', auth, requirePermission('pedidos.edit'), (req, res) => {
     actor_nombre: actor.actor_nombre,
     detalle: { numero: updated.numero },
   });
+  const io = req.app.get('io');
+  if (io) emitPedidoActualizado(io, updated);
   res.json(updated);
 });
 

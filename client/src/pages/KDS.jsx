@@ -76,10 +76,26 @@ function minutosDesde(fecha) {
  * veía una alarma por algo que no tenía que hacer todavía. Con el tablero
  * lleno de rojo falso, el rojo deja de significar algo.
  */
+function minutosRespectoHoraEntrega(pedido) {
+  const match = String(pedido?.hora_entrega || '').match(/^(\d{1,2}):(\d{2})/);
+  const creado = parseFechaServidor(pedido?.creado_en);
+  if (!match || !(creado instanceof Date) || Number.isNaN(creado.getTime())) return null;
+
+  const programado = new Date(creado);
+  programado.setHours(Number(match[1]), Number(match[2]), 0, 0);
+  // Los pedidos nocturnos pueden cargarse antes de medianoche para una hora
+  // de entrega de la madrugada siguiente.
+  if (programado.getTime() < creado.getTime() - 6 * 60 * 60 * 1000) {
+    programado.setDate(programado.getDate() + 1);
+  }
+  return Math.floor((Date.now() - programado.getTime()) / 60000);
+}
+
 function urgencia(pedido) {
   if (pedido.estado === 'listo') return 'ok';
-  if (pedido.hora_entrega) return 'programado';
-  const mins = minutosDesde(pedido.creado_en);
+  const respectoEntrega = minutosRespectoHoraEntrega(pedido);
+  if (respectoEntrega !== null && respectoEntrega < 0) return 'programado';
+  const mins = respectoEntrega ?? minutosDesde(pedido.creado_en);
   if (mins >= 35) return 'urgente';
   if (mins >= 20) return 'demorado';
   return 'ok';
@@ -94,7 +110,8 @@ const TONOS_URGENCIA = {
 
 function PedidoKitchenCard({ pedido, onEstado, updatingId, canAct, onOpciones }) {
   const items = useMemo(() => normalizePedidoItems(pedido.items), [pedido.items]);
-  const mins = minutosDesde(pedido.creado_en);
+  const respectoEntrega = minutosRespectoHoraEntrega(pedido);
+  const mins = respectoEntrega ?? minutosDesde(pedido.creado_en);
   const nivel = urgencia(pedido);
   const tono = TONOS_URGENCIA[nivel];
   const trabajando = updatingId === pedido.id;
@@ -136,7 +153,9 @@ function PedidoKitchenCard({ pedido, onEstado, updatingId, canAct, onOpciones })
             style={{ color: tono.texto }}
           >
             <Timer size={14} strokeWidth={STROKE} />
-            {mins}m
+            {respectoEntrega !== null && respectoEntrega < 0
+              ? `en ${Math.abs(respectoEntrega)}m`
+              : `${Math.max(0, mins)}m`}
           </span>
           {nivel === 'demorado' || nivel === 'urgente' ? (
             <span className="text-[11px] font-medium" style={{ color: tono.texto }}>
@@ -244,7 +263,7 @@ function PedidoKitchenCard({ pedido, onEstado, updatingId, canAct, onOpciones })
 }
 
 export default function KDS() {
-  const { hasPermission } = useAuth();
+  const { hasPermission, isAuth, token } = useAuth();
   const { config } = useAppConfig();
   const [pedidos, setPedidos] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -293,7 +312,11 @@ export default function KDS() {
     cargar();
     const timer = setInterval(() => forceTick((n) => n + 1), 15000);
 
-    socketManager.connect();
+    if (isAuth && token) {
+      socketManager.retainAuthenticated(token).catch(() => socketManager.connect());
+    } else {
+      socketManager.connect();
+    }
     const unsubscribeNuevo = socketManager.on('nuevo_pedido', (pedido) => {
       if (!ESTADOS_COCINA.includes(pedido.estado)) return;
       setPedidos((prev) => [pedido, ...prev.filter((item) => item.id !== pedido.id)]);
@@ -324,10 +347,11 @@ export default function KDS() {
       clearInterval(timer);
       unsubscribeNuevo();
       unsubscribeUpdate();
-      socketManager.disconnect();
+      if (isAuth && token) socketManager.releaseAuthenticated();
+      else socketManager.disconnect();
       document.removeEventListener('fullscreenchange', onFullscreenChange);
     };
-  }, [audioContextRef, cargar, fallbackAudioRef, voiceRef]);
+  }, [audioContextRef, cargar, fallbackAudioRef, isAuth, token, voiceRef]);
 
   const cambiarEstado = async (id, estado) => {
     setUpdatingId(id);
@@ -378,23 +402,18 @@ export default function KDS() {
     <div className="py-6">
       {opcionesModal && (
         <div
-          role="button"
-          tabIndex={0}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' || event.key === ' ') event.currentTarget.click();
-          }}
+          role="presentation"
           className="fixed inset-0 flex items-end justify-center bg-gray-900/40 p-4 backdrop-blur-sm sm:items-center"
           style={{ zIndex: Z.modal }}
-          onClick={() => setOpcionesModal(null)}
+          onClick={(event) => {
+            if (event.target === event.currentTarget) setOpcionesModal(null);
+          }}
         >
           <div
-            role="button"
-            tabIndex={0}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' || event.key === ' ') event.currentTarget.click();
-            }}
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Opciones del pedido ${opcionesModal.numero}`}
             className="w-full max-w-xs overflow-hidden rounded-2xl bg-white shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
           >
             <div className="border-b border-gray-100 px-5 py-4">
               <p className="text-[16px] font-semibold text-gray-900">
@@ -405,22 +424,6 @@ export default function KDS() {
               </p>
             </div>
             <div className="space-y-0.5 p-2">
-              {COLUMNAS.map(({ estado, label, icon: Icon }) => (
-                <button
-                  key={estado}
-                  type="button"
-                  onClick={() => {
-                    cambiarEstado(opcionesModal.id, estado);
-                    setOpcionesModal(null);
-                  }}
-                  disabled={opcionesModal.estado === estado}
-                  className="flex w-full items-center gap-3 rounded-xl px-3.5 py-3 text-[14px] font-medium text-gray-700 transition hover:bg-gray-50 disabled:opacity-40"
-                >
-                  <Icon size={17} strokeWidth={STROKE} className="text-gray-400" />
-                  Mover a {label.toLowerCase()}
-                </button>
-              ))}
-              <div className="my-1 border-t border-gray-100" />
               <button
                 type="button"
                 onClick={() => setCancelDialogId(opcionesModal.id)}
@@ -595,7 +598,7 @@ export default function KDS() {
       <ActionDialog
         open={Boolean(cancelDialogId)}
         title="¿Anular este pedido?"
-        description="Sale del flujo de cocina y queda cancelado. Si ya se empezó a preparar, la mercadería no se recupera."
+        description="Sale del flujo de cocina, queda cancelado y el sistema repone el stock descontado por el pedido."
         confirmLabel="Anular pedido"
         cancelLabel="Volver"
         tone="danger"

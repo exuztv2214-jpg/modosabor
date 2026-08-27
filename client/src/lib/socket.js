@@ -175,6 +175,20 @@ class SocketManager {
     return this.connectAuthenticated(token);
   }
 
+  /**
+   * Retiene la conexión del panel usando la sesión disponible.
+   *
+   * El panel web se autentica con una cookie httpOnly, por lo que React no
+   * puede ni debe leer el JWT. Las apps nativas todavía pueden pasar un token
+   * explícito. Este método soporta ambos caminos sin obligar a los
+   * consumidores a conocer cómo inició sesión el usuario.
+   */
+  retainSession(token = null) {
+    this.persistentConnections += 1;
+    if (token) return this.connectAuthenticated(token);
+    return Promise.resolve(this.connect());
+  }
+
   releaseAuthenticated() {
     this.persistentConnections = Math.max(0, this.persistentConnections - 1);
     if (this.persistentConnections === 0) {

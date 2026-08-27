@@ -302,7 +302,7 @@ export default function Pedidos() {
 
     const unsubscribeNuevo = socketManager.on('nuevo_pedido', (p) => {
       const remoteOrder = ['web', 'whatsapp'].includes(String(p.origen || '').toLowerCase());
-      setPedidos((prev) => [p, ...prev]);
+      setPedidos((prev) => [p, ...prev.filter((pedido) => pedido.id !== p.id)]);
       if (claimAlertKey(`nuevo:${p.id}`)) {
         runOrderAlert({
           pedido: p,
@@ -500,7 +500,7 @@ export default function Pedidos() {
     try {
       const result = await api.post(`/pedidos/${pedidoId}/pago/mercadopago/sync`);
       if (result?.pedido) {
-        setPedidos((prev) => prev.map((p) => (p.id === pedidoId ? result.pedido : p)));
+        aplicarPedidoActualizado(result.pedido);
       }
       toast.success(result?.message || 'Pago sincronizado');
     } catch (error) {
@@ -566,12 +566,6 @@ export default function Pedidos() {
       });
       aplicarPedidoActualizado(actualizado);
       toast.success('Forma de entrega actualizada');
-      if (nuevoTipo === 'delivery' && !Number(actualizado?.envio || 0)) {
-        toast('Revisá el costo de envío: no se recalcula solo al cambiar el tipo', {
-          icon: '⚠️',
-          duration: 5000,
-        });
-      }
     } catch (error) {
       toast.error(error?.error || 'No se pudo cambiar la forma de entrega');
     } finally {
@@ -605,7 +599,7 @@ export default function Pedidos() {
     setSyncingPaymentKey(pedidoId);
     try {
       const result = await api.put(`/pedidos/${pedidoId}/pago`, { pago_estado: pagoEstado });
-      setPedidos((prev) => prev.map((p) => (p.id === pedidoId ? result : p)));
+      aplicarPedidoActualizado(result);
       toast.success(pagoEstado === 'pagado' ? 'Cobro registrado' : 'Estado de pago actualizado');
     } catch (error) {
       toast.error(error?.error || 'No se pudo actualizar el cobro');

@@ -102,6 +102,32 @@ function run() {
   );
   console.log('  ✓ el aviso está montado en todo el panel, también en el TPV');
 
+  // El login web usa una cookie httpOnly: por diseño React no recibe el JWT.
+  // Exigir `token` acá deja sin listeners a todo el panel aunque la sesión sea
+  // válida. El socket debe retener la sesión por cookie y aceptar token sólo
+  // como compatibilidad con clientes nativos.
+  const alertasGlobales = sinComentarios(leerCliente('components/GlobalOrderAlerts.jsx'));
+  const hookSocket = sinComentarios(leerCliente('hooks/useAuthenticatedSocket.js'));
+  assert.ok(!/!isAuth\s*\|\|\s*!token/.test(alertasGlobales));
+  assert.ok(!/!isAuth\s*\|\|\s*!token/.test(hookSocket));
+  assert.ok(/retainSession\(token\)/.test(alertasGlobales));
+  assert.ok(/retainSession\(token\)/.test(hookSocket));
+  console.log('  ✓ la cookie del panel activa alarmas, Caja y Delivery sin exponer el JWT');
+
+  const socketServidor = sinComentarios(
+    fs.readFileSync(path.join(__dirname, '..', '..', 'utils', 'socketRooms.js'), 'utf8')
+  );
+  assert.ok(
+    /function usuarioActivoDesdeToken/.test(socketServidor) &&
+      (socketServidor.match(/usuarioActivoDesdeToken\(/g) || []).length >= 3,
+    'el socket dejó de revalidar contra la base a usuarios y roles'
+  );
+  assert.ok(
+    /datetime\('now', '-7 days'\)/.test(socketServidor),
+    'el token persistido de seguimiento dejó de vencer a los siete días'
+  );
+  console.log('  ✓ usuarios desactivados y enlaces vencidos no conservan acceso al socket');
+
   // ── 4. La IA no confirma pedidos que no existen ───────────────────────────
   const gateway = sinComentarios(
     fs.readFileSync(path.join(__dirname, '..', '..', 'services', 'whatsappGateway.js'), 'utf8')

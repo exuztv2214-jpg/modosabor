@@ -31,7 +31,12 @@ const { centsToPesos } = require('../../utils/moneyConversion');
   prefijo en index.js y no acá, el segundo test empieza a fallar, que es
   justamente lo que se quiere.
 */
-const RUTAS_SIN_CONVERSION = ['/api/tpv/espera', '/api/whatsapp'];
+const RUTAS_SIN_CONVERSION = [
+  '/api/tpv/espera',
+  '/api/whatsapp',
+  '/api/social',
+  '/api/social-worker',
+];
 const seSalta = (ruta) => RUTAS_SIN_CONVERSION.some((p) => ruta.startsWith(p));
 
 module.exports = {
@@ -60,6 +65,12 @@ module.exports = {
     assert.strictEqual(seSalta('/api/whatsapp/estado'), true);
     assert.strictEqual(seSalta('/api/whatsapp/contactos'), true);
     assert.strictEqual(seSalta('/api/whatsapp/salud-numero'), true);
+  },
+
+  'las cantidades de Social quedan fuera del conversor': () => {
+    assert.strictEqual(seSalta('/api/social/campanas'), true);
+    assert.strictEqual(seSalta('/api/social/metricas'), true);
+    assert.strictEqual(seSalta('/api/social-worker/claim'), true);
   },
 
   'las rutas con plata siguen adentro': () => {

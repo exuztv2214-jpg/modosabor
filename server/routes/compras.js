@@ -4,7 +4,8 @@ const db = require('../db');
 const auth = require('../middleware/auth');
 const { requirePermission } = require('../utils/permissions');
 const { logAudit, actorFromRequest } = require('../utils/audit');
-const { insertInventoryMovement, roundStock } = require('../utils/inventory');
+const { insertInventoryMovement } = require('../utils/inventory');
+const { getActiveCaja } = require('../utils/operationalCaja');
 
 router.get('/', auth, requirePermission('productos.edit'), (req, res) => {
   const compras = db
@@ -42,9 +43,52 @@ router.get('/:id', auth, requirePermission('productos.edit'), (req, res) => {
  * convertidos por el middleware; quien la llame desde adentro tiene que
  * convertirlos por su cuenta.
  */
-function registrarCompra({ proveedor, total, metodo_pago, referencia_pago, notas, items }, actor) {
+function registrarCompra({ proveedor, metodo_pago, referencia_pago, notas, items }, actor) {
   if (!items || !Array.isArray(items) || items.length === 0) {
     throw new Error('Debes incluir al menos un insumo en la compra');
+  }
+
+  const metodoPago = String(metodo_pago || 'efectivo')
+    .trim()
+    .toLowerCase();
+  if (!['efectivo', 'transferencia', 'cuenta_corriente'].includes(metodoPago)) {
+    throw new Error('El método de pago de la compra no es válido');
+  }
+  const normalizedItems = items.map((item) => ({
+    insumo_id: Number(item?.insumo_id),
+    cantidad: Number(item?.cantidad),
+    costo_unitario: Number(item?.costo_unitario),
+  }));
+  const invalid = normalizedItems.find(
+    (item) =>
+      !Number.isInteger(item.insumo_id) ||
+      item.insumo_id <= 0 ||
+      !Number.isFinite(item.cantidad) ||
+      item.cantidad <= 0 ||
+      !Number.isFinite(item.costo_unitario) ||
+      item.costo_unitario < 0
+  );
+  if (invalid) throw new Error('Hay insumos, cantidades o costos inválidos');
+
+  const uniqueIds = new Set(normalizedItems.map((item) => item.insumo_id));
+  if (uniqueIds.size !== normalizedItems.length) {
+    throw new Error('Un mismo insumo no puede aparecer dos veces en la compra');
+  }
+  const placeholders = [...uniqueIds].map(() => '?').join(',');
+  const existingCount = db
+    .prepare(`SELECT COUNT(*) AS total FROM inventario_insumos WHERE id IN (${placeholders})`)
+    .get(...uniqueIds).total;
+  if (Number(existingCount) !== uniqueIds.size) {
+    throw new Error('Uno de los insumos ya no existe');
+  }
+
+  const totalCalculado = normalizedItems.reduce(
+    (sum, item) => sum + Math.round(item.cantidad * item.costo_unitario),
+    0
+  );
+  const cajaActiva = metodoPago === 'efectivo' ? getActiveCaja(db) : null;
+  if (metodoPago === 'efectivo' && !cajaActiva) {
+    throw new Error('Debes abrir la caja antes de pagar una compra en efectivo');
   }
 
   db.exec('BEGIN');
@@ -59,8 +103,8 @@ function registrarCompra({ proveedor, total, metodo_pago, referencia_pago, notas
       )
       .run(
         proveedor || '',
-        Number(total || 0),
-        metodo_pago || 'efectivo',
+        totalCalculado,
+        metodoPago,
         referencia_pago || '',
         notas || '',
         actor.actor_id,
@@ -75,10 +119,10 @@ function registrarCompra({ proveedor, total, metodo_pago, referencia_pago, notas
       VALUES (?, ?, ?, ?, ?)
     `);
 
-    items.forEach((item) => {
+    normalizedItems.forEach((item) => {
       const cantidad = Number(item.cantidad || 0);
       const costo = Number(item.costo_unitario || 0);
-      const subtotal = roundStock(cantidad * costo);
+      const subtotal = Math.round(cantidad * costo);
 
       insItem.run(compraId, item.insumo_id, cantidad, costo, subtotal);
 
@@ -104,6 +148,20 @@ function registrarCompra({ proveedor, total, metodo_pago, referencia_pago, notas
       });
     });
 
+    if (metodoPago === 'efectivo') {
+      db.prepare(
+        `INSERT INTO caja_movimientos
+          (cierre_id, tipo, monto, motivo, actor_id, actor_nombre)
+         VALUES (?, 'salida', ?, ?, ?, ?)`
+      ).run(
+        cajaActiva.id,
+        totalCalculado,
+        `Compra de insumos #${compraId}${proveedor ? ` - ${proveedor}` : ''}`,
+        actor.actor_id,
+        actor.actor_nombre
+      );
+    }
+
     db.exec('COMMIT');
 
     logAudit(db, {
@@ -113,7 +171,7 @@ function registrarCompra({ proveedor, total, metodo_pago, referencia_pago, notas
       entidad_id: compraId,
       actor_id: actor.actor_id,
       actor_nombre: actor.actor_nombre,
-      detalle: { proveedor, total, items_count: items.length },
+      detalle: { proveedor, total: totalCalculado, items_count: normalizedItems.length },
     });
 
     return compraId;
@@ -128,7 +186,10 @@ router.post('/', auth, requirePermission('productos.edit'), (req, res) => {
     const compraId = registrarCompra(req.body || {}, actorFromRequest(req));
     res.json({ id: compraId, success: true });
   } catch (error) {
-    const esDeValidacion = /al menos un insumo/i.test(String(error.message || ''));
+    const esDeValidacion =
+      /al menos un insumo|método de pago|inválid|no puede aparecer|ya no existe|abrir la caja/i.test(
+        String(error.message || '')
+      );
     res.status(esDeValidacion ? 400 : 500).json({ error: error.message });
   }
 });

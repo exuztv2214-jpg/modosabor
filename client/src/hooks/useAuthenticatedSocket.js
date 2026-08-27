@@ -16,17 +16,17 @@ export function useAuthenticatedSocket(events = {}) {
   eventsRef.current = events;
 
   useEffect(() => {
-    if (!isAuth || !token) return;
+    if (!isAuth) return undefined;
 
     let mounted = true;
 
     const connect = async () => {
       try {
-        await socketManager.connectAuthenticated(token);
+        await socketManager.retainSession(token);
         if (!mounted) return;
 
-        setConnected(true);
-        setAuthenticated(true);
+        setConnected(socketManager.isConnected());
+        setAuthenticated(socketManager.isAuthenticated());
 
         // Registrar listeners de eventos
         Object.keys(eventsRef.current).forEach((event) => {
@@ -37,12 +37,18 @@ export function useAuthenticatedSocket(events = {}) {
         });
 
         const handleConnect = () => setConnected(true);
-        const handleDisconnect = () => setConnected(false);
+        const handleDisconnect = () => {
+          setConnected(false);
+          setAuthenticated(false);
+        };
+        const handleAuthenticated = (response) => setAuthenticated(Boolean(response?.success));
         socketManager.socket?.on('connect', handleConnect);
         socketManager.socket?.on('disconnect', handleDisconnect);
+        socketManager.socket?.on('authenticated', handleAuthenticated);
         unsubscribersRef.current.push(() => {
           socketManager.socket?.off('connect', handleConnect);
           socketManager.socket?.off('disconnect', handleDisconnect);
+          socketManager.socket?.off('authenticated', handleAuthenticated);
         });
       } catch (error) {
         console.error('Error conectando socket:', error);
@@ -58,7 +64,7 @@ export function useAuthenticatedSocket(events = {}) {
       // Limpiar todos los listeners registrados
       unsubscribersRef.current.forEach((unsubscribe) => unsubscribe());
       unsubscribersRef.current = [];
-      socketManager.disconnect();
+      socketManager.releaseAuthenticated();
       setConnected(false);
       setAuthenticated(false);
     };

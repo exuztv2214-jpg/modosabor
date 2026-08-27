@@ -352,6 +352,7 @@ function runMigrations(db) {
       creado_en DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
+  ensureColumn(db, 'cliente_cuenta_movimientos', 'metodo_pago', "TEXT DEFAULT 'efectivo'");
   db.exec(
     'CREATE INDEX IF NOT EXISTS idx_cuenta_mov_cliente ON cliente_cuenta_movimientos(cliente_id)'
   );
@@ -1330,6 +1331,7 @@ function runMigrations(db) {
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_wa_respuestas_mensaje_id ON wa_respuestas(mensaje_id) WHERE mensaje_id <> ''"
   );
   migrateMoneyColumns(db);
+  corregirPorcentajesDeCupones(db);
   migrarUmbralesDeNivel(db);
   migrarPuntosInflados(db);
   // Va después de `db.exec(tableStatements)` en db/index.js, así que
@@ -1570,7 +1572,6 @@ function migrateMoneyColumns(db) {
     { table: 'cierres_caja', column: 'efectivo_esperado' },
     { table: 'cierres_caja', column: 'diferencia' },
     { table: 'caja_movimientos', column: 'monto' },
-    { table: 'cupones', column: 'valor_descuento' },
     { table: 'cupones', column: 'minimo_compra' },
     { table: 'cupones', column: 'descuento_maximo' },
     { table: 'cupones_usados', column: 'monto_descuento' },
@@ -1627,6 +1628,31 @@ function migrateMoneyColumns(db) {
       logger.error(`Error migrando ${table}.${column}`, { message: e.message });
     }
   }
+}
+
+/**
+ * `valor_descuento` no es siempre plata: en cupones porcentuales es 10, 20,
+ * etc. La migración inicial de dinero lo multiplicó por 100 junto con los
+ * montos fijos. Se revierten sólo valores imposibles (>100): así no se toca
+ * un porcentaje que ya estuviera bien guardado en una instalación nueva.
+ * Los cupones fijos permanecen en centavos.
+ */
+function corregirPorcentajesDeCupones(db) {
+  const marca = 'migracion_cupon_porcentaje_unidad_v1';
+  if (db.prepare('SELECT valor FROM configuracion WHERE clave = ?').get(marca)?.valor === '1') {
+    return;
+  }
+
+  db.transaction(() => {
+    db.prepare(
+      "UPDATE cupones SET valor_descuento = valor_descuento / 100.0 WHERE tipo_descuento = 'porcentaje' AND valor_descuento > 100"
+    ).run();
+    db.prepare(
+      `INSERT INTO configuracion (clave, valor) VALUES (?, '1')
+       ON CONFLICT(clave) DO UPDATE SET valor = excluded.valor`
+    ).run(marca);
+  })();
+  logger.info('Porcentajes de cupones normalizados; los montos fijos siguen en centavos');
 }
 
 /**

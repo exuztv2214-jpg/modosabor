@@ -25,7 +25,10 @@ const ROLES = [
 const PERMISSION_GROUPS = [
   {
     grupo: 'Dashboard',
-    permisos: [{ key: 'dashboard.view', label: 'Ver dashboard' }],
+    permisos: [
+      { key: 'dashboard.view', label: 'Ver dashboard operativo' },
+      { key: 'dashboard.finanzas', label: 'Ver ventas, margen y clientes' },
+    ],
   },
   {
     grupo: 'Pedidos',
@@ -360,23 +363,18 @@ export default function Usuarios() {
       {/* Modal Form */}
       {modal && (
         <div
-          role="button"
-          tabIndex={0}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' || event.key === ' ') event.currentTarget.click();
-          }}
+          role="presentation"
           className="fixed inset-0 flex items-center justify-center bg-[#2A3547]/40 p-4 backdrop-blur-sm"
           style={{ zIndex: Z.modal }}
-          onClick={() => setModal(null)}
+          onClick={(event) => {
+            if (event.target === event.currentTarget) setModal(null);
+          }}
         >
           <div
-            role="button"
-            tabIndex={0}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' || event.key === ' ') event.currentTarget.click();
-            }}
+            role="dialog"
+            aria-modal="true"
+            aria-label={modal === 'nuevo' ? 'Crear usuario' : 'Editar usuario'}
             className="w-full max-w-xl rounded-2xl bg-white shadow-2xl animate-in zoom-in-95 duration-200"
-            onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between border-b border-gray-100 p-6">
               <div className="flex items-center gap-2">

@@ -77,15 +77,17 @@ export default function useProductos() {
 
   /** Guarda qué listas lleva el plato. Va aparte del producto, en JSON. */
   const guardarListasDelProducto = async (productoId) => {
-    if (!productoId) return;
+    if (!productoId) return false;
     try {
       await api.put(`/opcion-listas/producto/${productoId}`, {
         listas: listasElegidas,
       });
+      return true;
     } catch (error) {
       // El producto ya se guardó bien; lo que falló es la asignación. Decirlo
       // aparte evita que alguien crea que se perdió el plato entero.
       toast.error(error?.error || 'El plato se guardó, pero no se pudieron asignar las listas');
+      return false;
     }
   };
 
@@ -547,11 +549,22 @@ export default function useProductos() {
 
       if (modal === 'nuevo') {
         const creado = await api.post('/productos', payload);
-        await guardarListasDelProducto(creado?.id);
+        const listasGuardadas = await guardarListasDelProducto(creado?.id);
+        if (!listasGuardadas) {
+          // El producto ya existe: el próximo intento debe editarlo, no crear
+          // un duplicado con el mismo nombre.
+          setModal(creado);
+          await cargar();
+          return;
+        }
         toast.success('Producto creado');
       } else {
         await api.put(`/productos/${modal.id}`, payload);
-        await guardarListasDelProducto(modal.id);
+        const listasGuardadas = await guardarListasDelProducto(modal.id);
+        if (!listasGuardadas) {
+          await cargar();
+          return;
+        }
         toast.success('Producto actualizado');
       }
 

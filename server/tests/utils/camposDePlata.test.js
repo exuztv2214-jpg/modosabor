@@ -49,6 +49,7 @@ function testLosCamposDePlata() {
     'ventas_atribuidas',
     'sueldo_nuevo',
     'sueldo_anterior',
+    'resultadoOperativo',
   ];
 
   plata.forEach((clave) => {
@@ -86,6 +87,8 @@ function testLoQueNoEsPlata() {
     ['total_liquidaciones', 'cantidad de liquidaciones, no plata'],
     // Ya convertido en el origen
     ['ventas_pesos', 'ya viene en pesos: convertirlo lo dividiría dos veces'],
+    ['coberturaCostos', 'un porcentaje de cobertura, no un costo'],
+    ['valor_descuento', 'puede ser porcentaje; la ruta de cupones decide según el tipo'],
   ];
 
   noEsPlata.forEach(([clave, porque]) => {

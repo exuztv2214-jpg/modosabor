@@ -72,6 +72,7 @@ const MONEY_KEYS = new Set([
   'ingresosExtra',
   'deliveryDiario',
   'gananciaOperativa',
+  'resultadoOperativo',
   /*
     ── Repartidores ──
 
@@ -109,6 +110,10 @@ const MONEY_KEYS = new Set([
 ]);
 
 const EXCLUDED_KEYS = new Set([
+  // En cupones este campo puede ser un porcentaje o un monto fijo. La ruta
+  // conoce `tipo_descuento` y hace la conversión condicional; este conversor
+  // genérico no puede decidirlo mirando solamente el nombre de la clave.
+  'valor_descuento',
   'puntos_disponibles',
   'puntos_reconocimiento',
   'total_clientes',
@@ -126,6 +131,9 @@ const EXCLUDED_KEYS = new Set([
   // no plata. El nombre contiene "total" y el conversor lo agarra por patron.
   // Sin excluirlo, alguien con 3 liquidaciones sale como 0,03.
   'total_liquidaciones',
+  // Porcentaje del Control diario. Aunque el nombre contiene "costo", no es
+  // plata y no debe dividirse por cien al responder.
+  'coberturaCostos',
 ]);
 
 /**
@@ -153,7 +161,7 @@ const EXCLUDED_KEYS = new Set([
  * igual que `productos.precio` y que lo que ya asume `preciosServidor`; estas
  * dos columnas entran al conversor como cualquier otro campo.
  */
-const JSON_MONEY_COLUMNS = new Set(['variantes', 'extras']);
+const JSON_MONEY_COLUMNS = new Set(['variantes', 'extras', 'pago_detalle']);
 
 /**
  * Aplica `convert` adentro de una columna JSON y la devuelve como texto.

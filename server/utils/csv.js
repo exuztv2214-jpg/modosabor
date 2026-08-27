@@ -44,7 +44,11 @@ function parseCsv(text) {
 }
 
 function escapeCsv(value) {
-  const text = value === null || value === undefined ? '' : String(value);
+  let text = value === null || value === undefined ? '' : String(value);
+  // Excel y otras planillas ejecutan como fórmula una celda que empieza con
+  // =, +, - o @. Los nombres/notas vienen de clientes y no deben convertirse
+  // en comandos al abrir una exportación. Los números reales se conservan.
+  if (typeof value !== 'number' && /^[=+\-@\t\r]/.test(text)) text = `'${text}`;
   return /[;"\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 

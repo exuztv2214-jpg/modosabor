@@ -49,22 +49,17 @@ export default function ProductoDetailModal({ detalle, onClose, onEdit }) {
 
   return (
     <div
-      role="button"
-      tabIndex={0}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter' || event.key === ' ') event.currentTarget.click();
-      }}
+      role="presentation"
       className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/35 p-4 backdrop-blur-sm"
-      onClick={onClose}
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose?.();
+      }}
     >
       <div
-        role="button"
-        tabIndex={0}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter' || event.key === ' ') event.currentTarget.click();
-        }}
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Detalle de ${detalle.nombre || 'producto'}`}
         className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
-        onClick={(event) => event.stopPropagation()}
       >
         {/*
           Era una banda decorativa de 224px de alto con degradado y la foto

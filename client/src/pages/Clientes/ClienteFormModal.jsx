@@ -20,22 +20,17 @@ export default function ClienteFormModal({
 
   return (
     <div
-      role="button"
-      tabIndex={0}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter' || event.key === ' ') event.currentTarget.click();
-      }}
+      role="presentation"
       className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/35 p-4 backdrop-blur-sm"
-      onClick={onClose}
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose?.();
+      }}
     >
       <div
-        role="button"
-        tabIndex={0}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter' || event.key === ' ') event.currentTarget.click();
-        }}
+        role="dialog"
+        aria-modal="true"
+        aria-label={modal === 'nuevo' ? 'Nuevo cliente' : 'Editar cliente'}
         className="flex max-h-[90vh] w-full max-w-2xl flex-col rounded-2xl bg-white shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
       >
         <div className="flex shrink-0 items-center justify-between border-b border-gray-100 px-6 py-4">
           <div>

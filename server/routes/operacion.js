@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const auth = require('../middleware/auth');
-const { requirePermission } = require('../utils/permissions');
+const { hasPermission, requirePermission } = require('../utils/permissions');
 const { createDatabaseBackup, listBackups } = require('../utils/backupManager');
 const { insertInventoryMovement, roundStock } = require('../utils/inventory');
 const { summarizePaymentRows } = require('../utils/paymentStatus');
@@ -656,14 +656,21 @@ function buildDailyClose(fecha = today()) {
   const deliveryDiario = db
     .prepare(
       `
-    SELECT COALESCE(SUM(monto_base), 0) AS total, COUNT(*) AS cantidad
-    FROM personal
-    WHERE activo = 1
-      AND lower(rol_operativo) = 'delivery'
-      AND lower(frecuencia_pago) = 'diario'
+    SELECT COALESCE(SUM(p.monto_base), 0) AS total, COUNT(*) AS cantidad
+    FROM personal p
+    WHERE p.activo = 1
+      AND lower(p.rol_operativo) = 'delivery'
+      AND lower(p.frecuencia_pago) = 'diario'
+      AND EXISTS (
+        SELECT 1
+        FROM personal_asistencia a
+        WHERE a.personal_id = p.id
+          AND a.fecha_operativa = ?
+          AND lower(a.estado) IN ('presente', 'tarde')
+      )
   `
     )
-    .get();
+    .get(fecha);
 
   const topProductos = db
     .prepare(
@@ -681,7 +688,27 @@ function buildDailyClose(fecha = today()) {
     .all(fecha);
 
   const totalVentas = validos.reduce((acc, pedido) => acc + Number(pedido.total || 0), 0);
-  const gananciaOperativa = totalVentas - gastos - Number(deliveryDiario.total || 0);
+  const costoRows = db
+    .prepare(
+      `
+    SELECT
+      COALESCE(SUM(COALESCE(pi.costo_unitario, 0) * pi.cantidad), 0) AS costo,
+      COALESCE(SUM(pi.cantidad), 0) AS unidades,
+      COALESCE(SUM(CASE WHEN COALESCE(pi.costo_unitario, 0) > 0 THEN pi.cantidad ELSE 0 END), 0) AS unidades_con_costo
+    FROM pedido_items pi
+    JOIN pedidos p ON p.id = pi.pedido_id
+    WHERE ${fechaLocal('p.creado_en')} = ?
+      AND p.estado != 'cancelado'
+  `
+    )
+    .get(fecha);
+  const costoMercaderia = Number(costoRows?.costo || 0);
+  const unidades = Number(costoRows?.unidades || 0);
+  const coberturaCostos = unidades
+    ? Math.round((Number(costoRows?.unidades_con_costo || 0) / unidades) * 100)
+    : 100;
+  const resultadoOperativo =
+    totalVentas + ingresosExtra - costoMercaderia - gastos - Number(deliveryDiario.total || 0);
 
   return {
     fecha,
@@ -695,17 +722,36 @@ function buildDailyClose(fecha = today()) {
     gastos: money(gastos),
     ingresosExtra: money(ingresosExtra),
     deliveryDiario: money(deliveryDiario.total || 0),
-    gananciaOperativa: money(gananciaOperativa),
+    costoMercaderia: money(costoMercaderia),
+    coberturaCostos,
+    resultadoOperativo: money(resultadoOperativo),
+    // Compatibilidad temporal con clientes anteriores. Conserva la unidad,
+    // pero ya representa el resultado correcto con costo de mercaderia.
+    gananciaOperativa: money(resultadoOperativo),
     porMetodo: payment.byMethod,
     topProductos,
     movimientos,
   };
 }
 
-function buildPointStatus() {
+function buildPointStatus({
+  close = null,
+  backups = null,
+  baseInsumos = null,
+  includeFinancial = false,
+} = {}) {
   const activeProducts = db.prepare('SELECT COUNT(*) AS c FROM productos WHERE activo = 1').get().c;
   const recipeProducts = db
     .prepare("SELECT COUNT(*) AS c FROM productos WHERE activo = 1 AND stock_mode = 'recipe'")
+    .get().c;
+  const recipeProductsMissing = db
+    .prepare(
+      `SELECT COUNT(*) AS c
+         FROM productos p
+        WHERE p.activo = 1
+          AND p.stock_mode = 'recipe'
+          AND NOT EXISTS (SELECT 1 FROM inventario_recetas r WHERE r.producto_id = p.id)`
+    )
     .get().c;
   const missingStock = db
     .prepare(
@@ -754,34 +800,46 @@ function buildPointStatus() {
   `
     )
     .get(today()).c;
-  const backups = listBackups();
-  const latestBackup = backups[0] || null;
+  const backupList = backups || listBackups();
+  const latestBackup = backupList[0] || null;
+  const latestBackupTime = latestBackup ? new Date(latestBackup.created_at).getTime() : 0;
+  const backupFresh =
+    Number.isFinite(latestBackupTime) && Date.now() - latestBackupTime <= 36 * 60 * 60 * 1000;
   const config = Object.fromEntries(
     db
       .prepare('SELECT clave, valor FROM configuracion')
       .all()
       .map((row) => [row.clave, row.valor])
   );
-  const close = buildDailyClose(today());
+  const dailyClose = close || buildDailyClose(today());
+  const bases = baseInsumos || loadBaseInsumos();
 
   return [
     {
       id: 'inventario-fino',
       title: 'Inventario fino',
-      ok: recipeProducts >= 37,
-      detail: `${recipeProducts}/${activeProducts} productos usan receta compartida`,
+      ok: recipeProductsMissing === 0,
+      detail:
+        recipeProductsMissing === 0
+          ? `${recipeProducts}/${activeProducts} productos usan receta y ninguna está incompleta`
+          : `${recipeProductsMissing} productos con modo receta no tienen ingredientes cargados`,
     },
     {
       id: 'stock-diario',
       title: 'Stock diario rápido',
-      ok: loadBaseInsumos().length >= 7,
-      detail: 'Bases principales listas para cargar al inicio del día',
+      ok: bases.length === BASE_INSUMOS.length,
+      detail:
+        bases.length === BASE_INSUMOS.length
+          ? 'Bases principales listas para cargar al inicio del día'
+          : `Faltan ${BASE_INSUMOS.length - bases.length} bases de cocina por configurar`,
     },
     {
       id: 'cierre-diario',
       title: 'Cierre diario',
       ok: true,
-      detail: `${close.pedidos} pedidos hoy, ventas $${close.totalVentas.toLocaleString('es-AR')}`,
+      detail: includeFinancial
+        ? `${dailyClose.pedidos} pedidos hoy, ventas $${dailyClose.totalVentas.toLocaleString('es-AR')}`
+        : `${dailyClose.pedidos} pedidos operados hoy`,
     },
     {
       id: 'online-blindado',
@@ -794,7 +852,10 @@ function buildPointStatus() {
     {
       id: 'delivery',
       title: 'Delivery',
-      ok: Boolean(rider?.codigo_acceso) && Number(riders?.activos || 0) > 0,
+      ok:
+        Boolean(rider?.codigo_acceso) &&
+        Number(riders?.activos || 0) > 0 &&
+        Number(riders?.gps_atrasado || 0) === 0,
       detail:
         Number(riders?.activos || 0) > 0
           ? `${Number(riders?.activos || 0)} riders activos · ${Number(riders?.disponibles || 0)} libres · ${Number(riders?.gps_atrasado || 0)} GPS a revisar`
@@ -816,9 +877,9 @@ function buildPointStatus() {
     {
       id: 'backups',
       title: 'Backups automáticos',
-      ok: config.backup_automatico_activo === '1' && Boolean(latestBackup),
+      ok: config.backup_automatico_activo === '1' && Boolean(latestBackup) && backupFresh,
       detail: latestBackup
-        ? `Último backup ${new Date(latestBackup.created_at).toLocaleString('es-AR')}`
+        ? `${backupFresh ? 'Último backup' : 'Backup atrasado desde'} ${new Date(latestBackup.created_at).toLocaleString('es-AR')}`
         : 'Sin backups detectados',
     },
     {
@@ -830,17 +891,23 @@ function buildPointStatus() {
   ];
 }
 
-router.get('/resumen', requirePermission('dashboard.view'), (_req, res) => {
-  const riders = db
-    .prepare(
-      `
-    SELECT id, nombre, telefono, disponible, codigo_acceso, ultima_ubicacion_en
-    FROM repartidores
-    WHERE activo = 1
-    ORDER BY disponible DESC, nombre ASC
-  `
-    )
-    .all();
+router.get('/resumen', requirePermission('dashboard.view'), (req, res) => {
+  const puedeVerFinanzas = hasPermission(req.user, 'dashboard.finanzas');
+  const puedeEditarStock = hasPermission(req.user, 'productos.edit');
+  const puedeVerDelivery = hasPermission(req.user, 'delivery.view');
+  const puedeConfigurar = hasPermission(req.user, 'config.manage');
+  const riders = puedeVerDelivery
+    ? db
+        .prepare(
+          `
+      SELECT id, nombre, telefono, disponible, ultima_ubicacion_en
+      FROM repartidores
+      WHERE activo = 1
+      ORDER BY disponible DESC, nombre ASC
+    `
+        )
+        .all()
+    : [];
   const menuDelDia = db
     .prepare(
       `
@@ -860,12 +927,22 @@ router.get('/resumen', requirePermission('dashboard.view'), (_req, res) => {
     )
     .all(today());
 
+  const close = buildDailyClose(today());
+  const backups = listBackups();
+  const baseInsumos = puedeEditarStock ? loadBaseInsumos() : [];
   res.json({
-    puntos: buildPointStatus(),
-    stockDiario: {
-      insumos: loadBaseInsumos(),
-      productosDirectos: loadDirectStockProducts(),
-    },
+    puntos: buildPointStatus({
+      close,
+      backups,
+      baseInsumos: puedeEditarStock ? baseInsumos : null,
+      includeFinancial: puedeVerFinanzas,
+    }),
+    stockDiario: puedeEditarStock
+      ? {
+          insumos: baseInsumos,
+          productosDirectos: loadDirectStockProducts(),
+        }
+      : { insumos: [], productosDirectos: [] },
     arranque: {
       riders,
       ridersGpsAtrasado: riders.filter(
@@ -875,8 +952,22 @@ router.get('/resumen', requirePermission('dashboard.view'), (_req, res) => {
       ).length,
       menuDelDia,
     },
-    cierreDiario: buildDailyClose(today()),
-    backups: listBackups().slice(0, 5),
+    cierreDiario: puedeVerFinanzas
+      ? close
+      : { fecha: close.fecha, pedidos: close.pedidos, cancelados: close.cancelados },
+    backups: puedeConfigurar ? backups.slice(0, 5) : [],
+  });
+});
+
+// Vista reducida para el Dashboard. El resumen completo incluye stock diario,
+// cierres, backups y datos de riders que esta pantalla no usa. Además de
+// desperdiciar consultas en cada refresco, antes exponía `codigo_acceso` a
+// cualquier rol con dashboard.view.
+router.get('/dashboard', requirePermission('dashboard.view'), (req, res) => {
+  res.json({
+    puntos: buildPointStatus({
+      includeFinancial: hasPermission(req.user, 'dashboard.finanzas'),
+    }),
   });
 });
 
@@ -894,14 +985,38 @@ router.post('/stock-diario', requirePermission('productos.edit'), (req, res) => 
   );
   const currentProduct = db.prepare('SELECT id, nombre, stock_directo FROM productos WHERE id = ?');
 
+  const validarLote = (items, campo, buscar, etiqueta) => {
+    const ids = new Set();
+    return items.map((item, index) => {
+      const id = Number(item?.id);
+      const raw = item?.[campo];
+      const value = Number(raw);
+      if (!Number.isInteger(id) || id <= 0) {
+        throw new Error(`${etiqueta} ${index + 1}: identificador inválido`);
+      }
+      if (ids.has(id)) throw new Error(`${etiqueta} ${id}: está repetido en la carga`);
+      if (raw === '' || raw === null || raw === undefined || !Number.isFinite(value) || value < 0) {
+        throw new Error(`${etiqueta} ${id}: el stock debe ser un número igual o mayor que cero`);
+      }
+      if (!buscar.get(id)) throw new Error(`${etiqueta} ${id}: ya no existe`);
+      ids.add(id);
+      return { id, stock: roundStock(value) };
+    });
+  };
+
+  let insumosValidados;
+  let productosValidados;
+  try {
+    insumosValidados = validarLote(insumos, 'stock_actual', currentInsumo, 'Insumo');
+    productosValidados = validarLote(productos, 'stock_directo', currentProduct, 'Producto');
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
+
   db.exec('BEGIN');
   try {
-    insumos.forEach((item) => {
-      const id = Number(item.id);
-      const stock = roundStock(item.stock_actual);
-      if (!Number.isFinite(id) || stock < 0) return;
+    insumosValidados.forEach(({ id, stock }) => {
       const previous = currentInsumo.get(id);
-      if (!previous) return;
       const delta = roundStock(stock - Number(previous.stock_actual || 0));
       updateInsumo.run(stock, id);
       if (delta !== 0) {
@@ -919,12 +1034,8 @@ router.post('/stock-diario', requirePermission('productos.edit'), (req, res) => 
       }
     });
 
-    productos.forEach((item) => {
-      const id = Number(item.id);
-      const stock = roundStock(item.stock_directo);
-      if (!Number.isFinite(id) || stock < 0) return;
+    productosValidados.forEach(({ id, stock }) => {
       const previous = currentProduct.get(id);
-      if (!previous) return;
       const delta = roundStock(stock - Number(previous.stock_directo || 0));
       updateProduct.run(stock, id);
       if (delta !== 0) {
@@ -1196,3 +1307,5 @@ module.exports.createMenuDiaProduct = createMenuDiaProduct;
 module.exports.buildMenuDiaManagerPayload = buildMenuDiaManagerPayload;
 module.exports.updateMenuDiaProduct = updateMenuDiaProduct;
 module.exports.archiveMenuDiaProduct = archiveMenuDiaProduct;
+module.exports.buildDailyClose = buildDailyClose;
+module.exports.buildPointStatus = buildPointStatus;

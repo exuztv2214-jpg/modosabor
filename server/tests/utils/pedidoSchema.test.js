@@ -36,24 +36,40 @@ function testAceptaItemsComoString() {
 }
 
 function testAceptaItemsComoArray() {
-  assert.doesNotThrow(() =>
-    createPedidoSchema.parse(
-      basePayload({
-        items: [
-          {
-            producto_id: 1,
-            nombre: 'Smash Simple',
-            cantidad: 1,
-            precio_unitario: 6000,
-            variantes: { Presentacion: 'Simple' },
-            extras: [],
-            descripcion: '',
-          },
+  const parsed = createPedidoSchema.parse(
+    basePayload({
+      items: [
+        {
+          producto_id: 1,
+          nombre: 'Smash Simple',
+          cantidad: 1,
+          precio_unitario: 6000,
+          variantes: { Presentacion: 'Simple' },
+          extras: [],
+          descripcion: '',
+          descuento_item: 500,
+          descuento_motivo: 'Cortesía',
+        },
+      ],
+      puntos_a_canjear: 20,
+      pago_detalle: JSON.stringify({
+        tipo: 'mixto',
+        split_payments: [
+          { metodo: 'efectivo', monto: 3000 },
+          { metodo: 'transferencia', monto: 2500 },
         ],
-      })
-    )
+      }),
+      cupon_codigo: 'PROMO',
+      marketing_source: 'whatsapp',
+    })
   );
-  console.log('  ✓ createPedidoSchema acepta items como array');
+  assert.strictEqual(parsed.items[0].descuento_item, 500);
+  assert.strictEqual(parsed.items[0].descuento_motivo, 'Cortesía');
+  assert.strictEqual(parsed.puntos_a_canjear, 20);
+  assert.ok(parsed.pago_detalle.includes('split_payments'));
+  assert.strictEqual(parsed.cupon_codigo, 'PROMO');
+  assert.strictEqual(parsed.marketing_source, 'whatsapp');
+  console.log('  ✓ createPedidoSchema conserva descuentos, puntos, pago mixto y atribución');
 }
 
 function run() {

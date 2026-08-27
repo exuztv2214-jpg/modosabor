@@ -5,6 +5,7 @@ const db = require('../db');
 const auth = require('../middleware/auth');
 const { requirePermission } = require('../utils/permissions');
 const { logAudit, actorFromRequest } = require('../utils/audit');
+const { getActiveCaja } = require('../utils/operationalCaja');
 const {
   saldoDeCliente,
   puedeFiar,
@@ -97,16 +98,51 @@ router.put('/:clienteId/limite', auth, requirePermission('clientes.edit'), (req,
 
 /** Registrar que el cliente pagó parte o todo lo que debe. */
 router.post('/:clienteId/pago', auth, requirePermission('caja.manage'), (req, res) => {
-  const resultado = registrarPago(db, {
-    clienteId: Number(req.params.clienteId),
-    monto: req.body?.monto,
-    nota: req.body?.nota,
-    usuario: req.user,
-  });
-  if (!resultado.ok) {
-    return res.status(400).json({ error: resultado.motivo, saldo: resultado.saldo });
+  const metodoPago = String(req.body?.metodo_pago || 'efectivo')
+    .trim()
+    .toLowerCase();
+  if (!['efectivo', 'transferencia'].includes(metodoPago)) {
+    return res.status(400).json({ error: 'Elegí efectivo o transferencia' });
+  }
+  const cajaActiva = metodoPago === 'efectivo' ? getActiveCaja(db) : null;
+  if (metodoPago === 'efectivo' && !cajaActiva) {
+    return res.status(400).json({ error: 'Debes abrir la caja antes de cobrar en efectivo' });
   }
 
+  let resultado;
+  try {
+    db.exec('BEGIN');
+    resultado = registrarPago(db, {
+      clienteId: Number(req.params.clienteId),
+      monto: req.body?.monto,
+      nota: req.body?.nota,
+      metodoPago,
+      usuario: req.user,
+    });
+    if (!resultado.ok) {
+      db.exec('ROLLBACK');
+      return res.status(400).json({ error: resultado.motivo, saldo: resultado.saldo });
+    }
+    if (metodoPago === 'efectivo') {
+      db.prepare(
+        `INSERT INTO caja_movimientos
+          (cierre_id, tipo, monto, motivo, actor_id, actor_nombre)
+         VALUES (?, 'entrada', ?, ?, ?, ?)`
+      ).run(
+        cajaActiva.id,
+        Math.round(Number(req.body?.monto || 0)),
+        `Cobro de cuenta corriente del cliente #${req.params.clienteId}`,
+        req.user?.id || null,
+        req.user?.nombre || ''
+      );
+    }
+    db.exec('COMMIT');
+  } catch (error) {
+    try {
+      db.exec('ROLLBACK');
+    } catch {}
+    return res.status(400).json({ error: error.message || 'No se pudo registrar el pago' });
+  }
   const actor = actorFromRequest(req);
   logAudit(db, {
     modulo: 'clientes',
@@ -115,7 +151,11 @@ router.post('/:clienteId/pago', auth, requirePermission('caja.manage'), (req, re
     entidad_id: Number(req.params.clienteId),
     actor_id: actor.actor_id,
     actor_nombre: actor.actor_nombre,
-    detalle: { monto: Math.round(Number(req.body?.monto || 0)), saldo_despues: resultado.saldo },
+    detalle: {
+      monto: Math.round(Number(req.body?.monto || 0)),
+      metodo_pago: metodoPago,
+      saldo_despues: resultado.saldo,
+    },
   });
 
   res.json(resultado);

@@ -493,14 +493,25 @@ export default function TPV() {
     try {
       const serverOrders = await api.get('/tpv/espera');
       if (!Array.isArray(serverOrders)) return;
-      setParkedOrders(serverOrders);
-      if (typeof window !== 'undefined') {
-        window.localStorage.setItem(TPV_PARKED_KEY, JSON.stringify(serverOrders.slice(0, 12)));
-      }
+      setParkedOrders((previous) => {
+        const serverIds = new Set(serverOrders.map((item) => item.id));
+        const pendingLocales = previous.filter(
+          (item) => item.syncStatus === 'pending' && !serverIds.has(item.id)
+        );
+        return [
+          ...pendingLocales,
+          ...serverOrders.map((item) => ({ ...item, syncStatus: 'synced' })),
+        ].slice(0, 20);
+      });
     } catch {
       // Sin conexion: seguimos mostrando lo que haya en este dispositivo
     }
   }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(TPV_PARKED_KEY, JSON.stringify(parkedOrders.slice(0, 20)));
+  }, [parkedOrders]);
 
   useEffect(() => {
     fetchParkedOrders();
@@ -607,9 +618,9 @@ export default function TPV() {
             tipoEntrega: 'delivery',
             config,
             overrides: {
-              costo_envio: Number(config.costo_envio_base || 0),
-              available: true,
-              message: 'No se pudo calcular la zona ahora',
+              costo_envio: 0,
+              available: false,
+              message: 'No se pudo calcular el envio. Reintenta antes de cobrar.',
             },
           })
         );
@@ -662,6 +673,20 @@ export default function TPV() {
         const detail = await api.get(`/clientes/${cliente.id}`);
         if (!cancelled) {
           setClienteResumen(detail || null);
+          const principal =
+            (detail?.direcciones || []).find((item) => item.principal) || detail?.direcciones?.[0];
+          if (principal) {
+            setCliente((previous) =>
+              Number(previous?.id) === Number(detail?.id)
+                ? {
+                    ...previous,
+                    direccion: principal.direccion || previous.direccion,
+                    latitud: principal.latitud ?? previous.latitud,
+                    longitud: principal.longitud ?? previous.longitud,
+                  }
+                : previous
+            );
+          }
         }
       } catch {
         if (!cancelled) setClienteResumen(null);
@@ -828,7 +853,7 @@ export default function TPV() {
   const preflightChecklist = useMemo(() => {
     const currentItemsInStock = items.every((item) => {
       const product = productos.find((entry) => Number(entry.id) === Number(item.producto_id));
-      return product ? product.disponible_para_venta !== false : true;
+      return product ? product.disponible_para_venta !== false : false;
     });
     const checks = [
       {
@@ -846,8 +871,10 @@ export default function TPV() {
       {
         key: 'stock',
         label: 'Stock',
-        status: currentItemsInStock ? 'ok' : 'warn',
-        detail: currentItemsInStock ? 'Productos disponibles' : 'Revisar disponibilidad',
+        status: currentItemsInStock ? 'ok' : 'block',
+        detail: currentItemsInStock
+          ? 'Productos disponibles'
+          : 'Hay productos eliminados, inactivos o sin stock',
       },
     ];
 
@@ -1075,20 +1102,48 @@ export default function TPV() {
         splitPayments,
         notas,
       },
+      syncStatus: 'pending',
     };
-    setParkedOrders((previous) => [record, ...previous].slice(0, 12));
+    setParkedOrders((previous) => [record, ...previous].slice(0, 20));
     toast.success('Pedido guardado en espera');
     limpiar();
     setCartMobileOpen(false);
-    api.post('/tpv/espera', record).catch(() => {
-      toast.error('Se guardo en este dispositivo pero no se pudo sincronizar con las demas cajas');
-    });
+    api
+      .post('/tpv/espera', record)
+      .then((saved) => {
+        setParkedOrders((previous) =>
+          previous.map((item) =>
+            item.id === record.id ? { ...saved, syncStatus: 'synced' } : item
+          )
+        );
+      })
+      .catch(() => {
+        toast.error(
+          'Se guardo en este dispositivo pero no se pudo sincronizar con las demas cajas'
+        );
+      });
   };
 
-  const restoreParkedOrder = (parkedId) => {
+  const restoreParkedOrder = async (parkedId) => {
     const target = parkedOrders.find((item) => item.id === parkedId);
     if (!target?.snapshot) return;
-    const snapshot = target.snapshot;
+    if (items.length > 0) {
+      toast.error('Guardá o vaciá el pedido actual antes de recuperar otro');
+      return;
+    }
+
+    let claimed = target;
+    if (target.syncStatus !== 'pending') {
+      try {
+        claimed = await api.post(`/tpv/espera/${encodeURIComponent(parkedId)}/reclamar`, {});
+      } catch (error) {
+        toast.error(error?.error || 'No se pudo recuperar el pedido en espera');
+        fetchParkedOrders();
+        return;
+      }
+    }
+
+    const snapshot = claimed.snapshot;
     setItems(snapshot.items || []);
     setTipoEntrega(snapshot.tipoEntrega || 'retiro');
     setMesa(snapshot.mesa || '');
@@ -1116,16 +1171,22 @@ export default function TPV() {
     // permitia volver a abrirlo (o que otra caja lo abriera) y vender el
     // mismo pedido dos veces.
     setParkedOrders((previous) => previous.filter((item) => item.id !== parkedId));
-    api.delete(`/tpv/espera/${encodeURIComponent(parkedId)}`).catch(() => {});
     toast.success('Pedido recuperado desde espera');
   };
 
-  const deleteParkedOrder = (parkedId) => {
+  const deleteParkedOrder = async (parkedId) => {
+    const target = parkedOrders.find((item) => item.id === parkedId);
+    if (!target) return;
+    if (target.syncStatus !== 'pending') {
+      try {
+        await api.delete(`/tpv/espera/${encodeURIComponent(parkedId)}`);
+      } catch (error) {
+        toast.error(error?.error || 'No se pudo borrar el pedido en espera');
+        return;
+      }
+    }
     setParkedOrders((previous) => previous.filter((item) => item.id !== parkedId));
     toast.success('Pedido en espera eliminado');
-    api.delete(`/tpv/espera/${encodeURIComponent(parkedId)}`).catch(() => {
-      toast.error('No se pudo borrar en el servidor, puede reaparecer en otra caja');
-    });
   };
 
   const duplicateParkedOrder = (parkedId) => {
@@ -1136,12 +1197,20 @@ export default function TPV() {
       id: `hold-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
       createdAt: new Date().toISOString(),
       label: `${target.label} copia`,
+      syncStatus: 'pending',
     };
-    setParkedOrders((previous) => [copy, ...previous].slice(0, 12));
+    setParkedOrders((previous) => [copy, ...previous].slice(0, 20));
     toast.success('Pedido en espera duplicado');
-    api.post('/tpv/espera', copy).catch(() => {
-      toast.error('La copia se guardo en este dispositivo pero no se sincronizo');
-    });
+    api
+      .post('/tpv/espera', copy)
+      .then((saved) => {
+        setParkedOrders((previous) =>
+          previous.map((item) => (item.id === copy.id ? { ...saved, syncStatus: 'synced' } : item))
+        );
+      })
+      .catch(() => {
+        toast.error('La copia se guardo en este dispositivo pero no se sincronizo');
+      });
   };
 
   const aplicarCliente = (match) => {
@@ -1156,8 +1225,8 @@ export default function TPV() {
       recompensas_pendientes: Number(match.recompensas_pendientes || 0),
       sellos_actuales: Number(match.sellos_actuales || match.sellos || 0),
       nivel: match.nivel || 'Bronce',
-      latitud: null,
-      longitud: null,
+      latitud: match.latitud ?? previous.latitud ?? null,
+      longitud: match.longitud ?? previous.longitud ?? null,
     }));
     setClientePickerOpen(false);
   };
@@ -1909,6 +1978,21 @@ export default function TPV() {
 
       if (isEditableTarget(event.target)) return;
 
+      if (event.key === 'Enter' && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        if (variantModal || clientePickerOpen || cobroAbierto) return;
+        event.preventDefault();
+        if (!cajaAbierta) {
+          toast.error('Debes abrir la caja antes de registrar ventas');
+          return;
+        }
+        if (items.length === 0) {
+          toast.error('Cargá al menos un producto');
+          return;
+        }
+        setCobroAbierto(true);
+        return;
+      }
+
       if (event.key === '/') {
         event.preventDefault();
         searchInputRef.current?.focus();
@@ -1981,6 +2065,8 @@ export default function TPV() {
   }, [
     variantModal,
     clientePickerOpen,
+    cobroAbierto,
+    cajaAbierta,
     cliente,
     config,
     deliveryQuote,

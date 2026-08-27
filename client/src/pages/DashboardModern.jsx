@@ -299,6 +299,7 @@ export default function DashboardModern() {
   });
   const personalEnabled = isModuleEnabled('personal');
   const personalVisible = personalEnabled && hasPermission('personal.view');
+  const financialVisible = hasPermission('dashboard.finanzas');
 
   const loadDashboard = async ({ silent = false } = {}) => {
     if (!silent) {
@@ -314,9 +315,11 @@ export default function DashboardModern() {
       const hasta = format(new Date(), 'yyyy-MM-dd');
       const desde = format(subDays(new Date(), 6), 'yyyy-MM-dd');
       const [response, operacion] = await Promise.all([
-        api.get(`/reportes/dashboard?desde=${periodo.desde}&hasta=${periodo.hasta}`),
+        financialVisible
+          ? api.get(`/reportes/dashboard?desde=${periodo.desde}&hasta=${periodo.hasta}`)
+          : Promise.resolve({}),
         api
-          .get('/operacion/resumen')
+          .get('/operacion/dashboard')
           .then((value) => {
             setOperationHealthError(false);
             return value;
@@ -387,7 +390,7 @@ export default function DashboardModern() {
     };
     // El efecto se reinicia sólo si cambia el acceso a Personal; las recargas usan el estado vigente.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [personalVisible, periodo.desde, periodo.hasta]);
+  }, [financialVisible, personalVisible, periodo.desde, periodo.hasta]);
 
   const ticketPromedio = useMemo(() => {
     if (!data?.ventasHoy?.pedidos) return 0;
@@ -430,6 +433,12 @@ export default function DashboardModern() {
   }, [data]);
 
   const margenHelper = useMemo(() => {
+    const cobertura = data?.periodo?.esHoy
+      ? Number(data?.coberturaCostosHoy ?? 100)
+      : Number(data?.periodo?.coberturaCostos ?? 100);
+    if (cobertura < 100) {
+      return `Margen no confiable: sólo ${cobertura}% de las unidades tiene costo guardado.`;
+    }
     if (!data?.periodo?.esHoy) {
       return `${data?.periodo?.margenPct || 0}% de lo vendido en el período`;
     }
@@ -491,8 +500,15 @@ export default function DashboardModern() {
     },
   ].filter((action) => isModuleEnabled(action.key) && hasPermission(action.permission));
 
-  const cajaCerrada = !data?.cajaEstado?.abierta && isModuleEnabled('caja');
-  const stockCritico = isModuleEnabled('inventario') ? data?.stockCritico || [] : [];
+  const cajaCerrada =
+    financialVisible &&
+    hasPermission('caja.view') &&
+    !data?.cajaEstado?.abierta &&
+    isModuleEnabled('caja');
+  const stockCritico =
+    financialVisible && hasPermission('productos.edit') && isModuleEnabled('inventario')
+      ? data?.stockCritico || []
+      : [];
   const puntosSalud = operationHealth?.puntos || [];
   const puntosConProblema = puntosSalud.filter((point) => !point.ok);
   const resumenPeriodo = data?.periodo || {};
@@ -564,38 +580,42 @@ export default function DashboardModern() {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <select
-              aria-label="Período del resumen"
-              onChange={(event) => aplicarPeriodoRapido(event.target.value)}
-              defaultValue="1"
-              className="h-11 rounded-xl border-0 bg-white px-3 text-[13px] font-semibold text-gray-700 shadow-[0_1px_2px_rgba(15,23,42,0.06)] outline-none"
-            >
-              <option value="1">Hoy</option>
-              <option value="7">Últimos 7 días</option>
-              <option value="30">Últimos 30 días</option>
-              <option value="90">Últimos 90 días</option>
-            </select>
-            <input
-              type="date"
-              aria-label="Desde"
-              value={periodo.desde}
-              max={periodo.hasta}
-              onChange={(event) =>
-                setPeriodo((actual) => ({ ...actual, desde: event.target.value }))
-              }
-              className="h-11 rounded-xl border-0 bg-white px-3 text-[13px] text-gray-600 shadow-[0_1px_2px_rgba(15,23,42,0.06)] outline-none"
-            />
-            <input
-              type="date"
-              aria-label="Hasta"
-              value={periodo.hasta}
-              min={periodo.desde}
-              max={format(new Date(), 'yyyy-MM-dd')}
-              onChange={(event) =>
-                setPeriodo((actual) => ({ ...actual, hasta: event.target.value }))
-              }
-              className="h-11 rounded-xl border-0 bg-white px-3 text-[13px] text-gray-600 shadow-[0_1px_2px_rgba(15,23,42,0.06)] outline-none"
-            />
+            {financialVisible ? (
+              <>
+                <select
+                  aria-label="Período de las métricas financieras"
+                  onChange={(event) => aplicarPeriodoRapido(event.target.value)}
+                  defaultValue="1"
+                  className="h-11 rounded-xl border-0 bg-white px-3 text-[13px] font-semibold text-gray-700 shadow-[0_1px_2px_rgba(15,23,42,0.06)] outline-none"
+                >
+                  <option value="1">Hoy</option>
+                  <option value="7">Últimos 7 días</option>
+                  <option value="30">Últimos 30 días</option>
+                  <option value="90">Últimos 90 días</option>
+                </select>
+                <input
+                  type="date"
+                  aria-label="Desde"
+                  value={periodo.desde}
+                  max={periodo.hasta}
+                  onChange={(event) =>
+                    setPeriodo((actual) => ({ ...actual, desde: event.target.value }))
+                  }
+                  className="h-11 rounded-xl border-0 bg-white px-3 text-[13px] text-gray-600 shadow-[0_1px_2px_rgba(15,23,42,0.06)] outline-none"
+                />
+                <input
+                  type="date"
+                  aria-label="Hasta"
+                  value={periodo.hasta}
+                  min={periodo.desde}
+                  max={format(new Date(), 'yyyy-MM-dd')}
+                  onChange={(event) =>
+                    setPeriodo((actual) => ({ ...actual, hasta: event.target.value }))
+                  }
+                  className="h-11 rounded-xl border-0 bg-white px-3 text-[13px] text-gray-600 shadow-[0_1px_2px_rgba(15,23,42,0.06)] outline-none"
+                />
+              </>
+            ) : null}
             {quickActions.map((action) => (
               <button
                 type="button"
@@ -702,263 +722,125 @@ export default function DashboardModern() {
           </div>
         ) : null}
 
-        {/* ── Métricas ── */}
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-          <Metric
-            label={usaPeriodoCompleto ? 'Ventas del período' : 'Ventas del día'}
-            value={fmtMoney(ventasPrincipal)}
-            trend={usaPeriodoCompleto ? undefined : `${ventasTrendInfo.trend}%`}
-            trendUp={ventasTrendInfo.trendUp}
-            hasComparison={ventasTrendInfo.hasComparison}
-            tono="verde"
-          />
-          <Metric
-            label={usaPeriodoCompleto ? 'Pedidos del período' : 'Pedidos de hoy'}
-            value={fmtNumber(pedidosPrincipal)}
-            trend={usaPeriodoCompleto ? undefined : `${pedidosTrendInfo.trend}%`}
-            trendUp={pedidosTrendInfo.trendUp}
-            hasComparison={pedidosTrendInfo.hasComparison}
-            tono="azul"
-          />
-          <Metric
-            label={usaPeriodoCompleto ? 'Ticket del período' : 'Ticket promedio'}
-            value={fmtMoney(ticketPrincipal)}
-            helper={usaPeriodoCompleto ? 'Promedio del período' : 'Promedio por orden'}
-            tono="ambar"
-          />
-          <Metric
-            label={usaPeriodoCompleto ? 'Margen bruto del período' : 'Margen bruto de hoy'}
-            value={fmtMoney(margenPrincipal)}
-            trend={usaPeriodoCompleto ? undefined : `${margenTrendInfo.trend}%`}
-            trendUp={margenTrendInfo.trendUp}
-            hasComparison={margenTrendInfo.hasComparison}
-            helper={margenHelper}
-            tono="violeta"
-          />
-          <Metric
-            label="Delivery en la calle"
-            value={fmtNumber(data.pedidosEnDelivery || 0)}
-            helper={`${data.pedidosActivos || 0} pedidos activos en total`}
-            tono="azul"
-          />
-        </div>
-
-        <Card
-          title="Resumen del período"
-          helper={`${safeFormat(resumenPeriodo.desde, 'dd/MM/yyyy', periodo.desde)} al ${safeFormat(
-            resumenPeriodo.hasta,
-            'dd/MM/yyyy',
-            periodo.hasta
-          )}`}
-        >
-          <div className="grid gap-4 xl:grid-cols-[0.85fr_1.15fr]">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="rounded-xl bg-emerald-50 p-3">
-                <p className="text-[11px] font-medium text-emerald-700">Ventas</p>
-                <p className="mt-1 text-xl font-bold tabular-nums text-emerald-950">
-                  {fmtMoney(resumenPeriodo.total || 0)}
-                </p>
-              </div>
-              <div className="rounded-xl bg-blue-50 p-3">
-                <p className="text-[11px] font-medium text-blue-700">Pedidos</p>
-                <p className="mt-1 text-xl font-bold tabular-nums text-blue-950">
-                  {fmtNumber(resumenPeriodo.pedidos || 0)}
-                </p>
-              </div>
-              <div className="rounded-xl bg-amber-50 p-3">
-                <p className="text-[11px] font-medium text-amber-700">Ticket promedio</p>
-                <p className="mt-1 text-xl font-bold tabular-nums text-amber-950">
-                  {fmtMoney(resumenPeriodo.ticketPromedio || 0)}
-                </p>
-              </div>
-              <div className="rounded-xl bg-violet-50 p-3">
-                <p className="text-[11px] font-medium text-violet-700">Clientes identificados</p>
-                <p className="mt-1 text-xl font-bold tabular-nums text-violet-950">
-                  {fmtNumber(resumenPeriodo.clientes || 0)}
-                </p>
-              </div>
-            </div>
-
-            <div className="space-y-2.5">
-              {(resumenPeriodo.estados || []).length ? (
-                resumenPeriodo.estados.map((item) => {
-                  const tono = estadoTono(item.estado);
-                  return (
-                    <div key={item.estado}>
-                      <div className="mb-1 flex items-center justify-between gap-3 text-[12px]">
-                        <span className="font-medium text-gray-700">
-                          {DASHBOARD_STATE_LABELS[item.estado] || item.estado}
-                        </span>
-                        <span className="font-bold tabular-nums text-gray-900">
-                          {fmtNumber(item.cantidad)}
-                        </span>
-                      </div>
-                      <div className="h-2 overflow-hidden rounded-full bg-gray-100">
-                        <div
-                          className="h-full rounded-full transition-all"
-                          style={{
-                            width: `${Math.max(3, (Number(item.cantidad || 0) / maxEstadoPeriodo) * 100)}%`,
-                            background: tono.fg,
-                          }}
-                        />
-                      </div>
-                    </div>
-                  );
-                })
-              ) : (
-                <EmptyState
-                  icon={ShoppingBag}
-                  title="Sin pedidos en el período"
-                  description="Elegí otro rango para consultar el movimiento histórico."
-                />
-              )}
-            </div>
-          </div>
-        </Card>
-
-        {/* ── Gráfico + últimas órdenes ── */}
-        <div className="grid gap-4 xl:grid-cols-3">
-          <Card
-            title="Ventas de los últimos 7 días"
-            action={
-              isModuleEnabled('reportes') ? (
-                <LinkAction label="Reportes" onClick={() => navigate('/admin/reportes')} />
-              ) : null
-            }
-            className="xl:col-span-2"
-          >
-            <div className="h-72 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={data.ventas7dias || []}>
-                  <defs>
-                    <linearGradient id="colorVentasModern" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor={BRAND} stopOpacity={0.18} />
-                      <stop offset="95%" stopColor={BRAND} stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" vertical={false} />
-                  <XAxis
-                    dataKey="fecha"
-                    axisLine={false}
-                    tickLine={false}
-                    tick={{ fill: '#94A3B8', fontSize: 11 }}
-                    tickFormatter={(val) => safeFormat(val, 'EEE', '')}
-                    dy={10}
-                  />
-                  <YAxis hide />
-                  <Tooltip
-                    contentStyle={{
-                      borderRadius: '12px',
-                      border: '1px solid #E5E7EB',
-                      boxShadow: '0 4px 14px rgba(15,23,42,0.08)',
-                      fontSize: '13px',
-                    }}
-                    labelFormatter={(val) => safeFormat(val, "eeee d 'de' MMMM", '')}
-                    formatter={(val) => [fmtMoney(val), 'Ventas']}
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="total"
-                    stroke={BRAND}
-                    strokeWidth={2.5}
-                    fillOpacity={1}
-                    fill="url(#colorVentasModern)"
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-          </Card>
-
-          <Card
-            title="Últimas órdenes"
-            action={<LinkAction label="Ver todas" onClick={() => navigate('/admin/pedidos')} />}
-          >
-            <div className="space-y-1">
-              {data.ultimosPedidos?.length > 0 ? (
-                data.ultimosPedidos.map((order) => {
-                  const tono = estadoTono(order.estado);
-                  return (
-                    <button
-                      type="button"
-                      key={order.id}
-                      onClick={() => navigate('/admin/pedidos')}
-                      className="flex w-full items-center gap-3 rounded-xl p-2 text-left transition hover:bg-gray-50"
-                    >
-                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gray-100 text-gray-500">
-                        {order.tipo_entrega === 'delivery' ? (
-                          <Bike size={16} strokeWidth={STROKE} />
-                        ) : order.tipo_entrega === 'mesa' ? (
-                          <UtensilsCrossed size={16} strokeWidth={STROKE} />
-                        ) : (
-                          <ShoppingBag size={16} strokeWidth={STROKE} />
-                        )}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-[13px] font-medium text-gray-900">
-                          #{order.numero} · {order.cliente_nombre || 'Cliente'}
-                        </p>
-                        <p className="truncate text-[11px] text-gray-400">
-                          {safeFormat(order.creado_en, 'HH:mm', '--:--')} hs ·{' '}
-                          {paymentMethodLabel(order.metodo_pago)} ·{' '}
-                          {paymentStatusLabel(order.pago_estado)}
-                        </p>
-                      </div>
-                      <div className="shrink-0 text-right">
-                        <p className="text-[13px] font-bold tabular-nums text-gray-900">
-                          {fmtMoney(order.total)}
-                        </p>
-                        <span
-                          className="mt-0.5 inline-block rounded-full px-1.5 py-0.5 text-[10px] font-medium"
-                          style={{ background: tono.bg, color: tono.fg }}
-                        >
-                          {tono.label}
-                        </span>
-                      </div>
-                    </button>
-                  );
-                })
-              ) : (
-                <EmptyState
-                  icon={ShoppingBag}
-                  title="Sin pedidos aún"
-                  description="Cuando ingresen pedidos, vas a verlos acá."
-                />
-              )}
-            </div>
-          </Card>
-        </div>
-
-        {/* ── Cobros + productos del día ── */}
-        <div className="grid gap-4 xl:grid-cols-3">
-          <Card title="Cobros de hoy" helper="Solo pagos confirmados, por canal">
-            {(data.porMetodoPago || []).length === 0 ? (
-              <EmptyState
-                icon={DollarSign}
-                title="Todavía no hay cobros"
-                description="Apenas se confirme el primer pago vas a ver el desglose por canal."
+        {financialVisible ? (
+          <>
+            {/* ── Métricas ── */}
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+              <Metric
+                label={usaPeriodoCompleto ? 'Ventas del período' : 'Ventas del día'}
+                value={fmtMoney(ventasPrincipal)}
+                trend={usaPeriodoCompleto ? undefined : `${ventasTrendInfo.trend}%`}
+                trendUp={ventasTrendInfo.trendUp}
+                hasComparison={ventasTrendInfo.hasComparison}
+                tono="verde"
               />
-            ) : (
-              <>
-                <div className="h-52 w-full">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={data.porMetodoPago}
-                        innerRadius={55}
-                        outerRadius={78}
-                        paddingAngle={3}
-                        dataKey="total"
-                        nameKey="metodo_pago"
-                        stroke="none"
-                        cornerRadius={6}
-                      >
-                        {data.porMetodoPago.map((entry) => (
-                          <Cell
-                            key={entry.metodo_pago}
-                            fill={PAYMENT_COLORS[entry.metodo_pago] || PAYMENT_COLORS.default}
+              <Metric
+                label={usaPeriodoCompleto ? 'Pedidos del período' : 'Pedidos de hoy'}
+                value={fmtNumber(pedidosPrincipal)}
+                trend={usaPeriodoCompleto ? undefined : `${pedidosTrendInfo.trend}%`}
+                trendUp={pedidosTrendInfo.trendUp}
+                hasComparison={pedidosTrendInfo.hasComparison}
+                tono="azul"
+              />
+              <Metric
+                label={usaPeriodoCompleto ? 'Ticket del período' : 'Ticket promedio'}
+                value={fmtMoney(ticketPrincipal)}
+                helper={usaPeriodoCompleto ? 'Promedio del período' : 'Promedio por orden'}
+                tono="ambar"
+              />
+              <Metric
+                label={usaPeriodoCompleto ? 'Margen bruto del período' : 'Margen bruto de hoy'}
+                value={fmtMoney(margenPrincipal)}
+                trend={usaPeriodoCompleto ? undefined : `${margenTrendInfo.trend}%`}
+                trendUp={margenTrendInfo.trendUp}
+                hasComparison={margenTrendInfo.hasComparison}
+                helper={margenHelper}
+                tono="violeta"
+              />
+              <Metric
+                label="Delivery en la calle"
+                value={fmtNumber(data.pedidosEnDelivery || 0)}
+                helper={`${data.pedidosActivos || 0} pedidos activos en total`}
+                tono="azul"
+              />
+            </div>
+
+            <Card
+              title="Pedidos por estado"
+              helper={`${safeFormat(resumenPeriodo.desde, 'dd/MM/yyyy', periodo.desde)} al ${safeFormat(
+                resumenPeriodo.hasta,
+                'dd/MM/yyyy',
+                periodo.hasta
+              )} · ${fmtNumber(resumenPeriodo.clientes || 0)} clientes identificados · ${fmtNumber(
+                resumenPeriodo.cancelados || 0
+              )} cancelados fuera del total vendido`}
+            >
+              <div className="space-y-2.5">
+                {(resumenPeriodo.estados || []).length ? (
+                  resumenPeriodo.estados.map((item) => {
+                    const tono = estadoTono(item.estado);
+                    return (
+                      <div key={item.estado}>
+                        <div className="mb-1 flex items-center justify-between gap-3 text-[12px]">
+                          <span className="font-medium text-gray-700">
+                            {DASHBOARD_STATE_LABELS[item.estado] || item.estado}
+                          </span>
+                          <span className="font-bold tabular-nums text-gray-900">
+                            {fmtNumber(item.cantidad)}
+                          </span>
+                        </div>
+                        <div className="h-2 overflow-hidden rounded-full bg-gray-100">
+                          <div
+                            className="h-full rounded-full transition-all"
+                            style={{
+                              width: `${Math.max(3, (Number(item.cantidad || 0) / maxEstadoPeriodo) * 100)}%`,
+                              background: tono.fg,
+                            }}
                           />
-                        ))}
-                      </Pie>
+                        </div>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <EmptyState
+                    icon={ShoppingBag}
+                    title="Sin pedidos en el período"
+                    description="Elegí otro rango para consultar el movimiento histórico."
+                  />
+                )}
+              </div>
+            </Card>
+
+            {/* ── Gráfico + últimas órdenes ── */}
+            <div className="grid gap-4 xl:grid-cols-3">
+              <Card
+                title="Ventas de los últimos 7 días"
+                action={
+                  isModuleEnabled('reportes') && hasPermission('reportes.view') ? (
+                    <LinkAction label="Reportes" onClick={() => navigate('/admin/reportes')} />
+                  ) : null
+                }
+                className="xl:col-span-2"
+              >
+                <div className="h-72 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={data.ventas7dias || []}>
+                      <defs>
+                        <linearGradient id="colorVentasModern" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor={BRAND} stopOpacity={0.18} />
+                          <stop offset="95%" stopColor={BRAND} stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" vertical={false} />
+                      <XAxis
+                        dataKey="fecha"
+                        axisLine={false}
+                        tickLine={false}
+                        tick={{ fill: '#94A3B8', fontSize: 11 }}
+                        tickFormatter={(val) => safeFormat(val, 'EEE', '')}
+                        dy={10}
+                      />
+                      <YAxis hide />
                       <Tooltip
                         contentStyle={{
                           borderRadius: '12px',
@@ -966,187 +848,338 @@ export default function DashboardModern() {
                           boxShadow: '0 4px 14px rgba(15,23,42,0.08)',
                           fontSize: '13px',
                         }}
-                        formatter={(val, name) => [fmtMoney(val), paymentMethodLabel(name)]}
+                        labelFormatter={(val) => safeFormat(val, "eeee d 'de' MMMM", '')}
+                        formatter={(val) => [fmtMoney(val), 'Ventas']}
                       />
-                    </PieChart>
+                      <Area
+                        type="monotone"
+                        dataKey="total"
+                        stroke={BRAND}
+                        strokeWidth={2.5}
+                        fillOpacity={1}
+                        fill="url(#colorVentasModern)"
+                      />
+                    </AreaChart>
                   </ResponsiveContainer>
                 </div>
+              </Card>
 
-                <div className="mt-4 space-y-2">
-                  {data.porMetodoPago.map((item) => (
-                    <div key={item.metodo_pago} className="flex items-center justify-between gap-3">
-                      <div className="flex min-w-0 items-center gap-2">
-                        <span
-                          className="h-2.5 w-2.5 shrink-0 rounded-full"
-                          style={{
-                            background: PAYMENT_COLORS[item.metodo_pago] || PAYMENT_COLORS.default,
-                          }}
-                        />
-                        <span className="truncate text-[13px] text-gray-700">
-                          {paymentMethodLabel(item.metodo_pago)}
-                        </span>
-                      </div>
-                      <div className="shrink-0 text-right">
-                        <p className="text-[13px] font-bold tabular-nums text-gray-900">
-                          {fmtMoney(item.total)}
-                        </p>
-                        <p className="text-[11px] text-gray-400">
-                          {item.cantidad} {item.cantidad === 1 ? 'pedido' : 'pedidos'}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
+              <Card
+                title="Últimas órdenes"
+                action={
+                  hasPermission('pedidos.view') ? (
+                    <LinkAction label="Ver todas" onClick={() => navigate('/admin/pedidos')} />
+                  ) : null
+                }
+              >
+                <div className="space-y-1">
+                  {data.ultimosPedidos?.length > 0 ? (
+                    data.ultimosPedidos.map((order) => {
+                      const tono = estadoTono(order.estado);
+                      return (
+                        <button
+                          type="button"
+                          key={order.id}
+                          onClick={() =>
+                            hasPermission('pedidos.view') ? navigate('/admin/pedidos') : undefined
+                          }
+                          className="flex w-full items-center gap-3 rounded-xl p-2 text-left transition hover:bg-gray-50"
+                        >
+                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gray-100 text-gray-500">
+                            {order.tipo_entrega === 'delivery' ? (
+                              <Bike size={16} strokeWidth={STROKE} />
+                            ) : order.tipo_entrega === 'mesa' ? (
+                              <UtensilsCrossed size={16} strokeWidth={STROKE} />
+                            ) : (
+                              <ShoppingBag size={16} strokeWidth={STROKE} />
+                            )}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-[13px] font-medium text-gray-900">
+                              #{order.numero} · {order.cliente_nombre || 'Cliente'}
+                            </p>
+                            <p className="truncate text-[11px] text-gray-400">
+                              {safeFormat(order.creado_en, 'HH:mm', '--:--')} hs ·{' '}
+                              {paymentMethodLabel(order.metodo_pago)} ·{' '}
+                              {paymentStatusLabel(order.pago_estado)}
+                            </p>
+                          </div>
+                          <div className="shrink-0 text-right">
+                            <p className="text-[13px] font-bold tabular-nums text-gray-900">
+                              {fmtMoney(order.total)}
+                            </p>
+                            <span
+                              className="mt-0.5 inline-block rounded-full px-1.5 py-0.5 text-[10px] font-medium"
+                              style={{ background: tono.bg, color: tono.fg }}
+                            >
+                              {tono.label}
+                            </span>
+                          </div>
+                        </button>
+                      );
+                    })
+                  ) : (
+                    <EmptyState
+                      icon={ShoppingBag}
+                      title="Sin pedidos aún"
+                      description="Cuando ingresen pedidos, vas a verlos acá."
+                    />
+                  )}
                 </div>
-              </>
-            )}
-          </Card>
+              </Card>
+            </div>
 
-          <Card
-            title="Lo más pedido hoy"
-            helper="Ordenado por unidades vendidas"
-            className="xl:col-span-2"
-          >
-            {(data.productosEstrella || []).length === 0 ? (
-              <EmptyState
-                icon={TrendingUp}
-                title="Todavía no se vendió nada hoy"
-                description="El ranking del día se arma con los pedidos de la jornada."
-              />
-            ) : (
-              <div className="grid gap-1 md:grid-cols-2">
-                {data.productosEstrella.map((prod, idx) => (
-                  <RankRow
-                    key={`${prod.id || prod.nombre}-${idx}`}
-                    position={idx + 1}
-                    image={resolveAssetUrl(prod.imagen)}
-                    title={prod.nombre}
-                    subtitle={prod.categoria}
-                    ratio={prod.cantidad / (data.productosEstrella[0]?.cantidad || 1)}
-                    value={`${fmtNumber(prod.cantidad)}u`}
-                    footnote={fmtMoney(prod.total)}
+            {/* ── Cobros + productos del día ── */}
+            <div className="grid gap-4 xl:grid-cols-3">
+              <Card
+                title="Cobros de pedidos creados hoy"
+                helper="Pagos confirmados de órdenes ingresadas durante la jornada"
+              >
+                {(data.porMetodoPago || []).length === 0 ? (
+                  <EmptyState
+                    icon={DollarSign}
+                    title="Todavía no hay cobros"
+                    description="Apenas se confirme el primer pago vas a ver el desglose por canal."
                   />
-                ))}
-              </div>
-            )}
-          </Card>
-        </div>
+                ) : (
+                  <>
+                    <div className="h-52 w-full">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie
+                            data={data.porMetodoPago}
+                            innerRadius={55}
+                            outerRadius={78}
+                            paddingAngle={3}
+                            dataKey="total"
+                            nameKey="metodo_pago"
+                            stroke="none"
+                            cornerRadius={6}
+                          >
+                            {data.porMetodoPago.map((entry) => (
+                              <Cell
+                                key={entry.metodo_pago}
+                                fill={PAYMENT_COLORS[entry.metodo_pago] || PAYMENT_COLORS.default}
+                              />
+                            ))}
+                          </Pie>
+                          <Tooltip
+                            contentStyle={{
+                              borderRadius: '12px',
+                              border: '1px solid #E5E7EB',
+                              boxShadow: '0 4px 14px rgba(15,23,42,0.08)',
+                              fontSize: '13px',
+                            }}
+                            formatter={(val, name) => [fmtMoney(val), paymentMethodLabel(name)]}
+                          />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </div>
 
-        {/* ── Rankings históricos ── */}
-        <div className="grid gap-4 xl:grid-cols-2">
-          <Card
-            title="Más vendidos de siempre"
-            action={<LinkAction label="Productos" onClick={() => navigate('/admin/productos')} />}
-          >
-            {(data.productosMasVendidosGeneral || []).length === 0 ? (
-              <EmptyState
-                icon={TrendingUp}
-                title="Sin historial todavía"
-                description="Con las primeras ventas se arma el ranking general."
-              />
-            ) : (
-              <div className="space-y-1">
-                {data.productosMasVendidosGeneral.map((prod, idx) => (
-                  <RankRow
-                    key={`${prod.id || prod.nombre}-${idx}`}
-                    position={idx + 1}
-                    image={resolveAssetUrl(prod.imagen)}
-                    title={prod.nombre}
-                    subtitle={prod.categoria}
-                    ratio={prod.cantidad / (data.productosMasVendidosGeneral[0]?.cantidad || 1)}
-                    value={`${fmtNumber(prod.cantidad)}u`}
-                    footnote={fmtMoney(prod.total)}
-                    onClick={() => navigate('/admin/productos')}
+                    <div className="mt-4 space-y-2">
+                      {data.porMetodoPago.map((item) => (
+                        <div
+                          key={item.metodo_pago}
+                          className="flex items-center justify-between gap-3"
+                        >
+                          <div className="flex min-w-0 items-center gap-2">
+                            <span
+                              className="h-2.5 w-2.5 shrink-0 rounded-full"
+                              style={{
+                                background:
+                                  PAYMENT_COLORS[item.metodo_pago] || PAYMENT_COLORS.default,
+                              }}
+                            />
+                            <span className="truncate text-[13px] text-gray-700">
+                              {paymentMethodLabel(item.metodo_pago)}
+                            </span>
+                          </div>
+                          <div className="shrink-0 text-right">
+                            <p className="text-[13px] font-bold tabular-nums text-gray-900">
+                              {fmtMoney(item.total)}
+                            </p>
+                            <p className="text-[11px] text-gray-400">
+                              {item.cantidad} {item.cantidad === 1 ? 'pedido' : 'pedidos'}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </Card>
+
+              <Card
+                title="Lo más pedido hoy"
+                helper="Ordenado por unidades vendidas"
+                className="xl:col-span-2"
+              >
+                {(data.productosEstrella || []).length === 0 ? (
+                  <EmptyState
+                    icon={TrendingUp}
+                    title="Todavía no se vendió nada hoy"
+                    description="El ranking del día se arma con los pedidos de la jornada."
                   />
-                ))}
-              </div>
-            )}
-          </Card>
+                ) : (
+                  <div className="grid gap-1 md:grid-cols-2">
+                    {data.productosEstrella.map((prod, idx) => (
+                      <RankRow
+                        key={`${prod.id || prod.nombre}-${idx}`}
+                        position={idx + 1}
+                        image={resolveAssetUrl(prod.imagen)}
+                        title={prod.nombre}
+                        subtitle={prod.categoria}
+                        ratio={prod.cantidad / (data.productosEstrella[0]?.cantidad || 1)}
+                        value={`${fmtNumber(prod.cantidad)}u`}
+                        footnote={fmtMoney(prod.total)}
+                      />
+                    ))}
+                  </div>
+                )}
+              </Card>
+            </div>
 
-          <Card
-            title="Clientes que más compran"
-            action={<LinkAction label="Clientes" onClick={() => navigate('/admin/clientes')} />}
-          >
-            {(data.clientesMasCompran || []).length === 0 ? (
-              <EmptyState
-                icon={ShoppingBag}
-                title="Sin clientes registrados"
-                description="Cargá clientes desde el TPV o la web para verlos acá."
-              />
-            ) : (
-              <div className="space-y-1">
-                {data.clientesMasCompran.map((cli, idx) => (
-                  <RankRow
-                    key={`${cli.id || cli.nombre}-${idx}`}
-                    position={idx + 1}
-                    title={cli.nombre}
-                    subtitle={`${fmtNumber(cli.total_pedidos || 0)} pedidos${
-                      cli.nivel ? ` · ${cli.nivel}` : ''
-                    }`}
-                    value={fmtMoney(cli.total_gastado)}
-                    footnote={safeFormat(cli.ultima_compra, 'dd/MM', 'Sin fecha')}
-                    onClick={() => navigate('/admin/clientes')}
+            {/* ── Rankings históricos ── */}
+            <div className="grid gap-4 xl:grid-cols-2">
+              <Card
+                title="Más vendidos de siempre"
+                action={
+                  hasPermission('productos.view') || hasPermission('productos.edit') ? (
+                    <LinkAction label="Productos" onClick={() => navigate('/admin/productos')} />
+                  ) : null
+                }
+              >
+                {(data.productosMasVendidosGeneral || []).length === 0 ? (
+                  <EmptyState
+                    icon={TrendingUp}
+                    title="Sin historial todavía"
+                    description="Con las primeras ventas se arma el ranking general."
                   />
-                ))}
-              </div>
-            )}
-          </Card>
-        </div>
+                ) : (
+                  <div className="space-y-1">
+                    {data.productosMasVendidosGeneral.map((prod, idx) => (
+                      <RankRow
+                        key={`${prod.id || prod.nombre}-${idx}`}
+                        position={idx + 1}
+                        image={resolveAssetUrl(prod.imagen)}
+                        title={prod.nombre}
+                        subtitle={prod.categoria}
+                        ratio={prod.cantidad / (data.productosMasVendidosGeneral[0]?.cantidad || 1)}
+                        value={`${fmtNumber(prod.cantidad)}u`}
+                        footnote={fmtMoney(prod.total)}
+                        onClick={
+                          hasPermission('productos.view') || hasPermission('productos.edit')
+                            ? () => navigate('/admin/productos')
+                            : undefined
+                        }
+                      />
+                    ))}
+                  </div>
+                )}
+              </Card>
 
-        {/*
+              <Card
+                title="Clientes que más compran"
+                action={
+                  hasPermission('clientes.view') ? (
+                    <LinkAction label="Clientes" onClick={() => navigate('/admin/clientes')} />
+                  ) : null
+                }
+              >
+                {(data.clientesMasCompran || []).length === 0 ? (
+                  <EmptyState
+                    icon={ShoppingBag}
+                    title="Sin clientes registrados"
+                    description="Cargá clientes desde el TPV o la web para verlos acá."
+                  />
+                ) : (
+                  <div className="space-y-1">
+                    {data.clientesMasCompran.map((cli, idx) => (
+                      <RankRow
+                        key={`${cli.id || cli.nombre}-${idx}`}
+                        position={idx + 1}
+                        title={cli.nombre}
+                        subtitle={`${fmtNumber(cli.total_pedidos || 0)} pedidos${
+                          cli.nivel ? ` · ${cli.nivel}` : ''
+                        }`}
+                        value={fmtMoney(cli.total_gastado)}
+                        footnote={safeFormat(cli.ultima_compra, 'dd/MM', 'Sin fecha')}
+                        onClick={
+                          hasPermission('clientes.view')
+                            ? () => navigate('/admin/clientes')
+                            : undefined
+                        }
+                      />
+                    ))}
+                  </div>
+                )}
+              </Card>
+            </div>
+
+            {/*
           El panel VIP era un bloque azul a pantalla completa con blur y
           tarjetas de vidrio. Ocupaba más que las ventas del día siendo un
           dato de consulta. Ahora es una tarjeta más, con la misma jerarquía
           que el resto.
         */}
-        {(data.clientesVIP || []).length > 0 ? (
-          <Card
-            title="Clientes VIP"
-            helper="Score combinado de gasto, frecuencia, nivel y actividad reciente"
-            action={
-              hasPermission('config.manage') ? (
-                <LinkAction label="Fidelización" onClick={() => navigate('/admin/fidelizacion')} />
-              ) : null
-            }
-          >
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-              {data.clientesVIP.map((cli, idx) => (
-                <div
-                  key={`${cli.id || cli.nombre}-${idx}`}
-                  className="rounded-xl border border-gray-100 p-3"
-                >
-                  <div className="flex items-center gap-2.5">
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gray-100 text-[14px] font-semibold text-gray-600">
-                      {cli.nombre?.[0]?.toUpperCase() || '?'}
-                    </span>
-                    <div className="min-w-0">
-                      <p className="truncate text-[13px] font-medium text-gray-900">{cli.nombre}</p>
-                      <p className="text-[11px] text-gray-400">{cli.nivel || 'Bronce'}</p>
+            {(data.clientesVIP || []).length > 0 ? (
+              <Card
+                title="Clientes VIP"
+                helper="Score combinado de gasto, frecuencia, nivel y actividad reciente"
+                action={
+                  hasPermission('config.manage') ? (
+                    <LinkAction
+                      label="Fidelización"
+                      onClick={() => navigate('/admin/fidelizacion')}
+                    />
+                  ) : null
+                }
+              >
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+                  {data.clientesVIP.map((cli, idx) => (
+                    <div
+                      key={`${cli.id || cli.nombre}-${idx}`}
+                      className="rounded-xl border border-gray-100 p-3"
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gray-100 text-[14px] font-semibold text-gray-600">
+                          {cli.nombre?.[0]?.toUpperCase() || '?'}
+                        </span>
+                        <div className="min-w-0">
+                          <p className="truncate text-[13px] font-medium text-gray-900">
+                            {cli.nombre}
+                          </p>
+                          <p className="text-[11px] text-gray-400">{cli.nivel || 'Bronce'}</p>
+                        </div>
+                      </div>
+                      <dl className="mt-3 space-y-1.5 border-t border-gray-100 pt-2.5 text-[12px]">
+                        <div className="flex justify-between">
+                          <dt className="text-gray-400">Gastado</dt>
+                          <dd className="font-bold tabular-nums text-gray-900">
+                            {fmtMoney(cli.total_gastado)}
+                          </dd>
+                        </div>
+                        <div className="flex justify-between">
+                          <dt className="text-gray-400">Pedidos</dt>
+                          <dd className="tabular-nums text-gray-700">
+                            {fmtNumber(cli.total_pedidos)}
+                          </dd>
+                        </div>
+                        <div className="flex justify-between">
+                          <dt className="text-gray-400">Última compra</dt>
+                          <dd className="tabular-nums text-gray-700">
+                            {Number(cli.diasSinComprar || 0) <= 1
+                              ? 'Hoy'
+                              : `hace ${fmtNumber(cli.diasSinComprar || 0)} d`}
+                          </dd>
+                        </div>
+                      </dl>
                     </div>
-                  </div>
-                  <dl className="mt-3 space-y-1.5 border-t border-gray-100 pt-2.5 text-[12px]">
-                    <div className="flex justify-between">
-                      <dt className="text-gray-400">Gastado</dt>
-                      <dd className="font-bold tabular-nums text-gray-900">
-                        {fmtMoney(cli.total_gastado)}
-                      </dd>
-                    </div>
-                    <div className="flex justify-between">
-                      <dt className="text-gray-400">Pedidos</dt>
-                      <dd className="tabular-nums text-gray-700">{fmtNumber(cli.total_pedidos)}</dd>
-                    </div>
-                    <div className="flex justify-between">
-                      <dt className="text-gray-400">Última compra</dt>
-                      <dd className="tabular-nums text-gray-700">
-                        {Number(cli.diasSinComprar || 0) <= 1
-                          ? 'Hoy'
-                          : `hace ${fmtNumber(cli.diasSinComprar || 0)} d`}
-                      </dd>
-                    </div>
-                  </dl>
+                  ))}
                 </div>
-              ))}
-            </div>
-          </Card>
+              </Card>
+            ) : null}
+          </>
         ) : null}
 
         {/* ── Salud del sistema ── */}

@@ -12,6 +12,7 @@ import { resolveAssetUrl } from '../../lib/assets.js';
 import { buildPublicAppUrl, getPublicAppUrlDiagnostics } from '../../lib/publicUrls.js';
 import { DEFAULT_BRAND_LOGO } from '../../lib/webPublicaHelpers.js';
 import { fmtMoney } from '../../lib/formatters.js';
+import { mesDiaArgentina } from '../../lib/fechaNegocio.js';
 import {
   LOCAL_AVATARS,
   avatarTokenAleatorio,
@@ -268,7 +269,7 @@ export function useClientes() {
 
     if (cliente.fecha_nacimiento) {
       const birthMonthDay = String(cliente.fecha_nacimiento).slice(5, 10);
-      const todayMonthDay = new Date().toISOString().slice(5, 10);
+      const todayMonthDay = mesDiaArgentina();
       items.push({
         id: 'birthday',
         title: birthMonthDay === todayMonthDay ? 'Cumple hoy' : 'Cumple registrado',

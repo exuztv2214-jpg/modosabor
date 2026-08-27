@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { Check, X } from 'lucide-react';
 
@@ -40,6 +40,8 @@ export default function TpvVariantModal({
   variantesCompletas,
   variantModal,
 }) {
+  const agregarButtonRef = useRef(null);
+
   // Escape cierra. Es el reflejo de cualquiera que cancele un producto mal
   // elegido, y hasta ahora sólo funcionaba el click afuera.
   useEffect(() => {
@@ -67,6 +69,10 @@ export default function TpvVariantModal({
     [variantModal.variantes, variantModal.sel]
   );
 
+  useEffect(() => {
+    if (variantesCompletas) agregarButtonRef.current?.focus();
+  }, [variantesCompletas]);
+
   const total =
     selectedVariantTotal ??
     variantModal.rewardOptions?.priceOverride ??
@@ -87,13 +93,11 @@ export default function TpvVariantModal({
 
   return (
     <div
-      role="button"
-      tabIndex={0}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter' || event.key === ' ') event.currentTarget.click();
-      }}
+      role="presentation"
       className="fixed inset-0 z-[70] flex items-center justify-center bg-gray-900/40 p-4 backdrop-blur-[2px]"
-      onClick={onClose}
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose?.();
+      }}
     >
       <motion.div
         initial={{ opacity: 0, scale: 0.97, y: 8 }}
@@ -261,6 +265,7 @@ export default function TpvVariantModal({
             </span>
           </div>
           <button
+            ref={agregarButtonRef}
             type="button"
             onClick={onAddToCart}
             disabled={!variantesCompletas}

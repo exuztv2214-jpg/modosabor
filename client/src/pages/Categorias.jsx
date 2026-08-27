@@ -899,22 +899,17 @@ export default function Categorias() {
       {/* ── Modal ── */}
       {modal && (
         <div
-          role="button"
-          tabIndex={0}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' || event.key === ' ') event.currentTarget.click();
-          }}
+          role="presentation"
           className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/35 p-4 backdrop-blur-sm"
-          onClick={cerrarModal}
+          onClick={(event) => {
+            if (event.target === event.currentTarget) cerrarModal();
+          }}
         >
           <div
-            role="button"
-            tabIndex={0}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' || event.key === ' ') event.currentTarget.click();
-            }}
+            role="dialog"
+            aria-modal="true"
+            aria-label={modal === 'nuevo' ? 'Nueva categoría' : 'Editar categoría'}
             className="flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
-            onClick={(event) => event.stopPropagation()}
           >
             <div className="flex shrink-0 items-center justify-between gap-4 border-b border-gray-100 px-5 py-4">
               <div>

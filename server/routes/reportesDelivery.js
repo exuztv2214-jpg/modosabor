@@ -16,16 +16,15 @@ const db = require('../db');
 const auth = require('../middleware/auth');
 const { requirePermission } = require('../utils/permissions');
 
-const { fechaLocal } = require('../utils/fechaLocal');
+const { fechaLocal, hoyArgentina } = require('../utils/fechaLocal');
 /** Normaliza un rango de fechas con defaults sensatos (últimos 7 días). */
 function parseRango(query) {
-  const hoy = new Date();
-  const haceUnaSemana = new Date(hoy.getTime() - 7 * 24 * 60 * 60 * 1000);
-  const fmt = (d) =>
-    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const hoy = hoyArgentina();
+  const haceUnaSemana = new Date(`${hoy}T12:00:00-03:00`);
+  haceUnaSemana.setUTCDate(haceUnaSemana.getUTCDate() - 7);
 
-  const desde = String(query?.desde || fmt(haceUnaSemana)).slice(0, 10);
-  const hasta = String(query?.hasta || fmt(hoy)).slice(0, 10);
+  const desde = String(query?.desde || hoyArgentina(haceUnaSemana)).slice(0, 10);
+  const hasta = String(query?.hasta || hoy).slice(0, 10);
   return { desde, hasta };
 }
 

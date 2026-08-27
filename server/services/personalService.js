@@ -1,6 +1,14 @@
 const db = require('../db');
+const { hoyArgentina } = require('../utils/fechaLocal');
 
 const RECOGNITION_TYPES = new Set(['puntualidad', 'calidad', 'venta', 'equipo', 'extra', 'bonus']);
+
+function fechaCivil(value) {
+  const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) return null;
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12));
+  return Number.isNaN(date.getTime()) ? null : date;
+}
 
 // ============================================
 // NORMALIZACIÓN
@@ -8,6 +16,8 @@ const RECOGNITION_TYPES = new Set(['puntualidad', 'calidad', 'venta', 'equipo', 
 
 function normalizePersonal(row) {
   if (!row) return row;
+
+  const hoy = fechaCivil(hoyArgentina());
 
   let tags = [];
   try {
@@ -21,9 +31,8 @@ function normalizePersonal(row) {
   let antiguedad_anios = 0;
   let antiguedad_texto = '';
   if (row.fecha_ingreso) {
-    const ingreso = new Date(row.fecha_ingreso);
-    const hoy = new Date();
-    const diffTime = Math.abs(hoy - ingreso);
+    const ingreso = fechaCivil(row.fecha_ingreso);
+    const diffTime = ingreso && hoy ? Math.max(0, hoy - ingreso) : 0;
     const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
     antiguedad_anios = Math.floor(diffDays / 365);
     const meses = Math.floor((diffDays % 365) / 30);
@@ -40,19 +49,22 @@ function normalizePersonal(row) {
   // Calcular próximo cumpleaños
   let proximo_cumpleanos = null;
   let dias_para_cumpleanos = null;
-  if (row.fecha_nacimiento) {
-    const hoy = new Date();
-    const nacimiento = new Date(row.fecha_nacimiento);
-    const esteAnio = hoy.getFullYear();
-    let proximo = new Date(esteAnio, nacimiento.getMonth(), nacimiento.getDate());
+  const nacimiento = fechaCivil(row.fecha_nacimiento);
+  if (nacimiento && hoy) {
+    const esteAnio = hoy.getUTCFullYear();
+    let proximo = new Date(
+      Date.UTC(esteAnio, nacimiento.getUTCMonth(), nacimiento.getUTCDate(), 12)
+    );
 
     if (proximo < hoy) {
-      proximo = new Date(esteAnio + 1, nacimiento.getMonth(), nacimiento.getDate());
+      proximo = new Date(
+        Date.UTC(esteAnio + 1, nacimiento.getUTCMonth(), nacimiento.getUTCDate(), 12)
+      );
     }
 
     const diffTime = proximo - hoy;
-    dias_para_cumpleanos = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    proximo_cumpleanos = proximo.toISOString().split('T')[0];
+    dias_para_cumpleanos = Math.round(diffTime / (1000 * 60 * 60 * 24));
+    proximo_cumpleanos = hoyArgentina(proximo);
   }
 
   return {
@@ -165,7 +177,7 @@ function createPersonal(data) {
     data.monto_base || 0,
     data.medio_pago_preferido || 'efectivo',
     data.fecha_nacimiento || '',
-    data.fecha_ingreso || new Date().toISOString().split('T')[0],
+    data.fecha_ingreso || hoyArgentina(),
     data.direccion || '',
     data.notas || '',
     data.categoria_id || 1,

@@ -7,7 +7,7 @@ const multer = require('multer');
 const db = require('../db');
 const auth = require('../middleware/auth');
 const { requirePermission, hasPermission } = require('../utils/permissions');
-const { fechaLocal, hoyLocal } = require('../utils/fechaLocal');
+const { fechaLocal, hoyLocal, hoyArgentina } = require('../utils/fechaLocal');
 
 /*
   Argentina es UTC-3 fijo: no tiene horario de verano desde 2009.
@@ -320,7 +320,7 @@ router.post('/', auth, requirePermission('delivery.manage'), (req, res) => {
       longitud_casa,
       avatar_url,
       notas,
-      fecha_ingreso || new Date().toISOString().split('T')[0]
+      fecha_ingreso || hoyArgentina()
     );
   const hydrated = hydrateRepartidor(r.lastInsertRowid);
   syncPersonalFromDeliveryRepartidor(db, hydrated);

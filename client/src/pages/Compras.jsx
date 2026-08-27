@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 
 import api from '../lib/api.js';
+import { parseFechaServidor } from '../lib/fechas.js';
 import { APP_BG, BRAND, STROKE } from '../lib/theme.js';
 import NuevaCompraModal from '../components/Compras/NuevaCompraModal.jsx';
 import { Stat as StatCard } from './Clientes/clientesUi.jsx';
@@ -31,7 +32,8 @@ const METODO_LABEL = {
 const csvCell = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`;
 const fmtDate = (iso) => {
   if (!iso) return '-';
-  const d = new Date(iso);
+  const d = parseFechaServidor(iso);
+  if (!Number.isFinite(d.getTime())) return String(iso);
   return d.toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' });
 };
 const normalizeText = (v) =>
@@ -45,8 +47,19 @@ function ModalDetalle({ compra, onClose }) {
   if (!compra) return null;
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-      <div className="w-full max-w-2xl rounded-[28px] bg-white shadow-2xl max-h-[90vh] flex flex-col">
+    <div
+      role="presentation"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose?.();
+      }}
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Detalle de compra ${compra.id}`}
+        className="w-full max-w-2xl rounded-[28px] bg-white shadow-2xl max-h-[90vh] flex flex-col"
+      >
         <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100">
           <div>
             <h2 className="text-base font-semibold text-gray-900">Compra #{compra.id}</h2>
@@ -198,11 +211,11 @@ export default function Compras() {
     }
     if (fechaDesde) {
       const desde = new Date(fechaDesde + 'T00:00:00');
-      result = result.filter((c) => new Date(c.creado_en) >= desde);
+      result = result.filter((c) => parseFechaServidor(c.creado_en) >= desde);
     }
     if (fechaHasta) {
       const hasta = new Date(fechaHasta + 'T23:59:59');
-      result = result.filter((c) => new Date(c.creado_en) <= hasta);
+      result = result.filter((c) => parseFechaServidor(c.creado_en) <= hasta);
     }
     return result;
   }, [compras, busqueda, fechaDesde, fechaHasta]);
@@ -226,7 +239,7 @@ export default function Compras() {
     hoy.setHours(0, 0, 0, 0);
 
     const gastadoEnVista = comprasFiltradas.reduce((acc, c) => acc + Number(c.total || 0), 0);
-    const comprasHoy = compras.filter((c) => new Date(c.creado_en) >= hoy);
+    const comprasHoy = compras.filter((c) => parseFechaServidor(c.creado_en) >= hoy);
     const gastadoHoy = comprasHoy.reduce((acc, c) => acc + Number(c.total || 0), 0);
 
     // `cuenta_corriente` significa que la mercadería entró pero todavía no se

@@ -2,8 +2,25 @@ const express = require('express');
 const auth = require('../middleware/auth');
 const db = require('../db');
 const { requirePermission } = require('../utils/permissions');
+const { pesosACentavos } = require('../utils/numberInput');
+const { parseFechaHoraArgentina } = require('../utils/fechaLocal');
 
 const router = express.Router();
+
+function valorDescuentoParaDb(tipo, valor) {
+  return tipo === 'fijo' ? pesosACentavos(valor) : Number(valor);
+}
+
+function cuponParaApi(cupon) {
+  if (!cupon) return cupon;
+  return {
+    ...cupon,
+    valor_descuento:
+      cupon.tipo_descuento === 'fijo'
+        ? Number(cupon.valor_descuento || 0) / 100
+        : Number(cupon.valor_descuento || 0),
+  };
+}
 
 function validateCuponData(data) {
   const errors = [];
@@ -55,7 +72,7 @@ router.get('/', auth, requirePermission('config.manage'), (req, res) => {
     query += ' ORDER BY creado_en DESC';
 
     const cupones = db.prepare(query).all(...params);
-    res.json(cupones);
+    res.json(cupones.map(cuponParaApi));
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -81,7 +98,7 @@ router.get('/:id', auth, requirePermission('config.manage'), (req, res) => {
       )
       .all(req.params.id);
 
-    res.json({ ...cupon, usos });
+    res.json({ ...cuponParaApi(cupon), usos });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -128,7 +145,7 @@ router.post('/', auth, requirePermission('config.manage'), (req, res) => {
         codigo.trim().toUpperCase(),
         descripcion || '',
         tipo_descuento,
-        parseFloat(valor_descuento),
+        valorDescuentoParaDb(tipo_descuento, valor_descuento),
         parseFloat(minimo_compra || 0),
         parseFloat(descuento_maximo || 0),
         fecha_inicio || null,
@@ -139,7 +156,7 @@ router.post('/', auth, requirePermission('config.manage'), (req, res) => {
       );
 
     const cupon = db.prepare('SELECT * FROM cupones WHERE id = ?').get(result.lastInsertRowid);
-    res.status(201).json(cupon);
+    res.status(201).json(cuponParaApi(cupon));
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -199,7 +216,7 @@ router.put('/:id', auth, requirePermission('config.manage'), (req, res) => {
       codigo.trim().toUpperCase(),
       descripcion || '',
       tipo_descuento,
-      parseFloat(valor_descuento),
+      valorDescuentoParaDb(tipo_descuento, valor_descuento),
       parseFloat(minimo_compra || 0),
       parseFloat(descuento_maximo || 0),
       fecha_inicio || null,
@@ -211,7 +228,7 @@ router.put('/:id', auth, requirePermission('config.manage'), (req, res) => {
     );
 
     const cupon = db.prepare('SELECT * FROM cupones WHERE id = ?').get(req.params.id);
-    res.json(cupon);
+    res.json(cuponParaApi(cupon));
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -247,11 +264,13 @@ router.post('/validar', (req, res) => {
       return res.status(400).json({ error: 'Cupón no válido o inactivo' });
     }
 
-    const now = new Date().toISOString();
-    if (cupon.fecha_inicio && now < cupon.fecha_inicio) {
+    const ahora = new Date();
+    const inicio = parseFechaHoraArgentina(cupon.fecha_inicio);
+    const fin = parseFechaHoraArgentina(cupon.fecha_fin);
+    if (inicio && ahora < inicio) {
       return res.status(400).json({ error: 'El cupón aún no está activo' });
     }
-    if (cupon.fecha_fin && now > cupon.fecha_fin) {
+    if (fin && ahora > fin) {
       return res.status(400).json({ error: 'El cupón ha expirado' });
     }
 

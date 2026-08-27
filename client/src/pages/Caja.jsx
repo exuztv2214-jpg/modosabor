@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 
 import api from '../lib/api.js';
+import { useAuth } from '../context/AuthContext.jsx';
 import { fmtMoney } from '../lib/formatters.js';
 import { paymentMethodLabel } from '../lib/paymentStatus.js';
 import { useAuthenticatedSocket } from '../hooks/useAuthenticatedSocket.js';
@@ -143,6 +144,8 @@ function Empty({ children }) {
 }
 
 export default function Caja() {
+  const { hasPermission } = useAuth();
+  const canManage = hasPermission('caja.manage');
   const [data, setData] = useState({
     activa: null,
     resumen: null,
@@ -387,7 +390,7 @@ export default function Caja() {
           </div>
 
           <div className="flex flex-wrap gap-2">
-            {data?.activa && (
+            {data?.activa && canManage && (
               <button
                 type="button"
                 onClick={() => setShowMovimientoModal(true)}
@@ -670,18 +673,20 @@ export default function Caja() {
                   />
 
                   <div className="mt-2 flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setClosing((p) => ({
-                          ...p,
-                          monto_final_declarado: String(efectivoEsperado),
-                        }))
-                      }
-                      className="rounded-lg bg-gray-100 px-3 py-1.5 text-[12px] font-semibold text-gray-700 transition hover:bg-gray-200"
-                    >
-                      Copiar esperado
-                    </button>
+                    {!arqueoCiego ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setClosing((p) => ({
+                            ...p,
+                            monto_final_declarado: String(efectivoEsperado),
+                          }))
+                        }
+                        className="rounded-lg bg-gray-100 px-3 py-1.5 text-[12px] font-semibold text-gray-700 transition hover:bg-gray-200"
+                      >
+                        Copiar esperado
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       onClick={() =>
@@ -775,7 +780,9 @@ export default function Caja() {
                   <button
                     type="button"
                     onClick={solicitarCierreCaja}
-                    disabled={saving || String(closing.monto_final_declarado).trim() === ''}
+                    disabled={
+                      !canManage || saving || String(closing.monto_final_declarado).trim() === ''
+                    }
                     style={{ background: BRAND }}
                     className="mt-4 h-12 w-full rounded-xl text-[14px] font-semibold text-white transition hover:brightness-110 disabled:opacity-40"
                   >
@@ -839,12 +846,18 @@ export default function Caja() {
               <button
                 type="button"
                 onClick={abrirCaja}
-                disabled={saving}
+                disabled={!canManage || saving}
                 style={{ background: BRAND }}
                 className="mt-4 h-12 w-full rounded-xl text-[14px] font-semibold text-white transition hover:brightness-110 disabled:opacity-40"
               >
                 {saving ? 'Abriendo…' : 'Abrir caja'}
               </button>
+
+              {!canManage ? (
+                <p className="mt-3 text-[12px] leading-4 text-gray-500">
+                  Tu usuario puede consultar la caja, pero no abrirla ni cerrarla.
+                </p>
+              ) : null}
 
               {!data?.turno_operativo?.abiertoAhora ? (
                 <p className="mt-3 text-[12px] leading-4 text-amber-700">
@@ -1020,24 +1033,19 @@ export default function Caja() {
       </div>
 
       {/* ── Modal de movimiento ── */}
-      {showMovimientoModal && (
+      {showMovimientoModal && canManage && (
         <div
-          role="button"
-          tabIndex={0}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' || event.key === ' ') event.currentTarget.click();
-          }}
+          role="presentation"
           className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/35 p-4 backdrop-blur-sm"
-          onClick={() => setShowMovimientoModal(false)}
+          onClick={(event) => {
+            if (event.target === event.currentTarget) setShowMovimientoModal(false);
+          }}
         >
           <div
-            role="button"
-            tabIndex={0}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' || event.key === ' ') event.currentTarget.click();
-            }}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Registrar movimiento de caja"
             className="w-full max-w-md rounded-2xl bg-white shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
               <h3 className="text-[17px] font-semibold text-gray-900">
@@ -1175,9 +1183,11 @@ export default function Caja() {
         open={closeDialog}
         title="Finalizar turno"
         description={
-          diferencia === 0
-            ? `Vas a cerrar con ${fmt(parseMoneyInput(closing.monto_final_declarado))} contados, que coincide con lo esperado. Se genera el ticket de cierre y no se puede deshacer.`
-            : `Vas a cerrar con ${fmt(parseMoneyInput(closing.monto_final_declarado))} contados contra ${fmt(efectivoEsperado)} esperados: ${diferencia > 0 ? 'sobran' : 'faltan'} ${fmt(Math.abs(diferencia))}. Se genera el ticket de cierre y no se puede deshacer.`
+          arqueoCiego
+            ? `Vas a cerrar con ${fmt(parseMoneyInput(closing.monto_final_declarado))} contados. La diferencia real se mostrará recién en el ticket de cierre y esta acción no se puede deshacer.`
+            : diferencia === 0
+              ? `Vas a cerrar con ${fmt(parseMoneyInput(closing.monto_final_declarado))} contados, que coincide con lo esperado. Se genera el ticket de cierre y no se puede deshacer.`
+              : `Vas a cerrar con ${fmt(parseMoneyInput(closing.monto_final_declarado))} contados contra ${fmt(efectivoEsperado)} esperados: ${diferencia > 0 ? 'sobran' : 'faltan'} ${fmt(Math.abs(diferencia))}. Se genera el ticket de cierre y no se puede deshacer.`
         }
         confirmLabel="Finalizar turno"
         cancelLabel="Cancelar"

@@ -136,7 +136,7 @@ function StatCard({ icon: Icon, label, value, tone = 'slate' }) {
 }
 
 export default function Mesas() {
-  const { hasPermission } = useAuth();
+  const { hasPermission, isAuth, token } = useAuth();
   const navigate = useNavigate();
   const [config, setConfig] = useState({});
   const [pedidos, setPedidos] = useState([]);
@@ -220,7 +220,11 @@ export default function Mesas() {
 
   useEffect(() => {
     cargar();
-    socketManager.connect();
+    if (isAuth && token) {
+      socketManager.retainAuthenticated(token).catch(() => socketManager.connect());
+    } else {
+      socketManager.connect();
+    }
     const s1 = socketManager.on('nuevo_pedido', () => cargar());
     const s2 = socketManager.on('pedido_actualizado', () => cargar());
     /*
@@ -250,9 +254,10 @@ export default function Mesas() {
       s1();
       s2();
       s3();
-      socketManager.disconnect();
+      if (isAuth && token) socketManager.releaseAuthenticated();
+      else socketManager.disconnect();
     };
-  }, []);
+  }, [isAuth, token]);
 
   /*
     Escape cierra el cobro. Se escucha en el documento y no en el contenedor
@@ -386,6 +391,10 @@ export default function Mesas() {
         const monto = Number(montoParcial || 0);
         if (monto <= 0) {
           toast.error('Poné cuánto paga');
+          return;
+        }
+        if (monto > restanteDeCobro) {
+          toast.error(`No podés cobrar más de ${fmt(restanteDeCobro)}`);
           return;
         }
         const resultado = await api.post(`/pedidos/${pedido.id}/pago-parcial`, {
@@ -749,23 +758,18 @@ export default function Mesas() {
       {/* Modal reserva */}
       {reservationOpen && (
         <div
-          role="button"
-          tabIndex={0}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' || event.key === ' ') event.currentTarget.click();
-          }}
+          role="presentation"
           className="fixed inset-0 flex items-center justify-center bg-slate-900/30 p-4 backdrop-blur-sm"
           style={{ zIndex: Z.modal }}
-          onClick={() => setReservationOpen(false)}
+          onClick={(event) => {
+            if (event.target === event.currentTarget) setReservationOpen(false);
+          }}
         >
           <div
-            role="button"
-            tabIndex={0}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' || event.key === ' ') event.currentTarget.click();
-            }}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Nueva reserva"
             className="w-full max-w-xl rounded-2xl bg-white p-6 shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
           >
             <div className="mb-6 flex items-center justify-between">
               <div>
@@ -877,23 +881,18 @@ export default function Mesas() {
       {/* Modal mover pedido */}
       {moveState && (
         <div
-          role="button"
-          tabIndex={0}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' || event.key === ' ') event.currentTarget.click();
-          }}
+          role="presentation"
           className="fixed inset-0 flex items-center justify-center bg-slate-900/30 p-4 backdrop-blur-sm"
           style={{ zIndex: Z.modal }}
-          onClick={() => setMoveState(null)}
+          onClick={(event) => {
+            if (event.target === event.currentTarget) setMoveState(null);
+          }}
         >
           <div
-            role="button"
-            tabIndex={0}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' || event.key === ' ') event.currentTarget.click();
-            }}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Mover pedido de mesa"
             className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
           >
             <div className="mb-5 flex items-center justify-between">
               <div>
@@ -1010,6 +1009,8 @@ export default function Mesas() {
               onClick={() => {
                 setParcialAbierto((abierto) => !abierto);
                 setMontoParcial('');
+                setPropina(0);
+                setPropinaManual('');
               }}
               className="mb-3 text-[12px] font-medium text-gray-400 underline-offset-2 hover:text-gray-700 hover:underline"
             >
@@ -1050,56 +1051,58 @@ export default function Mesas() {
               que es como se deja una propina de verdad. "Otro" aparece sólo si
               hace falta.
             */}
-            <div className="mb-4">
-              <p className="mb-1.5 text-[13px] font-medium text-gray-500">Propina</p>
-              <div className="flex flex-wrap gap-1.5">
-                {[0, 10, 15, 20].map((pct) => {
-                  const monto =
-                    pct === 0
-                      ? 0
-                      : Math.round((Number(cobroTarget.total || 0) * pct) / 100 / 100) * 100;
-                  const elegido = propina === monto && !propinaManual;
-                  return (
-                    <button
-                      key={pct}
-                      type="button"
-                      onClick={() => {
-                        setPropina(monto);
-                        setPropinaManual('');
-                      }}
-                      className={`h-9 rounded-xl px-3 text-[13px] font-semibold transition ${
-                        elegido
-                          ? 'bg-gray-900 text-white'
-                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                      }`}
-                    >
-                      {pct === 0 ? 'Sin propina' : `${pct}%`}
-                    </button>
-                  );
-                })}
-                <input
-                  value={propinaManual}
-                  onChange={(evento) => {
-                    const texto = evento.target.value.replace(/[^\d]/g, '');
-                    setPropinaManual(texto);
-                    setPropina(Number(texto || 0));
-                  }}
-                  inputMode="numeric"
-                  placeholder="Otro"
-                  aria-label="Otra propina en pesos"
-                  className="h-9 w-20 rounded-xl border border-gray-200 px-3 text-[13px] tabular-nums outline-none focus:border-gray-400"
-                />
+            {!parcialAbierto ? (
+              <div className="mb-4">
+                <p className="mb-1.5 text-[13px] font-medium text-gray-500">Propina</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {[0, 10, 15, 20].map((pct) => {
+                    const monto =
+                      pct === 0
+                        ? 0
+                        : Math.round((Number(cobroTarget.total || 0) * pct) / 100 / 100) * 100;
+                    const elegido = propina === monto && !propinaManual;
+                    return (
+                      <button
+                        key={pct}
+                        type="button"
+                        onClick={() => {
+                          setPropina(monto);
+                          setPropinaManual('');
+                        }}
+                        className={`h-9 rounded-xl px-3 text-[13px] font-semibold transition ${
+                          elegido
+                            ? 'bg-gray-900 text-white'
+                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                        }`}
+                      >
+                        {pct === 0 ? 'Sin propina' : `${pct}%`}
+                      </button>
+                    );
+                  })}
+                  <input
+                    value={propinaManual}
+                    onChange={(evento) => {
+                      const texto = evento.target.value.replace(/[^\d]/g, '');
+                      setPropinaManual(texto);
+                      setPropina(Number(texto || 0));
+                    }}
+                    inputMode="numeric"
+                    placeholder="Otro"
+                    aria-label="Otra propina en pesos"
+                    className="h-9 w-20 rounded-xl border border-gray-200 px-3 text-[13px] tabular-nums outline-none focus:border-gray-400"
+                  />
+                </div>
+                {propina > 0 ? (
+                  <p className="mt-2 text-[13px] text-gray-500">
+                    Cobra{' '}
+                    <span className="font-semibold text-gray-900">
+                      {fmt(restanteDeCobro + propina)}
+                    </span>{' '}
+                    en total
+                  </p>
+                ) : null}
               </div>
-              {propina > 0 ? (
-                <p className="mt-2 text-[13px] text-gray-500">
-                  Cobra{' '}
-                  <span className="font-semibold text-gray-900">
-                    {fmt(Number(cobroTarget.total || 0) + propina)}
-                  </span>{' '}
-                  en total
-                </p>
-              ) : null}
-            </div>
+            ) : null}
 
             <p className="mb-5 text-[13px] font-medium text-gray-500">¿Con qué pagó?</p>
 

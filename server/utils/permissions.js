@@ -2,6 +2,7 @@ const ROLE_PERMISSIONS = {
   admin: ['*'],
   caja: [
     'dashboard.view',
+    'dashboard.finanzas',
     'tpv.use',
     'pedidos.view',
     'pedidos.edit',

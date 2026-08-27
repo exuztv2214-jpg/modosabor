@@ -71,11 +71,22 @@ export default function NuevaCompraModal({
 
   const total = useMemo(
     () =>
-      items.reduce((acc, i) => acc + Number(i.cantidad || 0) * Number(i.costo_unitario || 0), 0),
+      items.reduce((acc, i) => {
+        const cantidad = Number(i.cantidad || 0);
+        const costo = Number(i.costo_unitario || 0);
+        return Number.isFinite(cantidad) && Number.isFinite(costo) ? acc + cantidad * costo : acc;
+      }, 0),
     [items]
   );
 
-  const validos = items.filter((i) => i.insumo_id && Number(i.cantidad) > 0);
+  const validos = items.filter(
+    (i) =>
+      i.insumo_id &&
+      Number.isFinite(Number(i.cantidad)) &&
+      Number(i.cantidad) > 0 &&
+      Number.isFinite(Number(i.costo_unitario)) &&
+      Number(i.costo_unitario) >= 0
+  );
   const metodoActual = METODOS.find((m) => m.value === form.metodo_pago);
 
   const updateItem = (idx, key, val) => {
@@ -102,6 +113,15 @@ export default function NuevaCompraModal({
       toast.error('Agregá al menos un insumo con cantidad');
       return;
     }
+    if (items.some((item) => item.insumo_id && !validos.includes(item))) {
+      toast.error('Revisá las cantidades y costos de los insumos seleccionados');
+      return;
+    }
+    const ids = validos.map((item) => String(item.insumo_id));
+    if (new Set(ids).size !== ids.length) {
+      toast.error('Un mismo insumo no puede aparecer dos veces');
+      return;
+    }
     setSaving(true);
     try {
       await api.post('/compras', {
@@ -124,22 +144,17 @@ export default function NuevaCompraModal({
 
   return (
     <div
-      role="button"
-      tabIndex={0}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter' || event.key === ' ') event.currentTarget.click();
-      }}
+      role="presentation"
       className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/35 p-4 backdrop-blur-sm"
-      onClick={onClose}
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose?.();
+      }}
     >
       <div
-        role="button"
-        tabIndex={0}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter' || event.key === ' ') event.currentTarget.click();
-        }}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Registrar compra"
         className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
-        onClick={(event) => event.stopPropagation()}
       >
         <div className="flex shrink-0 items-center justify-between gap-4 border-b border-gray-100 px-5 py-4">
           <div>

@@ -24,6 +24,21 @@ const {
 } = require('../services/fidelizacionService');
 const { ensureClienteDireccion, getClienteDirecciones } = require('../utils/clienteAddresses');
 const { getConfigMap } = require('../utils/mercadoPago');
+const { createRateLimiter, createSqliteRateLimitStore } = require('../utils/rateLimit');
+
+const clubLookupRateLimit = createRateLimiter({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  message: 'Demasiados intentos. Esperá unos minutos antes de volver a probar.',
+  store: createSqliteRateLimitStore(db, 'fidelizacion-club-lookup'),
+});
+
+const clubRegistroRateLimit = createRateLimiter({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: 'Demasiados registros. Esperá unos minutos antes de volver a probar.',
+  store: createSqliteRateLimitStore(db, 'fidelizacion-club-registro'),
+});
 
 function canAccessCliente(req) {
   return hasPermission(req.user, 'clientes.view') || hasPermission(req.user, 'clientes.edit');
@@ -67,7 +82,7 @@ function getClubMissingFields(cliente) {
   return missing;
 }
 
-function serializeClubCliente(cliente) {
+function serializeClubCliente(cliente, { includePrivate = true } = {}) {
   if (!cliente) return null;
   const direcciones = getClienteDirecciones(db, cliente.id);
   const principal = direcciones.find((item) => item.principal) || direcciones[0] || null;
@@ -77,28 +92,32 @@ function serializeClubCliente(cliente) {
     ...cliente,
     direccion: direccionPrincipal,
   });
-  return {
+  const publico = {
     id: cliente.id,
     nombre: cliente.nombre || '',
+    puntos: Number(cliente.puntos || 0),
+    nivel: cliente.nivel || 'Bronce',
+    sellos_actuales: Number(cliente.sellos_actuales || 0),
+    recompensas_pendientes: Number(cliente.recompensas_pendientes || 0),
+    fidelizacion_activa: Number(cliente.fidelizacion_activa || 0) !== 0,
+    missing_fields: missingFields,
+    perfil_completo: missingFields.length === 0,
+  };
+  if (!includePrivate) return publico;
+  return {
+    ...publico,
     telefono: cliente.telefono || '',
     email: cliente.email || '',
     direccion: direccionPrincipal,
     referencia_principal: referenciaPrincipal,
     fecha_nacimiento: cliente.fecha_nacimiento || '',
-    puntos: Number(cliente.puntos || 0),
-    nivel: cliente.nivel || 'Bronce',
-    sellos_actuales: Number(cliente.sellos_actuales || 0),
-    recompensas_pendientes: Number(cliente.recompensas_pendientes || 0),
     codigo_tarjeta: cliente.codigo_tarjeta || '',
     total_pedidos: Number(cliente.total_pedidos || 0),
     total_gastado: Number(cliente.total_gastado || 0),
-    fidelizacion_activa: Number(cliente.fidelizacion_activa || 0) !== 0,
-    missing_fields: missingFields,
-    perfil_completo: missingFields.length === 0,
   };
 }
 
-function getClubPayload(cliente) {
+function getClubPayload(cliente, options) {
   const config = getConfig();
   // negocio_nombre/negocio_logo/color_primario/etc. NO viven en fidelizacion_config
   // (esa tabla solo tiene ajustes de puntos/sellos). El branding real del negocio
@@ -107,7 +126,7 @@ function getClubPayload(cliente) {
   // sin importar lo configurado en Configuración > Identidad visual.
   const generalConfig = getConfigMap(db);
   return {
-    cliente: serializeClubCliente(cliente),
+    cliente: serializeClubCliente(cliente, options),
     config: {
       activo: Number(config.activo || 0) === 1,
       sellos_para_premio: Number(config.sellos_para_premio || 0),
@@ -147,7 +166,7 @@ router.post('/recompensa/canjear', auth, requirePermission('pedidos.edit'), (req
 });
 
 // GET /api/fidelizacion/tarjeta/:codigo
-router.get('/tarjeta/:codigo', (req, res) => {
+router.get('/tarjeta/:codigo', clubLookupRateLimit, (req, res) => {
   try {
     const { codigo } = req.params;
     const cliente = db
@@ -193,7 +212,7 @@ router.get('/club-branding', (req, res) => {
   }
 });
 
-router.get('/club/:codigo', (req, res) => {
+router.get('/club/:codigo', clubLookupRateLimit, (req, res) => {
   try {
     const codigo = cleanText(req.params.codigo).toUpperCase();
     const cliente = db
@@ -220,7 +239,7 @@ router.get('/club/:codigo', (req, res) => {
   }
 });
 
-router.post('/club/lookup', (req, res) => {
+router.post('/club/lookup', clubLookupRateLimit, (req, res) => {
   try {
     const codigo = cleanText(req.body?.codigo).toUpperCase();
     const telefono = normalizePhone(req.body?.telefono);
@@ -249,14 +268,14 @@ router.post('/club/lookup', (req, res) => {
     res.json({
       found: true,
       linked: Boolean(byCode),
-      ...getClubPayload(cliente),
+      ...getClubPayload(cliente, { includePrivate: Boolean(byCode) }),
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
-router.post('/club/registro', (req, res) => {
+router.post('/club/registro', clubRegistroRateLimit, (req, res) => {
   try {
     const codigoInput = cleanText(req.body?.codigo).toUpperCase();
     const telefono = normalizePhone(req.body?.telefono);
@@ -298,12 +317,12 @@ router.post('/club/registro', (req, res) => {
         db.prepare(
           `
           UPDATE clientes
-          SET nombre = ?,
-              telefono = ?,
-              email = CASE WHEN TRIM(COALESCE(?, '')) != '' THEN ? ELSE email END,
-              fecha_nacimiento = CASE WHEN TRIM(COALESCE(?, '')) != '' THEN ? ELSE fecha_nacimiento END,
-              direccion = CASE WHEN TRIM(COALESCE(?, '')) != '' THEN ? ELSE direccion END,
-              barrio = CASE WHEN TRIM(COALESCE(?, '')) != '' THEN ? ELSE barrio END,
+          SET nombre = CASE WHEN TRIM(COALESCE(nombre, '')) = '' THEN ? ELSE nombre END,
+              telefono = CASE WHEN TRIM(COALESCE(telefono, '')) = '' THEN ? ELSE telefono END,
+              email = CASE WHEN TRIM(COALESCE(email, '')) = '' AND TRIM(COALESCE(?, '')) != '' THEN ? ELSE email END,
+              fecha_nacimiento = CASE WHEN TRIM(COALESCE(fecha_nacimiento, '')) = '' AND TRIM(COALESCE(?, '')) != '' THEN ? ELSE fecha_nacimiento END,
+              direccion = CASE WHEN TRIM(COALESCE(direccion, '')) = '' AND TRIM(COALESCE(?, '')) != '' THEN ? ELSE direccion END,
+              barrio = CASE WHEN TRIM(COALESCE(barrio, '')) = '' AND TRIM(COALESCE(?, '')) != '' THEN ? ELSE barrio END,
               fidelizacion_activa = 1,
               acepto_terminos = 1,
               acepto_terminos_en = COALESCE(acepto_terminos_en, CURRENT_TIMESTAMP),
@@ -372,7 +391,7 @@ router.post('/club/registro', (req, res) => {
     res.json({
       success: true,
       ya_existia: yaExistia,
-      ...getClubPayload(cliente),
+      ...getClubPayload(cliente, { includePrivate: Boolean(byCode) || !yaExistia }),
     });
   } catch (error) {
     res.status(500).json({ error: error.message });

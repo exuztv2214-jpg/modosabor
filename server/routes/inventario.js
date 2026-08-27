@@ -51,6 +51,14 @@ router.post('/insumos', (req, res) => {
   if (!nombre) {
     return res.status(400).json({ error: 'Nombre requerido' });
   }
+  if (
+    ![stockActual, stockMinimo, costoUnitario].every(Number.isFinite) ||
+    stockActual < 0 ||
+    stockMinimo < 0 ||
+    costoUnitario < 0
+  ) {
+    return res.status(400).json({ error: 'Stock, mínimo y costo no pueden ser negativos' });
+  }
 
   const existing = db
     .prepare('SELECT id FROM inventario_insumos WHERE lower(nombre) = lower(?)')
@@ -114,6 +122,14 @@ router.put('/insumos/:id', (req, res) => {
 
   if (!nombre) {
     return res.status(400).json({ error: 'Nombre requerido' });
+  }
+  if (
+    ![stockActual, stockMinimo, costoUnitario].every(Number.isFinite) ||
+    stockActual < 0 ||
+    stockMinimo < 0 ||
+    costoUnitario < 0
+  ) {
+    return res.status(400).json({ error: 'Stock, mínimo y costo no pueden ser negativos' });
   }
 
   const duplicate = db
@@ -196,8 +212,11 @@ router.post('/insumos/:id/movimientos', (req, res) => {
   const tipo = cleanText(req.body?.tipo) || 'entrada';
   const cantidadBase = roundStock(req.body?.cantidad || 0);
   const motivo = cleanText(req.body?.motivo) || 'Movimiento manual';
-  if (cantidadBase <= 0) {
+  if (!Number.isFinite(cantidadBase) || cantidadBase <= 0) {
     return res.status(400).json({ error: 'Cantidad invalida' });
+  }
+  if (!['entrada', 'salida'].includes(tipo)) {
+    return res.status(400).json({ error: 'Tipo de movimiento inválido' });
   }
 
   const signed = tipo === 'salida' ? -cantidadBase : cantidadBase;
@@ -815,6 +834,9 @@ router.put('/productos/:id/config', (req, res) => {
   }
 
   const nextDirectStock = roundStock(req.body?.stock_directo ?? product.stock_directo ?? 0);
+  if (!Number.isFinite(nextDirectStock) || nextDirectStock < 0) {
+    return res.status(400).json({ error: 'El stock directo no puede ser negativo' });
+  }
   db.prepare('UPDATE productos SET stock_mode = ? WHERE id = ?').run(stockMode, req.params.id);
   registerManualStockAdjustment(
     db,

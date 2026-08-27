@@ -239,6 +239,53 @@ function subtotalFromItems(items) {
   );
 }
 
+const METODOS_PAGO_TPV = new Set(['efectivo', 'transferencia', 'mercadopago', 'modo', 'uala']);
+
+function normalizeInitialPagoDetalle(raw, total) {
+  const text = String(raw || '').trim();
+  if (!text) return '';
+
+  let detail;
+  try {
+    detail = JSON.parse(text);
+  } catch {
+    throw new Error('El detalle del cobro mixto no es válido');
+  }
+
+  if (!Array.isArray(detail?.split_payments) || detail.split_payments.length < 2) {
+    throw new Error('El cobro mixto necesita al menos dos medios de pago');
+  }
+
+  const seen = new Set();
+  const splitPayments = detail.split_payments.map((entry) => {
+    const metodo = normalizeMetodoPago(entry?.metodo);
+    const monto = roundAmount(entry?.monto || 0);
+    if (!METODOS_PAGO_TPV.has(metodo)) {
+      throw new Error(`Medio de pago no válido: ${metodo}`);
+    }
+    if (seen.has(metodo)) {
+      throw new Error(`El medio de pago ${metodo} está repetido`);
+    }
+    if (monto <= 0) {
+      throw new Error('Cada parte del cobro mixto debe ser mayor a cero');
+    }
+    seen.add(metodo);
+    return { metodo, monto };
+  });
+
+  const sum = roundAmount(splitPayments.reduce((acc, entry) => acc + entry.monto, 0));
+  if (Math.abs(sum - Number(total || 0)) > 1) {
+    throw new Error('El cobro mixto no coincide con el total del pedido');
+  }
+
+  const principal = normalizeMetodoPago(detail.principal);
+  return JSON.stringify({
+    tipo: 'mixto',
+    split_payments: splitPayments,
+    principal: seen.has(principal) ? principal : splitPayments[0].metodo,
+  });
+}
+
 function estimateText(pedido, config) {
   if (pedido.tipo_entrega === 'delivery') {
     return `${Number(pedido.eta_min_dinamico || pedido.tiempo_estimado_min || config.tiempo_delivery || 30)} min`;
@@ -1025,6 +1072,7 @@ async function buildPedidoPayload(body, options = {}) {
   }
 
   const descuento = Math.min(descuentoSolicitado, roundAmount(subtotal));
+  const total = roundAmount(subtotal + costoEnvio - descuento);
   const marketingCampanaId = optionalNumber(body.marketing_campana_id);
   const marketingPromoId = optionalNumber(body.marketing_promo_id);
   const marketingOrigen = String(body.marketing_origen || '').trim();
@@ -1035,6 +1083,7 @@ async function buildPedidoPayload(body, options = {}) {
   const marketingContent = String(body.marketing_content || '').trim();
 
   return {
+    cliente_id: optionalNumber(body.cliente_id),
     cliente_nombre: body.cliente_nombre || '',
     cliente_telefono: body.cliente_telefono || '',
     cliente_direccion: body.cliente_direccion || '',
@@ -1042,11 +1091,12 @@ async function buildPedidoPayload(body, options = {}) {
     subtotal,
     costo_envio: costoEnvio,
     descuento,
-    total: roundAmount(subtotal + costoEnvio - descuento),
+    total,
     tipo_entrega: tipoEntrega,
     mesa: body.mesa || '',
     hora_entrega: String(body.hora_entrega || '').trim(),
     metodo_pago: normalizeMetodoPago(body.metodo_pago || 'efectivo'),
+    pago_detalle: normalizeInitialPagoDetalle(body.pago_detalle, total),
     notas: body.notas || '',
     origen,
     delivery_zona: deliveryZona,
@@ -1389,6 +1439,7 @@ module.exports = {
   optionalNumber,
   generateEntregaPin,
   subtotalFromItems,
+  normalizeInitialPagoDetalle,
   estimateText,
   buildTrackingUrl,
   registerPrintJob,

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import api from '../../lib/api.js';
+import { parseFechaServidor } from '../../lib/fechas.js';
 import { EMPTY_INSUMO, MOVIMIENTOS_LIMIT } from './constants.js';
 import { normalizeText } from './utils.js';
 
@@ -105,11 +106,11 @@ export default function useInventario() {
     let result = movimientos;
     if (movFechaDesde) {
       const desde = new Date(movFechaDesde + 'T00:00:00');
-      result = result.filter((m) => new Date(m.creado_en) >= desde);
+      result = result.filter((m) => parseFechaServidor(m.creado_en) >= desde);
     }
     if (movFechaHasta) {
       const hasta = new Date(movFechaHasta + 'T23:59:59');
-      result = result.filter((m) => new Date(m.creado_en) <= hasta);
+      result = result.filter((m) => parseFechaServidor(m.creado_en) <= hasta);
     }
     return result;
   }, [movimientos, movFechaDesde, movFechaHasta]);
@@ -233,7 +234,7 @@ export default function useInventario() {
       toast.success('Receta guardada');
       await cargar();
     } catch (error) {
-      toast.error('No se pudo guardar la receta');
+      toast.error(error?.error || 'No se pudo guardar la receta');
     } finally {
       setSaving(false);
     }
@@ -247,7 +248,7 @@ export default function useInventario() {
       toast.success('Modo de stock actualizado');
       await cargar();
     } catch (error) {
-      toast.error('Error al guardar config');
+      toast.error(error?.error || 'Error al guardar configuración');
     } finally {
       setSaving(false);
     }
@@ -371,7 +372,7 @@ export default function useInventario() {
     if (!movFiltrados.length) return toast.error('No hay movimientos para exportar');
     const headers = ['Fecha', 'Insumo/Producto', 'Tipo', 'Cantidad', 'Motivo'];
     const rows = movFiltrados.map((m) => [
-      new Date(m.creado_en).toLocaleString('es-AR'),
+      parseFechaServidor(m.creado_en).toLocaleString('es-AR'),
       m.insumo_nombre || m.producto_nombre || '',
       m.tipo || (Number(m.cantidad) > 0 ? 'entrada' : 'salida'),
       m.cantidad,
@@ -469,8 +470,9 @@ export default function useInventario() {
 
   const registrarMovimiento = async () => {
     if (!movementModal) return;
-    if (!movementForm.cantidad) {
-      toast.error('Ingresa una cantidad');
+    const cantidad = Number(movementForm.cantidad || 0);
+    if (!Number.isFinite(cantidad) || cantidad <= 0) {
+      toast.error('Ingresá una cantidad mayor que cero');
       return;
     }
     setSaving(true);

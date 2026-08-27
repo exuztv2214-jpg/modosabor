@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Delete, X } from 'lucide-react';
 
@@ -54,12 +54,37 @@ export default function TpvPaymentModal({
   onConfirm,
 }) {
   const [imprimir, setImprimir] = useState(false);
+  const confirmarButtonRef = useRef(null);
 
   // Al abrir el modal arrancamos siempre sin importe cargado: si quedara
   // el de la venta anterior, un Enter distraído cobraría cualquier cosa.
   useEffect(() => {
     if (open) setImprimir(false);
   }, [open]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onClose?.();
+        return;
+      }
+      if (event.key !== 'Enter' || event.repeat || confirmDisabled || loading) return;
+      if (event.target?.closest?.('button')) return;
+
+      event.preventDefault();
+      onConfirm(imprimir);
+    };
+
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [confirmDisabled, imprimir, loading, onClose, onConfirm, open]);
+
+  useEffect(() => {
+    if (open && !confirmDisabled && !loading) confirmarButtonRef.current?.focus();
+  }, [confirmDisabled, loading, open]);
 
   const esEfectivo = metodoPago === 'efectivo';
   const esMixto = metodoPago === 'mixto';
@@ -387,6 +412,7 @@ export default function TpvPaymentModal({
                 Cancelar
               </button>
               <button
+                ref={confirmarButtonRef}
                 type="button"
                 onClick={() => onConfirm(imprimir)}
                 disabled={confirmDisabled || loading}

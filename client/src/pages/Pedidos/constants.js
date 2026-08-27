@@ -1,4 +1,5 @@
 import { AlertCircle, CheckCircle2, Package, Truck } from 'lucide-react';
+import { hoyArgentina } from '../../lib/fechaNegocio';
 
 /**
  * Columnas del tablero.
@@ -49,7 +50,7 @@ export const TIPO_LABELS = {
   mesa: 'Mesa',
 };
 
-export const todayStr = () => new Date().toISOString().slice(0, 10);
+export const todayStr = () => hoyArgentina();
 
 export function minutesElapsed(iso) {
   if (!iso) return null;

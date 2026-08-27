@@ -113,7 +113,7 @@ function anotarConsumo(db, { clienteId, monto, pedidoId, nota, usuario }) {
   return { id: Number(lastInsertRowid), saldo: saldoDeCliente(db, clienteId) };
 }
 
-function registrarPago(db, { clienteId, monto, nota, usuario }) {
+function registrarPago(db, { clienteId, monto, nota, metodoPago = 'efectivo', usuario }) {
   const cantidad = Math.round(Number(monto || 0));
   if (!Number.isFinite(cantidad) || cantidad <= 0) {
     return { ok: false, motivo: 'El pago tiene que ser mayor a cero' };
@@ -135,9 +135,16 @@ function registrarPago(db, { clienteId, monto, nota, usuario }) {
 
   db.prepare(
     `INSERT INTO cliente_cuenta_movimientos
-       (cliente_id, tipo, monto, nota, usuario_id, usuario_nombre)
-     VALUES (?, 'pago', ?, ?, ?, ?)`
-  ).run(clienteId, cantidad, String(nota || ''), usuario?.id || null, usuario?.nombre || '');
+       (cliente_id, tipo, monto, nota, metodo_pago, usuario_id, usuario_nombre)
+     VALUES (?, 'pago', ?, ?, ?, ?, ?)`
+  ).run(
+    clienteId,
+    cantidad,
+    String(nota || ''),
+    String(metodoPago || 'efectivo'),
+    usuario?.id || null,
+    usuario?.nombre || ''
+  );
 
   return { ok: true, saldo: saldoDeCliente(db, clienteId) };
 }

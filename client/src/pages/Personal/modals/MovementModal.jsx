@@ -50,23 +50,18 @@ export function MovementModal({
 
   return (
     <div
-      role="button"
-      tabIndex={0}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter' || event.key === ' ') event.currentTarget.click();
-      }}
+      role="presentation"
       className="fixed inset-0 flex items-center justify-center bg-gray-900/40 p-4 backdrop-blur-sm"
       style={{ zIndex: Z.modal }}
-      onClick={onClose}
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose?.();
+      }}
     >
       <div
-        role="button"
-        tabIndex={0}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter' || event.key === ' ') event.currentTarget.click();
-        }}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Nuevo movimiento de personal"
         className="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between border-b border-gray-100 px-5 py-4">
           <div>

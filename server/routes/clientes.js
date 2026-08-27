@@ -7,6 +7,7 @@ const { asegurarCodigoTarjeta, canjearRecompensa } = require('../services/fideli
 const { requirePermission } = require('../utils/permissions');
 const { getConfigMap } = require('../utils/mercadoPago');
 const { hydratePedido } = require('../services/pedidoService');
+const { hoyArgentina } = require('../utils/fechaLocal');
 const {
   createClienteDireccion,
   deleteClienteDireccion,
@@ -528,6 +529,7 @@ router.get('/segmentos', auth, requirePermission('clientes.view'), (req, res) =>
     .map(normalizeCliente)
     .map(classifyCliente);
 
+  const mesActual = hoyArgentina().slice(5, 7);
   const summary = rows.reduce(
     (acc, cliente) => {
       acc.total += 1;
@@ -538,8 +540,7 @@ router.get('/segmentos', auth, requirePermission('clientes.view'), (req, res) =>
       if ((cliente.total_pedidos || 0) >= 5) acc.recurrentes += 1;
       if (
         cliente.cumpleEsteMes ||
-        (cliente.fecha_nacimiento &&
-          String(cliente.fecha_nacimiento).slice(5, 7) === new Date().toISOString().slice(5, 7))
+        (cliente.fecha_nacimiento && String(cliente.fecha_nacimiento).slice(5, 7) === mesActual)
       ) {
         acc.cumpleMes += 1;
       }

@@ -87,6 +87,13 @@ function run() {
       encoding: 'utf8',
     });
     assert.strictEqual(result.status, 0, result.stderr || result.stdout);
+
+    const pantalla = fs.readFileSync(
+      path.join(__dirname, '../../../client/src/pages/CuentaCorriente.jsx'),
+      'utf8'
+    );
+    assert.match(pantalla, /hasPermission\('caja\.manage'\)/);
+    assert.match(pantalla, /detalle\.saldo > 0 && puedeCobrar/);
     console.log('cuentaCorriente.test.js OK');
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });

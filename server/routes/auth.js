@@ -9,7 +9,7 @@ const { getJwtSecret } = require('../utils/authConfig');
 const { createRateLimiter, createSqliteRateLimitStore } = require('../utils/rateLimit');
 
 const { validateBody } = require('../middleware/validate');
-const { loginSchema, createUserSchema } = require('../schemas');
+const { loginSchema, createUserSchema, updateUserSchema } = require('../schemas');
 
 const JWT_SECRET = getJwtSecret();
 const loginRateLimit = createRateLimiter({
@@ -27,7 +27,8 @@ const COOKIE_OPTIONS = {
 };
 
 router.post('/login', loginRateLimit, validateBody(loginSchema), (req, res) => {
-  const { email, password } = req.body;
+  const email = String(req.body.email).trim().toLowerCase();
+  const { password } = req.body;
   if (!email || !password) return res.status(400).json({ error: 'Email y contrasena requeridos' });
   const user = db.prepare('SELECT * FROM usuarios WHERE email = ? AND activo = 1').get(email);
   if (!user || !bcrypt.compareSync(password, user.password_hash)) {
@@ -57,7 +58,8 @@ router.post('/login', loginRateLimit, validateBody(loginSchema), (req, res) => {
  * como Authorization Bearer. Sólo el rol Mozo puede obtenerlo por este canal.
  */
 router.post('/native-login', loginRateLimit, validateBody(loginSchema), (req, res) => {
-  const { email, password } = req.body;
+  const email = String(req.body.email).trim().toLowerCase();
+  const { password } = req.body;
   const user = db.prepare('SELECT * FROM usuarios WHERE email = ? AND activo = 1').get(email);
   if (!user || !bcrypt.compareSync(password, user.password_hash)) {
     return res.status(401).json({ error: 'Credenciales invalidas' });
@@ -175,7 +177,8 @@ router.post(
   requirePermission('config.manage'),
   validateBody(createUserSchema),
   (req, res) => {
-    const { nombre, email, password, rol = 'caja' } = req.body;
+    const { nombre, password, rol = 'caja' } = req.body;
+    const email = String(req.body.email).trim().toLowerCase();
     if (!nombre || !email || !password) {
       return res.status(400).json({ error: 'Nombre, email y contrasena son requeridos' });
     }
@@ -183,7 +186,7 @@ router.post(
     const validRoles = ['admin', 'caja', 'cocina', 'delivery', 'mozo'];
     if (!validRoles.includes(rol)) return res.status(400).json({ error: 'Rol invalido' });
 
-    const exists = db.prepare('SELECT id FROM usuarios WHERE email = ?').get(email);
+    const exists = db.prepare('SELECT id FROM usuarios WHERE lower(email) = ?').get(email);
     if (exists) return res.status(400).json({ error: 'Ya existe un usuario con ese email' });
 
     const result = db
@@ -199,41 +202,69 @@ router.post(
   }
 );
 
-router.put('/usuarios/:id', auth, requirePermission('config.manage'), (req, res) => {
-  const existing = db.prepare('SELECT * FROM usuarios WHERE id = ?').get(req.params.id);
-  if (!existing) return res.status(404).json({ error: 'Usuario no encontrado' });
+router.put(
+  '/usuarios/:id',
+  auth,
+  requirePermission('config.manage'),
+  validateBody(updateUserSchema),
+  (req, res) => {
+    const existing = db.prepare('SELECT * FROM usuarios WHERE id = ?').get(req.params.id);
+    if (!existing) return res.status(404).json({ error: 'Usuario no encontrado' });
 
-  const validRoles = ['admin', 'caja', 'cocina', 'delivery', 'mozo'];
-  const nombre = req.body.nombre ?? existing.nombre;
-  const email = req.body.email ?? existing.email;
-  const rol = req.body.rol ?? existing.rol;
-  const activo = req.body.activo ?? existing.activo;
+    const validRoles = ['admin', 'caja', 'cocina', 'delivery', 'mozo'];
+    const nombre = String(req.body.nombre ?? existing.nombre).trim();
+    const email = String(req.body.email ?? existing.email)
+      .trim()
+      .toLowerCase();
+    const rol = req.body.rol ?? existing.rol;
+    const activo = req.body.activo ?? existing.activo;
 
-  if (!validRoles.includes(rol)) return res.status(400).json({ error: 'Rol invalido' });
+    if (!validRoles.includes(rol)) return res.status(400).json({ error: 'Rol invalido' });
+    const duplicated = db
+      .prepare('SELECT id FROM usuarios WHERE lower(email) = ? AND id != ?')
+      .get(email, existing.id);
+    if (duplicated) return res.status(400).json({ error: 'Ya existe un usuario con ese email' });
 
-  db.prepare('UPDATE usuarios SET nombre = ?, email = ?, rol = ?, activo = ? WHERE id = ?').run(
-    nombre,
-    email,
-    rol,
-    activo ? 1 : 0,
-    req.params.id
-  );
+    if (existing.rol === 'admin' && (rol !== 'admin' || !activo)) {
+      const otrosAdmins = db
+        .prepare(
+          "SELECT COUNT(*) AS cantidad FROM usuarios WHERE rol = 'admin' AND activo = 1 AND id != ?"
+        )
+        .get(existing.id).cantidad;
+      if (otrosAdmins === 0) {
+        return res
+          .status(400)
+          .json({ error: 'No podés desactivar ni cambiar el último administrador activo' });
+      }
+    }
 
-  if (req.body.password) {
-    db.prepare('UPDATE usuarios SET password_hash = ? WHERE id = ?').run(
-      bcrypt.hashSync(req.body.password, 10),
+    db.prepare('UPDATE usuarios SET nombre = ?, email = ?, rol = ?, activo = ? WHERE id = ?').run(
+      nombre,
+      email,
+      rol,
+      activo ? 1 : 0,
       req.params.id
     );
-  }
 
-  const user = db
-    .prepare('SELECT id, nombre, email, rol, activo, creado_en FROM usuarios WHERE id = ?')
-    .get(req.params.id);
-  res.json(user);
-});
+    if (req.body.password) {
+      db.prepare('UPDATE usuarios SET password_hash = ? WHERE id = ?').run(
+        bcrypt.hashSync(req.body.password, 10),
+        req.params.id
+      );
+    }
+
+    const user = db
+      .prepare('SELECT id, nombre, email, rol, activo, creado_en FROM usuarios WHERE id = ?')
+      .get(req.params.id);
+    res.json(user);
+  }
+);
 
 router.put('/password', auth, (req, res) => {
   const { password_actual, password_nuevo } = req.body;
+  if (typeof password_actual !== 'string' || !password_actual) {
+    return res.status(400).json({ error: 'La contrasena actual es obligatoria' });
+  }
   if (!password_nuevo || password_nuevo.length < 6) {
     return res.status(400).json({ error: 'La nueva contrasena debe tener al menos 6 caracteres' });
   }

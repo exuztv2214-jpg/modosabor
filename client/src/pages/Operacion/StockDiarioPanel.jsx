@@ -68,7 +68,7 @@ export default function StockDiarioPanel({
           <button
             type="button"
             onClick={onGuardar}
-            disabled={guardando}
+            disabled={guardando || !sucio}
             style={sucio ? { background: BRAND, color: '#FFFFFF' } : undefined}
             className={`flex h-10 items-center gap-2 rounded-xl px-4 text-[12px] font-semibold transition disabled:opacity-50 ${sucio ? '' : 'bg-gray-100 text-gray-500'}`}
           >

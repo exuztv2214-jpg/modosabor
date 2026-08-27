@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
-import { ArrowLeft, Loader2, NotebookPen, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Loader2, NotebookPen, RefreshCw, X } from 'lucide-react';
 
+import { useAuth } from '../context/AuthContext.jsx';
 import api from '../lib/api.js';
+import { parseFechaServidor } from '../lib/fechas.js';
 import { BRAND, STROKE } from '../lib/theme.js';
 
 /**
@@ -18,9 +20,13 @@ import { BRAND, STROKE } from '../lib/theme.js';
 const fmt = (n) => `$${Number(n || 0).toLocaleString('es-AR')}`;
 
 export default function CuentaCorriente() {
+  const { hasPermission } = useAuth();
+  const puedeCobrar = hasPermission('caja.manage');
   const [lista, setLista] = useState(null);
   const [detalle, setDetalle] = useState(null);
   const [cargando, setCargando] = useState(true);
+  const [pagoForm, setPagoForm] = useState(null);
+  const [guardandoPago, setGuardandoPago] = useState(false);
 
   const cargarLista = useCallback(async () => {
     setCargando(true);
@@ -46,24 +52,27 @@ export default function CuentaCorriente() {
   };
 
   const cobrar = async () => {
-    const ingresado = window.prompt(
-      `${detalle.nombre} debe ${fmt(detalle.saldo)}.\n\n¿Cuánto está pagando?`,
-      String(detalle.saldo)
-    );
-    if (ingresado === null) return;
-    const monto = Math.max(0, Number(String(ingresado).replace(/[^\d]/g, '') || 0));
-    if (!monto) return;
+    const monto = Number(pagoForm?.monto || 0);
+    if (!Number.isFinite(monto) || monto <= 0 || monto > Number(detalle.saldo || 0)) {
+      toast.error(`El pago debe ser mayor que cero y no superar ${fmt(detalle.saldo)}`);
+      return;
+    }
 
+    setGuardandoPago(true);
     try {
       await api.post(`/cuenta-corriente/${detalle.id}/pago`, {
         monto,
-        nota: String(window.prompt('Nota (opcional)', '') || '').trim(),
+        metodo_pago: pagoForm.metodo_pago,
+        nota: String(pagoForm.nota || '').trim(),
       });
       toast.success(`Cobrados ${fmt(monto)}`);
+      setPagoForm(null);
       await abrir(detalle.id);
       await cargarLista();
     } catch (error) {
       toast.error(error?.error || 'No se pudo registrar el pago');
+    } finally {
+      setGuardandoPago(false);
     }
   };
 
@@ -106,15 +115,25 @@ export default function CuentaCorriente() {
             </div>
           </div>
 
-          {detalle.saldo > 0 ? (
+          {detalle.saldo > 0 && puedeCobrar ? (
             <button
               type="button"
-              onClick={cobrar}
+              onClick={() =>
+                setPagoForm({
+                  monto: String(detalle.saldo || ''),
+                  metodo_pago: 'efectivo',
+                  nota: '',
+                })
+              }
               className="mt-4 h-11 w-full rounded-xl text-[13px] font-semibold text-white transition hover:brightness-95"
               style={{ backgroundColor: BRAND }}
             >
               Registrar un pago
             </button>
+          ) : detalle.saldo > 0 ? (
+            <p className="mt-4 rounded-xl bg-amber-50 px-3 py-2 text-[12px] leading-4 text-amber-800">
+              Podés consultar la deuda, pero necesitás permiso de Caja para registrar un pago.
+            </p>
           ) : null}
         </div>
 
@@ -140,9 +159,15 @@ export default function CuentaCorriente() {
                             : 'Ajuste'}
                       </p>
                       <p className="text-[11px] text-gray-400">
-                        {String(mov.creado_en || '')
-                          .slice(0, 16)
-                          .replace('T', ' ')}
+                        {Number.isFinite(parseFechaServidor(mov.creado_en).getTime())
+                          ? parseFechaServidor(mov.creado_en).toLocaleString('es-AR', {
+                              dateStyle: 'short',
+                              timeStyle: 'short',
+                            })
+                          : String(mov.creado_en || '')}
+                        {mov.tipo === 'pago' && mov.metodo_pago
+                          ? ` · ${mov.metodo_pago === 'transferencia' ? 'Transferencia' : 'Efectivo'}`
+                          : ''}
                         {mov.usuario_nombre ? ` · ${mov.usuario_nombre}` : ''}
                         {mov.nota ? ` · ${mov.nota}` : ''}
                       </p>
@@ -164,6 +189,86 @@ export default function CuentaCorriente() {
             </p>
           )}
         </div>
+
+        {pagoForm && puedeCobrar ? (
+          <div
+            role="presentation"
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm"
+            onClick={(event) => {
+              if (event.target === event.currentTarget) setPagoForm(null);
+            }}
+          >
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-label="Registrar pago de cuenta corriente"
+              className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-[17px] font-semibold text-gray-900">Registrar pago</h2>
+                  <p className="mt-1 text-[12px] text-gray-500">
+                    {detalle.nombre} debe {fmt(detalle.saldo)}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPagoForm(null)}
+                  aria-label="Cerrar"
+                  className="rounded-lg p-2 text-gray-400 hover:bg-gray-100"
+                >
+                  <X size={17} strokeWidth={STROKE} />
+                </button>
+              </div>
+              <label className="mt-4 block text-[12px] font-medium text-gray-600">
+                Monto
+                <input
+                  value={pagoForm.monto}
+                  onChange={(event) =>
+                    setPagoForm((actual) => ({
+                      ...actual,
+                      monto: event.target.value.replace(/[^\d]/g, ''),
+                    }))
+                  }
+                  inputMode="numeric"
+                  className="mt-1 h-11 w-full rounded-xl border border-gray-200 px-3 text-[15px] font-semibold outline-none focus:border-gray-400"
+                />
+              </label>
+              <label className="mt-3 block text-[12px] font-medium text-gray-600">
+                Forma de pago
+                <select
+                  value={pagoForm.metodo_pago}
+                  onChange={(event) =>
+                    setPagoForm((actual) => ({ ...actual, metodo_pago: event.target.value }))
+                  }
+                  className="mt-1 h-11 w-full rounded-xl border border-gray-200 px-3 outline-none focus:border-gray-400"
+                >
+                  <option value="efectivo">Efectivo</option>
+                  <option value="transferencia">Transferencia</option>
+                </select>
+              </label>
+              <label className="mt-3 block text-[12px] font-medium text-gray-600">
+                Nota (opcional)
+                <input
+                  value={pagoForm.nota}
+                  onChange={(event) =>
+                    setPagoForm((actual) => ({ ...actual, nota: event.target.value }))
+                  }
+                  className="mt-1 h-11 w-full rounded-xl border border-gray-200 px-3 outline-none focus:border-gray-400"
+                />
+              </label>
+              <button
+                type="button"
+                onClick={cobrar}
+                disabled={guardandoPago}
+                style={{ background: BRAND }}
+                className="mt-5 h-11 w-full rounded-xl text-[13px] font-semibold text-white disabled:opacity-50"
+              >
+                {guardandoPago ? 'Guardando…' : 'Confirmar pago'}
+              </button>
+            </div>
+          </div>
+        ) : null}
       </div>
     );
   }

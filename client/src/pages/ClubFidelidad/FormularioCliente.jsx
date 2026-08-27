@@ -12,6 +12,7 @@ import {
   Building2,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { hoyArgentina } from '../../lib/fechaNegocio.js';
 
 const FIELD_CLASS =
   'w-full rounded-2xl border border-gray-200/60 bg-white/70 px-4 py-3.5 text-sm font-bold text-gray-900 outline-none transition focus:bg-white backdrop-blur-sm';
@@ -162,7 +163,7 @@ export default function FormularioCliente({
             </span>
             <input
               type="date"
-              max={new Date().toISOString().split('T')[0]}
+              max={hoyArgentina()}
               className={`${FIELD_CLASS} [color-scheme:light]`}
               value={form.fecha_nacimiento}
               onChange={(e) => setForm((p) => ({ ...p, fecha_nacimiento: e.target.value }))}

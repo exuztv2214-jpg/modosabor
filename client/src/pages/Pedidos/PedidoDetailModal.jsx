@@ -102,14 +102,6 @@ export default function PedidoDetailModal({
     };
   }, [pedido?.id]);
 
-  useEffect(() => {
-    const onKeyDown = (event) => {
-      if (event.key === 'Escape') onClose?.();
-    };
-    document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
-  }, [onClose]);
-
   if (!pedido) return null;
 
   const items = normalizePedidoItems(pedido.items);

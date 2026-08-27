@@ -11,6 +11,7 @@ import {
 import { Popover, SectionLabel, STROKE } from './tpvUi.jsx';
 
 const ATAJOS = [
+  { teclas: 'Enter', accion: 'Abrir cobro / confirmar' },
   { teclas: 'Ctrl + Enter', accion: 'Cobrar el pedido' },
   { teclas: 'Ctrl + Shift + Enter', accion: 'Cobrar e imprimir ticket' },
   { teclas: 'Alt + G', accion: 'Guardar en espera' },

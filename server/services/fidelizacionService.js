@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const db = require('../db');
 const logger = require('../utils/logger');
 
@@ -212,8 +213,8 @@ function canjearRecompensa(clienteId) {
 function generarCodigoTarjeta() {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   let codigo = '';
-  for (let i = 0; i < 4; i++) {
-    codigo += chars.charAt(Math.floor(Math.random() * chars.length));
+  for (let i = 0; i < 12; i++) {
+    codigo += chars.charAt(crypto.randomInt(chars.length));
   }
   return `MS-${codigo}`;
 }
