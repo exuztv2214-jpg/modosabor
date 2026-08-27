@@ -79,7 +79,29 @@ const emptyForm = {
   avatar_url: '',
   notas: '',
   fecha_ingreso: '',
+  turno_preferido: '',
 };
+
+function riderShiftOptions(config) {
+  let parsed = [];
+  try {
+    parsed = Array.isArray(config?.turnos_negocio)
+      ? config.turnos_negocio
+      : JSON.parse(config?.turnos_negocio || '[]');
+  } catch {
+    parsed = [];
+  }
+  const options = parsed
+    .filter((item) => item?.activo !== false && item?.id)
+    .map((item) => ({
+      value: String(item.id),
+      label: item.nombre || String(item.id),
+    }));
+  if (!options.length) {
+    options.push({ value: 'manana', label: 'Mañana' }, { value: 'noche', label: 'Noche' });
+  }
+  return [...options, { value: 'doble', label: 'Ambos turnos' }];
+}
 
 const CONTROL =
   'h-11 w-full rounded-xl border border-gray-200 bg-white px-3 text-[14px] text-gray-800 outline-none transition placeholder:text-gray-400 focus:border-gray-400 focus:ring-2 focus:ring-gray-900/5';
@@ -407,6 +429,12 @@ export default function Delivery() {
   const [deliverDialog, setDeliverDialog] = useState(null);
   const [selectedRadarPedidoId, setSelectedRadarPedidoId] = useState(null);
   const fileInputRef = useRef(null);
+  const turnosRider = useMemo(() => riderShiftOptions(appConfig), [appConfig]);
+  const nombreTurno = useCallback(
+    (value) =>
+      turnosRider.find((item) => item.value === value)?.label || value || 'Sin turno asignado',
+    [turnosRider]
+  );
 
   const cargar = async () => {
     try {
@@ -573,6 +601,7 @@ export default function Delivery() {
 
   const guardarRider = async () => {
     if (!form.nombre.trim()) return toast.error('Ingresa el nombre del repartidor');
+    if (!form.turno_preferido) return toast.error('Seleccioná el turno de trabajo');
     setSavingRider(true);
     try {
       if (modal?.mode === 'edit') {
@@ -1102,6 +1131,8 @@ export default function Delivery() {
                           {repartidor.zona_preferida ? ` · ${repartidor.zona_preferida}` : ''}
                         </p>
                         <p className="mt-1 flex flex-wrap items-center gap-x-2 text-[11px] text-gray-400">
+                          <span>{nombreTurno(repartidor.turno_preferido)}</span>
+                          <span>·</span>
                           <span
                             className={
                               gps.tone === 'emerald'
@@ -1316,23 +1347,18 @@ export default function Delivery() {
       {/* ── MODAL FICHA REPARTIDOR (CREATE/EDIT) ── */}
       {modal && (
         <div
-          role="button"
-          tabIndex={0}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' || event.key === ' ') event.currentTarget.click();
-          }}
+          role="presentation"
           className="fixed inset-0 flex items-center justify-center bg-slate-900/35 p-4 backdrop-blur-sm"
           style={{ zIndex: Z.modal }}
-          onClick={() => setModal(null)}
+          onClick={(event) => {
+            if (event.target === event.currentTarget) setModal(null);
+          }}
         >
           <div
-            role="button"
-            tabIndex={0}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' || event.key === ' ') event.currentTarget.click();
-            }}
+            role="dialog"
+            aria-modal="true"
+            aria-label={modal.mode === 'edit' ? 'Editar rider' : 'Nuevo rider'}
             className="flex max-h-[90vh] w-full max-w-3xl flex-col rounded-2xl bg-white shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
           >
             <div className="flex shrink-0 items-center justify-between border-b border-gray-100 px-6 py-4">
               <div>
@@ -1420,6 +1446,30 @@ export default function Delivery() {
                       className={CONTROL + ' mt-1'}
                       placeholder="Motomel Blitz 110"
                     />
+                  </div>
+                  <div className="md:col-span-2">
+                    <label
+                      htmlFor="field-Delivery-turno"
+                      className="text-[12px] font-medium text-gray-600"
+                    >
+                      Turno de trabajo
+                    </label>
+                    <select
+                      id="field-Delivery-turno"
+                      value={form.turno_preferido || ''}
+                      onChange={(e) => setForm({ ...form, turno_preferido: e.target.value })}
+                      className={CONTROL + ' mt-1'}
+                    >
+                      <option value="">Seleccioná un turno</option>
+                      {turnosRider.map((turno) => (
+                        <option key={turno.value} value={turno.value}>
+                          {turno.label}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="mt-1 text-[11px] text-gray-400">
+                      El sistema sólo lo ofrecerá para asignar pedidos durante ese turno.
+                    </p>
                   </div>
                   <div className="md:col-span-2">
                     <label
@@ -1561,23 +1611,18 @@ export default function Delivery() {
       {/* ── MODAL DETALLE (VIEW MODE) ── */}
       {detailModal && (
         <div
-          role="button"
-          tabIndex={0}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' || event.key === ' ') event.currentTarget.click();
-          }}
+          role="presentation"
           className="fixed inset-0 flex items-center justify-center bg-slate-900/30 p-4 backdrop-blur-sm"
           style={{ zIndex: Z.modal }}
-          onClick={() => setDetailModal(null)}
+          onClick={(event) => {
+            if (event.target === event.currentTarget) setDetailModal(null);
+          }}
         >
           <div
-            role="button"
-            tabIndex={0}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' || event.key === ' ') event.currentTarget.click();
-            }}
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Detalle de ${detailModal.nombre || 'rider'}`}
             className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-start justify-between gap-4 border-b border-gray-100 px-6 py-5">
               <div className="flex min-w-0 items-center gap-3">
@@ -1602,6 +1647,10 @@ export default function Delivery() {
                     <span className="flex items-center gap-1">
                       <Calendar size={12} strokeWidth={STROKE} />
                       {fechaCorta(detailModal.fecha_ingreso)}
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <Clock3 size={12} strokeWidth={STROKE} />
+                      {nombreTurno(detailModal.turno_preferido)}
                     </span>
                   </p>
                 </div>
@@ -1802,23 +1851,18 @@ export default function Delivery() {
       */}
       {asignarModal && (
         <div
-          role="button"
-          tabIndex={0}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' || event.key === ' ') event.currentTarget.click();
-          }}
+          role="presentation"
           className="fixed inset-0 flex items-center justify-center bg-slate-900/35 p-4 backdrop-blur-sm"
           style={{ zIndex: Z.modal }}
-          onClick={() => setAsignarModal(null)}
+          onClick={(event) => {
+            if (event.target === event.currentTarget) setAsignarModal(null);
+          }}
         >
           <div
-            role="button"
-            tabIndex={0}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' || event.key === ' ') event.currentTarget.click();
-            }}
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Asignar rider al pedido ${asignarModal.numero}`}
             className="flex max-h-[80vh] w-full max-w-lg flex-col rounded-2xl bg-white shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
           >
             <div className="flex shrink-0 items-start justify-between gap-4 border-b border-gray-100 px-6 py-4">
               <div className="min-w-0">

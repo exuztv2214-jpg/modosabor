@@ -171,6 +171,8 @@ function syncDeliveryRepartidor(db, personal) {
 function syncPersonalFromDeliveryRepartidor(db, repartidor) {
   if (!repartidor) return null;
 
+  const turnoPreferido = cleanText(repartidor.turno_preferido) || 'noche';
+
   let linked = findLinkedPersonal(db, repartidor);
   if (!linked) {
     const result = db
@@ -180,7 +182,7 @@ function syncPersonalFromDeliveryRepartidor(db, repartidor) {
         nombre, rol_operativo, telefono, direccion, avatar_url, notas,
         fecha_ingreso, activo, turno_preferido, frecuencia_pago,
         monto_base, medio_pago_preferido, categoria_id, clock_pin
-      ) VALUES (?, 'delivery', ?, ?, ?, ?, ?, ?, 'noche', 'diario', ?, 'efectivo', 1, '')
+      ) VALUES (?, 'delivery', ?, ?, ?, ?, ?, ?, ?, 'diario', ?, 'efectivo', 1, '')
     `
       )
       .run(
@@ -191,6 +193,7 @@ function syncPersonalFromDeliveryRepartidor(db, repartidor) {
         cleanText(repartidor.notas),
         cleanText(repartidor.fecha_ingreso),
         Number(repartidor.activo) === 0 ? 0 : 1,
+        turnoPreferido,
         10000
       );
     linked = db.prepare('SELECT * FROM personal WHERE id = ?').get(result.lastInsertRowid);
@@ -216,6 +219,7 @@ function syncPersonalFromDeliveryRepartidor(db, repartidor) {
         avatar_url = ?,
         notas = ?,
         fecha_ingreso = ?,
+        turno_preferido = ?,
         activo = ?,
         actualizado_en = CURRENT_TIMESTAMP
     WHERE id = ?
@@ -227,6 +231,7 @@ function syncPersonalFromDeliveryRepartidor(db, repartidor) {
     payload.avatar_url,
     payload.notas,
     payload.fecha_ingreso || linked.fecha_ingreso || '',
+    turnoPreferido,
     payload.activo,
     linked.id
   );

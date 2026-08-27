@@ -8,6 +8,7 @@ const db = require('../db');
 const auth = require('../middleware/auth');
 const { requirePermission, hasPermission } = require('../utils/permissions');
 const { fechaLocal, hoyLocal, hoyArgentina } = require('../utils/fechaLocal');
+const { parseTurnos } = require('../utils/shifts');
 
 /*
   Argentina es UTC-3 fijo: no tiene horario de verano desde 2009.
@@ -121,19 +122,59 @@ function ensureUniqueAccessCode(codigo, excludeId = null) {
 }
 
 function hydrateRepartidor(id) {
-  const repartidor = db.prepare('SELECT * FROM repartidores WHERE id = ?').get(id);
+  const repartidor = db
+    .prepare(
+      `SELECT r.*, p.turno_preferido, p.activo AS personal_activo
+       FROM repartidores r
+       LEFT JOIN personal p ON p.id = r.personal_id
+       WHERE r.id = ?`
+    )
+    .get(id);
   if (!repartidor) return null;
   if (repartidor.codigo_acceso) return repartidor;
 
   const codigo = generateAccessCode();
   db.prepare('UPDATE repartidores SET codigo_acceso = ? WHERE id = ?').run(codigo, id);
-  return db.prepare('SELECT * FROM repartidores WHERE id = ?').get(id);
+  return db
+    .prepare(
+      `SELECT r.*, p.turno_preferido, p.activo AS personal_activo
+       FROM repartidores r
+       LEFT JOIN personal p ON p.id = r.personal_id
+       WHERE r.id = ?`
+    )
+    .get(id);
+}
+
+function normalizeRiderShift(value) {
+  const turno = String(value || '')
+    .trim()
+    .toLowerCase();
+  if (!turno) throw new Error('Seleccioná el turno de trabajo del rider');
+
+  const config = getConfigMap(db);
+  const permitidos = new Set(
+    parseTurnos(config.turnos_negocio)
+      .filter((item) => item?.activo !== false && item?.id)
+      .map((item) => String(item.id).trim().toLowerCase())
+  );
+  if (!permitidos.size) {
+    permitidos.add('manana');
+    permitidos.add('noche');
+  }
+  permitidos.add('doble');
+  if (!permitidos.has(turno)) throw new Error('El turno seleccionado no es válido');
+  return turno;
 }
 
 function validateRiderAccess(req, res) {
   const repartidor = hydrateRepartidor(req.params.id);
   if (!repartidor) {
     res.status(404).json({ error: 'Repartidor no encontrado' });
+    return null;
+  }
+
+  if (Number(repartidor.activo) !== 1 || Number(repartidor.personal_activo ?? 1) !== 1) {
+    res.status(403).json({ error: 'Este acceso de rider fue desactivado' });
     return null;
   }
 
@@ -290,9 +331,16 @@ router.post('/', auth, requirePermission('delivery.manage'), (req, res) => {
     avatar_url = '',
     notas = '',
     fecha_ingreso = '',
+    turno_preferido = '',
   } = req.body;
 
   if (!nombre) return res.status(400).json({ error: 'Nombre requerido' });
+  let turnoFinal = '';
+  try {
+    turnoFinal = normalizeRiderShift(turno_preferido);
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
   let codigoFinal = '';
   try {
     codigoFinal = ensureUniqueAccessCode(codigo_acceso) || generateAccessCode();
@@ -323,7 +371,10 @@ router.post('/', auth, requirePermission('delivery.manage'), (req, res) => {
       fecha_ingreso || hoyArgentina()
     );
   const hydrated = hydrateRepartidor(r.lastInsertRowid);
-  syncPersonalFromDeliveryRepartidor(db, hydrated);
+  syncPersonalFromDeliveryRepartidor(db, {
+    ...hydrated,
+    turno_preferido: turnoFinal,
+  });
   res.json(hydrateRepartidor(r.lastInsertRowid));
 });
 
@@ -342,10 +393,18 @@ router.put('/:id', auth, requirePermission('delivery.manage'), (req, res) => {
     avatar_url,
     notas,
     fecha_ingreso,
+    turno_preferido,
   } = req.body;
 
   const current = hydrateRepartidor(req.params.id);
   if (!current) return res.status(404).json({ error: 'Repartidor no encontrado' });
+
+  let turnoFinal = '';
+  try {
+    turnoFinal = normalizeRiderShift(turno_preferido ?? current.turno_preferido);
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
 
   let codigoFinal = current.codigo_acceso || generateAccessCode();
   try {
@@ -378,13 +437,81 @@ router.put('/:id', auth, requirePermission('delivery.manage'), (req, res) => {
     req.params.id
   );
   const hydrated = hydrateRepartidor(req.params.id);
-  syncPersonalFromDeliveryRepartidor(db, hydrated);
+  syncPersonalFromDeliveryRepartidor(db, {
+    ...hydrated,
+    turno_preferido: turnoFinal,
+  });
   res.json(hydrateRepartidor(req.params.id));
 });
 
 router.delete('/:id', auth, requirePermission('delivery.manage'), (req, res) => {
-  db.prepare('DELETE FROM repartidores WHERE id = ?').run(req.params.id);
-  res.json({ success: true });
+  const repartidor = hydrateRepartidor(req.params.id);
+  if (!repartidor) return res.status(404).json({ error: 'Repartidor no encontrado' });
+
+  const pedidosActivos = db
+    .prepare(
+      `SELECT id FROM pedidos
+       WHERE repartidor_id = ? AND estado NOT IN ('entregado', 'cancelado')`
+    )
+    .all(repartidor.id);
+
+  const retirar = db.transaction(() => {
+    if (pedidosActivos.length) {
+      db.prepare(
+        `UPDATE pedidos
+         SET repartidor_id = NULL, repartidor_nombre = '', actualizado_en = CURRENT_TIMESTAMP
+         WHERE repartidor_id = ? AND estado NOT IN ('entregado', 'cancelado')`
+      ).run(repartidor.id);
+    }
+
+    db.prepare(
+      `UPDATE repartidores
+       SET activo = 0, disponible = 0, latitud = NULL, longitud = NULL,
+           ultima_ubicacion_en = NULL, fcm_token = '', fcm_platform = '',
+           fcm_device_id = '', fcm_device_label = '', fcm_permission = '',
+           fcm_actualizado_en = NULL
+       WHERE id = ?`
+    ).run(repartidor.id);
+
+    let personalId = Number(repartidor.personal_id || 0);
+    if (!personalId) {
+      const linked = db
+        .prepare(
+          `SELECT id FROM personal
+           WHERE rol_operativo = 'delivery'
+             AND (
+               (TRIM(COALESCE(?, '')) <> '' AND telefono = ?)
+               OR lower(trim(nombre)) = lower(trim(?))
+             )
+           ORDER BY activo DESC, id ASC LIMIT 1`
+        )
+        .get(repartidor.telefono, repartidor.telefono, repartidor.nombre);
+      personalId = Number(linked?.id || 0);
+    }
+    if (personalId) {
+      db.prepare(
+        `UPDATE personal
+         SET activo = 0, actualizado_en = CURRENT_TIMESTAMP
+         WHERE id = ? AND rol_operativo = 'delivery'`
+      ).run(personalId);
+    }
+  });
+
+  retirar();
+  logAudit(db, {
+    modulo: 'delivery',
+    accion: 'retirar_rider',
+    entidad: 'repartidor',
+    entidad_id: repartidor.id,
+    actor_id: req.user?.id,
+    actor_nombre: req.user?.nombre || '',
+    detalle: {
+      nombre: repartidor.nombre,
+      pedidos_desasignados: pedidosActivos.map((pedido) => pedido.id),
+      personal_id: repartidor.personal_id || null,
+    },
+  });
+  res.json({ success: true, pedidos_desasignados: pedidosActivos.length });
 });
 
 router.put('/:id/ubicacion', auth, requirePermission('delivery.manage'), (req, res) => {
