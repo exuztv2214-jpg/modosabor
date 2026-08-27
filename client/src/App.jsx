@@ -44,6 +44,7 @@ const EstadoResultados = lazy(() => import('./pages/EstadoResultados.jsx'));
 const CuentaCorriente = lazy(() => import('./pages/CuentaCorriente.jsx'));
 const MenuDelDia = lazy(() => import('./pages/MenuDelDia.jsx'));
 const Clientes = lazy(() => import('./pages/Clientes.jsx'));
+const Cotizaciones = lazy(() => import('./pages/Cotizaciones.jsx'));
 const Delivery = lazy(() => import('./pages/Delivery.jsx'));
 const Direcciones = lazy(() => import('./pages/Direcciones.jsx'));
 const KDS = lazy(() => import('./pages/KDS.jsx'));
@@ -279,6 +280,7 @@ export default function App() {
                         element={<PrivateRoute permission="clientes.view" moduleKey="clientes" />}
                       >
                         <Route path="/admin/clientes" element={<Clientes />} />
+                        <Route path="/admin/cotizaciones" element={<Cotizaciones />} />
                         <Route path="/admin/cuenta-corriente" element={<CuentaCorriente />} />
                       </Route>
                       <Route

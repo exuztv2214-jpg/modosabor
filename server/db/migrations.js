@@ -1308,6 +1308,7 @@ function runMigrations(db) {
   } catch {}
 
   crearBaseMultisucursal(db);
+  crearTablasCotizaciones(db);
   configurarMotorCanonicoWhatsapp(db);
   encriptarClavesSensiblesExistentes(db);
   // WhatsApp actualiza compatibilidades de identidades sociales: la tabla
@@ -1338,6 +1339,60 @@ function runMigrations(db) {
   // `opcion_listas` ya existe cuando esto corre.
   migrarGuarnicionesAListaCompartida(db);
   migrarTamanosDelMenuDia(db);
+}
+
+/**
+ * Cotizaciones comerciales persistentes.
+ *
+ * Los importes usan la misma unidad canonica que pedidos y productos:
+ * centavos enteros. Los totales se recalculan siempre en el servidor y cada
+ * renglon queda separado para poder imprimir propuestas de uno o varios
+ * servicios sin guardar un JSON opaco.
+ */
+function crearTablasCotizaciones(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS cotizaciones (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      numero TEXT UNIQUE,
+      cliente_empresa TEXT NOT NULL,
+      cliente_contacto TEXT DEFAULT '',
+      cliente_cuit TEXT DEFAULT '',
+      cliente_telefono TEXT DEFAULT '',
+      cliente_email TEXT DEFAULT '',
+      cliente_direccion TEXT DEFAULT '',
+      fecha_emision TEXT NOT NULL,
+      fecha_servicio TEXT,
+      validez_dias INTEGER NOT NULL DEFAULT 7,
+      estado TEXT NOT NULL DEFAULT 'borrador'
+        CHECK (estado IN ('borrador', 'enviada', 'aceptada', 'rechazada', 'vencida')),
+      condiciones_pago TEXT DEFAULT '',
+      observaciones TEXT DEFAULT '',
+      subtotal INTEGER NOT NULL DEFAULT 0,
+      descuento INTEGER NOT NULL DEFAULT 0,
+      total INTEGER NOT NULL DEFAULT 0,
+      creado_por INTEGER REFERENCES usuarios(id) ON DELETE SET NULL,
+      creado_en DATETIME DEFAULT CURRENT_TIMESTAMP,
+      actualizado_en DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS cotizacion_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      cotizacion_id INTEGER NOT NULL REFERENCES cotizaciones(id) ON DELETE CASCADE,
+      descripcion TEXT NOT NULL,
+      detalle TEXT DEFAULT '',
+      cantidad INTEGER NOT NULL CHECK (cantidad > 0),
+      precio_unitario INTEGER NOT NULL CHECK (precio_unitario >= 0),
+      subtotal INTEGER NOT NULL CHECK (subtotal >= 0),
+      orden INTEGER NOT NULL DEFAULT 0
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_cotizaciones_fecha
+      ON cotizaciones(fecha_emision DESC, id DESC);
+    CREATE INDEX IF NOT EXISTS idx_cotizaciones_cliente
+      ON cotizaciones(cliente_empresa);
+    CREATE INDEX IF NOT EXISTS idx_cotizacion_items_cotizacion
+      ON cotizacion_items(cotizacion_id, orden, id);
+  `);
 }
 
 /**

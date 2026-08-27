@@ -67,6 +67,11 @@ export default function SeccionGeneral({
           />
           <InputField label="Teléfono" {...f('negocio_telefono')} placeholder="3863 40-1122" />
           <InputField label="Email" {...f('negocio_email')} placeholder="hola@modosabor.com.ar" />
+          <InputField
+            label="CUIT / identificación fiscal"
+            {...f('negocio_cuit')}
+            placeholder="Se imprime en cotizaciones"
+          />
           <div className="md:col-span-2">
             <InputField
               label="Dirección"

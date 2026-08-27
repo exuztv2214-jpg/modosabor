@@ -285,6 +285,7 @@ app.use('/api/intercambio-datos', require('./routes/intercambioDatos'));
 app.use('/api/mozo', require('./routes/mozo'));
 app.use('/api/direcciones', require('./routes/direcciones'));
 app.use('/api/clientes', require('./routes/clientes'));
+app.use('/api/cotizaciones', require('./routes/cotizaciones'));
 app.use('/api/configuracion', require('./routes/configuracion'));
 app.use('/api/reportes', require('./routes/reportes'));
 app.use('/api/repartidores', require('./routes/repartidores'));
