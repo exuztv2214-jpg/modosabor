@@ -285,6 +285,474 @@ module.exports = {
     }
   },
 
+  /* ──────────────────────────────────────────────────────────────────────────
+     Reels e historias de la Fan Page
+     ────────────────────────────────────────────────────────────────────────── */
+
+  'el reel son tres pedidos y en el orden correcto': async () => {
+    /*
+      Un reel no se sube de una: se abre una sesión, se manda el video a OTRO
+      host, y recién ahí se publica. Si el orden se altera, Meta devuelve
+      errores que no dicen nada sobre el orden.
+    */
+    const meta = simularMeta([
+      { datos: { video_id: 'v1', upload_url: 'https://rupload…' } }, // start
+      { datos: { success: true } }, // subida
+      { datos: { status: { video_status: 'ready' } } }, // estado
+      { datos: { success: true } }, // finish
+    ]);
+    try {
+      const r = await metaApi.publicarReelEnPagina({
+        pageId: '55',
+        token: 't',
+        texto: 'Pizza a la piedra',
+        videoUrl: 'https://modosabor.com.ar/reel.mp4',
+        esperar: sinEsperar,
+      });
+
+      assert.match(meta.pedidos[0].url, /55\/video_reels$/, '1: abre la sesión');
+      assert.strictEqual(meta.pedidos[0].cuerpo.upload_phase, 'start');
+
+      assert.match(
+        meta.pedidos[1].url,
+        /^https:\/\/rupload\.facebook\.com\//,
+        '2: el video va a rupload, no a graph'
+      );
+
+      assert.match(meta.pedidos[3].url, /55\/video_reels$/, '4: publica');
+      assert.strictEqual(meta.pedidos[3].cuerpo.upload_phase, 'finish');
+      assert.strictEqual(meta.pedidos[3].cuerpo.video_state, 'PUBLISHED');
+      assert.strictEqual(meta.pedidos[3].cuerpo.description, 'Pizza a la piedra');
+
+      assert.strictEqual(r.id, 'v1');
+    } finally {
+      meta.restaurar();
+    }
+  },
+
+  'el token del video va en un header, nunca en la URL': async () => {
+    /*
+      La subida es la única parte del módulo donde el token viaja en un header.
+      Si alguna vez se pasa a la URL, queda en los logs de cualquier proxy que
+      haya en el medio — y un token de página publica en tu nombre.
+    */
+    const meta = simularMeta([
+      { datos: { video_id: 'v1' } },
+      { datos: { success: true } },
+      { datos: { status: { video_status: 'ready' } } },
+      { datos: { success: true } },
+    ]);
+    try {
+      await metaApi.publicarReelEnPagina({
+        pageId: '55',
+        token: 'secreto',
+        videoUrl: 'https://modosabor.com.ar/reel.mp4',
+        esperar: sinEsperar,
+      });
+
+      const subida = meta.pedidos[1];
+      assert.ok(!subida.url.includes('secreto'), 'el token no puede estar en la dirección');
+      assert.ok(!subida.url.includes('access_token'));
+    } finally {
+      meta.restaurar();
+    }
+  },
+
+  'un reel demasiado largo se frena antes de subir nada': async () => {
+    /*
+      Meta lo rechazaría igual, pero recién después de que subamos el archivo
+      entero. Con un video de 40 MB eso son varios minutos y los datos de la
+      conexión del local.
+    */
+    const meta = simularMeta([{ datos: {} }]);
+    try {
+      await assert.rejects(
+        metaApi.publicarReelEnPagina({
+          pageId: '55',
+          token: 't',
+          videoUrl: 'https://modosabor.com.ar/largo.mp4',
+          duracionSegundos: 120,
+          esperar: sinEsperar,
+        }),
+        (error) => {
+          assert.strictEqual(error.codigo, 'DURACION_INVALIDA');
+          assert.match(error.message, /90/, 'dice cuál es el tope');
+          assert.match(error.message, /120/, 'y cuánto dura el que mandó');
+          return true;
+        }
+      );
+      assert.strictEqual(meta.pedidos.length, 0, 'no se subió nada');
+    } finally {
+      meta.restaurar();
+    }
+  },
+
+  'un reel demasiado corto también': async () => {
+    const meta = simularMeta([{ datos: {} }]);
+    try {
+      await assert.rejects(
+        metaApi.publicarReelEnPagina({
+          pageId: '55',
+          token: 't',
+          videoUrl: 'https://modosabor.com.ar/corto.mp4',
+          duracionSegundos: 2,
+          esperar: sinEsperar,
+        }),
+        (error) => error.codigo === 'DURACION_INVALIDA'
+      );
+      assert.strictEqual(meta.pedidos.length, 0);
+    } finally {
+      meta.restaurar();
+    }
+  },
+
+  'sin saber la duración se deja pasar': async () => {
+    /*
+      Cuando no se conoce la duración, decide Meta. Frenar por las dudas
+      bloquearía videos que en realidad sirven.
+    */
+    const meta = simularMeta([
+      { datos: { video_id: 'v1' } },
+      { datos: { success: true } },
+      { datos: { status: { video_status: 'ready' } } },
+      { datos: { success: true } },
+    ]);
+    try {
+      const r = await metaApi.publicarReelEnPagina({
+        pageId: '55',
+        token: 't',
+        videoUrl: 'https://modosabor.com.ar/reel.mp4',
+        esperar: sinEsperar,
+      });
+      assert.strictEqual(r.id, 'v1');
+    } finally {
+      meta.restaurar();
+    }
+  },
+
+  'el motivo del rechazo de Meta llega tal cual': async () => {
+    /*
+      "No se pudo publicar" no le sirve a nadie. "La resolución mínima es 540p"
+      dice qué hacer.
+    */
+    const meta = simularMeta([
+      { datos: { video_id: 'v1' } },
+      { datos: { success: true } },
+      {
+        datos: {
+          status: {
+            video_status: 'processing',
+            processing_phase: {
+              status: 'not_started',
+              error: {
+                message: 'Resolution too low. Video must have a minimum resolution of 540p.',
+              },
+            },
+          },
+        },
+      },
+    ]);
+    try {
+      await assert.rejects(
+        metaApi.publicarReelEnPagina({
+          pageId: '55',
+          token: 't',
+          videoUrl: 'https://modosabor.com.ar/chico.mp4',
+          esperar: sinEsperar,
+        }),
+        (error) => {
+          assert.match(error.message, /540p/, 'el motivo real, no uno genérico');
+          assert.strictEqual(error.incierto, false, 'esto es un no definitivo');
+          return true;
+        }
+      );
+    } finally {
+      meta.restaurar();
+    }
+  },
+
+  'la historia de foto sube sin publicar y después la publica': async () => {
+    /*
+      El `published: false` es lo que distingue una historia de un posteo
+      común. Sin eso la foto sale al feed **y además** como historia: dos
+      publicaciones donde se pidió una.
+    */
+    const meta = simularMeta([
+      { datos: { id: 'foto1' } },
+      { datos: { success: true, post_id: 'story1' } },
+    ]);
+    try {
+      const r = await metaApi.publicarHistoriaEnPagina({
+        pageId: '55',
+        token: 't',
+        fotoUrl: 'https://modosabor.com.ar/promo.jpg',
+      });
+
+      assert.match(meta.pedidos[0].url, /55\/photos$/);
+      assert.strictEqual(
+        meta.pedidos[0].cuerpo.published,
+        false,
+        'sin esto la foto sale también al feed'
+      );
+
+      assert.match(meta.pedidos[1].url, /55\/photo_stories$/);
+      assert.strictEqual(meta.pedidos[1].cuerpo.photo_id, 'foto1');
+      assert.strictEqual(r.id, 'story1');
+    } finally {
+      meta.restaurar();
+    }
+  },
+
+  'una historia en video de más de 60 segundos se frena': async () => {
+    /*
+      El tope de la historia es 60, el del reel 90. Son distintos y es fácil
+      confundirlos.
+    */
+    const meta = simularMeta([{ datos: {} }]);
+    try {
+      await assert.rejects(
+        metaApi.publicarHistoriaEnPagina({
+          pageId: '55',
+          token: 't',
+          videoUrl: 'https://modosabor.com.ar/largo.mp4',
+          duracionSegundos: 75,
+          esperar: sinEsperar,
+        }),
+        (error) => {
+          assert.strictEqual(error.codigo, 'DURACION_INVALIDA');
+          assert.match(error.message, /60/);
+          return true;
+        }
+      );
+      assert.strictEqual(meta.pedidos.length, 0);
+    } finally {
+      meta.restaurar();
+    }
+  },
+
+  'una historia de 75 segundos se frena aunque como reel pasaría': async () => {
+    /*
+      Este es el caso que agarra la confusión entre los dos topes: 75 segundos
+      es un reel válido y una historia inválida. Si alguien "unifica" los
+      límites, este test se pone rojo.
+    */
+    const meta = simularMeta([
+      { datos: { video_id: 'v1' } },
+      { datos: { success: true } },
+      { datos: { status: { video_status: 'ready' } } },
+      { datos: { success: true } },
+    ]);
+    try {
+      const reel = await metaApi.publicarReelEnPagina({
+        pageId: '55',
+        token: 't',
+        videoUrl: 'https://modosabor.com.ar/x.mp4',
+        duracionSegundos: 75,
+        esperar: sinEsperar,
+      });
+      assert.ok(reel.id, 'como reel, 75 segundos entra');
+    } finally {
+      meta.restaurar();
+    }
+  },
+
+  'una historia sin foto ni video ni se intenta': async () => {
+    const meta = simularMeta([{ datos: {} }]);
+    try {
+      await assert.rejects(
+        metaApi.publicarHistoriaEnPagina({ pageId: '55', token: 't' }),
+        (error) => error.codigo === 'FALTA_MEDIA'
+      );
+      assert.strictEqual(meta.pedidos.length, 0);
+    } finally {
+      meta.restaurar();
+    }
+  },
+
+  /* ──────────────────────────────────────────────────────────────────────────
+     Formatos de Instagram
+     ────────────────────────────────────────────────────────────────────────── */
+
+  'el reel de Instagram va con media_type REELS': async () => {
+    const meta = simularMeta([
+      { datos: { id: 'c1' } },
+      { datos: { status_code: 'FINISHED' } },
+      { datos: { id: 'ig1' } },
+    ]);
+    try {
+      await metaApi.publicarFormatoEnInstagram({
+        igId: '900',
+        token: 't',
+        formato: 'reel',
+        texto: 'Milanesas',
+        videoUrl: 'https://modosabor.com.ar/reel.mp4',
+        esperar: sinEsperar,
+      });
+
+      assert.strictEqual(meta.pedidos[0].cuerpo.media_type, 'REELS');
+      assert.strictEqual(meta.pedidos[0].cuerpo.video_url, 'https://modosabor.com.ar/reel.mp4');
+      assert.strictEqual(meta.pedidos[0].cuerpo.caption, 'Milanesas');
+    } finally {
+      meta.restaurar();
+    }
+  },
+
+  'la historia de Instagram va con STORIES y sin texto': async () => {
+    /*
+      Instagram ignora el `caption` en historias. Mandarlo haría creer que el
+      texto salió, cuando no salió en ningún lado.
+    */
+    const meta = simularMeta([
+      { datos: { id: 'c1' } },
+      { datos: { status_code: 'FINISHED' } },
+      { datos: { id: 'ig1' } },
+    ]);
+    try {
+      await metaApi.publicarFormatoEnInstagram({
+        igId: '900',
+        token: 't',
+        formato: 'historia',
+        texto: 'esto Instagram lo tira a la basura',
+        imagenUrl: 'https://modosabor.com.ar/promo.jpg',
+        esperar: sinEsperar,
+      });
+
+      assert.strictEqual(meta.pedidos[0].cuerpo.media_type, 'STORIES');
+      assert.strictEqual(
+        meta.pedidos[0].cuerpo.caption,
+        undefined,
+        'no se manda un texto que Instagram descarta'
+      );
+    } finally {
+      meta.restaurar();
+    }
+  },
+
+  'un reel de Instagram con foto en vez de video se frena': async () => {
+    const meta = simularMeta([{ datos: {} }]);
+    try {
+      await assert.rejects(
+        metaApi.publicarFormatoEnInstagram({
+          igId: '900',
+          token: 't',
+          formato: 'reel',
+          imagenUrl: 'https://modosabor.com.ar/foto.jpg',
+          esperar: sinEsperar,
+        }),
+        (error) => error.codigo === 'FALTA_VIDEO'
+      );
+      assert.strictEqual(meta.pedidos.length, 0);
+    } finally {
+      meta.restaurar();
+    }
+  },
+
+  'el carrusel crea un contenedor por pieza y después el que los agrupa': async () => {
+    const meta = simularMeta([
+      { datos: { id: 'h1' } },
+      { datos: { id: 'h2' } },
+      { datos: { id: 'h3' } },
+      { datos: { id: 'carr' } },
+      { datos: { status_code: 'FINISHED' } },
+      { datos: { id: 'ig1' } },
+    ]);
+    try {
+      await metaApi.publicarFormatoEnInstagram({
+        igId: '900',
+        token: 't',
+        formato: 'carrusel',
+        texto: 'La carta',
+        piezas: [
+          { imagenUrl: 'https://modosabor.com.ar/1.jpg' },
+          { imagenUrl: 'https://modosabor.com.ar/2.jpg' },
+          { imagenUrl: 'https://modosabor.com.ar/3.jpg' },
+        ],
+        esperar: sinEsperar,
+      });
+
+      assert.strictEqual(meta.pedidos[0].cuerpo.is_carousel_item, true);
+      assert.strictEqual(meta.pedidos[1].cuerpo.is_carousel_item, true);
+      assert.strictEqual(meta.pedidos[2].cuerpo.is_carousel_item, true);
+
+      const agrupador = meta.pedidos[3].cuerpo;
+      assert.strictEqual(agrupador.media_type, 'CAROUSEL');
+      assert.strictEqual(
+        agrupador.children,
+        'h1,h2,h3',
+        'y en el orden en que se mandaron: ese es el orden del carrusel'
+      );
+      assert.strictEqual(agrupador.caption, 'La carta');
+    } finally {
+      meta.restaurar();
+    }
+  },
+
+  'un carrusel de más de diez piezas se frena antes de subir nada': async () => {
+    const meta = simularMeta([{ datos: {} }]);
+    try {
+      await assert.rejects(
+        metaApi.publicarFormatoEnInstagram({
+          igId: '900',
+          token: 't',
+          formato: 'carrusel',
+          piezas: Array.from({ length: 11 }, (_, i) => ({
+            imagenUrl: `https://modosabor.com.ar/${i}.jpg`,
+          })),
+          esperar: sinEsperar,
+        }),
+        (error) => {
+          assert.strictEqual(error.codigo, 'CARRUSEL_LARGO');
+          assert.match(error.message, /11/, 'dice cuántas mandó');
+          return true;
+        }
+      );
+      assert.strictEqual(meta.pedidos.length, 0, 'no se subió ninguna de las once');
+    } finally {
+      meta.restaurar();
+    }
+  },
+
+  'un carrusel de una sola pieza no es un carrusel': async () => {
+    const meta = simularMeta([{ datos: {} }]);
+    try {
+      await assert.rejects(
+        metaApi.publicarFormatoEnInstagram({
+          igId: '900',
+          token: 't',
+          formato: 'carrusel',
+          piezas: [{ imagenUrl: 'https://modosabor.com.ar/1.jpg' }],
+          esperar: sinEsperar,
+        }),
+        (error) => error.codigo === 'CARRUSEL_CORTO'
+      );
+    } finally {
+      meta.restaurar();
+    }
+  },
+
+  'un formato que Instagram no conoce se rechaza con su nombre': async () => {
+    const meta = simularMeta([{ datos: {} }]);
+    try {
+      await assert.rejects(
+        metaApi.publicarFormatoEnInstagram({
+          igId: '900',
+          token: 't',
+          formato: 'transmision',
+          imagenUrl: 'https://modosabor.com.ar/1.jpg',
+          esperar: sinEsperar,
+        }),
+        (error) => {
+          assert.strictEqual(error.codigo, 'FORMATO_DESCONOCIDO');
+          assert.match(error.message, /transmision/, 'dice cuál era');
+          return true;
+        }
+      );
+      assert.strictEqual(meta.pedidos.length, 0);
+    } finally {
+      meta.restaurar();
+    }
+  },
+
   // ── Los errores de Meta, traducidos ─────────────────────────────────────
   'un token vencido se dice en castellano': async () => {
     const meta = simularMeta([{ ok: false, datos: { error: { code: 190 } } }]);

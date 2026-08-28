@@ -6,6 +6,7 @@ const multer = require('multer');
 
 const db = require('../db');
 const social = require('../services/socialService');
+const vinculacion = require('../services/social/vinculacion');
 const { uploadPublicPathToFile, dataDir, ensureDir } = require('../utils/storagePaths');
 
 const router = express.Router();
@@ -30,6 +31,32 @@ function workerKey(req, res, next) {
   return next();
 }
 
+/**
+ * Canjear el código de vinculación por la clave.
+ *
+ * ── Por qué va ANTES del control de la clave ───────────────────────────────
+ *
+ * Es la única ruta del router que no puede pedirla: el Worker viene justamente
+ * a buscarla. Ponerla después de `router.use(workerKey)` sería pedirle la
+ * llave a alguien que viene a que le den la llave.
+ *
+ * Lo que la protege es el código: dura cinco minutos, sirve una sola vez, y lo
+ * generó alguien con sesión iniciada en el panel apretando un botón.
+ */
+router.post('/vincular', (req, res) => {
+  try {
+    const resultado = vinculacion.canjearCodigo(req.body?.codigo);
+    if (!resultado) {
+      return res.status(401).json({
+        error: 'El código de vinculación venció o ya se usó. Generá uno nuevo desde el panel.',
+      });
+    }
+    return res.json({ clave: resultado.clave });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
 router.use(workerKey);
 
 // Este router se autentica exclusivamente con la clave del worker. Nunca usa
@@ -38,7 +65,16 @@ router.post('/heartbeat', (req, res) => {
   social.heartbeatWorker(req.body || {});
   res.json({ ok: true, servidor: new Date().toISOString() });
 });
-router.post('/claim', (_req, res) => res.json(social.claimWork() || { kind: 'idle' }));
+router.post('/claim', (req, res) =>
+  res.json(
+    social.claimWork({
+      workerCode: String(req.get('x-social-worker-code') || ''),
+      puedeSubirMedia: req.get('x-social-worker-media') === '1',
+    }) || {
+      kind: 'idle',
+    }
+  )
+);
 router.post('/publicaciones/:id/reportar', (req, res) => {
   try {
     return res.json(

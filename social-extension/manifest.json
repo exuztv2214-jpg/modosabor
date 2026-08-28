@@ -1,0 +1,37 @@
+{
+  "manifest_version": 3,
+  "name": "Modo Sabor Social",
+  "version": "1.0.0",
+  "description": "Publica en tus grupos de Facebook desde el panel de Modo Sabor, usando tu propia sesión.",
+
+  "permissions": ["storage", "alarms", "tabs", "scripting"],
+
+  "host_permissions": [
+    "https://www.facebook.com/*",
+    "https://web.facebook.com/*",
+    "http://localhost/*",
+    "https://modosabor.com.ar/*",
+    "https://www.modosabor.com.ar/*"
+  ],
+
+  "background": {
+    "service_worker": "background.js"
+  },
+
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Modo Sabor Social"
+  },
+
+  "content_scripts": [
+    {
+      "matches": [
+        "http://localhost/*",
+        "https://modosabor.com.ar/*",
+        "https://www.modosabor.com.ar/*"
+      ],
+      "js": ["puente-panel.js"],
+      "run_at": "document_start"
+    }
+  ]
+}

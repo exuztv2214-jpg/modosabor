@@ -4,8 +4,11 @@ const db = require('../db');
 const { sqlFecha, desdeSql } = require('../utils/fechaLocal');
 const { encriptar } = require('../utils/encryptConfig');
 const { canDispatch, repartirPorDia, LIMITES } = require('./social/politicaEnvio');
-const { resolverProvider, claseDeEjecucion } = require('./social/providers');
+const providers = require('./social/providers');
+const { resolverProvider, claseDeEjecucion } = providers;
 const { porQueNoHayMetricas } = require('./social/metaApi');
+const { avatarDelDestino } = require('./social/avatares');
+const { porQueFrenaElModoSeguro } = require('./social/modoSeguro');
 
 const TARGET_STATES = new Set([
   'draft',
@@ -97,20 +100,44 @@ function log({
 }
 
 function mapDestination(row) {
+  const metadata = row ? parse(row.metadata) : {};
   return (
     row && {
       ...row,
       habilitada: Boolean(row.habilitada),
       favorita: Boolean(row.favorita),
-      metadata: parse(row.metadata),
+      metadata,
       permiteComercial: Number(row.permite_comercial ?? 1) === 1,
       bloqueadoManualmente: Number(row.bloqueado_manualmente || 0) === 1,
       frecuenciaMaximaHoras: row.frecuencia_maxima_horas ?? null,
       notas: row.notas || '',
       executionClass: row.execution_class || claseDeEjecucion(row),
       providerClave: row.provider_clave || '',
+      /*
+        La foto de perfil, si se pudo bajar alguna vez.
+
+        Se calcula mirando el disco en vez de guardarse en una columna: así no
+        hay forma de que la base diga que hay foto y el archivo no esté —que es
+        exactamente lo que pasa después de restaurar un backup de la base sin
+        los uploads—. Es un `existsSync` sobre una carpeta chica, no un
+        problema de velocidad.
+      */
+      avatar: avatarDelDestino(row.id) || avatarRemotoSeguro(metadata?.avatarUrl),
     }
   );
+}
+
+function avatarRemotoSeguro(valor) {
+  try {
+    const url = new URL(String(valor || ''));
+    const host = url.hostname.toLowerCase();
+    return url.protocol === 'https:' &&
+      (host === 'facebook.com' || host.endsWith('.facebook.com') || host.endsWith('.fbcdn.net'))
+      ? url.toString()
+      : null;
+  } catch {
+    return null;
+  }
 }
 function mapCampaign(row) {
   return (
@@ -158,6 +185,7 @@ function listDestinations({ type = '', enabledOnly = false, cuentaId = null } = 
 function listIdentities(provider = null) {
   const where = provider ? 'WHERE provider = ?' : '';
   const params = provider ? [clean(provider, 40).toLowerCase()] : [];
+  const fallosParaPausar = Number(getSocialConfig().fallosParaPausar || 5);
   return db
     .prepare(`SELECT * FROM social_accounts ${where} ORDER BY provider, id`)
     .all(...params)
@@ -170,14 +198,36 @@ function listIdentities(provider = null) {
         llave que no viaja es una llave que no se puede interceptar. Lo
         encontró un test, no yo.
       */
-      const { token: _token, ...metadataSinToken } = parse(fila.metadata);
+      const metadataCompleta = parse(fila.metadata);
+      const { token: _token, ...metadataSinToken } = metadataCompleta;
+
+      const destinoConAvatar = db
+        .prepare(
+          `SELECT id FROM social_destinations
+           WHERE cuenta_id = ? AND tipo IN ('facebook_page','facebook_profile','instagram_feed')
+           ORDER BY CASE tipo WHEN 'facebook_page' THEN 1 WHEN 'facebook_profile' THEN 2 ELSE 3 END
+           LIMIT 1`
+        )
+        .get(fila.id);
+
+      const pausada = Number(fila.pausada) === 1;
+      const fallosSeguidos = Number(fila.fallos_seguidos || 0);
 
       return {
         ...fila,
         metadata: metadataSinToken,
+        avatar:
+          avatarDelDestino(destinoConAvatar?.id) || avatarRemotoSeguro(metadataSinToken.avatarUrl),
         habilitada: Boolean(fila.habilitada),
-        pausada: Number(fila.pausada) === 1,
-        fallosSeguidos: Number(fila.fallos_seguidos || 0),
+        pausada,
+        fallosSeguidos,
+        /*
+          La política también frena una identidad al llegar al tope de fallos,
+          aunque la columna `pausada` siga en cero. Si esto no viaja explícito,
+          el panel la pinta verde mientras el despachador la está rechazando.
+        */
+        frenadaAutomaticamente: !pausada && fallosSeguidos >= fallosParaPausar,
+        fallosParaPausar,
         /*
           Si hay token, se dice que hay. **Nunca cuál es**: alcanza con saber
           si la identidad está conectada para poder mostrarlo en pantalla.
@@ -267,7 +317,9 @@ function estadoDeCredenciales(cuentaId) {
  */
 async function probarCredenciales(cuentaId, tipo = 'pagina') {
   const cuenta = db
-    .prepare('SELECT id, nombre, clave, metadata FROM social_accounts WHERE id = ?')
+    .prepare(
+      'SELECT id, nombre, identificador_externo AS clave, metadata FROM social_accounts WHERE id = ?'
+    )
     .get(Number(cuentaId));
   if (!cuenta) throw new Error('No existe esa identidad');
 
@@ -450,6 +502,34 @@ function updateDestination(
   return mapDestination(db.prepare('SELECT * FROM social_destinations WHERE id = ?').get(id));
 }
 
+function updateDestinationsBulk(ids = [], { habilitada } = {}) {
+  const unicos = [
+    ...new Set((ids || []).map(Number).filter((id) => Number.isInteger(id) && id > 0)),
+  ];
+  if (!unicos.length) throw new Error('Elegí al menos un grupo');
+  if (unicos.length > 300) throw new Error('Demasiados grupos en una sola operación');
+  if (typeof habilitada !== 'boolean') throw new Error('Indicá si los grupos quedan seleccionados');
+
+  const placeholders = unicos.map(() => '?').join(',');
+  return db.transaction(() => {
+    const encontrados = db
+      .prepare(
+        `SELECT id FROM social_destinations
+         WHERE tipo = 'facebook_group' AND id IN (${placeholders})`
+      )
+      .all(...unicos);
+    if (encontrados.length !== unicos.length) {
+      throw new Error('Uno de los destinos no es un grupo de Facebook');
+    }
+    db.prepare(
+      `UPDATE social_destinations
+       SET habilitada = ?, actualizado_en = CURRENT_TIMESTAMP
+       WHERE id IN (${placeholders})`
+    ).run(habilitada ? 1 : 0, ...unicos);
+    return { actualizados: unicos.length, habilitada };
+  })();
+}
+
 function deleteDestination(id) {
   const current = db.prepare('SELECT id FROM social_destinations WHERE id = ?').get(id);
   if (!current) throw new Error('No existe el destino');
@@ -615,15 +695,72 @@ function createCampaign({
   programadaPara = '',
   usuarioId = null,
   ensayo = false,
+  formato = 'post',
+  formatos = {},
 }) {
   const name = clean(nombre, 160);
-  const content = String(texto || '')
+  const textosPorRed = {};
+  for (const red of ['facebook', 'instagram']) {
+    const valor = personalizaciones?.textos_por_red?.[red];
+    if (typeof valor === 'string') textosPorRed[red] = valor.trim().slice(0, 8000);
+  }
+  const ajustes = {
+    ...personalizaciones,
+    editar_por_red: Boolean(personalizaciones?.editar_por_red),
+    textos_por_red: textosPorRed,
+  };
+  const content = String(
+    texto || (ajustes.editar_por_red ? Object.values(textosPorRed).find(Boolean) : '') || ''
+  )
     .trim()
     .slice(0, 8000);
   if (!name) throw new Error('La publicación necesita un nombre interno');
   if (!content && !(mediaIds || []).length) {
     throw new Error('Escribí un texto o adjuntá multimedia');
   }
+
+  /*
+    El formato se valida acá, contra la lista real, y no más adelante.
+
+    Un formato inventado guardado en la base es una bomba de tiempo: la campaña
+    se crea sin quejarse, se encola sin quejarse, y explota recién cuando le
+    toca salir — probablemente de madrugada, con una autolista, sin nadie
+    mirando.
+  */
+  const formatoElegido = String(formato || 'post').toLowerCase();
+  if (!providers.FORMATOS.includes(formatoElegido)) {
+    throw new Error(
+      `No existe el formato «${formato}». Los que hay: ${providers.FORMATOS.join(', ')}.`
+    );
+  }
+
+  /*
+    El formato por red, validado uno por uno.
+
+    Se acota a las redes que conocemos en vez de guardar lo que venga: una
+    clave inventada —"tiktok", un error de tipeo— quedaría en la base sin que
+    nadie la mire, y el día que exista TikTok de verdad estaría ahí con un
+    valor puesto por accidente hace meses.
+  */
+  const formatosElegidos = {};
+  for (const [clave, valor] of Object.entries(formatos || {})) {
+    /*
+      Las campañas nuevas guardan `cuentaId|red`, porque Perfil y Fan Page son
+      dos cuentas de Facebook y pueden llevar formatos distintos. Las claves
+      históricas `facebook` e `instagram` siguen admitidas para no romper
+      borradores ni campañas anteriores.
+    */
+    const esRedHistorica = ['facebook', 'instagram'].includes(clave);
+    const esCuenta = /^\d+\|(facebook|instagram)$/.test(clave);
+    if (!esRedHistorica && !esCuenta) continue;
+
+    const limpio = String(valor || '').toLowerCase();
+    if (!providers.FORMATOS.includes(limpio)) {
+      throw new Error(`No existe el formato «${valor}» que elegiste para ${clave}.`);
+    }
+    formatosElegidos[clave] = limpio;
+  }
+
   const ids = destinationIds({ destinoIds, conjuntoIds });
   /*
     El modo de prueba viejo obliga a elegir un solo destino: es un seguro para
@@ -631,12 +768,13 @@ function createCampaign({
     publica nada—, así que no necesita ese límite: probar con un solo grupo
     justamente no probaría el reparto ni el cupo, que es lo que uno quiere ver.
   */
-  const testMode = Boolean(personalizaciones?.modo_prueba) && !ensayo;
-  if (testMode && ((conjuntoIds || []).length || ids.length !== 1)) {
-    throw new Error(
-      'Modo de prueba: elegí manualmente un único destino: una Page o un grupo. No uses conjuntos.'
-    );
-  }
+  const frena = porQueFrenaElModoSeguro({
+    modoSeguro: Boolean(ajustes.modo_prueba),
+    ensayo,
+    cantidadConjuntos: (conjuntoIds || []).length,
+    cantidadDestinos: ids.length,
+  });
+  if (frena) throw new Error(frena);
   if (!ids.length) throw new Error('Elegí al menos un destino o conjunto');
   const destinations = db
     .prepare(
@@ -648,20 +786,22 @@ function createCampaign({
   if (scheduledAt && Number.isNaN(scheduledAt.getTime())) {
     throw new Error('La fecha programada no es válida');
   }
-  const state = scheduledAt ? 'scheduled' : 'draft';
+  const state = scheduledAt && ajustes.auto_publicar !== false ? 'scheduled' : 'draft';
   const result = db
     .prepare(
-      `INSERT INTO social_campaigns (nombre, texto, personalizaciones, estado, programada_para, creado_por, ensayo)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO social_campaigns (nombre, texto, personalizaciones, estado, programada_para, creado_por, ensayo, formato, formatos)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       name,
       content,
-      json(personalizaciones),
+      json(ajustes),
       state,
       scheduledAt ? sqlFecha(scheduledAt) : null,
       usuarioId,
-      ensayo ? 1 : 0
+      ensayo ? 1 : 0,
+      formatoElegido,
+      json(formatosElegidos)
     );
   const campaignId = Number(result.lastInsertRowid);
   const insertTarget = db.prepare(
@@ -1165,6 +1305,23 @@ function getMetrics(days = 30) {
         db.prepare('SELECT COUNT(*) AS total FROM social_destinations WHERE habilitada = 1').get()
           .total
       ),
+      /*
+        ── Si alguna vez salió algo de verdad ────────────────────────────────
+
+        Sin ventana de tiempo, a propósito. Todo lo demás de este resumen mira
+        los últimos N días porque son métricas; esto no es una métrica, es una
+        pregunta de una sola vez: ¿este sistema publicó algo alguna vez?
+
+        La usa el modo seguro del compositor para decidir si viene prendido. Si
+        mirara los últimos 30 días, un mes tranquilo volvería a poner las
+        rueditas de atrás sin que nadie las pidiera.
+      */
+      yaPublicoAlgunaVez:
+        Number(
+          db
+            .prepare("SELECT COUNT(*) AS total FROM social_post_targets WHERE estado = 'published'")
+            .get().total
+        ) > 0,
     },
     porDia: db
       .prepare(
@@ -1454,7 +1611,7 @@ function estadoDeEnvio(destino, config) {
  * Un comando no publica nada. No gasta cupo, no lo ve nadie desde afuera y no
  * puede hacer que te bloqueen. Va primero y sin freno.
  */
-function claimWork() {
+function claimWork({ puedeSubirMedia = false } = {}) {
   const config = getSocialConfig();
   const lock = token();
   const item = db.transaction(() => {
@@ -1482,8 +1639,31 @@ function claimWork() {
         const identidad = db
           .prepare('SELECT nombre, metadata FROM social_accounts WHERE id = ?')
           .get(Number(payload.identityId));
-        payload.identityNombre = identidad?.nombre || '';
-        payload.identityTipo = parse(identidad?.metadata)?.tipo || '';
+        const meta = parse(identidad?.metadata) || {};
+
+        /*
+          Se manda el nombre **de Facebook**, no el nuestro.
+
+          En el sistema la identidad se llama "Fan Page Modo Sabor Delivery"
+          porque así se distingue del Perfil en la lista. En Facebook la página
+          se llama "Modo Sabor Delivery" a secas.
+
+          El Worker busca ese nombre en el menú de cambio de perfil para saber
+          dónde hacer clic. Con el nuestro no lo encontraría nunca, y el error
+          sería "Facebook no ofrece cambiar a «Fan Page Modo Sabor Delivery»",
+          que suena a que falta un permiso cuando en realidad sobran dos
+          palabras.
+
+          `pageNombre` lo guarda el conectar-con-un-botón, tal como lo devolvió
+          Meta. Si no está —identidades cargadas a mano antes de eso— se cae al
+          nuestro, que es mejor que nada.
+        */
+        payload.identityNombre =
+          meta.pageNombre ||
+          meta.profileNombre ||
+          String(identidad?.nombre || '').replace(/^Perfil\s+/i, '') ||
+          '';
+        payload.identityTipo = meta.tipo || '';
       }
 
       return { kind: 'command', lock, item: { ...command, payload } };
@@ -1502,9 +1682,10 @@ function claimWork() {
     */
     const candidatos = db
       .prepare(
-        `SELECT t.*, c.nombre AS campana_nombre, c.texto, c.personalizaciones,
+        `SELECT t.*, c.nombre AS campana_nombre, c.texto, c.personalizaciones, c.formato, c.formatos,
               d.nombre AS destino_nombre, d.provider, d.tipo AS destino_tipo, d.url AS destino_url,
               d.metadata AS destino_metadata, d.cuenta_id,
+              (SELECT COUNT(*) FROM social_campaign_media cm WHERE cm.campana_id = c.id) AS media_total,
               d.frecuencia_maxima_horas, d.bloqueado_manualmente,
               d.execution_class, d.provider_clave
          FROM social_post_targets t
@@ -1529,6 +1710,20 @@ function claimWork() {
 
     let target = null;
     for (const candidato of candidatos) {
+      /*
+        La extensión puede escribir en un compositor, pero no puede cargar un
+        archivo local en Facebook de forma segura. Si tomara estos trabajos,
+        un Reel o una Historia terminarían como un posteo de texto común. El
+        Worker de escritorio sí usa Playwright y `setInputFiles`, por eso sólo
+        él puede reclamarlos.
+      */
+      if (
+        !puedeSubirMedia &&
+        (formatoParaLaRed(candidato) !== 'post' || Number(candidato.media_total || 0) > 0)
+      ) {
+        continue;
+      }
+
       /*
         El descanso propio del grupo pisa al general. Si el administrador dijo
         "una vez por semana", el tope de 24 horas del sistema no alcanza — y el
@@ -1572,6 +1767,8 @@ function claimWork() {
       lock,
       item: {
         ...target,
+        texto: textoParaLaRed(target),
+        formato: formatoParaLaRed(target),
         personalizaciones: parse(target.personalizaciones),
         destino_metadata: parse(target.destino_metadata),
         media,
@@ -1602,7 +1799,7 @@ function claimApiWork() {
   return db.transaction(() => {
     const candidatos = db
       .prepare(
-        `SELECT t.*, c.nombre AS campana_nombre, c.texto, c.personalizaciones, c.ensayo,
+        `SELECT t.*, c.nombre AS campana_nombre, c.texto, c.personalizaciones, c.ensayo, c.formato, c.formatos,
                 d.nombre AS destino_nombre, d.provider, d.tipo AS destino_tipo, d.url AS destino_url,
                 d.metadata AS destino_metadata, d.cuenta_id,
                 d.frecuencia_maxima_horas, d.execution_class, d.provider_clave
@@ -1654,6 +1851,8 @@ function claimApiWork() {
         lock,
         item: {
           ...candidato,
+          texto: textoParaLaRed(candidato),
+          formato: formatoParaLaRed(candidato),
           personalizaciones: parse(candidato.personalizaciones),
           destino_metadata: parse(candidato.destino_metadata),
           media,
@@ -1714,6 +1913,21 @@ async function publicarPorApi(trabajo) {
     texto: item.texto,
     media: item.media,
     personalizaciones: item.personalizaciones,
+    /*
+      El formato que le toca a ESTE destino.
+
+      ── Por qué depende de la red y no de la campaña ────────────────────────
+
+      Una misma publicación sale como **posteo en Facebook y como reel en
+      Instagram**: es el caso normal cuando hay un video vertical que también
+      querés en el muro.
+
+      El formato lo sigue eligiendo quien escribe —no el destino— pero lo
+      elige una vez por red. Guardarlo en el destino obligaría a duplicar cada
+      destino por formato, y "Modo Sabor Delivery (reel)" al lado de "Modo
+      Sabor Delivery (historia)" es una lista que nadie puede leer.
+    */
+    formato: formatoParaLaRed(item),
   };
 
   /*
@@ -1722,7 +1936,9 @@ async function publicarPorApi(trabajo) {
     igual de cifrado que en la base.
   */
   const filaIdentidad = db
-    .prepare('SELECT id, nombre, clave, metadata FROM social_accounts WHERE id = ?')
+    .prepare(
+      'SELECT id, nombre, identificador_externo AS clave, metadata FROM social_accounts WHERE id = ?'
+    )
     .get(item.cuenta_id);
   const identidad = filaIdentidad
     ? { ...filaIdentidad, metadata: parse(filaIdentidad.metadata) }
@@ -1952,13 +2168,17 @@ function reportCommand({ commandId, lockToken, estado, resultado = {}, error = '
          nombre = excluded.nombre,
          url = excluded.url,
          metadata = excluded.metadata,
+         habilitada = 1,
+         ultimo_estado = 'detectado',
          actualizado_en = CURRENT_TIMESTAMP`
     );
 
     let guardados = 0;
+    const idsDetectados = new Set();
     (resultado.grupos || []).forEach((group) => {
       const id = clean(group.id, 200);
       if (!id) return;
+      idsDetectados.add(id);
       upsert.run(
         identidad,
         clean(group.nombre || 'Grupo de Facebook', 200),
@@ -1967,6 +2187,7 @@ function reportCommand({ commandId, lockToken, estado, resultado = {}, error = '
         json({
           source: 'worker',
           detectedAt: nowSql(),
+          avatarUrl: avatarRemotoSeguro(group.avatarUrl),
           /* Lo declara el worker: hay grupos donde un admin aprueba cada post. */
           requiereAprobacion: Boolean(group.requiereAprobacion),
           puedeAbrirCompositor: group.puedeAbrirCompositor !== false,
@@ -1975,8 +2196,51 @@ function reportCommand({ commandId, lockToken, estado, resultado = {}, error = '
       guardados += 1;
     });
 
+    /*
+      Una sincronización también retira de la selección los destinos que la
+      identidad ya no mostró. No se borran: quedan deshabilitados y se
+      reactivan automáticamente si Facebook los devuelve en otra sincronía.
+      Sólo afecta grupos descubiertos por el worker, nunca los cargados a mano.
+    */
+    let deshabilitados = 0;
+    const anteriores = db
+      .prepare(
+        "SELECT id, identificador_externo, metadata FROM social_destinations WHERE cuenta_id = ? AND provider = 'facebook' AND tipo = 'facebook_group'"
+      )
+      .all(identidad);
+    const deshabilitar = db.prepare(
+      "UPDATE social_destinations SET habilitada = 0, ultimo_estado = 'no_detectado', actualizado_en = CURRENT_TIMESTAMP WHERE id = ?"
+    );
+    anteriores.forEach((destino) => {
+      const metadata = parse(destino.metadata);
+      if (metadata?.source !== 'worker' || idsDetectados.has(destino.identificador_externo)) return;
+      deshabilitar.run(destino.id);
+      deshabilitados += 1;
+    });
+
+    const avatarIdentidad = avatarRemotoSeguro(resultado.avatarIdentidad);
+    const identityUrl = /^https:\/\/(?:www\.)?facebook\.com\//i.test(
+      String(resultado.identityUrl || '')
+    )
+      ? clean(resultado.identityUrl, 1000)
+      : '';
+    if (avatarIdentidad || identityUrl) {
+      const identidadActual = db
+        .prepare('SELECT metadata FROM social_accounts WHERE id = ?')
+        .get(identidad);
+      db.prepare('UPDATE social_accounts SET metadata = ? WHERE id = ?').run(
+        json({
+          ...parse(identidadActual?.metadata),
+          ...(avatarIdentidad ? { avatarUrl: avatarIdentidad } : {}),
+          ...(identityUrl ? { facebookMeUrl: identityUrl } : {}),
+        }),
+        identidad
+      );
+    }
+
     resultado.identityId = identidad;
     resultado.guardados = guardados;
+    resultado.deshabilitados = deshabilitados;
   }
   db.prepare(
     `UPDATE social_worker_commands SET estado = ?, resultado = ?, error = ?, lock_token = '', lock_hasta = NULL, finalizado_en = CURRENT_TIMESTAMP WHERE id = ?`
@@ -2015,13 +2279,100 @@ function dashboard() {
     queued,
     failed,
     groups,
-    worker: worker ? { ...worker, detalle: parse(worker.detalle) } : null,
+    worker: estadoRealDelWorker(worker),
     health: health ? { ...health, resultado: parse(health.resultado) } : null,
     campaigns: listCampaigns(8),
     logs: db
       .prepare('SELECT * FROM social_publication_logs ORDER BY id DESC LIMIT 12')
       .all()
       .map((item) => ({ ...item, detalle: parse(item.detalle) })),
+  };
+}
+
+/**
+ * Cuánto puede pasar sin latidos antes de dar al Worker por apagado.
+ *
+ * El Worker late cada ocho segundos. Dos minutos es quince latidos perdidos:
+ * suficiente para no marcar "apagado" por una PC que se trabó un rato, y poco
+ * para no mentir durante media hora.
+ */
+const SILENCIO_MAXIMO_MS = 2 * 60 * 1000;
+
+/**
+ * El estado del Worker, mirando el reloj.
+ *
+ * ── El bug que arregla ─────────────────────────────────────────────────────
+ *
+ * `estado` se guardaba tal como lo mandaba el Worker y no se volvía a tocar.
+ * O sea: un Worker que mandó un latido en julio y no se prendió nunca más
+ * figuraba **"online" para siempre**.
+ *
+ * Eso hacía que el tablero tachara "Vincular esta PC" como hecho mientras la
+ * tarjeta de al lado decía "Sin validar", y que uno se quedara esperando que
+ * pasara algo que no iba a pasar. Es el mismo tipo de mentira que las fechas
+ * ISO en la base: nada falla, nada avisa, y no anda.
+ *
+ * El estado ahora se calcula, no se recuerda.
+ */
+/**
+ * La red a la que pertenece un destino.
+ *
+ * Instagram es el único que se distingue por el prefijo del tipo. Todo lo
+ * demás —páginas, perfiles, grupos— es Facebook.
+ */
+const redDelTipo = (tipo) =>
+  String(tipo || '').startsWith('instagram') ? 'instagram' : 'facebook';
+
+/** Devuelve el texto común o la versión escrita específicamente para esa red. */
+function textoParaLaRed(item) {
+  const ajustes = parse(item?.personalizaciones) || {};
+  if (!ajustes.editar_por_red) return String(item?.texto || '');
+
+  const red = redDelTipo(item?.destino_tipo);
+  return String(ajustes.textos_por_red?.[red] ?? item?.texto ?? '');
+}
+
+/**
+ * Qué formato le corresponde a un destino.
+ *
+ * ── El orden de las respuestas, y por qué ──────────────────────────────────
+ *
+ * 1. Lo que se eligió para **esa cuenta** (`cuenta_id|red`).
+ * 2. La clave histórica de esa red (`facebook` o `instagram`).
+ * 3. El formato único de la campaña (`formato`).
+ * 4. Si no hay ninguno, un posteo.
+ *
+ * Ese orden es lo que hace que las campañas viejas —que sólo tienen `formato`—
+ * sigan saliendo exactamente igual que antes. Sin el paso 2, el día que se
+ * agregó `formatos` todas las campañas guardadas habrían pasado a ser posteos
+ * en silencio.
+ */
+function formatoParaLaRed(item) {
+  const elegidos = parse(item?.formatos) || {};
+  const red = redDelTipo(item?.destino_tipo);
+  const claveCuenta = item?.cuenta_id ? `${item.cuenta_id}|${red}` : '';
+  return elegidos[claveCuenta] || elegidos[red] || item?.formato || 'post';
+}
+
+function estadoRealDelWorker(fila) {
+  if (!fila) return null;
+
+  const ultimo = desdeSql(fila.ultimo_heartbeat_en);
+  const silencio = ultimo ? Date.now() - ultimo.getTime() : Infinity;
+  const vivo = silencio <= SILENCIO_MAXIMO_MS;
+
+  return {
+    ...fila,
+    detalle: parse(fila.detalle),
+    /*
+      Si está callado, es 'offline' y no lo que dijo la última vez. El estado
+      que informó el Worker se conserva aparte: sirve para saber que la última
+      vez que habló estaba, por ejemplo, bloqueado por Facebook.
+    */
+    estado: vivo ? fila.estado : 'offline',
+    estadoInformado: fila.estado,
+    vivo,
+    silencioSegundos: Number.isFinite(silencio) ? Math.round(silencio / 1000) : null,
   };
 }
 
@@ -2056,6 +2407,7 @@ module.exports = {
   listDestinations,
   createDestination,
   updateDestination,
+  updateDestinationsBulk,
   deleteDestination,
   listTemplates,
   createTemplate,
@@ -2087,6 +2439,20 @@ module.exports = {
   createWorkerCommand,
   reportCommand,
   heartbeatWorker,
+  /*
+    Se exporta para poder probarla sola.
+
+    `dashboard()` toca una docena de tablas; esta función sólo mira una fila y
+    el reloj. Probándola aparte, el test dice exactamente qué se está
+    verificando y no se rompe cuando cambia cualquier otra consulta del
+    tablero.
+  */
+  estadoRealDelWorker,
+  /* Se exporta para probarla sola: decide en qué formato sale cada destino. */
+  formatoParaLaRed,
+  /* Se exporta para verificar que cada red reciba su propio texto. */
+  textoParaLaRed,
+  SILENCIO_MAXIMO_MS,
   dashboard,
   log,
 };

@@ -106,6 +106,61 @@ module.exports = {
       assert.strictEqual(oauth.consumirPase(pase), null);
     }),
 
+  // ── La vuelta al panel ──────────────────────────────────────────────────
+  'la vuelta al panel usa su propia variable, no la de los clientes': () => {
+    /*
+      PUBLIC_APP_URL es el link que el cliente recibe por WhatsApp para pedir.
+      Si para probar Facebook en la PC hubiera que apuntarla a localhost, los
+      clientes quedarían con un link muerto. Por eso manda la específica.
+    */
+    const antes = { ...process.env };
+    try {
+      process.env.PUBLIC_APP_URL = 'https://www.modosabor.com.ar';
+      process.env.FACEBOOK_PANEL_URL = 'http://localhost:5173';
+
+      assert.strictEqual(oauth.dondeVuelveElUsuario(), 'http://localhost:5173');
+    } finally {
+      process.env.PUBLIC_APP_URL = antes.PUBLIC_APP_URL || '';
+      process.env.FACEBOOK_PANEL_URL = antes.FACEBOOK_PANEL_URL || '';
+    }
+  },
+
+  'sin variable propia cae en la del panel': () => {
+    const antes = { ...process.env };
+    try {
+      process.env.FACEBOOK_PANEL_URL = '';
+      process.env.PUBLIC_APP_URL = 'https://www.modosabor.com.ar/';
+
+      assert.strictEqual(
+        oauth.dondeVuelveElUsuario(),
+        'https://www.modosabor.com.ar',
+        'y sin la barra final, que duplicaría la de /social'
+      );
+    } finally {
+      process.env.PUBLIC_APP_URL = antes.PUBLIC_APP_URL || '';
+      process.env.FACEBOOK_PANEL_URL = antes.FACEBOOK_PANEL_URL || '';
+    }
+  },
+
+  'sin ninguna de las dos, el salto queda relativo': () => {
+    /*
+      Cadena vacía y no una inventada: cuando el panel y la API comparten
+      dominio —producción— el salto relativo es exactamente lo que hay que
+      hacer. Poner cualquier valor por omisión mandaría al usuario a un
+      servidor que puede no ser el suyo.
+    */
+    const antes = { ...process.env };
+    try {
+      process.env.FACEBOOK_PANEL_URL = '';
+      process.env.PUBLIC_APP_URL = '';
+
+      assert.strictEqual(oauth.dondeVuelveElUsuario(), '');
+    } finally {
+      process.env.PUBLIC_APP_URL = antes.PUBLIC_APP_URL || '';
+      process.env.FACEBOOK_PANEL_URL = antes.FACEBOOK_PANEL_URL || '';
+    }
+  },
+
   // ── Las páginas encontradas ─────────────────────────────────────────────
   'los tokens de las páginas se guardan cifrados': () => {
     oauth.guardarHallazgo(42, [

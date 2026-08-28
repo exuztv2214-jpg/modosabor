@@ -7,7 +7,7 @@ Baileys vive en `DATA_DIR/whatsapp-sesion`.
 Desde esa pantalla se controlan por separado:
 
 - **Pausa total**: detiene la IA e impide iniciar nuevas campañas.
-- **Atención con IA**: recibe mensajes individuales, consulta n8n y contesta.
+- **Atención con IA**: recibe mensajes individuales, usa el motor canónico del backend y contesta.
 - **WhatsApp masivo**: habilita la preparación y confirmación de campañas.
 
 Si una persona responde desde el teléfono, el Gateway aparta la IA de esa
@@ -15,12 +15,12 @@ conversación para evitar que humano y asistente hablen a la vez.
 
 ## Componentes
 
-- `prompt-agente.md`: personalidad y reglas del agente.
-- `n8n/`: generador, workflow y documentación de n8n.
+- `politica-conversacional.md`: personalidad y reglas del agente.
+- `n8n/`: archivo histórico del workflow anterior; no es el motor operativo.
 
-El workflow entra por `POST /webhook/modosabor-atencion-web`. El Gateway del
-backend envía cada mensaje a ese webhook y devuelve la respuesta por la misma
-sesión de WhatsApp.
+El Gateway atiende con reglas, memoria y herramientas del backend. NVIDIA es
+el proveedor principal y Gemini su respaldo. Ambos responden a través de la
+misma sesión de WhatsApp.
 
 ## API interna del agente
 
@@ -43,8 +43,8 @@ precio por su cuenta.
 - La atención y las campañas arrancan desactivadas.
 - Una campaña conserva simulación, vista previa y confirmación humana.
 - Un mensaje manual desde el teléfono silencia la IA en esa conversación.
-- Las notas de voz se descargan y transcriben localmente con Whisper antes de
-  llegar a la IA. Si no se entiende un audio, se pide que lo escriban; nunca se
+- Las notas de voz se transcriben primero con Gemini y usan Whisper `small`
+  como respaldo. Si no se entiende un audio, se pide que lo escriban; nunca se
   inventa su contenido.
 
 Los conectores locales de transición se retiraron: no hay otro proceso ni otra

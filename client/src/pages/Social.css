@@ -24,12 +24,17 @@
   --linea: #e2e8f0;
   --fondo: #f7f8fa;
 
-  /* El azul de la noche, no el negro: menos duro con la vista. */
-  --lateral: #0d1424;
-  --lateral-alto: #161f33;
+  /*
+    ── Por qué esto pasó de grid a flex ────────────────────────────────────
 
-  display: grid;
-  grid-template-columns: 268px minmax(0, 1fr);
+    El sidebar era una columna fija de 268 píxeles y de fondo oscuro. Ahora es
+    el mismo de Masivos: claro y plegable, así que su ancho lo decide él
+    (`w-64` o `w-16`) y no la grilla de acá.
+
+    Con `grid-template-columns` fijo, plegarlo no habría hecho nada: la columna
+    seguía midiendo 268 y el menú se encogía adentro dejando un hueco.
+  */
+  display: flex;
   height: 100vh;
   overflow: hidden;
   background: var(--fondo);
@@ -427,6 +432,13 @@
 }
 
 .social-vista .social-main {
+  /*
+    `flex: 1` con `min-width: 0` es lo que permite que el contenido se achique
+    cuando el sidebar se abre. Sin el `min-width: 0`, un elemento ancho de
+    adentro —una tabla, un nombre de grupo largo— empuja la columna y el
+    sidebar termina tapado.
+  */
+  flex: 1;
   min-width: 0;
   overflow-y: auto;
 }
@@ -979,6 +991,7 @@
 }
 
 .social-vista .social-semana-celda {
+  position: relative;
   display: flex;
   min-height: 42px;
   flex-direction: column;
@@ -990,6 +1003,68 @@
   cursor: pointer;
   text-align: left;
   transition: background 0.12s ease;
+}
+
+/*
+  ── El fondo de las horas que más usás ────────────────────────────────────
+
+  Es la capa azul del calendario de Metricool. Va como elemento aparte y no
+  como `background` de la celda: si fuera el fondo, el `:hover` lo pisaría y la
+  celda dejaría de responder visualmente justo cuando le pasás el mouse.
+
+  `pointer-events: none` para que el clic siga llegando al botón de abajo.
+*/
+.social-vista .social-semana-calor {
+  position: absolute;
+  inset: 0;
+  background: #2563eb;
+  pointer-events: none;
+}
+
+/*
+  La línea de la hora actual.
+
+  Se posiciona con el minuto real, así que a las 18:30 queda a la mitad de la
+  fila de las 18. Es un detalle que no aporta datos pero hace que el calendario
+  se sienta vivo en vez de dibujado.
+*/
+.social-vista .social-semana-ahora {
+  position: absolute;
+  right: 0;
+  left: 0;
+  height: 2px;
+  background: var(--rojo);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.social-vista .social-semana-ahora::before {
+  position: absolute;
+  top: -3px;
+  left: -4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--rojo);
+  content: '';
+}
+
+/* El fin de semana, apenas más apagado: se distingue sin gritar. */
+.social-vista .social-semana-celda.es-finde {
+  background: #fcfcfd;
+}
+
+.social-vista .social-semana-dia.es-finde {
+  background: #f8fafc;
+  color: #94a3b8;
+}
+
+.social-vista .social-semana-nota {
+  padding: 10px 14px;
+  border-top: 1px solid #f1f5f9;
+  color: #94a3b8;
+  font-size: 11.5px;
+  text-align: center;
 }
 
 /*
@@ -1041,7 +1116,7 @@
 
 .social-vista .social-compositor {
   overflow: hidden;
-  max-width: 1180px;
+  max-width: 1440px;
   margin: 0 auto;
   border: 1px solid var(--linea);
   border-radius: 18px;
@@ -1063,8 +1138,20 @@
 
 .social-vista .social-comp-cabecera h2 {
   margin: 0;
-  font-size: 16px;
-  font-weight: 700;
+  color: #18202a;
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.025em;
+}
+
+.social-vista .social-comp-titulo p {
+  margin: 3px 0 0;
+  color: #7b8797;
+  font-size: 12.5px;
+}
+
+.social-vista .social-comp-titulo {
+  min-width: 0;
 }
 
 .social-vista .social-comp-redes {
@@ -1089,6 +1176,1238 @@
   background: #fff;
 }
 
+/* ── El formato: posteo, reel, historia o carrusel ───────────────────────────
+   Es la primera decisión de la publicación, así que va arriba de todo y no
+   escondida en «más opciones». El que no se puede usar se muestra apagado, no
+   oculto: si desapareciera, nadie entendería por qué falta el reel.
+   ────────────────────────────────────────────────────────────────────────── */
+
+.social-vista .social-comp-formatos {
+  display: flex;
+  gap: 10px;
+  padding: 14px 22px 0;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+/* ── El chip de cada red, con su selector de formato ─────────────────────────
+   Copiado del compositor de Metricool: el ícono de la red pegado al formato,
+   para que se lea "Facebook: Post" de un vistazo y sin traducir.
+   ────────────────────────────────────────────────────────────────────────── */
+
+.social-vista .social-chip-red {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+/*
+  El ícono de marca trae su propio color, así que el contenedor no pone fondo.
+
+  Antes acá iba un cuadrado de color con una silueta blanca encima. Con las
+  marcas reales eso sería pintar el logo de Facebook arriba de un cuadrado
+  azul: dos azules distintos peleándose.
+*/
+.social-vista .social-chip-red-avatar {
+  position: relative;
+  display: grid;
+  place-items: center;
+  line-height: 0;
+}
+
+/* La pequeña grilla identifica que la cuenta participa del planificador. */
+.social-vista .social-chip-red-calendario {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  display: grid;
+  width: 16px;
+  height: 16px;
+  place-items: center;
+  border: 2px solid #fff;
+  border-radius: 4px;
+  background: #111827;
+  color: #fff;
+  line-height: 0;
+}
+
+/*
+  La foto de perfil con la marca de la red encima.
+
+  Se usa en el chip, en la cabecera del compositor y donde haga falta
+  identificar una cuenta. El tamaño llega por atributo `style` desde el
+  componente, no desde acá: el mismo dibujo se usa a 26px y a 40px.
+*/
+.social-vista .social-foto-cuenta {
+  position: relative;
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #64748b, #334155);
+  color: #fff;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.social-vista .social-foto-cuenta img {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  /*
+    `cover` y no `contain`: las fotos de perfil de Meta vienen cuadradas, pero
+    no siempre — una página con logo apaisado devuelve un rectángulo, y
+    `contain` lo dejaría flotando con franjas al costado dentro del círculo.
+  */
+  object-fit: cover;
+}
+
+.social-vista .social-foto-cuenta em {
+  font-style: normal;
+}
+
+/*
+  La marca, abajo a la derecha, mordiendo el borde.
+
+  El anillo blanco la separa de la foto: sin él, un logo azul sobre una foto
+  oscura se pierde, que es el caso de la Fan Page.
+*/
+.social-vista .social-foto-cuenta-marca {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  display: grid;
+  padding: 1.5px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgb(15 23 42 / 22%);
+  line-height: 0;
+}
+
+/* Cuántos destinos de esa red, cuando hay más de uno. */
+.social-vista .social-chip-red-cuantos {
+  position: absolute;
+  right: -7px;
+  top: -7px;
+  min-width: 16px;
+  padding: 0 3px;
+  border: 2px solid #fff;
+  border-radius: 999px;
+  background: #0f172a;
+  color: #fff;
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 800;
+  line-height: 14px;
+  text-align: center;
+}
+
+.social-vista .social-chip-red-formato {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 11px;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 10px;
+  background: #fff;
+  color: #475569;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  transition:
+    border-color 0.14s ease,
+    color 0.14s ease;
+}
+
+.social-vista .social-chip-red-formato-texto {
+  display: flex;
+  min-width: 0;
+  max-width: 132px;
+  flex-direction: column;
+  align-items: flex-start;
+  line-height: 1.05;
+}
+
+.social-vista .social-chip-red-formato-texto strong {
+  font-size: 10.5px;
+}
+
+.social-vista .social-chip-red-formato-texto em {
+  overflow: hidden;
+  max-width: 100%;
+  margin-top: 3px;
+  color: #94a3b8;
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-overflow: ellipsis;
+  text-transform: none;
+  white-space: nowrap;
+}
+
+.social-vista .social-chip-red-formato:hover {
+  border-color: #94a3b8;
+  color: #0f172a;
+}
+
+/*
+  La capa invisible que cierra el menú al hacer clic afuera.
+
+  Va debajo del menú y encima de todo lo demás. Sin ella, el menú queda abierto
+  hasta elegir algo, y arrepentirse obliga a cambiar el formato igual.
+*/
+.social-vista .social-chip-red-fuera {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  border: 0;
+  background: transparent;
+  cursor: default;
+}
+
+.social-vista .social-chip-red-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 30px;
+  z-index: 41;
+  min-width: 290px;
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+  border-radius: 13px;
+  background: #fff;
+  box-shadow: 0 12px 30px rgb(15 23 42 / 14%);
+}
+
+.social-vista .social-chip-red-opcion {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 14px;
+  border: 0;
+  background: transparent;
+  color: #0f172a;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.12s ease;
+}
+
+.social-vista .social-chip-red-opcion:hover {
+  background: #f8fafc;
+}
+
+.social-vista .social-chip-red-opcion.elegida {
+  background: #f1f5f9;
+}
+
+.social-vista .social-chip-red-opcion span {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.social-vista .social-chip-red-opcion strong {
+  font-size: 13.5px;
+  font-weight: 700;
+}
+
+/* Qué archivo espera: lo que evita elegir Reel y subir una foto. */
+.social-vista .social-chip-red-opcion em {
+  color: #94a3b8;
+  font-size: 11.5px;
+  font-style: normal;
+}
+
+.social-vista .social-comp-sin-redes {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #94a3b8;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.social-vista .social-comp-identidad {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 13px 5px 5px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: #0f172a;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+/*
+  Cancelar: gris, sin borde, en la esquina opuesta a Publicar.
+
+  Es la acción destructiva de la pantalla. No lleva rojo —el rojo acá es el
+  color de publicar— ni borde, para que no compita visualmente con el botón que
+  de verdad hace algo.
+*/
+.social-vista .social-comp-cancelar {
+  padding: 9px 16px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: #94a3b8;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    background 0.12s ease,
+    color 0.12s ease;
+}
+
+.social-vista .social-comp-cancelar:hover {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+/*
+  Los atajos de hora.
+
+  "Hoy 20:00" es un clic; el mismo momento en el calendario son cinco. Son
+  chicos y grises a propósito: sirven mucho pero no son la decisión principal
+  de la pantalla.
+*/
+.social-vista .social-comp-atajos {
+  display: flex;
+  gap: 5px;
+  margin-right: auto;
+}
+
+.social-vista .social-comp-atajo {
+  padding: 6px 11px;
+  border: 1px solid #e2e8f0;
+  border-radius: 999px;
+  background: #fff;
+  color: #64748b;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    border-color 0.12s ease,
+    color 0.12s ease;
+}
+
+.social-vista .social-comp-atajo:hover {
+  border-color: #94a3b8;
+  color: #0f172a;
+}
+
+.social-vista .social-comp-atajo.activo {
+  border-color: var(--rojo);
+  background: #fef2f2;
+  color: var(--rojo);
+}
+
+/* ── Editar por red social, y los bloques de configuración ───────────────── */
+
+.social-vista .social-comp-separador {
+  width: 1px;
+  height: 22px;
+  background: #e2e8f0;
+}
+
+.social-vista .social-comp-agregar-red {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  border: 0;
+  background: transparent;
+  color: #475569;
+  cursor: pointer;
+}
+
+.social-vista .social-comp-agregar-red > span {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border: 1px dashed #cbd5e1;
+  border-radius: 50%;
+  background: #fff;
+  font-size: 24px;
+  font-weight: 300;
+  line-height: 1;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease;
+}
+
+.social-vista .social-comp-agregar-red em {
+  overflow: hidden;
+  max-width: 0;
+  color: #64748b;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 700;
+  opacity: 0;
+  white-space: nowrap;
+  transition:
+    max-width 0.2s ease,
+    margin-left 0.2s ease,
+    opacity 0.2s ease;
+}
+
+.social-vista .social-comp-agregar-red:hover > span {
+  border-color: #64748b;
+  background: #f8fafc;
+}
+
+.social-vista .social-comp-agregar-red:hover em {
+  max-width: 110px;
+  margin-left: 7px;
+  opacity: 1;
+}
+
+.social-vista .social-comp-notas {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  padding: 7px 11px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: #f8fafc;
+  color: #64748b;
+  cursor: pointer;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+.social-vista .social-comp-notas:hover,
+.social-vista .social-comp-notas.activo {
+  border-color: #dbe3ec;
+  background: #fff;
+  color: #18202a;
+}
+
+.social-vista .social-comp-porred {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 13px;
+  border: 0;
+  border-radius: 10px;
+  background: #0f172a;
+  color: #fff;
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: background 0.14s ease;
+}
+
+.social-vista .social-comp-porred:hover {
+  background: #1e293b;
+}
+
+/* Prendido usa el verde lima de Metricool, que es su color de "activo". */
+.social-vista .social-comp-porred.activo {
+  background: #d9f24d;
+  color: #0f172a;
+}
+
+/* La cuenta sin destinos elegidos: se ve, pero apagada. */
+.social-vista .social-chip-red.apagada .social-chip-red-formato {
+  color: #cbd5e1;
+}
+
+/*
+  El formato que no se puede cambiar.
+
+  Un perfil personal sólo publica posteos, así que no hay menú. Sin borde ni
+  cursor de mano: si parece un botón, alguien lo va a apretar esperando algo.
+*/
+.social-vista .social-chip-red-formato.fijo {
+  border-color: transparent;
+  background: #f8fafc;
+  cursor: default;
+}
+
+.social-vista .social-chip-red-formato.fijo:hover {
+  border-color: transparent;
+  color: #475569;
+}
+
+.social-vista .social-comp-config {
+  margin: 12px 22px 0;
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.social-vista .social-comp-config summary {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 12px 15px;
+  color: #0f172a;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  list-style: none;
+}
+
+.social-vista .social-comp-config summary::-webkit-details-marker {
+  display: none;
+}
+
+.social-vista .social-comp-config-resumen {
+  margin-left: auto;
+  color: #94a3b8;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.social-vista .social-comp-perilla {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 0 15px 14px;
+  cursor: pointer;
+}
+
+.social-vista .social-comp-perilla input {
+  margin-top: 2px;
+  width: 16px;
+  height: 16px;
+  accent-color: var(--rojo);
+}
+
+.social-vista .social-comp-perilla span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.social-vista .social-comp-perilla strong {
+  font-size: 13px;
+}
+
+.social-vista .social-comp-perilla em {
+  color: #94a3b8;
+  font-size: 11.5px;
+  font-style: normal;
+  line-height: 1.5;
+}
+
+.social-vista .social-comp-campo {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 15px 14px;
+}
+
+.social-vista .social-comp-campo textarea {
+  padding: 9px 11px;
+  border: 1px solid #e2e8f0;
+  border-radius: 9px;
+  font-family: inherit;
+  font-size: 13px;
+  resize: vertical;
+  outline: none;
+}
+
+.social-vista .social-comp-campo textarea:focus {
+  border-color: #94a3b8;
+}
+
+.social-vista .social-comp-ayuda {
+  color: #94a3b8;
+  font-size: 11.5px;
+  font-style: normal;
+}
+
+/* ── Emojis y contadores por red ─────────────────────────────────────────── */
+
+.social-vista .social-emojis {
+  margin: 0 22px;
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.social-vista .social-emojis-buscar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border-bottom: 1px solid #f1f5f9;
+  color: #94a3b8;
+}
+
+.social-vista .social-emojis-buscar input {
+  flex: 1;
+  border: 0;
+  background: transparent;
+  color: #0f172a;
+  font-size: 13px;
+  outline: none;
+}
+
+.social-vista .social-emojis-buscar button {
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: #cbd5e1;
+  cursor: pointer;
+}
+
+.social-vista .social-emojis-categorias {
+  display: flex;
+  gap: 2px;
+  padding: 7px 9px;
+  border-bottom: 1px solid #f1f5f9;
+  background: #f8fafc;
+}
+
+.social-vista .social-emojis-categorias button {
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.45;
+  transition:
+    background 0.12s ease,
+    opacity 0.12s ease;
+}
+
+.social-vista .social-emojis-categorias button:hover {
+  opacity: 0.8;
+}
+
+.social-vista .social-emojis-categorias button.activa {
+  background: #fff;
+  box-shadow: 0 1px 3px rgb(15 23 42 / 12%);
+  opacity: 1;
+}
+
+/*
+  Alto fijo con scroll.
+
+  Sin tope, la categoría de Comida —cuarenta emojis— empuja el resto del
+  compositor hacia abajo y hay que scrollear la pantalla entera para volver al
+  botón de publicar.
+*/
+.social-vista .social-emojis-grilla {
+  display: flex;
+  max-height: 168px;
+  flex-wrap: wrap;
+  gap: 2px;
+  overflow-y: auto;
+  padding: 9px;
+}
+
+.social-vista .social-emojis-nada {
+  width: 100%;
+  padding: 22px 10px;
+  color: #94a3b8;
+  font-size: 12.5px;
+  text-align: center;
+}
+
+.social-vista .social-comp-emoji {
+  padding: 5px 7px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  font-size: 19px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.social-vista .social-comp-emoji:hover {
+  background: #e2e8f0;
+}
+
+/*
+  El contador de cada red, con su tope.
+
+  Un número suelto no dice nada: 1.847 caracteres está bien en Facebook y mal
+  en Instagram. El tope al lado convierte el número en una respuesta.
+*/
+.social-vista .social-comp-cuenta-red {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 9px;
+  color: #94a3b8;
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+  Rojo cuando se pasa.
+
+  Pasarse no da error al escribir: da error media hora después, cuando le toca
+  salir. Este color es el único aviso antes de eso.
+*/
+.social-vista .social-comp-cuenta-red.pasado {
+  color: #dc2626;
+  font-weight: 800;
+}
+
+/* ── La vista previa ────────────────────────────────────────────────────────
+   Pestañas de red a la izquierda, teléfono/escritorio a la derecha, y la
+   tarjeta en el medio. La misma disposición que Metricool porque resuelve bien
+   el problema: dos decisiones chicas arriba y el resultado grande abajo.
+   ────────────────────────────────────────────────────────────────────────── */
+
+.social-vista .social-previa-barra {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.social-vista .social-previa-redes {
+  display: flex;
+  gap: 6px;
+}
+
+.social-vista .social-previa-red {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #cbd5e1;
+  cursor: pointer;
+  transition:
+    background 0.14s ease,
+    color 0.14s ease;
+}
+
+.social-vista .social-previa-red:hover {
+  background: #f1f5f9;
+}
+
+.social-vista .social-previa-red.activa {
+  background: #fff;
+  box-shadow: 0 1px 4px rgb(15 23 42 / 12%);
+}
+
+.social-vista .social-previa-dispositivo {
+  display: flex;
+  padding: 3px;
+  border-radius: 9px;
+  background: #0f172a;
+  gap: 2px;
+}
+
+.social-vista .social-previa-dispositivo button {
+  display: grid;
+  width: 28px;
+  height: 26px;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #64748b;
+  cursor: pointer;
+  transition:
+    background 0.14s ease,
+    color 0.14s ease;
+}
+
+.social-vista .social-previa-dispositivo button.activo {
+  background: #d9f24d;
+  color: #0f172a;
+}
+
+.social-vista .social-previa-tarjeta {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+  border-radius: 13px;
+  background: #fff;
+}
+
+/*
+  El teléfono se angosta; el escritorio ocupa todo.
+
+  No es decoración: un texto que entra en tres líneas en la computadora entra
+  en seis en el teléfono, y el 90% de la gente lo va a ver ahí.
+*/
+.social-vista .social-previa-tarjeta.telefono {
+  max-width: 340px;
+  margin: 0 auto;
+}
+
+.social-vista .social-previa-cabecera {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 13px 15px;
+}
+
+.social-vista .social-previa-avatar {
+  position: relative;
+  display: grid;
+  overflow: hidden;
+  width: 38px;
+  height: 38px;
+  flex: none;
+  place-items: center;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #64748b, #334155);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.social-vista .social-previa-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.social-vista .social-previa-avatar em {
+  font-style: normal;
+}
+
+.social-vista .social-previa-quien {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.social-vista .social-previa-quien strong {
+  color: #0f172a;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.social-vista .social-previa-quien em {
+  color: #94a3b8;
+  font-size: 12px;
+  font-style: normal;
+}
+
+.social-vista .social-previa-puntos {
+  color: #94a3b8;
+  letter-spacing: 1px;
+}
+
+.social-vista .social-previa-media {
+  position: relative;
+  display: grid;
+  min-height: 180px;
+  place-items: center;
+  overflow: hidden;
+  background: #0b0b0d;
+  color: #fff;
+  text-align: center;
+}
+
+.social-vista .social-previa-media > span {
+  max-width: 220px;
+  padding: 20px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.social-vista .social-previa-media img,
+.social-vista .social-previa-media video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-height: 340px;
+  object-fit: cover;
+}
+
+.social-vista .social-previa-media-carrusel {
+  aspect-ratio: 1 / 1;
+}
+
+.social-vista .social-previa-carrusel-contador {
+  position: absolute;
+  top: 70px;
+  right: 12px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgb(15 23 42 / 78%);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.social-vista .social-previa-carrusel-puntos {
+  display: flex;
+  justify-content: center;
+  gap: 4px;
+  padding: 7px 0 0;
+}
+
+.social-vista .social-previa-carrusel-puntos i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #cbd5e1;
+}
+
+.social-vista .social-previa-carrusel-puntos i.activo {
+  background: #2563eb;
+}
+
+.social-vista .social-previa-texto {
+  padding: 12px 15px;
+  color: #0f172a;
+  font-size: 14px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.social-vista .social-previa-texto.vacio {
+  color: #cbd5e1;
+  font-style: italic;
+}
+
+.social-vista .social-previa-mas {
+  color: #94a3b8;
+}
+
+.social-vista .social-previa-acciones {
+  display: flex;
+  justify-content: space-around;
+  padding: 9px 15px;
+  border-top: 1px solid #f1f5f9;
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.social-vista .social-previa-acciones span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.social-vista .social-previa-tarjeta.instagram .social-previa-acciones {
+  justify-content: flex-start;
+  gap: 16px;
+  border-top: 0;
+  color: #111827;
+}
+
+.social-vista .social-previa-tarjeta.instagram .social-previa-guardar {
+  margin-left: auto;
+}
+
+.social-vista .social-previa-grid {
+  position: absolute;
+  top: 70px;
+  right: 12px;
+  color: #111827;
+}
+
+/* ── Reels e historias: una pantalla vertical, no una tarjeta de feed ───── */
+.social-vista .social-previa-vertical {
+  position: relative;
+  width: min(100%, 340px);
+  aspect-ratio: 9 / 16;
+  margin: 0 auto;
+  overflow: hidden;
+  border-radius: 13px;
+  background: #050505;
+  color: #fff;
+  box-shadow: 0 8px 24px rgb(15 23 42 / 12%);
+}
+
+.social-vista .social-previa-vertical.escritorio {
+  width: min(100%, 390px);
+}
+
+.social-vista .social-previa-vertical .social-previa-media-vertical {
+  position: absolute;
+  inset: 0;
+  min-height: 100%;
+}
+
+.social-vista .social-previa-historia-progreso {
+  position: absolute;
+  top: 9px;
+  right: 10px;
+  left: 10px;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 35%);
+}
+
+.social-vista .social-previa-historia-progreso span {
+  display: block;
+  width: 42%;
+  height: 100%;
+  background: #fff;
+}
+
+.social-vista .social-previa-historia-cabecera {
+  position: absolute;
+  top: 20px;
+  right: 12px;
+  left: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-shadow: 0 1px 4px rgb(0 0 0 / 65%);
+}
+
+.social-vista .social-previa-historia-cabecera .social-previa-avatar,
+.social-vista .social-previa-reel-pie .social-previa-avatar {
+  width: 32px;
+  height: 32px;
+  border: 2px solid #fff;
+}
+
+.social-vista .social-previa-historia-cabecera strong {
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.social-vista .social-previa-historia-cabecera em {
+  color: rgb(255 255 255 / 80%);
+  font-size: 11px;
+  font-style: normal;
+}
+
+.social-vista .social-previa-historia-cabecera b {
+  margin-left: auto;
+}
+
+.social-vista .social-previa-vertical-texto {
+  position: absolute;
+  top: 42%;
+  right: 28px;
+  left: 28px;
+  margin: 0;
+  padding: 10px;
+  border-radius: 8px;
+  background: rgb(0 0 0 / 42%);
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.35;
+  text-align: center;
+  text-shadow: 0 1px 3px #000;
+  white-space: pre-wrap;
+}
+
+.social-vista .social-previa-historia-pie {
+  position: absolute;
+  right: 14px;
+  bottom: 15px;
+  left: 14px;
+  display: flex;
+  align-items: center;
+  gap: 13px;
+}
+
+.social-vista .social-previa-historia-pie > span {
+  flex: 1;
+  padding: 9px 15px;
+  border: 1px solid #fff;
+  border-radius: 999px;
+  font-size: 12px;
+}
+
+.social-vista .social-previa-reel-acciones {
+  position: absolute;
+  right: 12px;
+  bottom: 66px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+}
+
+.social-vista .social-previa-reel-acciones > span {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+
+.social-vista .social-previa-reel-acciones em {
+  font-size: 10px;
+  font-style: normal;
+}
+
+.social-vista .social-previa-reel-pie {
+  position: absolute;
+  right: 55px;
+  bottom: 16px;
+  left: 14px;
+  text-shadow: 0 1px 3px #000;
+}
+
+.social-vista .social-previa-reel-pie > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.social-vista .social-previa-reel-pie strong {
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.social-vista .social-previa-reel-pie button {
+  padding: 4px 8px;
+  border: 1px solid #fff;
+  border-radius: 6px;
+  background: transparent;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.social-vista .social-previa-reel-pie p {
+  margin: 7px 0;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.social-vista .social-previa-reel-pie > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 18%);
+  font-size: 10px;
+}
+
+.social-vista .social-previa-vacia {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 50px 20px;
+  border: 1px dashed #e2e8f0;
+  border-radius: 13px;
+  color: #cbd5e1;
+  text-align: center;
+}
+
+.social-vista .social-previa-vacia p {
+  max-width: 210px;
+  font-size: 13px;
+}
+
+.social-vista .social-previa-aviso {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 16px;
+  padding: 11px 13px;
+  border: 1px solid #dbeafe;
+  border-radius: 10px;
+  background: #eff6ff;
+  color: #1e40af;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.social-vista .social-comp-formato {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 16px;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 11px;
+  background: #fff;
+  color: #475569;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  /* Sólo color y borde: nada que mueva la caja de lugar al pasar el mouse. */
+  transition:
+    border-color 0.14s ease,
+    color 0.14s ease,
+    background 0.14s ease;
+}
+
+.social-vista .social-comp-formato:hover:not(:disabled) {
+  border-color: var(--rojo, #dc1f2d);
+  color: var(--rojo, #dc1f2d);
+}
+
+.social-vista .social-comp-formato.activo {
+  background: var(--rojo, #dc1f2d);
+  border-color: var(--rojo, #dc1f2d);
+  color: #fff;
+}
+
+.social-vista .social-comp-formato:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  background: #f8fafc;
+}
+
+.social-vista .social-comp-formato-aviso {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 12px 22px 0;
+  padding: 11px 14px;
+  border-radius: 10px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #b91c1c;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.social-vista .social-comp-requisitos {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin: 12px 22px 0;
+  padding: 11px 14px;
+  border-radius: 10px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  color: #475569;
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.social-vista .social-comp-requisitos strong {
+  color: #0f172a;
+}
+
+.social-vista .social-comp-requisitos ul {
+  margin: 5px 0 0;
+  padding-left: 17px;
+  list-style: disc;
+}
+
 .social-vista .social-comp-cuerpo {
   display: grid;
   grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
@@ -1099,6 +2418,67 @@
   flex-direction: column;
   gap: 14px;
   padding: 22px;
+}
+
+.social-vista .social-comp-nota-interna {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 12px 14px;
+  border: 1px solid #dbe3ec;
+  border-radius: 11px;
+  background: #f8fafc;
+}
+
+.social-vista .social-comp-nota-interna > span {
+  color: #475569;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.social-vista .social-comp-nota-interna > em {
+  color: #94a3b8;
+  font-size: 10.5px;
+  font-style: normal;
+}
+
+.social-vista .social-comp-edicion-redes {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px;
+  border: 1px solid #dbe3ec;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.social-vista .social-comp-edicion-redes button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #64748b;
+  cursor: pointer;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+.social-vista .social-comp-edicion-redes button.activo {
+  background: #fff;
+  color: #18202a;
+  box-shadow: 0 1px 4px rgb(15 23 42 / 10%);
+}
+
+.social-vista .social-comp-edicion-redes > span {
+  margin-left: auto;
+  padding-right: 7px;
+  color: #94a3b8;
+  font-size: 10.5px;
 }
 
 .social-vista .social-comp-nombre {
@@ -1229,7 +2609,136 @@
   line-height: 1.55;
 }
 
+/*
+  ── El modo seguro ──────────────────────────────────────────────────────
+
+  Ámbar y no violeta como el ensayo: son dos cosas distintas. El ensayo no
+  publica nada —es inofensivo, por eso violeta tranquilo—; el modo seguro
+  limita algo que sí sale a la calle, y el ámbar es el color con el que todo
+  el resto del sistema dice "ojo con esto".
+*/
+.social-vista .social-comp-seguro {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 11px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: rgb(248 250 252 / 70%);
+}
+
+.social-vista .social-comp-seguro.activo {
+  border-color: #fde68a;
+  background: rgb(255 251 235 / 80%);
+}
+
+.social-vista .social-comp-seguro strong {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.social-vista .social-comp-seguro.activo strong {
+  color: #92400e;
+}
+
+.social-vista .social-comp-seguro em {
+  display: block;
+  color: #94a3b8;
+  font-size: 11.5px;
+  font-style: normal;
+  line-height: 1.55;
+}
+
+.social-vista .social-comp-seguro.activo em {
+  color: rgb(146 64 14 / 78%);
+}
+
+/*
+  El aviso al lado del botón de publicar.
+
+  Ocupa todo el ancho de la barra para que no se lea como un chip más entre
+  los atajos de hora: es lo único de esa fila que impide publicar.
+*/
+.social-vista .social-comp-aviso-seguro {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 13px;
+  border: 1px solid #fcd34d;
+  border-radius: 11px;
+  margin-bottom: 4px;
+  background: #fffbeb;
+  color: #92400e;
+}
+
+.social-vista .social-comp-aviso-seguro strong {
+  display: block;
+  font-size: 12.5px;
+}
+
+.social-vista .social-comp-aviso-seguro em {
+  display: block;
+  color: rgb(146 64 14 / 75%);
+  font-size: 11.5px;
+  font-style: normal;
+}
+
+.social-vista .social-comp-aviso-seguro span {
+  flex: 1;
+  min-width: 0;
+}
+
+.social-vista .social-comp-aviso-seguro button {
+  padding: 7px 13px;
+  border: 0;
+  border-radius: 8px;
+  background: #b45309;
+  color: #fff;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  transition: background 0.15s ease;
+}
+
+.social-vista .social-comp-aviso-seguro button:hover {
+  background: #92400e;
+}
+
 /* ── Los destinos ──────────────────────────────────────────────────────── */
+
+.social-vista .social-comp-destinos-cabecera {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.social-vista .social-comp-destinos-cabecera > button {
+  border: 0;
+  background: transparent;
+  color: var(--rojo);
+  cursor: pointer;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+.social-vista .social-comp-destinos-cabecera > button:hover {
+  text-decoration: underline;
+}
+
+.social-vista .social-comp-destinos-vacio {
+  margin: 9px 0 0;
+  padding: 10px 12px;
+  border-radius: 9px;
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 12px;
+}
 
 .social-vista .social-comp-destino {
   display: inline-flex;
@@ -1379,6 +2888,58 @@
   .social-vista .social-comp-previa {
     border-top: 1px solid var(--linea);
     border-left: 0;
+  }
+
+  .social-vista .social-comp-formatos {
+    padding-inline: 16px;
+  }
+
+  .social-vista .social-comp-notas {
+    margin-left: 0;
+  }
+
+  .social-vista .social-comp-edicion-redes {
+    align-items: stretch;
+    flex-wrap: wrap;
+  }
+
+  .social-vista .social-comp-edicion-redes > span {
+    width: 100%;
+    margin: 0;
+    padding: 3px 6px;
+  }
+}
+
+@media (max-width: 640px) {
+  .social-vista .social-comp-cabecera {
+    align-items: flex-start;
+    padding: 15px 16px;
+  }
+
+  .social-vista .social-comp-cabecera h2 {
+    font-size: 19px;
+  }
+
+  .social-vista .social-comp-cabecera .social-comp-identidad {
+    max-width: 45%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .social-vista .social-comp-editor,
+  .social-vista .social-comp-previa {
+    padding: 16px;
+  }
+
+  .social-vista .social-comp-porred {
+    order: 10;
+    width: 100%;
+    justify-content: center;
+  }
+
+  .social-vista .social-chip-red-formato-texto em {
+    max-width: 86px;
   }
 }
 

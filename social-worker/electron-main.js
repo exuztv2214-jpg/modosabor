@@ -61,14 +61,127 @@ function openFacebookSession() {
   return { opened: true, profile: 'managed', cdpUrl: 'http://127.0.0.1:9222' };
 }
 
+/**
+ * Vincularse con el panel usando un código de un solo uso.
+ *
+ * ── Qué reemplaza ──────────────────────────────────────────────────────────
+ *
+ * Antes había que copiar a mano, de un archivo `.env` a esta ventana: una API
+ * Key, una URL del servidor, una CDP URL y un intervalo en milisegundos.
+ * Ninguna de esas cuatro cosas significa algo para quien atiende un local.
+ *
+ * Y cuando la URL quedaba mal —apuntando a producción mientras el servidor
+ * corría en la PC— no había ningún error: el Worker preguntaba "¿hay trabajo?"
+ * a otro lado y todo se quedaba quieto, sin una sola pista.
+ *
+ * Ahora el panel manda las dos cosas que el Worker no puede saber solo: dónde
+ * está el servidor y un código para pedirle la clave. Lo demás —el puerto de
+ * Chrome, el intervalo— siempre fue igual y no tenía por qué preguntarse.
+ *
+ * ── Por qué la clave se canjea y no viene en el link ───────────────────────
+ *
+ * El link se abre desde el navegador y queda en el historial. Además, en
+ * Windows los argumentos con los que arranca un programa los puede leer
+ * cualquier otro programa de la máquina.
+ *
+ * El código dura cinco minutos y sirve una vez. La clave no vence nunca.
+ */
+async function vincularConCodigo({ servidor, codigo }) {
+  send('worker-status', { status: 'vinculando', detail: 'Pidiéndole la clave al panel…' });
+
+  let respuesta;
+  try {
+    respuesta = await fetch(`${servidor.replace(/\/+$/, '')}/vincular`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ codigo }),
+    });
+  } catch (error) {
+    /*
+      El caso más común de todos: el servidor no está prendido. Se dice con la
+      dirección adentro, porque el error de red a secas ("fetch failed") no le
+      dice nada a nadie.
+    */
+    throw new Error(
+      `No se pudo hablar con el panel en ${servidor}. ¿Está prendido el sistema? (${error.message})`
+    );
+  }
+
+  const datos = await respuesta.json().catch(() => ({}));
+  if (!respuesta.ok || !datos.clave) {
+    throw new Error(datos.error || 'El panel no aceptó el código de vinculación.');
+  }
+
+  /*
+    Se guarda todo junto y de una. Si se guardara la clave sin la dirección,
+    quedaría a medio vincular: con credenciales válidas para un servidor que no
+    sabe cuál es.
+  */
+  const cfg = {
+    ...loadConfig(),
+    apiUrl: servidor,
+    apiKey: datos.clave,
+    cdpUrl: DEFAULT_CDP_URL,
+  };
+  saveConfig(cfg);
+  writeEnvFile(cfg);
+  send('config', cfg);
+
+  stopWorker();
+  startWorker();
+
+  send('worker-status', {
+    status: 'vinculado',
+    detail: 'Esta PC quedó vinculada al panel. Ahora iniciá sesión en Facebook.',
+  });
+
+  /* El paso siguiente es siempre el mismo, así que se hace solo. */
+  openFacebookSession();
+}
+
 function handleProtocol(argv) {
   const requested = argv.find((item) => String(item).startsWith(`${PROTOCOL}://`));
-  if (!requested || !/\/\/connect(?:\/|$|\?)/i.test(requested)) return;
+  if (!requested) return;
   if (mainWindow) mainWindow.show();
+
+  let url;
   try {
-    openFacebookSession();
-  } catch (error) {
-    send('worker-status', { status: 'error', detail: error.message });
+    url = new URL(requested);
+  } catch {
+    return;
+  }
+
+  /*
+    `vincular` es el camino nuevo; `connect` el viejo, que sólo abría Facebook.
+    Se sostienen los dos: puede haber un acceso directo guardado con el
+    formato anterior, y romperlo sería un error silencioso más.
+  */
+  const accion = `${url.hostname || ''}${url.pathname || ''}`.replace(/\//g, '').toLowerCase();
+
+  if (accion === 'vincular') {
+    const servidor = url.searchParams.get('servidor') || '';
+    const codigo = url.searchParams.get('codigo') || '';
+
+    if (!servidor || !codigo) {
+      send('worker-status', {
+        status: 'error',
+        detail: 'El link de vinculación está incompleto. Generá uno nuevo desde el panel.',
+      });
+      return;
+    }
+
+    vincularConCodigo({ servidor, codigo }).catch((error) => {
+      send('worker-status', { status: 'error', detail: error.message });
+    });
+    return;
+  }
+
+  if (accion === 'connect') {
+    try {
+      openFacebookSession();
+    } catch (error) {
+      send('worker-status', { status: 'error', detail: error.message });
+    }
   }
 }
 

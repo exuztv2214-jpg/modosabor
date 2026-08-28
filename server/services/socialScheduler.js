@@ -70,11 +70,46 @@ async function despacharUnaPublicacionApi() {
     await social.publicarPorApi(trabajo);
   } catch (error) {
     /*
-      Si `publicarPorApi` revienta, el destino queda reclamado y con lock. No
-      se toca acá: el mantenimiento lo va a levantar cuando venza el lock y lo
-      va a marcar ambiguo, que es lo correcto — no sabemos si llegó a salir.
+      ── El error tiene que quedar en la base, no en la consola ─────────────
+
+      Antes acá sólo había un `logger.error`. Cuando `publicarPorApi` reventaba
+      —no por un error de Meta, que esos los maneja adentro, sino por cualquier
+      otra cosa— el destino quedaba en «procesando» diez minutos con el motivo
+      escrito en una terminal que nadie mira, y después el mantenimiento lo
+      marcaba «ambiguo» sin decir por qué.
+
+      Lo vi pasar de verdad: la Fan Page quedó cuatro minutos en «procesando»,
+      sin error, sin publicar, y no había forma de saber qué había pasado
+      mirando el sistema. La única copia del motivo estaba en la consola del
+      servidor.
+
+      Un error que sólo existe en un lugar donde el usuario no puede mirar es,
+      para el usuario, un cuelgue.
+
+      Se marca `ambiguous` y no `failed` a propósito: reventó **después** de
+      reclamar el destino y no sabemos si el pedido llegó a salir. Reintentar
+      algo que quizás se publicó es cómo se publica dos veces.
     */
     logger.error('[social] falló el despacho por API', error);
+
+    try {
+      social.reportPublication({
+        targetId: trabajo.item.id,
+        lockToken: trabajo.lock,
+        estado: 'ambiguous',
+        codigo: 'DESPACHO_REVENTO',
+        error: `El despachador se cortó antes de saber si salió: ${String(
+          error?.message || error
+        ).slice(0, 800)}`,
+      });
+    } catch (alGuardar) {
+      /*
+        Si ni siquiera se puede anotar el error, queda el lock: en diez
+        minutos el mantenimiento lo marca ambiguo igual. Es el peor caso y
+        sigue siendo seguro — nunca reintenta solo.
+      */
+      logger.error('[social] tampoco se pudo anotar el error del despacho', alGuardar);
+    }
   }
   return true;
 }

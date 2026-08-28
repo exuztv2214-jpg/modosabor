@@ -16,21 +16,67 @@ function normalizePathForSql(filePath) {
   return filePath.replace(/\\/g, '/').replace(/'/g, "''");
 }
 
-function cleanupOldBackups(maxFiles = 14) {
+const DEFAULT_MAX_BACKUP_BYTES = 64 * 1024 * 1024;
+
+function normalizeRetention(options = {}) {
+  if (typeof options === 'number') {
+    return {
+      maxFiles: Math.max(3, Number(options || 14)),
+      maxTotalBytes: DEFAULT_MAX_BACKUP_BYTES,
+      minFiles: 3,
+    };
+  }
+
+  const configuredBytes = Number(
+    options.maxTotalBytes ||
+      (Number(process.env.BACKUP_MAX_TOTAL_MB || 0) > 0
+        ? Number(process.env.BACKUP_MAX_TOTAL_MB) * 1024 * 1024
+        : DEFAULT_MAX_BACKUP_BYTES)
+  );
+  return {
+    maxFiles: Math.max(3, Number(options.maxFiles || 14)),
+    maxTotalBytes: Math.max(16 * 1024 * 1024, configuredBytes),
+    minFiles: Math.max(1, Math.min(3, Number(options.minFiles || 3))),
+  };
+}
+
+function cleanupOldBackups(options = {}) {
   ensureBackupsDir();
+  const retention = normalizeRetention(options);
   const files = fs
     .readdirSync(backupsDir)
     .filter((file) => file.endsWith('.sqlite'))
     .map((file) => {
       const fullPath = path.join(backupsDir, file);
       const stats = fs.statSync(fullPath);
-      return { file, fullPath, mtimeMs: stats.mtimeMs };
+      return { file, fullPath, mtimeMs: stats.mtimeMs, size: stats.size };
     })
     .sort((a, b) => b.mtimeMs - a.mtimeMs);
 
-  files.slice(Number(maxFiles || 14)).forEach((entry) => {
+  const retained = [];
+  const removed = [];
+  let retainedBytes = 0;
+
+  files.forEach((entry) => {
+    const keepForMinimum = retained.length < retention.minFiles;
+    const keepForLimits =
+      retained.length < retention.maxFiles && retainedBytes + entry.size <= retention.maxTotalBytes;
+    if (keepForMinimum || keepForLimits) {
+      retained.push(entry);
+      retainedBytes += entry.size;
+      return;
+    }
     fs.unlinkSync(entry.fullPath);
+    removed.push(entry);
   });
+
+  return {
+    retained: retained.length,
+    retainedBytes,
+    removed: removed.map((entry) => entry.file),
+    maxFiles: retention.maxFiles,
+    maxTotalBytes: retention.maxTotalBytes,
+  };
 }
 
 function listBackups() {
@@ -50,6 +96,20 @@ function listBackups() {
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 }
 
+function backupStorageSummary(backups = listBackups(), options = {}) {
+  const retention = normalizeRetention(options);
+  const totalBytes = backups.reduce((total, entry) => total + Number(entry.size || 0), 0);
+  return {
+    files: backups.length,
+    totalBytes,
+    maxFiles: retention.maxFiles,
+    maxTotalBytes: retention.maxTotalBytes,
+    percentUsed: retention.maxTotalBytes
+      ? Math.round((totalBytes / retention.maxTotalBytes) * 100)
+      : 0,
+  };
+}
+
 function createDatabaseBackup(db, options = {}) {
   ensureBackupsDir();
   const reason = options.reason || 'manual';
@@ -58,7 +118,7 @@ function createDatabaseBackup(db, options = {}) {
   const escapedPath = normalizePathForSql(outputPath);
 
   db.exec(`VACUUM INTO '${escapedPath}'`);
-  cleanupOldBackups(options.maxFiles || 14);
+  const retention = cleanupOldBackups(options);
 
   const stats = fs.statSync(outputPath);
   return {
@@ -66,6 +126,7 @@ function createDatabaseBackup(db, options = {}) {
     fullPath: outputPath,
     size: stats.size,
     created_at: stats.mtime.toISOString(),
+    retention,
   };
 }
 
@@ -250,7 +311,12 @@ function startAutomaticBackups(db) {
       `
     SELECT clave, valor
     FROM configuracion
-    WHERE clave IN ('backup_automatico_activo', 'backup_intervalo_horas', 'backup_max_archivos')
+    WHERE clave IN (
+      'backup_automatico_activo',
+      'backup_intervalo_horas',
+      'backup_max_archivos',
+      'backup_max_total_mb'
+    )
   `
     )
     .all();
@@ -262,9 +328,10 @@ function startAutomaticBackups(db) {
 
   const intervalHours = Math.max(1, Number(config.backup_intervalo_horas || 24));
   const maxFiles = Math.max(3, Number(config.backup_max_archivos || 14));
+  const maxTotalBytes = Math.max(16, Number(config.backup_max_total_mb || 64)) * 1024 * 1024;
 
   try {
-    createDatabaseBackup(db, { reason: 'startup', maxFiles });
+    createDatabaseBackup(db, { reason: 'startup', maxFiles, maxTotalBytes });
   } catch (error) {
     logger.error('No se pudo crear el backup automatico inicial', { message: error.message });
   }
@@ -272,7 +339,7 @@ function startAutomaticBackups(db) {
   return setInterval(
     () => {
       try {
-        createDatabaseBackup(db, { reason: 'auto', maxFiles });
+        createDatabaseBackup(db, { reason: 'auto', maxFiles, maxTotalBytes });
       } catch (error) {
         logger.error('No se pudo crear el backup automatico', { message: error.message });
       }
@@ -284,8 +351,10 @@ function startAutomaticBackups(db) {
 module.exports = {
   backupsDir,
   dbFile,
+  cleanupOldBackups,
   getBackupPath,
   listBackups,
+  backupStorageSummary,
   createDatabaseBackup,
   restoreDatabaseBackup,
   resetOperationalData,

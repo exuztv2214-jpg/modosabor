@@ -32,7 +32,12 @@ if (!/^http:\/\/127\.0\.0\.1:9222\/?$/i.test(cdpUrl))
 async function request(method, url, body) {
   const response = await fetch(`${apiRoot}${url}`, {
     method,
-    headers: { 'Content-Type': 'application/json', 'X-Social-Worker-Key': key },
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Social-Worker-Key': key,
+      'X-Social-Worker-Code': workerCode,
+      'X-Social-Worker-Media': '1',
+    },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const data = await response.json().catch(() => ({}));
@@ -90,7 +95,16 @@ async function checkFacebook() {
       facebook_profile: login ? 'BLOCKED' : 'READY',
       facebook_page: 'PENDIENTE_DE_VALIDACION',
       groups_profile: login ? 'BLOCKED' : 'READY',
-      groups_page: 'PENDIENTE_DE_VALIDACION',
+      /*
+        Los grupos de la Page ya se pueden traer: el cambio de identidad está
+        implementado y verificado contra `identidadActiva()` antes de guardar
+        nada.
+
+        Sigue dependiendo de que la sesión esté viva, igual que todo lo demás
+        que hace el Worker. Y si el menú de Facebook cambia, el comando falla
+        con un motivo entendible en vez de traer la lista equivocada.
+      */
+      groups_page: login ? 'BLOCKED' : 'READY',
       groups_sync: login ? 'BLOCKED' : 'READY',
       instagram: 'PENDIENTE_DE_VALIDACION',
       url,
@@ -116,23 +130,23 @@ async function checkFacebook() {
  * adivinar.
  */
 async function identidadActiva(page) {
+  let comprobacion;
   try {
-    /*
-      Se prioriza el rol y el texto accesible por sobre las clases CSS, que
-      Facebook cambia seguido. Si esto deja de encontrar nada, el resultado es
-      null y el comando falla con un error claro — que es mucho mejor que
-      seguir de largo con la identidad equivocada.
-    */
-    const boton = page.locator('[aria-label*="Tu perfil"], [aria-label*="Your profile"]').first();
-    if ((await boton.count()) === 0) return null;
-    const etiqueta = await boton.getAttribute('aria-label');
+    comprobacion = await page.context().newPage();
+    await comprobacion.goto('https://www.facebook.com/me/', {
+      waitUntil: 'domcontentloaded',
+      timeout: 45_000,
+    });
     return (
-      String(etiqueta || '')
-        .replace(/^(Tu perfil|Your profile)[,:\s]*/i, '')
+      String(await comprobacion.title())
+        .replace(/^\(\d+\+?\)\s*/, '')
+        .replace(/\s*[|·-]\s*Facebook.*$/i, '')
         .trim() || null
     );
   } catch {
     return null;
+  } finally {
+    await comprobacion?.close().catch(() => {});
   }
 }
 
@@ -155,6 +169,84 @@ async function identidadActiva(page) {
  * Es lo que pide la especificación: no mostrar como operativo algo que no fue
  * validado de punta a punta.
  */
+/**
+ * Pasar a mirar Facebook como la Fan Page.
+ *
+ * ── Por qué hace falta ─────────────────────────────────────────────────────
+ *
+ * Los grupos del Perfil y los de la Fan Page son listas distintas. Facebook
+ * muestra la que corresponde a la identidad con la que estás parado, y no hay
+ * forma de pedirle las dos de una: hay que cambiar y volver a mirar.
+ *
+ * ── Por qué se verifica en vez de confiar ──────────────────────────────────
+ *
+ * Facebook cambia el menú de cambio de perfil cada tanto. El día que estos
+ * selectores dejen de encontrar nada, sin verificación el código seguiría de
+ * largo, leería los grupos **del Perfil** y los guardaría como si fueran de la
+ * Page. La lista quedaría llena, con nombres creíbles, y el error aparecería
+ * semanas después: publicaciones que fallan en grupos donde la Page nunca
+ * estuvo.
+ *
+ * Por eso se comprueba con `identidadActiva()` después de cambiar, y si el
+ * nombre no coincide se aborta. Fallar es el resultado correcto acá.
+ *
+ * Devuelve el nombre de la identidad que había antes, para poder volver.
+ */
+async function cambiarIdentidad(page, nombreBuscado) {
+  const objetivo = String(nombreBuscado || '').trim();
+  if (!objetivo) throw new Error('IDENTITY_NOT_AVAILABLE: no se dijo a qué identidad cambiar.');
+
+  const previa = await identidadActiva(page);
+  if (previa && previa.toLowerCase() === objetivo.toLowerCase()) return previa;
+
+  const menu = page.locator('[aria-label*="Tu perfil"], [aria-label*="Your profile"]').first();
+  if ((await menu.count()) === 0) {
+    throw new Error(
+      'IDENTITY_NOT_AVAILABLE: no se encontró el menú de perfil de Facebook. ' +
+        'Puede que haya cambiado la pantalla o que la sesión no esté iniciada.'
+    );
+  }
+  await menu.click();
+  await page.waitForTimeout(1500);
+
+  /*
+    Facebook a veces esconde las páginas detrás de "Ver todos los perfiles".
+    Se intenta abrir ese submenú, y si no está no pasa nada: quiere decir que
+    las páginas ya se ven en el menú principal.
+  */
+  const verTodos = page.locator('text=/Ver todos los perfiles|See all profiles/i').first();
+  if ((await verTodos.count()) > 0) {
+    await verTodos.click().catch(() => {});
+    await page.waitForTimeout(1500);
+  }
+
+  const opcion = page.locator(`text="${objetivo}"`).first();
+  if ((await opcion.count()) === 0) {
+    throw new Error(
+      `IDENTITY_NOT_AVAILABLE: Facebook no ofrece cambiar a «${objetivo}». ` +
+        'Revisá que el nombre de la identidad en el sistema sea igual al de la página en Facebook.'
+    );
+  }
+  await opcion.click();
+
+  /*
+    El cambio de identidad recarga Facebook entero. Sin esperar la navegación,
+    la verificación de abajo leería la pantalla vieja y daría un falso negativo.
+  */
+  await page.waitForLoadState('domcontentloaded', { timeout: 45_000 }).catch(() => {});
+  await page.waitForTimeout(3000);
+
+  const ahora = await identidadActiva(page);
+  if (!ahora || ahora.toLowerCase() !== objetivo.toLowerCase()) {
+    throw new Error(
+      `IDENTITY_NOT_AVAILABLE: se pidió cambiar a «${objetivo}» y Facebook quedó en ` +
+        `«${ahora || 'no se pudo leer'}». No se sincroniza nada para no mezclar los grupos.`
+    );
+  }
+
+  return previa;
+}
+
 async function syncGroups(payload = {}) {
   const identidad = payload.identityNombre || '';
 
@@ -173,19 +265,58 @@ async function syncGroups(payload = {}) {
   const esPagina = tipo === 'page';
 
   const { browser, page } = await facebookPage();
+
+  /*
+    Se guarda a quién había que volver.
+
+    Sin esto, sincronizar la Page dejaría el navegador parado en la Page, y la
+    próxima sincronización del Perfil traería los grupos de la Page creyendo
+    que son del Perfil. El error no se ve al momento: se ve después, cuando una
+    publicación falla en un grupo donde el Perfil nunca estuvo.
+  */
+  let volverA = null;
+
   try {
-    await page.goto('https://www.facebook.com/groups/joined/', {
+    await page.goto('https://www.facebook.com/', {
       waitUntil: 'domcontentloaded',
       timeout: 45_000,
     });
     await page.waitForTimeout(1200);
 
+    if (esPagina) {
+      volverA = await cambiarIdentidad(page, identidad);
+    }
+
+    await page.goto('https://www.facebook.com/groups/joins/?nav_source=tab&ordering=viewer_added', {
+      waitUntil: 'domcontentloaded',
+      timeout: 45_000,
+    });
+    await page.waitForTimeout(1200);
+
+    let enlacesAnteriores = -1;
+    let quietas = 0;
+    for (let vuelta = 0; vuelta < 40 && quietas < 2; vuelta += 1) {
+      const enlaces = await page.locator('a[href*="/groups/"]').count();
+      quietas = enlaces === enlacesAnteriores ? quietas + 1 : 0;
+      enlacesAnteriores = enlaces;
+      await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+      await page.waitForTimeout(1200);
+    }
+
     const activa = await identidadActiva(page);
 
-    if (esPagina) {
+    /*
+      Se vuelve a comprobar acá, ya parados en la lista.
+
+      El cambio de identidad se verificó en la home, pero navegar a otra
+      pantalla es otra oportunidad para que Facebook nos devuelva al Perfil
+      —pasa cuando la sesión de la Page expira sola—. Esta lista es la que se
+      va a guardar: es acá donde importa con qué identidad se está mirando.
+    */
+    if (esPagina && (!activa || activa.toLowerCase() !== String(identidad).toLowerCase())) {
       throw new Error(
-        'IDENTITY_NOT_AVAILABLE: todavía no se puede sincronizar los grupos de la Fan Page. ' +
-          'Falta implementar el cambio de identidad en Facebook. Los del Perfil sí funcionan.'
+        `IDENTITY_NOT_AVAILABLE: al abrir la lista de grupos Facebook había vuelto a ` +
+          `«${activa || 'no se pudo leer'}». No se guarda nada para no mezclar las dos listas.`
       );
     }
 
@@ -194,13 +325,37 @@ async function syncGroups(payload = {}) {
       links.forEach((link) => {
         const href = link.href || '';
         const match = href.match(/facebook\.com\/groups\/([^/?#]+)/i);
-        const name = (link.textContent || '').replace(/\s+/g, ' ').trim();
-        if (match && name && !/groups\/joined/i.test(href))
+        const name = (link.textContent || '')
+          .replace(/\s+/g, ' ')
+          .replace(/Activo por última vez.*$/i, '')
+          .replace(/Last active.*$/i, '')
+          .replace(/\d+\s*miembros?.*$/i, '')
+          .trim();
+        const noEsGrupo =
+          /^(joins|joined|feed|discover|create|browse)$/i.test(match?.[1] || '') ||
+          /^(ver (todo|grupo|m[áa]s)|unirte|descubrir|crear|tus grupos|inicio|see all)$/i.test(
+            name
+          );
+        if (match && name.length >= 3 && !noEsGrupo) {
+          let contenedor = link;
+          let imagen = link.querySelector('img, image');
+          for (let nivel = 0; !imagen && contenedor && nivel < 3; nivel += 1) {
+            contenedor = contenedor.parentElement;
+            imagen = contenedor?.querySelector?.('img, image') || null;
+          }
+          const avatarUrl =
+            imagen?.src ||
+            imagen?.getAttribute?.('href') ||
+            imagen?.getAttribute?.('xlink:href') ||
+            '';
+          if ([...found.values()].some((grupo) => grupo.nombre === name)) return;
           found.set(match[1], {
             id: match[1],
             nombre: name.slice(0, 200),
             url: href.split('?')[0],
+            ...(avatarUrl ? { avatarUrl } : {}),
           });
+        }
       });
       return [...found.values()];
     });
@@ -212,6 +367,20 @@ async function syncGroups(payload = {}) {
       identidadPedida: identidad || null,
     };
   } finally {
+    /*
+      Volver a la identidad de antes, pase lo que pase.
+
+      Va en el `finally` y no al final del `try` porque el caso que importa es
+      justamente el que falla: si algo se rompe con el navegador parado en la
+      Page, el próximo comando —una publicación del Perfil, por ejemplo— saldría
+      publicada por la Page sin que nadie lo pida.
+
+      Si el regreso falla, no se re-lanza el error: taparía el error original,
+      que es el que explica qué pasó de verdad.
+    */
+    if (volverA) {
+      await cambiarIdentidad(page, volverA).catch(() => {});
+    }
     await browser.close().catch(() => {});
   }
 }
@@ -257,12 +426,163 @@ async function uploadScreenshot(item, file) {
   }
 }
 
+function reelIdDesdeUrl(url) {
+  return String(url || '').match(/facebook\.com\/reel\/(\d+)/i)?.[1] || '';
+}
+
+async function reelsDelPerfil(page) {
+  await page.goto('https://www.facebook.com/me/reels', {
+    waitUntil: 'domcontentloaded',
+    timeout: 45_000,
+  });
+  await page.waitForTimeout(1200);
+  const enlaces = await page
+    .locator('a[href*="/reel/"]')
+    .evaluateAll((items) => items.map((item) => item.href).filter(Boolean));
+  return [...new Set(enlaces.map(reelIdDesdeUrl).filter(Boolean))];
+}
+
+async function publicarReelDePerfil(page, item, downloaded) {
+  const video = (item.media || []).find((archivo) =>
+    String(archivo?.mime || '').startsWith('video/')
+  );
+  if (!video) throw new Error('REEL_MEDIA_REQUIRED: el reel del Perfil necesita un video.');
+
+  /*
+    Facebook puede redirigir a cualquier Reel después de publicar. Por eso la
+    URL final del navegador no demuestra qué Reel se creó: primero guardamos
+    los ids reales del Perfil y, después del envío, buscamos el nuevo.
+  */
+  const reelsAntes = new Set(await reelsDelPerfil(page));
+  downloaded.push(await downloadMedia(video));
+  await page.goto('https://www.facebook.com/reels/create/', {
+    waitUntil: 'domcontentloaded',
+    timeout: 45_000,
+  });
+  if (/login|checkpoint/i.test(page.url()))
+    throw new Error('La sesión de Facebook venció o requiere una verificación manual.');
+
+  const archivo = page.locator('input[type="file"][accept*="video"], input[type="file"]').first();
+  await archivo.waitFor({ state: 'attached', timeout: 15_000 });
+  await archivo.setInputFiles(downloaded[downloaded.length - 1]);
+
+  /* Facebook intercala una o dos pantallas de edición según el video. */
+  for (let paso = 0; paso < 2; paso += 1) {
+    const siguiente = page.getByRole('button', { name: /siguiente|next/i }).last();
+    if (!(await siguiente.count())) break;
+    await siguiente.click();
+    await page.waitForTimeout(1000);
+  }
+
+  if (item.texto) {
+    const descripcion = page.locator('[role="textbox"][contenteditable="true"], textarea').last();
+    if (await descripcion.count()) await descripcion.fill(item.texto);
+  }
+
+  const publicar = page.getByRole('button', { name: /publicar reel|publicar|share/i }).last();
+  await publicar.waitFor({ state: 'visible', timeout: 20_000 });
+  await publicar.click();
+  await page.waitForTimeout(2500);
+
+  for (let intento = 0; intento < 6; intento += 1) {
+    const reelsDespues = await reelsDelPerfil(page).catch(() => []);
+    const reelNuevo = reelsDespues.find((id) => !reelsAntes.has(id));
+    if (reelNuevo) {
+      return {
+        estado: 'published',
+        externalPostUrl: `https://www.facebook.com/reel/${reelNuevo}`,
+        codigo: 'FACEBOOK_PROFILE_REEL_PUBLISHED',
+        detalle: { destino: item.destino_nombre, formato: 'reel' },
+      };
+    }
+    await page.waitForTimeout(2500);
+  }
+
+  return {
+    estado: 'ambiguous',
+    externalPostUrl: '',
+    codigo: 'PUBLICATION_AMBIGUOUS',
+    error:
+      'Facebook recibió el Reel, pero no apareció uno nuevo en el Perfil. Revisalo antes de repetir.',
+    detalle: { destino: item.destino_nombre, formato: 'reel' },
+  };
+}
+
+async function publicarHistoriaDePerfil(page, item, downloaded) {
+  const media = (item.media || [])[0];
+  if (!media)
+    throw new Error('STORY_MEDIA_REQUIRED: la historia del Perfil necesita una foto o un video.');
+
+  downloaded.push(await downloadMedia(media));
+  await page.goto('https://www.facebook.com/stories/create/', {
+    waitUntil: 'domcontentloaded',
+    timeout: 45_000,
+  });
+  if (/login|checkpoint/i.test(page.url()))
+    throw new Error('La sesión de Facebook venció o requiere una verificación manual.');
+
+  const esVideo = String(media.mime || '').startsWith('video/');
+  const iniciar = page
+    .getByText(
+      esVideo
+        ? /crear una historia con video|create a video story/i
+        : /crear una historia con foto|create a photo story/i
+    )
+    .first();
+  if (await iniciar.count()) await iniciar.click();
+
+  const archivo = page.locator('input[type="file"]').first();
+  await archivo.waitFor({ state: 'attached', timeout: 15_000 });
+  await archivo.setInputFiles(downloaded[downloaded.length - 1]);
+
+  const compartir = page
+    .getByRole('button', { name: /compartir en historia|share to story|publicar/i })
+    .last();
+  await compartir.waitFor({ state: 'visible', timeout: 20_000 });
+  await compartir.click();
+  await page.waitForTimeout(2500);
+
+  if (/\/stories\/create/i.test(page.url()) && (await compartir.isVisible().catch(() => false))) {
+    return {
+      estado: 'ambiguous',
+      externalPostUrl: page.url(),
+      codigo: 'PUBLICATION_AMBIGUOUS',
+      error:
+        'Facebook recibió la Historia pero no confirmó que terminara de publicarla. Revisala antes de repetir.',
+      detalle: { destino: item.destino_nombre, formato: 'historia' },
+    };
+  }
+
+  return {
+    estado: 'published',
+    externalPostUrl: page.url(),
+    codigo: 'FACEBOOK_PROFILE_STORY_PUBLISHED',
+    detalle: { destino: item.destino_nombre, formato: 'historia' },
+  };
+}
+
 async function publishFacebookGroup(item) {
-  if (!['facebook_group', 'facebook_page'].includes(item.destino_tipo))
+  if (!['facebook_group', 'facebook_page', 'facebook_profile'].includes(item.destino_tipo))
     throw new Error(`Destino no disponible aún: ${item.destino_tipo}`);
   const { browser, page } = await facebookPage();
   const downloaded = [];
   try {
+    const formato = String(item.formato || 'post');
+    if (item.destino_tipo === 'facebook_group' && formato !== 'post') {
+      throw new Error(`FORMAT_NOT_SUPPORTED: los grupos no aceptan ${formato}.`);
+    }
+    if (item.destino_tipo === 'facebook_profile' && formato === 'reel') {
+      return await publicarReelDePerfil(page, item, downloaded);
+    }
+    if (item.destino_tipo === 'facebook_profile' && formato === 'historia') {
+      return await publicarHistoriaDePerfil(page, item, downloaded);
+    }
+    if (formato !== 'post') {
+      throw new Error(
+        `FORMAT_NOT_SUPPORTED: ${item.destino_tipo} no acepta ${formato} por Worker.`
+      );
+    }
+
     await page.goto(item.destino_url, { waitUntil: 'domcontentloaded', timeout: 45_000 });
     if (/login|checkpoint/i.test(page.url()))
       throw new Error('La sesión de Facebook venció o requiere una verificación manual.');
@@ -315,7 +635,9 @@ async function publishFacebookGroup(item) {
       codigo:
         item.destino_tipo === 'facebook_page'
           ? 'FACEBOOK_PAGE_PUBLISHED'
-          : 'FACEBOOK_GROUP_PUBLISHED',
+          : item.destino_tipo === 'facebook_profile'
+            ? 'FACEBOOK_PROFILE_PUBLISHED'
+            : 'FACEBOOK_GROUP_PUBLISHED',
       detalle: { destino: item.destino_nombre },
     };
   } catch (error) {

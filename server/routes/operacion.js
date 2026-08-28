@@ -3,7 +3,11 @@ const router = express.Router();
 const db = require('../db');
 const auth = require('../middleware/auth');
 const { hasPermission, requirePermission } = require('../utils/permissions');
-const { createDatabaseBackup, listBackups } = require('../utils/backupManager');
+const {
+  createDatabaseBackup,
+  listBackups,
+  backupStorageSummary,
+} = require('../utils/backupManager');
 const { insertInventoryMovement, roundStock } = require('../utils/inventory');
 const { summarizePaymentRows } = require('../utils/paymentStatus');
 const { recalculateClienteStats } = require('../utils/loyalty');
@@ -811,6 +815,10 @@ function buildPointStatus({
       .all()
       .map((row) => [row.clave, row.valor])
   );
+  const backupStorage = backupStorageSummary(backupList, {
+    maxFiles: Number(config.backup_max_archivos || 14),
+    maxTotalBytes: Number(config.backup_max_total_mb || 64) * 1024 * 1024,
+  });
   const dailyClose = close || buildDailyClose(today());
   const bases = baseInsumos || loadBaseInsumos();
 
@@ -877,9 +885,13 @@ function buildPointStatus({
     {
       id: 'backups',
       title: 'Backups automáticos',
-      ok: config.backup_automatico_activo === '1' && Boolean(latestBackup) && backupFresh,
+      ok:
+        config.backup_automatico_activo === '1' &&
+        Boolean(latestBackup) &&
+        backupFresh &&
+        backupStorage.percentUsed <= 100,
       detail: latestBackup
-        ? `${backupFresh ? 'Último backup' : 'Backup atrasado desde'} ${new Date(latestBackup.created_at).toLocaleString('es-AR')}`
+        ? `${backupFresh ? 'Último backup' : 'Backup atrasado desde'} ${new Date(latestBackup.created_at).toLocaleString('es-AR')} · ${backupStorage.files} archivos, ${Math.ceil(backupStorage.totalBytes / 1024 / 1024)} MB de ${Math.ceil(backupStorage.maxTotalBytes / 1024 / 1024)} MB`
         : 'Sin backups detectados',
     },
     {

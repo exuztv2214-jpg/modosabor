@@ -1309,6 +1309,9 @@ function runMigrations(db) {
 
   crearBaseMultisucursal(db);
   crearTablasCotizaciones(db);
+  db.prepare(
+    "INSERT OR IGNORE INTO configuracion (clave, valor) VALUES ('backup_max_total_mb', '64')"
+  ).run();
   configurarMotorCanonicoWhatsapp(db);
   encriptarClavesSensiblesExistentes(db);
   // WhatsApp actualiza compatibilidades de identidades sociales: la tabla
@@ -2096,9 +2099,191 @@ function crearTablasWhatsapp(db) {
   */
   ensureColumn(db, 'social_campaigns', 'ensayo', 'INTEGER DEFAULT 0');
 
+  /*
+    El formato de la publicación: post, reel, historia o carrusel.
+
+    ── Por qué en la campaña y no en el destino ────────────────────────────
+
+    Lo elige quien escribe la publicación, no el lugar donde cae. Si viviera en
+    el destino habría que duplicar cada destino por formato, y una lista con
+    "Modo Sabor Delivery (reel)" al lado de "Modo Sabor Delivery (historia)" es
+    una lista que nadie puede leer.
+
+    ── Por qué 'post' por omisión y no vacío ───────────────────────────────
+
+    Todas las campañas que ya existen son posteos. Dejar la columna vacía
+    obligaría a que cada consulta se acuerde de traducir el vacío, y la que se
+    olvide va a fallar con "no existe el formato «»" sobre datos viejos que
+    estaban perfectos.
+  */
+  ensureColumn(db, 'social_campaigns', 'formato', "TEXT DEFAULT 'post'");
+
+  /*
+    El formato, ahora por red.
+
+    ── Por qué no alcanzaba con uno solo ───────────────────────────────────
+
+    La misma publicación puede querer salir como **posteo en Facebook y como
+    reel en Instagram**: es el caso normal cuando tenés un video vertical y
+    también querés que aparezca en el muro.
+
+    Con un único `formato` por campaña, elegir Reel para Instagram se lo
+    cambiaba también a Facebook — y Facebook lo rechazaba, porque el video que
+    sirve para un reel no siempre sirve para el otro.
+
+    Se guarda como JSON: `{"facebook":"post","instagram":"reel"}`.
+
+    ── Por qué `formato` sigue existiendo ──────────────────────────────────
+
+    Las campañas que ya están en la base tienen `formato` y no `formatos`.
+    Migrarlas a mano sería una conversión de datos por una función que todavía
+    no se usó nunca. Cuando `formatos` está vacío se cae a `formato`, que es lo
+    que esas campañas siempre significaron: el mismo formato para todo.
+  */
+  ensureColumn(db, 'social_campaigns', 'formatos', "TEXT DEFAULT '{}'");
+
+  /*
+    La duración de los videos, en segundos.
+
+    Meta rechaza reels de más de 90 segundos e historias de más de 60. Sin este
+    dato habría que subir el archivo entero para que Meta lo rechace: con un
+    video de 40 MB, eso son varios minutos y los datos de la conexión del local
+    tirados a la basura.
+
+    Cuando no se conoce queda en 0, y ahí decide Meta. Un valor por omisión
+    inventado frenaría videos que en realidad sirven.
+  */
+  ensureColumn(db, 'social_media', 'duracion_segundos', 'REAL DEFAULT 0');
+
   crearAutolistas(db);
   destrabarFechasProgramadas(db);
   marcarClaseDeEjecucion(db);
+  crearDestinosQueFaltan(db);
+  limpiarDestinosQueNoSonGrupos(db);
+}
+
+/**
+ * Saca de la lista los "grupos" que en realidad eran botones de Facebook.
+ *
+ * ── De dónde salieron ──────────────────────────────────────────────────────
+ *
+ * La pantalla de grupos tiene links que apuntan a `/groups/…` y no son grupos:
+ * «Ver todo», «Ver grupo», «Unirte». La primera versión del lector los tomaba
+ * como grupos y los guardaba como destinos.
+ *
+ * Quedaban en la lista con nombres que ni siquiera parecen un grupo, y peor:
+ * si alguien los tildaba, la publicación intentaba salir en una pantalla de
+ * Facebook y fallaba sin motivo entendible.
+ *
+ * ── Por qué se deshabilitan y no se borran ─────────────────────────────────
+ *
+ * Borrar arrastra en cascada las publicaciones que apuntaban a ese destino, y
+ * con eso se perdería el registro de lo que se intentó. Deshabilitado sale de
+ * la lista de elegibles, que es lo que importa, y el historial queda.
+ */
+function limpiarDestinosQueNoSonGrupos(db) {
+  db.prepare(
+    `UPDATE social_destinations
+        SET habilitada = 0
+      WHERE tipo = 'facebook_group'
+        AND habilitada = 1
+        AND (
+          LENGTH(TRIM(nombre)) < 3
+          OR LOWER(TRIM(nombre)) IN (
+            'ver todo', 'ver grupo', 'ver más', 'ver mas',
+            'unirte', 'descubrir', 'crear', 'tus grupos', 'inicio', 'see all'
+          )
+        )`
+  ).run();
+}
+
+/**
+ * Los destinos de las páginas e Instagram que se conectaron y no se crearon.
+ *
+ * ── El bug que repara ──────────────────────────────────────────────────────
+ *
+ * Conectar una página guardaba el token y el ID de Instagram en la identidad, y
+ * ahí terminaba. Pero el sistema no publica en identidades: publica en
+ * **destinos**, y nadie los creaba.
+ *
+ * En pantalla eso se veía como "Conectada «Modo Sabor Delivery», con Instagram
+ * @modosaborok" —cierto— y después Instagram no aparecía por ningún lado para
+ * poder elegirlo. Todo bien, nada roto, imposible de usar.
+ *
+ * ── Por qué una migración y no "reconectá de nuevo" ────────────────────────
+ *
+ * Porque la conexión está bien. El token es válido, el ID de Instagram es
+ * correcto: lo único que falta es una fila. Mandar a rehacer todo el baile de
+ * permisos de Meta por una fila que podemos crear nosotros es trasladarle
+ * nuestro error a quien lo sufre.
+ *
+ * Es idempotente: se puede correr en cada arranque sin duplicar nada.
+ */
+function crearDestinosQueFaltan(db) {
+  const identidades = db
+    .prepare("SELECT id, nombre, metadata FROM social_accounts WHERE provider = 'facebook'")
+    .all();
+
+  const guardar = db.prepare(
+    `INSERT INTO social_destinations
+       (provider, cuenta_id, tipo, identificador_externo, nombre, url, habilitada, execution_class, provider_clave)
+     VALUES ('facebook', ?, ?, ?, ?, ?, 1, 'api', ?)
+     ON CONFLICT(provider, cuenta_id, tipo, identificador_externo)
+     DO UPDATE SET execution_class = 'api', provider_clave = excluded.provider_clave`
+  );
+
+  const guardarPerfil = db.prepare(
+    `INSERT INTO social_destinations
+       (provider, cuenta_id, tipo, identificador_externo, nombre, url, habilitada,
+        execution_class, provider_clave)
+     VALUES ('facebook', ?, 'facebook_profile', 'me', ?, 'https://www.facebook.com/me/',
+             1, 'browser', 'facebook_profile_browser')
+     ON CONFLICT(provider, cuenta_id, tipo, identificador_externo)
+     DO UPDATE SET execution_class = 'browser', provider_clave = 'facebook_profile_browser'`
+  );
+
+  for (const identidad of identidades) {
+    let meta;
+    try {
+      meta = JSON.parse(identidad.metadata || '{}');
+    } catch {
+      continue;
+    }
+
+    /*
+      El Perfil no tiene token oficial, pero sí es un destino real del Worker.
+      Sin esta fila la pantalla puede mostrar sus grupos, aunque no existe
+      ningún destino seleccionable para su muro, Reel o Historia.
+    */
+    if (meta.tipo === 'perfil') {
+      guardarPerfil.run(identidad.id, meta.profileNombre || identidad.nombre);
+    }
+
+    /* Sin token no hay nada que publicar por API: el destino sería mentira. */
+    if (!meta.token) continue;
+
+    if (meta.pageId) {
+      guardar.run(
+        identidad.id,
+        'facebook_page',
+        String(meta.pageId),
+        meta.pageNombre || identidad.nombre,
+        `https://www.facebook.com/${meta.pageId}`,
+        'facebook_page_api'
+      );
+    }
+
+    if (meta.igId) {
+      guardar.run(
+        identidad.id,
+        'instagram_feed',
+        String(meta.igId),
+        meta.igUsuario ? `@${meta.igUsuario}` : 'Instagram',
+        meta.igUsuario ? `https://www.instagram.com/${meta.igUsuario}/` : '',
+        'instagram_feed_api'
+      );
+    }
+  }
 }
 
 /**

@@ -82,10 +82,12 @@ function run() {
       assert.strictEqual(cierre.resultadoOperativo, esperado);
       assert.ok(cierre.coberturaCostos >= 0 && cierre.coberturaCostos <= 100);
     } finally {
-      if (movimientoEntrada)
+      if (movimientoEntrada) {
         db.prepare('DELETE FROM caja_movimientos WHERE id = ?').run(movimientoEntrada);
-      if (movimientoSalida)
+      }
+      if (movimientoSalida) {
         db.prepare('DELETE FROM caja_movimientos WHERE id = ?').run(movimientoSalida);
+      }
       if (pedidoId) {
         db.prepare('DELETE FROM pedido_items WHERE pedido_id = ?').run(pedidoId);
         db.prepare('DELETE FROM pedidos WHERE id = ?').run(pedidoId);

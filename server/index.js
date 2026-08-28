@@ -73,7 +73,18 @@ const { pesosToCents, centsToPesos } = require('./utils/moneyConversion');
   Si algún día WhatsApp Masivo empieza a manejar importes, hay que sacarlo de
   esta lista y convertirlos a mano.
 */
-const MONEY_MIDDLEWARE_SKIP_PATHS = ['/api/tpv/espera', '/api/whatsapp'];
+const MONEY_MIDDLEWARE_SKIP_PATHS = [
+  '/api/tpv/espera',
+  '/api/whatsapp',
+  /*
+    Social sólo devuelve cantidades: campañas, destinos, publicaciones e
+    intentos. Si pasa por el conversor global, un total de 3 destinos llega
+    al panel como 0,03 porque la palabra "total" también se usa para plata en
+    pedidos. Social no maneja importes, así que se excluye como WhatsApp.
+  */
+  '/api/social',
+  '/api/social-worker',
+];
 function shouldSkipMoneyMiddleware(req) {
   return MONEY_MIDDLEWARE_SKIP_PATHS.some((path) => req.path.startsWith(path));
 }
@@ -222,7 +233,40 @@ app.use(
   })
 );
 
-app.use(cors({ origin: validateOrigin, credentials: true }));
+/**
+ * CORS: el panel y la extensión de Chrome se tratan distinto.
+ *
+ * ── Por qué la extensión necesita su propia regla ──────────────────────────
+ *
+ * Una extensión de Chrome se presenta con un origen `chrome-extension://<id>`,
+ * donde el id lo genera Chrome en cada instalación. No hay forma de ponerlo en
+ * una lista blanca: cambia de máquina en máquina.
+ *
+ * Sin esto, la extensión no se podía vincular y el error que llegaba era
+ * "Origen no permitido por CORS" — que no le dice nada a quien apretó un botón
+ * que decía "Conectar mis grupos".
+ *
+ * ── Por qué abrir ese router no es un agujero ──────────────────────────────
+ *
+ * `/api/social-worker` **no usa la cookie de sesión**: se autentica con la
+ * clave del worker en un header, o con un código de un solo uso que vence en
+ * cinco minutos.
+ *
+ * Lo que hace peligroso abrir CORS es que el navegador adjunte credenciales
+ * ambientales —cookies— a un pedido de otro sitio. Acá no hay ninguna que
+ * adjuntar, y por eso va con `credentials: false`: un sitio cualquiera puede
+ * llegar a la puerta, pero sin la clave no entra.
+ *
+ * El resto de la API sigue con la lista blanca de siempre y con cookies.
+ */
+const corsDelPanel = cors({ origin: validateOrigin, credentials: true });
+const corsDeLaExtension = cors({ origin: true, credentials: false });
+
+app.use((req, res, next) =>
+  req.path.startsWith('/api/social-worker')
+    ? corsDeLaExtension(req, res, next)
+    : corsDelPanel(req, res, next)
+);
 
 // Rate limiter SOLO para rutas de API (no archivos estáticos ni health check)
 const apiRateLimit = createRateLimiter({

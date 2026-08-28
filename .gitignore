@@ -65,6 +65,14 @@ server/db/*.db-shm
 server/db/*.db-wal
 server/uploads/logo-prueba.*
 
+# Medios operativos generados o cargados desde los paneles. Viven en el
+# volumen persistente; no son código y pueden contener material de clientes.
+server/uploads/social-avatares/
+server/uploads/social-media/
+server/uploads/whatsapp-campanas/
+server/uploads/whatsapp-fotos/
+server/uploads/whatsapp-carta/*.pdf
+
 # Las bases de n8n. Quedan sueltas en la raiz al depurar el workflow del
 # agente y NO pueden entrar a git: cada una guarda 4 credenciales adentro.
 # La regla de mas arriba (agente-whatsapp/n8n/n8n-debug.sqlite*) solo tapaba

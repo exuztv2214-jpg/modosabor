@@ -10,6 +10,7 @@
     "smoke": "npm --prefix server run smoke",
     "verify:core": "npm --prefix server run verify:core",
     "verify:operacion": "npm --prefix server run verify:operacion",
+    "verify:mozo": "npm --prefix server run verify:mozo",
     "verify:whatsapp": "npm --prefix server run verify:whatsapp",
     "verify:asistente": "npm --prefix server run verify:asistente",
     "verify:backup": "npm --prefix server run verify:backup",

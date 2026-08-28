@@ -11,6 +11,7 @@ const social = require('../services/socialService');
 const { generarTextoSocial } = require('../services/socialTextGenerator');
 const oauthFacebook = require('./../services/social/oauthFacebook');
 const autolistas = require('./../services/social/autolistas');
+const vinculacion = require('./../services/social/vinculacion');
 
 const router = express.Router();
 
@@ -67,7 +68,10 @@ const upload = multer({
  * conecta nada.
  */
 router.get('/oauth/facebook/callback', async (req, res) => {
-  const volverA = (parametros) => res.redirect(`/social?${new URLSearchParams(parametros)}`);
+  const volverA = (parametros) =>
+    res.redirect(
+      `${oauthFacebook.dondeVuelveElUsuario()}/social?${new URLSearchParams(parametros)}`
+    );
 
   if (req.query.error) {
     return volverA({ conexion: 'cancelada' });
@@ -98,6 +102,48 @@ router.get('/oauth/facebook/callback', async (req, res) => {
 
 router.use(auth);
 router.use(requirePermission('marketing.view'));
+
+/* ── Vincular el Worker con un botón ─────────────────────────────────────── */
+
+/**
+ * Devuelve el link que abre y configura el Worker.
+ *
+ * Pide sesión y permiso de marketing, como todo lo que está debajo de
+ * `router.use(auth)`. El código que devuelve dura cinco minutos y sirve una
+ * sola vez.
+ *
+ * No devuelve la clave del Worker: eso lo canjea el Worker por su cuenta,
+ * servidor contra servidor. Así la clave nunca pasa por el navegador ni queda
+ * en el historial.
+ */
+router.get('/worker/vinculacion', (req, res) => {
+  try {
+    const codigo = vinculacion.crearCodigo(req.user?.id ?? null);
+    const servidor = vinculacion.direccionParaElWorker(req);
+
+    return res.json({
+      /*
+        El código va suelto porque quien lo usa es la extensión de Chrome, que
+        lo recibe por un mensaje de la página.
+
+        El `link` con el protocolo `modosabor-social://` quedó del programa de
+        escritorio, que la extensión reemplaza. Se sigue devolviendo para no
+        romper una instalación vieja que todavía lo espere.
+
+        Devolverlo **sólo** adentro del link fue un bug: el panel pedía
+        `codigo` suelto, le llegaba `undefined`, y la extensión rechazaba la
+        vinculación por incompleta. Apareció recién al probarlo en vivo.
+      */
+      codigo,
+      servidor,
+      link: `modosabor-social://vincular?servidor=${encodeURIComponent(servidor)}&codigo=${codigo}`,
+      /* Para poder mostrar "el código vence en 5 minutos" sin hardcodearlo. */
+      duraMinutos: Math.round(vinculacion.VIDA_MS / 60000),
+    });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
 
 /* ── Conectar Facebook con un botón ──────────────────────────────────────── */
 
@@ -133,6 +179,33 @@ router.post('/oauth/facebook/elegir', (req, res) => {
     );
   } catch (error) {
     return res.status(400).json({ error: error.message });
+  }
+});
+
+/**
+ * Vuelve a bajar las fotos de perfil de todas las cuentas conectadas.
+ *
+ * Existe porque la Fan Page y el Instagram se conectaron **antes** de que el
+ * sistema supiera bajar fotos. Sin esto habría que desconectar y reconectar
+ * todo para tener una foto, que es pedirle a alguien que rompa algo que anda.
+ *
+ * Sirve también después: si cambiás la foto de la página, esto la actualiza.
+ */
+router.post('/avatares/refrescar', async (_req, res) => {
+  try {
+    const cuentas = social.listIdentities(null);
+    const hechos = [];
+    for (const cuenta of cuentas) {
+      const resultados = await oauthFacebook.bajarAvataresDeLaCuenta(cuenta.id);
+      hechos.push(...resultados.map((r) => ({ ...r, cuenta: cuenta.nombre })));
+    }
+    return res.json({
+      total: hechos.length,
+      conFoto: hechos.filter((h) => h.avatar).length,
+      detalle: hechos,
+    });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
   }
 });
 
@@ -237,6 +310,17 @@ router.post('/conjuntos', (req, res) => {
 router.post('/destinos', (req, res) => {
   try {
     return res.status(201).json(social.createDestination(req.body || {}));
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
+});
+router.put('/destinos/lote', (req, res) => {
+  try {
+    return res.json(
+      social.updateDestinationsBulk(req.body?.ids || [], {
+        habilitada: req.body?.habilitada,
+      })
+    );
   } catch (error) {
     return res.status(400).json({ error: error.message });
   }

@@ -34,6 +34,7 @@
 const crypto = require('crypto');
 const db = require('../../db');
 const { encriptar } = require('../../utils/encryptConfig');
+const { bajarAvatar } = require('./avatares');
 
 const VERSION = 'v25.0';
 const DIALOGO = `https://www.facebook.com/${VERSION}/dialog/oauth`;
@@ -53,6 +54,7 @@ const PERMISOS = [
   'read_insights', // alcance e interacciones
   'instagram_basic', // ver la cuenta de Instagram vinculada
   'instagram_content_publish', // publicar en Instagram
+  'instagram_manage_comments', // publicar el primer comentario pedido en el compositor
 ];
 
 /*
@@ -94,6 +96,36 @@ const direccionDeVuelta = () => {
   if (fijada) return fijada.replace(/\/+$/, '');
   return `${config().publicUrl}/api/social/oauth/facebook/callback`;
 };
+
+/**
+ * A dónde se manda al usuario **después** de que Facebook lo devolvió.
+ *
+ * ── Por qué no alcanza con un redirect relativo ────────────────────────────
+ *
+ * La ruta de retorno vive en el servidor de la API. Un `res.redirect('/social')`
+ * se resuelve contra **ese** host: en producción el panel y la API comparten
+ * dominio y funciona, pero en desarrollo la API está en el 3001 y la pantalla
+ * en el 5173. El usuario terminaba en `localhost:3001/social` viendo un
+ * «Cannot GET /social» — con la conexión ya hecha y guardada, o sea con todo
+ * bien pero pareciendo que falló.
+ *
+ * ── Por qué tiene variable propia y no usa PUBLIC_APP_URL ──────────────────
+ *
+ * `PUBLIC_APP_URL` es el link que el cliente recibe por WhatsApp para hacer un
+ * pedido, y el que se imprime en los tickets. Apuntarla a `localhost` para
+ * poder probar Facebook en la PC dejaría a los clientes con un link muerto.
+ *
+ * Es el mismo motivo por el que `FACEBOOK_REDIRECT_URI` existe aparte de
+ * `PUBLIC_API_URL`: probar en la PC no puede costar romper producción.
+ *
+ * Cuando no hay ninguna de estas variables se devuelve cadena vacía, que deja
+ * el salto relativo de siempre: es lo correcto cuando el panel y la API son el
+ * mismo servidor.
+ */
+const dondeVuelveElUsuario = () =>
+  String(process.env.FACEBOOK_PANEL_URL || process.env.PUBLIC_APP_URL || '')
+    .trim()
+    .replace(/\/+$/, '');
 
 /**
  * ¿La dirección de retorno le va a servir a Meta?
@@ -312,6 +344,107 @@ function paginasEncontradas(usuarioId) {
  * Devuelve qué quedó conectado para poder decirlo en pantalla: "Modo Sabor
  * Delivery, con Instagram @modosabor" es una confirmación; "listo" no.
  */
+/**
+ * Deja creados los destinos donde se va a publicar.
+ *
+ * ── Por qué son dos y no uno ───────────────────────────────────────────────
+ *
+ * La Fan Page y su Instagram son **dos lugares distintos**: tienen formatos
+ * distintos, límites distintos y salen por endpoints distintos de Meta. Que se
+ * conecten juntos —porque Meta sólo expone Instagram a través de la página— no
+ * los hace el mismo destino.
+ *
+ * ── Por qué no se duplican ─────────────────────────────────────────────────
+ *
+ * `ON CONFLICT DO UPDATE` sobre la clave única. Reconectar la página tiene que
+ * poder hacerse mil veces —para renovar el token, para cambiar de página— sin
+ * que la lista de destinos se llene de copias.
+ */
+function crearDestinosDeLaPagina(cuentaId, pagina) {
+  const guardar = db.prepare(
+    `INSERT INTO social_destinations
+       (provider, cuenta_id, tipo, identificador_externo, nombre, url, habilitada, execution_class, provider_clave)
+     VALUES (?, ?, ?, ?, ?, ?, 1, 'api', ?)
+     ON CONFLICT(provider, cuenta_id, tipo, identificador_externo)
+     DO UPDATE SET nombre = excluded.nombre, url = excluded.url, habilitada = 1,
+                   execution_class = 'api', provider_clave = excluded.provider_clave`
+  );
+
+  guardar.run(
+    'facebook',
+    cuentaId,
+    'facebook_page',
+    String(pagina.id),
+    pagina.nombre,
+    `https://www.facebook.com/${pagina.id}`,
+    'facebook_page_api'
+  );
+
+  if (pagina.instagram?.id) {
+    guardar.run(
+      'facebook',
+      cuentaId,
+      'instagram_feed',
+      String(pagina.instagram.id),
+      pagina.instagram.usuario ? `@${pagina.instagram.usuario}` : 'Instagram',
+      pagina.instagram.usuario ? `https://www.instagram.com/${pagina.instagram.usuario}/` : '',
+      'instagram_feed_api'
+    );
+  }
+
+  /*
+    Las fotos de perfil, después de que existan los destinos.
+
+    Va sin `await` a propósito. Conectar una página tiene que contestar apenas
+    quedó conectada: son dos viajes más a Meta y la persona está mirando una
+    pantalla que dice "conectando". Si la foto tarda o falla, la conexión ya
+    está hecha igual y la vista previa muestra la inicial hasta la próxima
+    sincronización.
+  */
+  bajarAvataresDeLaCuenta(cuentaId).catch(() => {});
+}
+
+/**
+ * Baja las fotos de perfil de los destinos por API de una identidad.
+ *
+ * Se usa al conectar y también sola, desde la pantalla, para las conexiones
+ * que ya existían antes de que esto estuviera escrito — que es el caso de la
+ * Fan Page y el Instagram que ya estaban andando.
+ */
+async function bajarAvataresDeLaCuenta(cuentaId) {
+  const cuenta = db
+    .prepare('SELECT metadata FROM social_accounts WHERE id = ?')
+    .get(Number(cuentaId));
+  const tokenCifrado = JSON.parse(cuenta?.metadata || '{}').token;
+  if (!tokenCifrado) return [];
+
+  const destinos = db
+    .prepare(
+      `SELECT id, tipo, identificador_externo FROM social_destinations
+        WHERE cuenta_id = ? AND execution_class = 'api'`
+    )
+    .all(Number(cuentaId));
+
+  const resultados = [];
+  for (const destino of destinos) {
+    /*
+      De a uno, no en paralelo. Son dos o tres destinos por identidad: el
+      paralelismo no ahorra nada perceptible y multiplica las chances de
+      chocar con el límite de llamadas de Meta, que responde con un error
+      genérico difícil de distinguir de un token vencido.
+    */
+    const avatar = await bajarAvatar({
+      destinoId: destino.id,
+      tipo: destino.tipo,
+      idExterno: destino.identificador_externo,
+      tokenCifrado,
+    });
+    resultados.push({ destinoId: destino.id, nombre: destino.tipo, avatar });
+  }
+
+  return resultados;
+}
+
 function conectarPagina({ usuarioId, pageId, cuentaId }) {
   const fila = db
     .prepare('SELECT valor FROM configuracion WHERE clave = ?')
@@ -341,6 +474,22 @@ function conectarPagina({ usuarioId, pageId, cuentaId }) {
     cuenta.id
   );
 
+  /*
+    ── Los destinos, que faltaban ──────────────────────────────────────────
+
+    Conectar guardaba el token y el ID de Instagram en la identidad, y ahí
+    terminaba. Pero **el sistema no publica en identidades: publica en
+    destinos**, y nadie los creaba.
+
+    El resultado era el peor de los posibles: la pantalla decía "Conectada, con
+    Instagram @modosaborok" —cierto— y después no aparecía Instagram por ningún
+    lado para elegir. Todo bien, nada roto, imposible de usar.
+
+    Conectar una página tiene que dejar listo lo que hace falta para publicar
+    en ella. Si no, no conectó nada.
+  */
+  crearDestinosDeLaPagina(cuenta.id, pagina);
+
   /* Ya se usó: no tiene por qué seguir dando vueltas. */
   db.prepare('DELETE FROM configuracion WHERE clave = ?').run(`social_oauth_paginas_${usuarioId}`);
 
@@ -361,6 +510,10 @@ module.exports = {
   guardarHallazgo,
   paginasEncontradas,
   conectarPagina,
+  /* Se exporta para probarla sola: es la que crea dónde publicar. */
+  crearDestinosDeLaPagina,
+  bajarAvataresDeLaCuenta,
   direccionDeVuelta,
+  dondeVuelveElUsuario,
   PERMISOS,
 };

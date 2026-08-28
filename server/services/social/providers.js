@@ -46,6 +46,74 @@ const NO_IMPLEMENTADO = (clave) => () => {
   );
 };
 
+/**
+ * Qué formato acepta cada destino.
+ *
+ * ── Por qué está acá y no en la pantalla ───────────────────────────────────
+ *
+ * Es la misma tabla que hay que consultar en tres momentos: cuando el usuario
+ * arma la campaña, cuando el servidor la encola y cuando la publica. Si viviera
+ * en el compositor, el servidor aceptaría un reel para un grupo y fallaría
+ * recién en Meta, con un error que no explica nada.
+ *
+ * ── De dónde salen los límites ─────────────────────────────────────────────
+ *
+ * De la documentación de Meta de agosto de 2026, no de suposiciones:
+ *
+ *   - La API oficial publica Reels e Historias en páginas. El Perfil personal
+ *     los crea el Worker local sobre la sesión abierta de Facebook.
+ *   - La API de grupos no existe más desde abril de 2024 y esos destinos sólo
+ *     reciben un posteo común mediante el Worker.
+ *   - **El carrusel es sólo de Instagram.** Facebook no tiene un equivalente
+ *     por API.
+ */
+const FORMATOS_POR_DESTINO = {
+  facebook_page: ['post', 'reel', 'historia'],
+  instagram_feed: ['post', 'reel', 'historia', 'carrusel'],
+  facebook_group: ['post'],
+  facebook_profile: ['post', 'reel', 'historia'],
+  ensayo: ['post', 'reel', 'historia', 'carrusel'],
+};
+
+const FORMATOS = ['post', 'reel', 'historia', 'carrusel'];
+
+const NOMBRE_DE_FORMATO = {
+  post: 'publicación',
+  reel: 'reel',
+  historia: 'historia',
+  carrusel: 'carrusel',
+};
+
+/** Los formatos que este destino puede recibir. */
+function formatosDe(destino) {
+  return FORMATOS_POR_DESTINO[destino?.tipo] || ['post'];
+}
+
+/**
+ * ¿Este destino puede recibir este formato?
+ *
+ * Devuelve el motivo en castellano, o cadena vacía si se puede. Se devuelve el
+ * motivo y no un booleano porque quien pregunta casi siempre necesita
+ * explicárselo a alguien.
+ */
+function porQueNoAceptaElFormato(destino, formato) {
+  const pedido = String(formato || 'post');
+  if (!FORMATOS.includes(pedido)) return `No existe el formato «${pedido}».`;
+
+  const admitidos = formatosDe(destino);
+  if (admitidos.includes(pedido)) return '';
+
+  const nombre = NOMBRE_DE_FORMATO[pedido] || pedido;
+
+  if (destino?.tipo === 'facebook_group') {
+    return `Los grupos de Facebook sólo reciben publicaciones comunes: Meta cerró la API de grupos en abril de 2024, así que un ${nombre} no tiene por dónde salir.`;
+  }
+  if (pedido === 'carrusel') {
+    return 'El carrusel existe sólo en Instagram.';
+  }
+  return `Este destino no acepta ${nombre}.`;
+}
+
 /** Lo mínimo que tiene que tener cualquier publicación para salir. */
 function validarContenidoBasico({ contenido }) {
   const errores = [];
@@ -58,6 +126,40 @@ function validarContenidoBasico({ contenido }) {
   return { ok: errores.length === 0, errores };
 }
 
+/**
+ * Lo básico, más el formato.
+ *
+ * ── Por qué los destinos del Worker también lo validan ─────────────────────
+ *
+ * El Worker puede crear Reels e Historias en el Perfil, pero un grupo sólo
+ * admite un posteo común. Si acá se dejara pasar un Reel para un grupo, el
+ * formato, la campaña se encolaría, el Worker publicaría **un posteo normal** y
+ * el sistema lo reportaría como éxito.
+ *
+ * O sea: pediste un reel, salió un posteo, y nadie te avisó. Ese es exactamente
+ * el tipo de error que no se descubre hasta que alguien mira Facebook a mano.
+ */
+const validarConFormato = ({ contenido, destino }) => {
+  const base = validarContenidoBasico({ contenido });
+  const errores = [...base.errores];
+
+  const motivo = porQueNoAceptaElFormato(destino, String(contenido?.formato || 'post'));
+  if (motivo) errores.push(motivo);
+
+  const formato = String(contenido?.formato || 'post');
+  const media = contenido?.media || [];
+  if (destino?.tipo === 'facebook_profile' && formato === 'reel') {
+    if (!media.some((archivo) => String(archivo?.mime || '').startsWith('video/'))) {
+      errores.push('Un reel del Perfil necesita un video.');
+    }
+  }
+  if (destino?.tipo === 'facebook_profile' && formato === 'historia' && !media.length) {
+    errores.push('Una historia del Perfil necesita una foto o un video.');
+  }
+
+  return { ok: errores.length === 0, errores };
+};
+
 /* ────────────────────────────────────────────────────────────────────────────
    Clase browser — lo que hace el Worker en la PC del local
    ──────────────────────────────────────────────────────────────────────────── */
@@ -67,7 +169,7 @@ const grupoPorNavegador = {
   nombre: 'Grupo de Facebook (Worker)',
   executionClass: 'browser',
   soporta: (destino) => destino.tipo === 'facebook_group',
-  validar: validarContenidoBasico,
+  validar: validarConFormato,
   publicar: NO_IMPLEMENTADO('facebook_group_browser'),
   salud: () => ({ estado: 'DEPENDE_DEL_WORKER', detalle: 'Lo informa el health check del Worker' }),
 };
@@ -77,7 +179,7 @@ const perfilPorNavegador = {
   nombre: 'Perfil de Facebook (Worker)',
   executionClass: 'browser',
   soporta: (destino) => destino.tipo === 'facebook_profile',
-  validar: validarContenidoBasico,
+  validar: validarConFormato,
   publicar: NO_IMPLEMENTADO('facebook_profile_browser'),
   salud: () => ({ estado: 'DEPENDE_DEL_WORKER', detalle: 'Lo informa el health check del Worker' }),
 };
@@ -162,21 +264,61 @@ const paginaPorApi = {
   nombre: 'Fan Page (API oficial)',
   executionClass: 'api',
   soporta: (destino) => destino.tipo === 'facebook_page',
-  validar: validarContenidoBasico,
+  validar: ({ contenido, destino }) => {
+    const base = validarContenidoBasico({ contenido });
+    const errores = [...base.errores];
+
+    const formato = String(contenido?.formato || 'post');
+    const motivo = porQueNoAceptaElFormato(destino || { tipo: 'facebook_page' }, formato);
+    if (motivo) errores.push(motivo);
+
+    if (formato === 'reel' && !primerVideo(contenido)) {
+      errores.push('Un reel necesita un video: con una foto no se puede.');
+    }
+
+    return { ok: errores.length === 0, errores };
+  },
   publicar: async ({ contenido, identidad }) => {
     const { token, pageId } = credencialesDe(identidad);
     if (!token) throw faltaConfigurar(identidad, 'el token de acceso');
     if (!pageId) throw faltaConfigurar(identidad, 'el ID de la página');
 
-    const foto = (contenido.media || []).find((m) => String(m.mime || '').startsWith('image/'));
+    const formato = String(contenido.formato || 'post');
+    const foto = primerImagen(contenido);
+    const video = primerVideo(contenido);
 
-    const resultado = await metaApi.publicarEnPagina({
-      pageId,
-      token,
-      texto: contenido.texto,
-      fotoUrl: foto ? urlPublicaDe(foto) : '',
-      link: contenido.personalizaciones?.link || '',
-    });
+    /*
+      Cada formato es un flujo distinto en Meta: el posteo es un pedido, el
+      reel son tres y la historia depende de si es foto o video. El `switch`
+      vive acá y no adentro de metaApi para que ese módulo siga siendo un
+      traductor de la API y nada más.
+    */
+    let resultado;
+    if (formato === 'reel') {
+      resultado = await metaApi.publicarReelEnPagina({
+        pageId,
+        token,
+        texto: contenido.texto,
+        videoUrl: urlPublicaDe(video),
+        duracionSegundos: Number(video?.duracion_segundos || 0),
+      });
+    } else if (formato === 'historia') {
+      resultado = await metaApi.publicarHistoriaEnPagina({
+        pageId,
+        token,
+        fotoUrl: video ? '' : urlPublicaDe(foto),
+        videoUrl: video ? urlPublicaDe(video) : '',
+        duracionSegundos: Number(video?.duracion_segundos || 0),
+      });
+    } else {
+      resultado = await metaApi.publicarEnPagina({
+        pageId,
+        token,
+        texto: contenido.texto,
+        fotoUrl: foto ? urlPublicaDe(foto) : '',
+        link: contenido.personalizaciones?.link || '',
+      });
+    }
 
     return { estado: 'published', externalUrl: resultado.url, referencia: resultado.id };
   },
@@ -205,21 +347,46 @@ const instagramPorApi = {
    * momento de armar la campaña y que falle media hora después sin que nadie
    * entienda por qué.
    */
-  validar: ({ contenido }) => {
+  validar: ({ contenido, destino }) => {
     const base = validarContenidoBasico({ contenido });
     const errores = [...base.errores];
 
-    const imagenes = (contenido.media || []).filter((m) =>
-      String(m.mime || '').startsWith('image/')
-    );
+    const formato = String(contenido?.formato || 'post');
+    const motivo = porQueNoAceptaElFormato(destino || { tipo: 'instagram_feed' }, formato);
+    if (motivo) errores.push(motivo);
 
-    if (!imagenes.length) {
-      errores.push('Instagram no permite publicar sin imagen');
-    } else if (!imagenes.some((m) => /jpe?g/i.test(m.mime))) {
+    const media = contenido.media || [];
+    const imagenes = media.filter((m) => String(m.mime || '').startsWith('image/'));
+    const videos = media.filter((m) => String(m.mime || '').startsWith('video/'));
+
+    if (formato === 'reel') {
+      if (!videos.length) errores.push('Un reel de Instagram necesita un video.');
+    } else if (formato === 'carrusel') {
+      /*
+        Meta cuenta el carrusel como una sola publicación para el tope diario,
+        pero exige entre 2 y 10 piezas. Con una sola no es un carrusel: es un
+        posteo, y conviene decirlo antes de encolar.
+      */
+      if (media.length < 2) errores.push('Un carrusel necesita al menos dos piezas.');
+      if (media.length > metaApi.LIMITES_IG.piezasCarrusel) {
+        errores.push(
+          `Un carrusel admite hasta ${metaApi.LIMITES_IG.piezasCarrusel} piezas y hay ${media.length}.`
+        );
+      }
+    } else if (!imagenes.length && !videos.length) {
+      errores.push('Instagram no permite publicar sin imagen ni video');
+    }
+
+    /*
+      El JPEG se exige sólo cuando hay imágenes en juego. Un reel es puro
+      video: pedirle JPEG lo frenaría por una regla que no le corresponde.
+    */
+    if (imagenes.length && !imagenes.some((m) => /jpe?g/i.test(m.mime))) {
       errores.push('Instagram sólo acepta JPEG: ni PNG ni WebP');
     }
 
-    if (String(contenido.texto || '').length > 2200) {
+    /* Las historias no llevan pie, así que su largo no importa. */
+    if (formato !== 'historia' && String(contenido.texto || '').length > 2200) {
       errores.push('El pie de Instagram no puede pasar de 2200 caracteres');
     }
 
@@ -230,16 +397,54 @@ const instagramPorApi = {
     if (!token) throw faltaConfigurar(identidad, 'el token de acceso');
     if (!igId) throw faltaConfigurar(identidad, 'el ID de la cuenta de Instagram');
 
-    const imagen = (contenido.media || []).find((m) => /jpe?g/i.test(m.mime || ''));
+    const formato = String(contenido.formato || 'post');
+    const video = primerVideo(contenido);
+    const imagen = primerImagen(contenido);
 
-    const resultado = await metaApi.publicarEnInstagram({
+    const resultado = await metaApi.publicarFormatoEnInstagram({
       igId,
       token,
+      formato,
       texto: contenido.texto,
-      imagenUrl: urlPublicaDe(imagen),
+      imagenUrl: imagen ? urlPublicaDe(imagen) : '',
+      videoUrl: video ? urlPublicaDe(video) : '',
+      piezas:
+        formato === 'carrusel'
+          ? (contenido.media || []).map((m) =>
+              String(m.mime || '').startsWith('video/')
+                ? { videoUrl: urlPublicaDe(m) }
+                : { imagenUrl: urlPublicaDe(m) }
+            )
+          : [],
     });
 
-    return { estado: 'published', externalUrl: resultado.url, referencia: resultado.id };
+    const primerComentario = String(
+      contenido.personalizaciones?.primer_comentario_instagram || ''
+    ).trim();
+    let advertenciaComentario = '';
+
+    if (primerComentario && formato !== 'historia') {
+      try {
+        await metaApi.comentarEnInstagram({
+          mediaId: resultado.id,
+          token,
+          texto: primerComentario,
+        });
+      } catch (error) {
+        /*
+          El post ya salió. Marcarlo como fallido haría que un retry publique
+          todo de nuevo sólo porque falló el comentario.
+        */
+        advertenciaComentario = `La publicación salió, pero no se pudo agregar el primer comentario: ${error.message}`;
+      }
+    }
+
+    return {
+      estado: 'published',
+      externalUrl: resultado.url,
+      referencia: resultado.id,
+      detalle: advertenciaComentario ? { advertenciaComentario } : {},
+    };
   },
   salud: async ({ identidad }) => {
     const { token, igId } = credencialesDe(identidad);
@@ -264,6 +469,19 @@ const instagramPorApi = {
  * con ese mensaje a que Meta rechace la publicación con un error suyo que no
  * explica nada.
  */
+/*
+  Elegir la media según su tipo, en un solo lugar.
+
+  Antes esto estaba escrito con un `find` distinto en cada provider, y uno de
+  ellos pedía JPEG donde otro pedía `image/`. Con reels y carruseles encima
+  serían seis variantes de lo mismo.
+*/
+const primerImagen = (contenido) =>
+  (contenido?.media || []).find((m) => String(m.mime || '').startsWith('image/'));
+
+const primerVideo = (contenido) =>
+  (contenido?.media || []).find((m) => String(m.mime || '').startsWith('video/'));
+
 function urlPublicaDe(archivo) {
   if (!archivo) return '';
   const base = String(process.env.PUBLIC_API_URL || process.env.PUBLIC_URL || '').replace(
@@ -332,5 +550,10 @@ module.exports = {
   claseDeEjecucion,
   listarProviders,
   validarContenidoBasico,
+  formatosDe,
+  porQueNoAceptaElFormato,
+  FORMATOS,
+  FORMATOS_POR_DESTINO,
+  NOMBRE_DE_FORMATO,
   REGISTRO,
 };

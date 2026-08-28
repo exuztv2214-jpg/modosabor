@@ -10,6 +10,7 @@ const scheduler = fs.readFileSync(
 );
 const worker = fs.readFileSync(path.join(root, 'social-worker', 'index.js'), 'utf8');
 const ui = fs.readFileSync(path.join(root, 'client', 'src', 'pages', 'Social.jsx'), 'utf8');
+const { porQueFrenaElModoSeguro } = require('../../services/social/modoSeguro');
 
 console.log('\nValidaciones de seguridad E2E de Social');
 
@@ -45,8 +46,29 @@ assert.ok(
   'ambiguous salió de los estados: no habría forma de marcar una publicación dudosa'
 );
 assert.ok(service.includes("estado = 'failed' AND intentos < max_intentos"));
-assert.ok(service.includes('ids.length !== 1'));
-assert.ok(service.includes('un único destino: una Page o un grupo'));
+/*
+  Se prueba la regla, no una frase dentro de createCampaign.
+
+  La regla se extrajo a `modoSeguro.js`; seguir buscando `ids.length !== 1`
+  hacía fallar el test aunque la protección siguiera activa y probada.
+*/
+assert.ok(
+  porQueFrenaElModoSeguro({ modoSeguro: true, cantidadDestinos: 0 }),
+  'el modo seguro debe frenar si no hay destino'
+);
+assert.strictEqual(
+  porQueFrenaElModoSeguro({ modoSeguro: true, cantidadDestinos: 1 }),
+  '',
+  'el modo seguro debe permitir exactamente un destino'
+);
+assert.ok(
+  porQueFrenaElModoSeguro({ modoSeguro: true, cantidadDestinos: 2 }),
+  'el modo seguro debe frenar dos destinos'
+);
+assert.ok(
+  porQueFrenaElModoSeguro({ modoSeguro: true, cantidadDestinos: 1, cantidadConjuntos: 1 }),
+  'el modo seguro no debe admitir conjuntos'
+);
 assert.ok(scheduler.includes("estado = 'ambiguous'"));
 assert.ok(scheduler.includes('PUBLICATION_AMBIGUOUS'));
 assert.ok(
@@ -55,7 +77,7 @@ assert.ok(
 );
 assert.ok(worker.includes("estado: 'ambiguous'"));
 assert.ok(!worker.includes('context.cookies('));
-assert.ok(/modo de prueba/i.test(ui));
+assert.ok(/modo seguro/i.test(ui));
 assert.ok(ui.includes('Reintentar fallidos'));
 console.log('  ✓ modo prueba, retry limitado, sesión vencida y ambigüedad protegidos');
 console.log('✅ Seguridad E2E de Social verificada\n');

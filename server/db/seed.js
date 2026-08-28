@@ -342,6 +342,7 @@ function runSeed(db) {
     backup_automatico_activo: '1',
     backup_intervalo_horas: '24',
     backup_max_archivos: '14',
+    backup_max_total_mb: '64',
     modulo_tpv_activo: '1',
     modulo_caja_activo: '1',
     modulo_kds_activo: '1',
