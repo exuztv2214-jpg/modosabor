@@ -1,9 +1,9 @@
 {
-  "versionCode": 10306,
-  "versionName": "1.3.6",
-  "apkFile": "modosabor-rider-1.3.6.apk",
-  "changelog": "• Corregido el detector interno de actualizaciones\n• La app ahora muestra la actualización disponible al abrirse\n• Registro Firebase reintenta el aviso pendiente",
+  "versionCode": 10307,
+  "versionName": "1.3.7",
+  "apkFile": "modosabor-rider-1.3.7.apk",
+  "changelog": "• Mayor estabilidad al iniciar el seguimiento GPS\n• Controles Rider mejorados para teclado y accesibilidad\n• Compatibilidad con los turnos y riders activos del sistema actualizado",
   "forceUpdate": false,
   "minVersionCode": 10000,
-  "releasedAt": "2026-08-09T22:15:00Z"
+  "releasedAt": "2026-09-01T16:51:14Z"
 }
