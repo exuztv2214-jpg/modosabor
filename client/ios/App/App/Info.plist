@@ -34,6 +34,12 @@
 	<string>Modo Sabor necesita seguir compartiendo tu ubicacion mientras estas repartiendo, incluso si bloqueas o minimizas la app.</string>
 	<key>NSLocationAlwaysUsageDescription</key>
 	<string>Modo Sabor usa tu ubicacion durante el reparto para actualizar el seguimiento en vivo.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Modo Sabor necesita la cámara para registrar la entrega del pedido.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Modo Sabor necesita acceder a tus fotos cuando elegís una imagen como comprobante de entrega.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Modo Sabor puede guardar una foto de entrega si vos lo solicitás.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>location</string>

@@ -20,6 +20,8 @@
  * Con esto el rider recibe pedidos incluso con la app 100% cerrada
  * (kill del SO por RAM/ahorro de batería).
  */
+import { Capacitor } from '@capacitor/core';
+
 import api from './api.js';
 import { riderStorageGet, riderStorageSet } from './nativeRiderGps.js';
 
@@ -89,11 +91,12 @@ export async function registerRiderPushToken(riderId, riderCode) {
 
         try {
           const deviceId = await getDeviceId();
+          const platform = Capacitor.getPlatform?.() === 'ios' ? 'ios' : 'android';
           await api.post(`/repartidores/${riderId}/rider/${riderCode}/fcm-token`, {
             token,
-            platform: 'android',
+            platform,
             device_id: deviceId,
-            device_label: 'App Rider Android',
+            device_label: platform === 'ios' ? 'App Rider iPhone' : 'App Rider Android',
             permission: 'granted',
           });
           alreadyRegistered = true;

@@ -1,0 +1,77 @@
+name: Empaquetar Rider iOS sin firma
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rider-ios-unsigned
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Rider iOS 1.3.7
+    runs-on: macos-26
+    timeout-minutes: 30
+
+    steps:
+      - name: Descargar código
+        uses: actions/checkout@v4
+
+      - name: Preparar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - name: Instalar dependencias
+        working-directory: client
+        run: npm ci
+
+      - name: Compilar y sincronizar iOS
+        working-directory: client
+        run: |
+          npm run build
+          npx cap sync ios
+
+      - name: Compilar aplicación iPhone sin firma
+        working-directory: client
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project ios/App/App.xcodeproj \
+            -scheme App \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath ios/build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY='' \
+            clean build
+
+      - name: Crear IPA para firma local
+        working-directory: client
+        run: |
+          set -euo pipefail
+          APP_PATH='ios/build/Build/Products/Release-iphoneos/App.app'
+          test -d "$APP_PATH"
+          rm -rf ios/package
+          mkdir -p ios/package/Payload
+          cp -R "$APP_PATH" ios/package/Payload/ModoSaborRider.app
+          cd ios/package
+          /usr/bin/zip -qry ../ModoSabor-Rider-iOS-1.3.7-unsigned.ipa Payload
+          shasum -a 256 ../ModoSabor-Rider-iOS-1.3.7-unsigned.ipa > ../ModoSabor-Rider-iOS-1.3.7-unsigned.sha256
+
+      - name: Guardar paquete
+        uses: actions/upload-artifact@v4
+        with:
+          name: ModoSabor-Rider-iOS-1.3.7-unsigned
+          path: |
+            client/ios/ModoSabor-Rider-iOS-1.3.7-unsigned.ipa
+            client/ios/ModoSabor-Rider-iOS-1.3.7-unsigned.sha256
+          if-no-files-found: error
+          retention-days: 14
