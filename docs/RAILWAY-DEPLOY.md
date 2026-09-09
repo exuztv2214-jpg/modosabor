@@ -18,11 +18,18 @@ Este repo incluye `Dockerfile` en la raíz. Railway debería detectarlo automát
 
 ## 3. Crear volumen
 
-Agregar un `Volume` al servicio y montarlo en:
+Agregar un `Volume` persistente al servicio. Para un servicio nuevo se
+recomienda montarlo en:
 
 ```txt
 /data
 ```
+
+La ruta puede ser otra (el servicio productivo histórico de Modo Sabor usa
+`/opt/render/project/src/server/data`). Lo importante es que `DATA_DIR`,
+`DB_FILE`, `UPLOADS_DIR` y `BACKUPS_DIR` apunten todos dentro de **ese mismo
+volumen**. No cambies sólo las variables ni sólo el montaje: hacerlo separa la
+base de datos de sus backups y rompe la persistencia después de un redeploy.
 
 ## 4. Variables de entorno mínimas
 
