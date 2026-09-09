@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import toast from 'react-hot-toast';
 import { format, parseISO } from 'date-fns';
-import { LayoutGrid, List, Package, RefreshCw } from 'lucide-react';
+import { LayoutGrid, List, Package, RefreshCw, Wifi, WifiOff } from 'lucide-react';
 
 import api from '../../lib/api.js';
 import { useAuth } from '../../context/AuthContext.jsx';
@@ -35,6 +35,8 @@ export default function Pedidos() {
   const [pedidoAbierto, setPedidoAbierto] = useState(null);
   const [repartidores, setRepartidores] = useState([]);
   const [guardandoPedido, setGuardandoPedido] = useState(false);
+  const [socketConnected, setSocketConnected] = useState(socketManager.isConnected());
+  const [ultimaSincronizacion, setUltimaSincronizacion] = useState(null);
 
   const configRef = useRef({});
   const deliveredSeenRef = useRef(new Set());
@@ -207,6 +209,7 @@ export default function Pedidos() {
       .get('/pedidos/activos')
       .then((data) => {
         setPedidos(Array.isArray(data) ? data : []);
+        setUltimaSincronizacion(new Date());
         setLoading(false);
       })
       .catch(() => setLoading(false));
@@ -222,7 +225,10 @@ export default function Pedidos() {
     conciliandoActivosRef.current = true;
     try {
       const data = await api.get('/pedidos/activos');
-      if (Array.isArray(data)) setPedidos(data);
+      if (Array.isArray(data)) {
+        setPedidos(data);
+        setUltimaSincronizacion(new Date());
+      }
     } catch {
       // El socket puede seguir conectado aunque esta consulta puntual falle.
     } finally {
@@ -299,8 +305,20 @@ export default function Pedidos() {
       socketManager.connect();
     }
 
+    const handleSocketConnect = () => {
+      setSocketConnected(true);
+      // Al recuperar Socket.IO repasamos una vez la fuente de verdad: un
+      // evento emitido durante el corte no se vuelve a enviar por sí solo.
+      void reconciliarPedidosActivos();
+    };
+    const handleSocketDisconnect = () => setSocketConnected(false);
+    setSocketConnected(socketManager.isConnected());
+    socketManager.socket?.on('connect', handleSocketConnect);
+    socketManager.socket?.on('disconnect', handleSocketDisconnect);
+
     const unsubscribeNuevo = socketManager.on('nuevo_pedido', (p) => {
       setPedidos((prev) => [p, ...prev.filter((pedido) => pedido.id !== p.id)]);
+      setUltimaSincronizacion(new Date());
       if (claimAlertKey(`nuevo:${p.id}`)) {
         runOrderAlert({
           pedido: p,
@@ -353,6 +371,7 @@ export default function Pedidos() {
         const next = prev.filter((item) => item.id !== p.id);
         return ESTADOS_ACTIVOS.includes(p.estado) ? [...next, p] : next;
       });
+      setUltimaSincronizacion(new Date());
     };
 
     const unsubscribeUpdate = socketManager.on('pedido_actualizado', handlePedidoActualizado);
@@ -365,13 +384,15 @@ export default function Pedidos() {
       unsubscribeNuevo();
       unsubscribeUpdate();
       unsubscribeAdminUpdate();
+      socketManager.socket?.off('connect', handleSocketConnect);
+      socketManager.socket?.off('disconnect', handleSocketDisconnect);
       if (isAuth && token) {
         socketManager.releaseAuthenticated();
       } else {
         socketManager.disconnect();
       }
     };
-  }, [audioContextRef, fallbackAudioRef, isAuth, token, voiceRef]);
+  }, [audioContextRef, fallbackAudioRef, isAuth, reconciliarPedidosActivos, token, voiceRef]);
 
   /**
    * Red de seguridad para las entregas.
@@ -614,6 +635,34 @@ export default function Pedidos() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {!modoHistorial ? (
+            <div
+              title={
+                socketConnected
+                  ? 'Los cambios llegan en vivo y se revisan automáticamente.'
+                  : 'Reconectando. Los pedidos se siguen revisando automáticamente cada 15 segundos.'
+              }
+              className={`hidden items-center gap-1.5 rounded-xl px-3 py-2 text-[11px] font-semibold sm:flex ${
+                socketConnected ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'
+              }`}
+            >
+              {socketConnected ? (
+                <Wifi size={14} strokeWidth={STROKE} />
+              ) : (
+                <WifiOff size={14} strokeWidth={STROKE} />
+              )}
+              <span>{socketConnected ? 'En línea' : 'Reconectando'}</span>
+              {ultimaSincronizacion ? (
+                <span className="font-normal opacity-80">
+                  ·{' '}
+                  {ultimaSincronizacion.toLocaleTimeString('es-AR', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
           <button
             type="button"
             onClick={() => {

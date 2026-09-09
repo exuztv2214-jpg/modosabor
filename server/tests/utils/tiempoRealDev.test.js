@@ -23,4 +23,10 @@ assert.match(
   'Pedidos debe reconciliar silenciosamente los activos si se pierde un evento durante un corte'
 );
 
+assert.match(
+  pedidosPage,
+  /socketConnected[\s\S]*?ultimaSincronizacion/,
+  'Pedidos debe mostrar si Socket.IO está conectado y cuándo se sincronizó por última vez'
+);
+
 console.log('tiempoRealDev.test.js OK');
