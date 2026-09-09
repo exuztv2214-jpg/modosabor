@@ -994,7 +994,10 @@ router.post('/:id/pago-parcial', auth, requirePermission('pedidos.edit'), (req, 
     db.prepare('SELECT * FROM pedidos WHERE id = ?').get(pedido.id)
   );
   const io = req.app.get('io');
-  if (io) io.emit('pedido_actualizado', actualizado);
+  // Mantener el mismo canal que el resto de los cambios de pedido: convierte
+  // importes, respeta rooms por rol y avisa al back-office sin emitir datos
+  // crudos a toda conexión Socket.IO.
+  if (io) emitPedidoActualizado(io, actualizado);
 
   res.json({
     pedido: actualizado,
@@ -1448,6 +1451,9 @@ router.post('/:id/imprimir', auth, requirePermission('pedidos.print'), (req, res
 
 router.put('/:id/estado', auth, async (req, res) => {
   const { estado: nuevoEstado, pin } = req.body;
+  const motivoCancelacion = String(req.body?.motivo_cancelacion || '')
+    .trim()
+    .slice(0, 500);
   const existing = db.prepare('SELECT * FROM pedidos WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'No encontrado' });
 
@@ -1468,6 +1474,10 @@ router.put('/:id/estado', auth, async (req, res) => {
   });
 
   if (!validation.valid) return res.status(400).json({ error: validation.reason });
+
+  if (nuevoEstado === PedidoState.CANCELADO && motivoCancelacion.length < 3) {
+    return res.status(400).json({ error: 'Indicá el motivo de la cancelación' });
+  }
 
   if (
     !canUserTransitionWithContext(
@@ -1520,6 +1530,7 @@ router.put('/:id/estado', auth, async (req, res) => {
       `
       UPDATE pedidos
       SET estado = ?,
+          motivo_cancelacion = CASE WHEN ? THEN ? ELSE motivo_cancelacion END,
           pago_estado = CASE WHEN ? THEN 'pagado' ELSE pago_estado END,
           pago_detalle = CASE
             WHEN ? AND TRIM(COALESCE(pago_detalle, '')) = '' THEN '{"nota":"Cobrado al entregar"}'
@@ -1528,7 +1539,14 @@ router.put('/:id/estado', auth, async (req, res) => {
           actualizado_en = CURRENT_TIMESTAMP
       WHERE id = ?
     `
-    ).run(nuevoEstado, settleOnEntrega ? 1 : 0, settleOnEntrega ? 1 : 0, req.params.id);
+    ).run(
+      nuevoEstado,
+      nuevoEstado === PedidoState.CANCELADO ? 1 : 0,
+      motivoCancelacion,
+      settleOnEntrega ? 1 : 0,
+      settleOnEntrega ? 1 : 0,
+      req.params.id
+    );
     if (nuevoEstado === PedidoState.CANCELADO) {
       restoreInventoryForPedido(db, existing, { motivo: 'Cancelacion' });
     }
@@ -1547,7 +1565,12 @@ router.put('/:id/estado', auth, async (req, res) => {
     entidad_id: pedido.id,
     actor_id: actor.actor_id,
     actor_nombre: actor.actor_nombre,
-    detalle: { numero: pedido.numero, desde: existing.estado, hacia: nuevoEstado },
+    detalle: {
+      numero: pedido.numero,
+      desde: existing.estado,
+      hacia: nuevoEstado,
+      ...(nuevoEstado === PedidoState.CANCELADO ? { motivo_cancelacion: motivoCancelacion } : {}),
+    },
   });
 
   // Trazabilidad de tiempos: alimenta los reportes de delivery y permite

@@ -158,6 +158,10 @@ function runMigrations(db) {
   // ============================================
 
   ensureColumn(db, 'usuarios', 'avatar', "TEXT DEFAULT ''");
+  // Incrementar esta versión invalida todos los JWT emitidos antes del cambio
+  // de contraseña, rol o estado del usuario, sin conservar una lista en RAM.
+  ensureColumn(db, 'usuarios', 'token_version', 'INTEGER NOT NULL DEFAULT 0');
+  ensureColumn(db, 'pedidos', 'motivo_cancelacion', "TEXT DEFAULT ''");
   ensureColumn(db, 'categorias', 'imagen', "TEXT DEFAULT ''");
   ensureColumn(db, 'categorias', 'subcategorias', "TEXT DEFAULT '[]'");
   ensureColumn(db, 'personal', 'frecuencia_pago', "TEXT DEFAULT 'mensual'");
@@ -1213,6 +1217,30 @@ function runMigrations(db) {
     }
   } catch (e) {
     logger.error('Error al extender el turno nocturno', { message: e.message });
+  }
+
+  // Septiembre 2026: el local extiende la venta y la caja del turno mañana
+  // media hora. Sólo se ajusta el horario predeterminado anterior exacto;
+  // configuraciones personalizadas se mantienen intactas.
+  try {
+    const row = db.prepare("SELECT valor FROM configuracion WHERE clave = 'turnos_negocio'").get();
+    const turnos = JSON.parse(row?.valor || '[]');
+    let changed = false;
+    if (Array.isArray(turnos)) {
+      turnos.forEach((turno) => {
+        if (turno?.id === 'manana' && turno?.desde === '10:00' && turno?.hasta === '14:30') {
+          turno.hasta = '15:00';
+          changed = true;
+        }
+      });
+    }
+    if (changed) {
+      db.prepare("UPDATE configuracion SET valor = ? WHERE clave = 'turnos_negocio'").run(
+        JSON.stringify(turnos)
+      );
+    }
+  } catch (e) {
+    logger.error('Error al extender el turno de mañana', { message: e.message });
   }
 
   // Eliminar claves de configuración obsoletas

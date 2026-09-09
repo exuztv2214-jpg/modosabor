@@ -10,9 +10,13 @@ module.exports = (req, res, next) => {
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
     const current = db
-      .prepare('SELECT id, nombre, email, rol, activo FROM usuarios WHERE id = ?')
+      .prepare('SELECT id, nombre, email, rol, activo, token_version FROM usuarios WHERE id = ?')
       .get(decoded.id);
-    if (!current || Number(current.activo) !== 1) {
+    if (
+      !current ||
+      Number(current.activo) !== 1 ||
+      Number(decoded.tv ?? 0) !== Number(current.token_version || 0)
+    ) {
       return res.status(401).json({ error: 'No autorizado' });
     }
     req.user = {

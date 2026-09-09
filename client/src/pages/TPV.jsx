@@ -171,6 +171,7 @@ export default function TPV() {
   const [config, setConfig] = useState({});
   const [categorias, setCategorias] = useState([]);
   const [productos, setProductos] = useState([]);
+  const [productosRapidos, setProductosRapidos] = useState([]);
   // Se usa para mostrar el skeleton del catálogo en vez de una grilla vacía.
   const [cargandoCatalogo, setCargandoCatalogo] = useState(true);
   // El cobro vive en un modal aparte: la columna del pedido queda angosta
@@ -341,6 +342,7 @@ export default function TPV() {
     Promise.all([
       api.get('/categorias'),
       api.get('/productos/catalogo-tpv?canal=mostrador'),
+      api.get('/productos/catalogo-tpv/rapidos').catch(() => []),
       // La configuración no se cachea: puede incluir datos operativos que no
       // corresponden a una copia offline. Sin red el TPV abre con sus valores
       // seguros por defecto y la carta ya cacheada.
@@ -350,10 +352,11 @@ export default function TPV() {
       api.get('/fidelizacion/config').catch(() => null),
       api.get('/direcciones/barrios').catch(() => ({ barrios: [] })),
     ])
-      .then(([cats, prods, conf, reps, caja, fidelizacion, direcciones]) => {
+      .then(([cats, prods, rapidos, conf, reps, caja, fidelizacion, direcciones]) => {
         setConfig(conf);
         setCategorias(cats.filter((item) => item.activo));
         setProductos(prods);
+        setProductosRapidos(Array.isArray(rapidos) ? rapidos : []);
         setRepartidores(reps.filter((item) => item.activo));
         setCajaEstado(caja || null);
         setCajaAbierta(BYPASS_CAJA_CERRADA || Boolean(caja?.activa));
@@ -709,6 +712,20 @@ export default function TPV() {
       }),
     [productos, catActiva, busqueda]
   );
+  const productosDeAccesoRapido = useMemo(() => {
+    const porId = new Map(productos.map((producto) => [Number(producto.id), producto]));
+    const elegidos = [];
+    const vistos = new Set();
+    const agregar = (producto) => {
+      if (!producto || vistos.has(producto.id)) return;
+      vistos.add(producto.id);
+      elegidos.push(producto);
+    };
+
+    productos.filter((producto) => Number(producto.destacado) === 1).forEach(agregar);
+    productosRapidos.forEach((item) => agregar(porId.get(Number(item.producto_id))));
+    return elegidos.slice(0, 8);
+  }, [productos, productosRapidos]);
   const cartQtyByProductId = useMemo(
     () =>
       items.reduce((acc, item) => {
@@ -1766,10 +1783,17 @@ export default function TPV() {
       return toast.error('Sin internet no se puede cobrar con tarjeta ni billetera digital');
     }
 
-    const shouldAutoPrint = !ventaSinConexion && (imprimir || config.impresion_auto_tpv === '1');
+    const autoPrintConfigured = config.impresion_auto_tpv === '1';
+    /*
+      GlobalOrderAlerts es el único dueño de la impresión automática. Si TPV
+      también imprimiera cuando este flag está activo, el mismo socket abría
+      una segunda ventana y salían dos comandas. El botón explícito conserva
+      su impresión manual cuando la automatización está apagada.
+    */
+    const shouldManualPrint = !ventaSinConexion && imprimir && !autoPrintConfigured;
     let popup = null;
 
-    if (imprimir && !ventaSinConexion) {
+    if (shouldManualPrint) {
       popup = window.open('', '_blank', 'width=900,height=700');
       if (!popup) {
         setLoading(false);
@@ -1836,10 +1860,10 @@ export default function TPV() {
         tipoEntrega,
         cliente: cliente.nombre || cliente.telefono || '',
         metodoPago: metodoPago === 'mixto' ? 'mixto' : primaryMixedMethod,
-        printed: shouldAutoPrint,
+        printed: shouldManualPrint || autoPrintConfigured,
         pedido,
       });
-      if (shouldAutoPrint) await abrirImpresion(pedido.id, popup);
+      if (shouldManualPrint) await abrirImpresion(pedido.id, popup);
       // Confirmación con el número y el total: son los dos datos que el
       // operador necesita si el cliente pregunta o si hay que reimprimir.
       // La tarjeta verde de "última venta" ya no ocupa lugar en la columna,
@@ -1849,7 +1873,7 @@ export default function TPV() {
           style: 'currency',
           currency: 'ARS',
           maximumFractionDigits: 0,
-        })}${shouldAutoPrint ? ' · impreso' : ''}`,
+        })}${shouldManualPrint ? ' · impreso' : autoPrintConfigured ? ' · impresión automática' : ''}`,
         { duration: 4000 }
       );
       cargarClientesDelDia();
@@ -2147,6 +2171,7 @@ export default function TPV() {
             onCatActivaChange={setCatActiva}
             onGoCaja={() => navigate('/admin/caja')}
             onOpenCart={() => setCartMobileOpen(true)}
+            productosRapidos={productosDeAccesoRapido}
             productosFiltrados={productosFiltrados}
             searchInputRef={searchInputRef}
             total={total}

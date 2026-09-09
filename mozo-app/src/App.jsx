@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { api, clearSession, loadSession, saveSession } from './lib/api.js';
+import {
+  api,
+  clearSession,
+  loadPendingOrders,
+  loadSession,
+  queuePendingOrder,
+  removePendingOrder,
+  saveSession,
+} from './lib/api.js';
 
 const money = (value) =>
   Number(value || 0).toLocaleString('es-AR', { style: 'currency', currency: 'ARS' });
@@ -192,6 +200,7 @@ export default function App() {
   const [productOptions, setProductOptions] = useState(null);
   const [notice, setNotice] = useState('');
   const [sending, setSending] = useState(false);
+  const [pendingOrders, setPendingOrders] = useState(0);
 
   useEffect(() => {
     loadSession()
@@ -199,6 +208,31 @@ export default function App() {
       .catch(() => {})
       .finally(() => setLoadingSession(false));
   }, []);
+
+  const refreshPendingOrders = useCallback(async () => {
+    const orders = await loadPendingOrders();
+    setPendingOrders(orders.length);
+    return orders;
+  }, []);
+
+  const flushPendingOrders = useCallback(async () => {
+    if (!session?.token || !navigator.onLine) return 0;
+    const orders = await loadPendingOrders();
+    let sent = 0;
+    for (const order of orders) {
+      try {
+        await api('/mozo/pedidos', { token: session.token, method: 'POST', body: order });
+        await removePendingOrder(order.idempotency_key);
+        sent += 1;
+      } catch (error) {
+        // A network failure preserves the queue; server rejections stay visible for review.
+        if (!error.network) setNotice(`Una comanda pendiente necesita revisión: ${error.message}`);
+        break;
+      }
+    }
+    await refreshPendingOrders();
+    return sent;
+  }, [refreshPendingOrders, session]);
 
   const load = useCallback(async () => {
     if (!session?.token) return;
@@ -209,6 +243,12 @@ export default function App() {
       ]);
       setState(nextState);
       setCatalog(nextCatalog.productos || []);
+      const resent = await flushPendingOrders();
+      if (resent) {
+        setNotice(
+          `${resent} comanda${resent === 1 ? '' : 's'} pendiente${resent === 1 ? '' : 's'} enviada${resent === 1 ? '' : 's'} a cocina.`
+        );
+      }
       if (
         selectedMesa &&
         nextState.mesas.some((mesa) => mesa.mesa === selectedMesa && mesa.asignada_a_mi)
@@ -225,7 +265,7 @@ export default function App() {
         setSession(null);
       }
     }
-  }, [session, selectedMesa]);
+  }, [flushPendingOrders, session, selectedMesa]);
 
   useEffect(() => {
     load();
@@ -234,6 +274,12 @@ export default function App() {
     const timer = setInterval(load, 12000);
     return () => clearInterval(timer);
   }, [load]);
+  useEffect(() => {
+    refreshPendingOrders().catch(() => {});
+    const retry = () => load();
+    window.addEventListener('online', retry);
+    return () => window.removeEventListener('online', retry);
+  }, [load, refreshPendingOrders]);
 
   const categories = useMemo(
     () => ['Todas', ...new Set(catalog.map((product) => product.categoria_nombre))],
@@ -315,12 +361,17 @@ export default function App() {
   const sendOrder = async () => {
     if (!selectedMesa || !cart.length || sending) return;
     setSending(true);
+    const payload = { mesa: selectedMesa, items: cart, notas: note, idempotency_key: uuid() };
     try {
+      await queuePendingOrder(payload);
+      await refreshPendingOrders();
       const pedido = await api('/mozo/pedidos', {
         token: session.token,
         method: 'POST',
-        body: { mesa: selectedMesa, items: cart, notas: note, idempotency_key: uuid() },
+        body: payload,
       });
+      await removePendingOrder(payload.idempotency_key);
+      await refreshPendingOrders();
       setCart([]);
       setNote('');
       setNotice(
@@ -330,7 +381,15 @@ export default function App() {
       );
       await load();
     } catch (err) {
-      setNotice(err.message);
+      if (err.network) {
+        setCart([]);
+        setNote('');
+        setNotice('Sin conexión: la comanda quedó guardada y se enviará al volver la red.');
+      } else {
+        await removePendingOrder(payload.idempotency_key);
+        await refreshPendingOrders();
+        setNotice(err.message);
+      }
     } finally {
       setSending(false);
     }
@@ -346,6 +405,11 @@ export default function App() {
           <span className="eyebrow">MODO SABOR · MOZOS</span>
           <h1>Hola, {session.user?.nombre?.split(' ')[0]}</h1>
         </div>
+        {pendingOrders ? (
+          <span className="pending-orders">
+            {pendingOrders} pendiente{pendingOrders === 1 ? '' : 's'}
+          </span>
+        ) : null}
         <button
           className="ghost"
           onClick={async () => {

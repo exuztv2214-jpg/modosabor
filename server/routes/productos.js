@@ -382,6 +382,37 @@ router.get('/catalogo-tpv', auth, requirePermission('tpv.use'), (req, res) => {
 });
 
 /**
+ * Productos de acceso rápido para el TPV. Sólo devuelve identificadores: el
+ * cliente los cruza con el catálogo ya calculado para su canal, para no crear
+ * una segunda fuente de precios, disponibilidad o listas especiales.
+ */
+router.get('/catalogo-tpv/rapidos', auth, requirePermission('tpv.use'), (_req, res) => {
+  const desde = new Date();
+  desde.setDate(desde.getDate() - 30);
+  const rows = db
+    .prepare(
+      `SELECT pi.producto_id, SUM(pi.cantidad) AS unidades, MAX(p.creado_en) AS ultima_venta
+       FROM pedido_items pi
+       INNER JOIN pedidos p ON p.id = pi.pedido_id
+       INNER JOIN productos pr ON pr.id = pi.producto_id
+       WHERE p.estado != 'cancelado'
+         AND pr.activo = 1
+         AND p.creado_en >= ?
+       GROUP BY pi.producto_id
+       ORDER BY unidades DESC, ultima_venta DESC, pi.producto_id ASC
+       LIMIT 8`
+    )
+    .all(desde.toISOString());
+
+  res.json(
+    rows.map((row) => ({
+      producto_id: Number(row.producto_id),
+      unidades: Number(row.unidades || 0),
+    }))
+  );
+});
+
+/**
  * Planilla de costos: todos los productos activos, empezando por los que más
  * se vendieron en los últimos 30 días.  No reutiliza el catálogo público:
  * costo y margen son datos internos del negocio y sólo los puede ver quien

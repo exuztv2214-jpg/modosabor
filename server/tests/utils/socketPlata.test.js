@@ -121,11 +121,21 @@ function testLosEmitUsanLaPuerta() {
   console.log('  OK las tres emisiones de pedido convierten la plata');
 }
 
+function testLasRutasNoSalteanLasRooms() {
+  const pedidosRoute = fs.readFileSync(path.resolve(__dirname, '../../routes/pedidos.js'), 'utf8');
+  assert.ok(
+    !/io\.emit\(['"]pedido_actualizado['"]/.test(pedidosRoute),
+    'Una ruta de pedidos emitió pedido_actualizado globalmente y salteó la normalización y las rooms'
+  );
+  console.log('  OK las rutas no emiten pedidos crudos fuera de las rooms');
+}
+
 function run() {
   console.log('\nTests de la plata en Socket.IO');
   testElSocketMandaPesos();
   testTodoPedidoPasaPorLaMismaPuerta();
   testLosEmitUsanLaPuerta();
+  testLasRutasNoSalteanLasRooms();
   console.log('Todos los tests de la plata en Socket.IO pasaron\n');
 }
 

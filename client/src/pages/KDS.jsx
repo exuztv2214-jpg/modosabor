@@ -370,9 +370,14 @@ export default function KDS() {
 
   const confirmarAnularPedido = async () => {
     if (!cancelDialogId) return;
+    const motivoCancelacion = window.prompt('Motivo de la cancelación:', '') || '';
+    if (!motivoCancelacion.trim()) return;
     setUpdatingId(cancelDialogId);
     try {
-      await api.put(`/pedidos/${cancelDialogId}/estado`, { estado: 'cancelado' });
+      await api.put(`/pedidos/${cancelDialogId}/estado`, {
+        estado: 'cancelado',
+        motivo_cancelacion: motivoCancelacion,
+      });
       setPedidos((prev) => prev.filter((p) => p.id !== cancelDialogId));
       toast.success('Pedido anulado');
     } catch (error) {

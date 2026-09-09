@@ -215,13 +215,61 @@ function buildCajaResumen(desde, hasta = null, cierreId = null) {
   };
 }
 
+/**
+ * Revisa la caja contra el reloj operativo y registra cada transición una sola
+ * vez. La usa tanto la pantalla como el proceso periódico del servidor: así
+ * el cierre no depende de que alguien deje Caja abierta en el navegador.
+ */
+function sincronizarCajaOperativa({
+  actorId = null,
+  actorNombre = 'Sistema',
+  autoOpen = true,
+} = {}) {
+  const operational = ensureOperationalCaja(db, {
+    actor_id: actorId,
+    actor_nombre: actorNombre,
+    buildCajaResumen,
+    autoOpen,
+  });
+
+  operational.events.forEach((event) => {
+    const resumen = safeJsonParse(event.caja?.resumen_json, {});
+    logAudit(db, {
+      modulo: 'caja',
+      accion: event.type === 'opened' ? 'apertura_automatica' : 'cierre_automatico',
+      entidad: 'cierre_caja',
+      entidad_id: event.caja?.id,
+      actor_id: actorId,
+      actor_nombre: actorNombre,
+      detalle: {
+        turno_id: event.caja?.turno_id || '',
+        turno_nombre: event.caja?.turno_nombre || '',
+        fecha_operativa: event.caja?.fecha_operativa || '',
+        auto_abierta: Number(event.caja?.auto_abierta || 0) === 1,
+        auto_cierre_motivo: event.caja?.auto_cierre_motivo || '',
+        ...(event.type === 'closed'
+          ? {
+              reporte_detallado: {
+                pedidos: Number(resumen?.pedidos || 0),
+                total_ventas: Number(resumen?.totalVentas || 0),
+                efectivo_neto: Number(resumen?.efectivoNeto || 0),
+                digitales: Number(resumen?.digitales || 0),
+                pendientes: Number(resumen?.totalPendienteCobro || 0),
+              },
+            }
+          : {}),
+      },
+    });
+  });
+
+  return operational;
+}
+
 router.get('/estado', auth, requirePermission('caja.view'), (req, res) => {
   const actor = actorFromRequest(req);
-  const operational = ensureOperationalCaja(db, {
-    actor_id: actor.actor_id,
-    actor_nombre: actor.actor_nombre || 'Sistema',
-    buildCajaResumen,
-    autoOpen: true,
+  const operational = sincronizarCajaOperativa({
+    actorId: actor.actor_id,
+    actorNombre: actor.actor_nombre || 'Sistema',
   });
   const activa = operational.activeCaja;
   const historial = db
@@ -232,24 +280,6 @@ router.get('/estado', auth, requirePermission('caja.view'), (req, res) => {
     .prepare('SELECT * FROM auditoria_eventos ORDER BY creado_en DESC LIMIT 40')
     .all()
     .map((item) => ({ ...item, detalle: safeJsonParse(item.detalle, {}) }));
-
-  operational.events.forEach((event) => {
-    logAudit(db, {
-      modulo: 'caja',
-      accion: event.type === 'opened' ? 'apertura_automatica' : 'cierre_automatico',
-      entidad: 'cierre_caja',
-      entidad_id: event.caja?.id,
-      actor_id: actor.actor_id,
-      actor_nombre: actor.actor_nombre || 'Sistema',
-      detalle: {
-        turno_id: event.caja?.turno_id || '',
-        turno_nombre: event.caja?.turno_nombre || '',
-        fecha_operativa: event.caja?.fecha_operativa || '',
-        auto_abierta: Number(event.caja?.auto_abierta || 0) === 1,
-        auto_cierre_motivo: event.caja?.auto_cierre_motivo || '',
-      },
-    });
-  });
 
   /*
     ── Arqueo ciego ───────────────────────────────────────────────────────────
@@ -473,3 +503,4 @@ module.exports = router;
   es la buena.
 */
 module.exports.buildCajaResumen = buildCajaResumen;
+module.exports.sincronizarCajaOperativa = sincronizarCajaOperativa;

@@ -208,15 +208,19 @@ Necesitás dos imágenes en `client/resources/`:
 
 ### Generar todas las densidades de Android
 
+El paquete histórico `@capacitor/assets` no se usa: su última versión sólo
+soporta Capacitor 5 y arrastra dependencias vulnerables. Las imágenes actuales
+siguen siendo válidas; para regenerarlas con una nueva marca, abrir
+`client/android` en Android Studio y usar **New → Image Asset** para crear los
+recursos `mipmap-*` y `drawable-*` desde los dos PNG. Después correr:
+
 ```powershell
-npm --prefix client i -D @capacitor/assets
 cd client
-npx @capacitor/assets generate --android
+npx cap sync android
 ```
 
-Esto crea automáticamente los archivos en
-`android/app/src/main/res/drawable-*` y en `mipmap-*`. Después
-correr `npx cap sync android` y rebuild.
+y hacer el rebuild habitual. Así los assets se generan con la toolchain nativa
+de Capacitor 8, sin agregar un generador desactualizado al proyecto.
 
 ### Cambiar la duración del splash
 

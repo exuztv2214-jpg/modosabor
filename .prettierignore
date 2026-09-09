@@ -1,0 +1,37 @@
+# Dependencias y artefactos reproducibles
+node_modules/
+**/node_modules/
+client/dist/
+mozo-app/dist/
+social-worker/dist/
+.claude/
+agente-whatsapp/n8n/*.generated.json
+
+# Datos operativos, respaldos y archivos cargados por usuarios
+server/data/
+server/backups/
+server/uploads/
+
+# Artefactos nativos generados por Gradle/Capacitor
+client/android/
+client/ios/
+client/android/.gradle/
+client/android/build/
+client/android/app/build/
+client/android/app/src/main/assets/
+mozo-app/android/
+mozo-app/android/.gradle/
+mozo-app/android/build/
+mozo-app/android/app/build/
+
+# Archivos binarios o paquetes distribuidos
+*.apk
+*.ipa
+*.jks
+*.keystore
+
+# Informes y apuntes locales que no son código mantenido por Prettier
+AUDITORIA*.md
+GAP*.md
+PROMPT*.md
+SOCIAL-LO-QUE-HICE-ANOCHE.md

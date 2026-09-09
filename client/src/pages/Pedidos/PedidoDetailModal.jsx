@@ -180,6 +180,15 @@ export default function PedidoDetailModal({
             </div>
           ) : null}
 
+          {pedido.estado === 'cancelado' && pedido.motivo_cancelacion ? (
+            <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3">
+              <p className="text-[11px] font-semibold text-rose-800">Motivo de cancelación</p>
+              <p className="mt-1.5 whitespace-pre-wrap text-[13px] leading-snug text-rose-950">
+                {pedido.motivo_cancelacion}
+              </p>
+            </div>
+          ) : null}
+
           {/* ── Cliente ── */}
           <div className="mb-4 space-y-2 rounded-xl bg-gray-50 px-4 py-3">
             <Fila icon={User}>

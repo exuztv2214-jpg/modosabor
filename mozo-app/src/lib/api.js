@@ -7,6 +7,8 @@ const API_ORIGIN = String(import.meta.env.VITE_API_URL || 'https://modosabor.com
   ''
 );
 const SESSION_KEY = 'ms_mozo_session_v1';
+const PENDING_ORDERS_KEY = 'ms_mozo_pending_orders_v1';
+const MAX_PENDING_ORDERS = 20;
 
 function isNative() {
   return Capacitor.isNativePlatform?.() === true;
@@ -64,15 +66,66 @@ export async function clearSession() {
 }
 
 export async function api(path, { token, method = 'GET', body } = {}) {
-  const response = await fetch(`${API_ORIGIN}/api${path}`, {
-    method,
-    headers: {
-      ...(body ? { 'Content-Type': 'application/json' } : {}),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  let response;
+  try {
+    response = await fetch(`${API_ORIGIN}/api${path}`, {
+      method,
+      headers: {
+        ...(body ? { 'Content-Type': 'application/json' } : {}),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  } catch (cause) {
+    const error = new Error('Sin conexión con el local.');
+    error.network = true;
+    error.cause = cause;
+    throw error;
+  }
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error || 'No se pudo comunicar con el local.');
+  if (!response.ok) {
+    const error = new Error(data.error || 'No se pudo comunicar con el local.');
+    error.status = response.status;
+    throw error;
+  }
   return data;
+}
+
+async function loadPendingOrdersRaw() {
+  const result = await Preferences.get({ key: PENDING_ORDERS_KEY });
+  try {
+    const value = JSON.parse(result.value || '[]');
+    return Array.isArray(value) ? value : [];
+  } catch {
+    return [];
+  }
+}
+
+async function savePendingOrders(orders) {
+  await Preferences.set({ key: PENDING_ORDERS_KEY, value: JSON.stringify(orders) });
+}
+
+export async function loadPendingOrders() {
+  return loadPendingOrdersRaw();
+}
+
+/* The idempotency key is kept with the draft so a retry cannot duplicate a sale. */
+export async function queuePendingOrder(payload) {
+  const orders = await loadPendingOrdersRaw();
+  const key = String(payload?.idempotency_key || '');
+  if (!key) throw new Error('La comanda no tiene una clave de envío válida.');
+  if (orders.some((order) => order?.idempotency_key === key)) return orders;
+  if (orders.length >= MAX_PENDING_ORDERS) {
+    throw new Error('Hay demasiadas comandas pendientes. Volvé a conectarte antes de cargar más.');
+  }
+  const next = [...orders, { ...payload, queued_at: new Date().toISOString() }];
+  await savePendingOrders(next);
+  return next;
+}
+
+export async function removePendingOrder(idempotencyKey) {
+  const orders = await loadPendingOrdersRaw();
+  const next = orders.filter((order) => order?.idempotency_key !== idempotencyKey);
+  await savePendingOrders(next);
+  return next;
 }

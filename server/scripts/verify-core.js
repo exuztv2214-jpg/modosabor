@@ -245,6 +245,38 @@ async function run() {
     }
     console.log('OK: baja lógica conserva el historial de personal');
 
+    // Una contraseña nueva tiene que cerrar las sesiones emitidas antes del
+    // cambio, incluso si pertenecen al mismo usuario en otro dispositivo. La
+    // respuesta del cambio, en cambio, entrega una cookie renovada para que la
+    // persona que lo hizo no se desconecte de su propia sesión.
+    const secondLogin = await request('/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: { email: TEST_EMAIL, password: TEST_PASSWORD },
+    });
+    const secondCookie = secondLogin.headers?.['set-cookie']?.[0]?.split(';')?.[0] || '';
+    if (secondLogin.status !== 200 || !secondCookie) {
+      throw new Error('No se pudo crear una segunda sesión para verificar revocación');
+    }
+
+    const newPassword = 'SystemCheck456!';
+    const passwordChanged = await request('/auth/password', {
+      method: 'PUT',
+      headers: authHeaders,
+      body: { password_actual: TEST_PASSWORD, password_nuevo: newPassword },
+    });
+    const refreshedCookie = passwordChanged.headers?.['set-cookie']?.[0]?.split(';')?.[0] || '';
+    if (passwordChanged.status !== 200 || !refreshedCookie) {
+      throw new Error(`Cambio de contraseña de prueba falló: ${passwordChanged.status}`);
+    }
+
+    const revokedSession = await request('/auth/me', { headers: { Cookie: secondCookie } });
+    const refreshedSession = await request('/auth/me', { headers: { Cookie: refreshedCookie } });
+    if (revokedSession.status !== 401 || refreshedSession.status !== 200) {
+      throw new Error('El cambio de contraseña no revocó sesiones previas correctamente');
+    }
+    console.log('OK: contraseña nueva revoca sesiones anteriores y conserva la sesión renovada');
+
     console.log('Verificacion core completada.');
   } finally {
     cleanupSystemCheckPersonal();

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Delete, X } from 'lucide-react';
+import { CheckCircle2, Delete, ReceiptText, X } from 'lucide-react';
 
 import { BRAND, fmt, STROKE } from './tpvUi.jsx';
 import { PaymentMark, paymentBrand } from './paymentBrands.jsx';
@@ -71,7 +71,8 @@ export default function TpvPaymentModal({
         onClose?.();
         return;
       }
-      if (event.key !== 'Enter' || event.repeat || confirmDisabled || loading) return;
+      if (event.key !== 'Enter' || event.repeat || event.isComposing || confirmDisabled || loading)
+        return;
       if (event.target?.closest?.('button')) return;
 
       event.preventDefault();
@@ -121,7 +122,7 @@ export default function TpvPaymentModal({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-gray-900/40 p-4 backdrop-blur-[2px]">
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/55 p-3 backdrop-blur-sm sm:p-6">
       <motion.div
         initial={{ opacity: 0, scale: 0.97, y: 8 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -129,25 +130,30 @@ export default function TpvPaymentModal({
         role="dialog"
         aria-modal="true"
         aria-label="Cobrar pedido"
-        className="flex max-h-full w-full max-w-[860px] overflow-hidden rounded-3xl bg-white shadow-2xl"
+        className="flex max-h-full w-full max-w-[980px] flex-col overflow-hidden rounded-[28px] border border-white/70 bg-white shadow-[0_32px_90px_rgba(15,23,42,0.35)] lg:flex-row"
       >
         {/* ── Resumen ── */}
-        <div className="flex w-[300px] shrink-0 flex-col justify-between bg-gray-50 p-6">
+        <div className="relative flex shrink-0 flex-col justify-between overflow-hidden bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 p-5 text-white sm:p-7 lg:w-[340px]">
+          <div className="pointer-events-none absolute -right-24 -top-24 h-56 w-56 rounded-full bg-brand-500/25 blur-3xl" />
+          <div className="pointer-events-none absolute -bottom-28 -left-20 h-56 w-56 rounded-full bg-rose-400/10 blur-3xl" />
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">
-              Cobrar
-            </p>
-            <p className="mt-2 text-5xl font-bold leading-none tabular-nums tracking-tight text-gray-900">
+            <div className="relative flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-300">
+              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/10 text-white">
+                <ReceiptText size={15} strokeWidth={STROKE} />
+              </span>
+              Cobro actual
+            </div>
+            <p className="relative mt-5 text-5xl font-bold leading-none tabular-nums tracking-tight text-white sm:text-[54px]">
               {fmt(total)}
             </p>
 
-            <div className="mt-6 space-y-2 border-t border-gray-200 pt-4 text-sm">
-              <div className="flex justify-between text-gray-500">
+            <div className="relative mt-7 space-y-3 border-t border-white/10 pt-5 text-sm">
+              <div className="flex justify-between text-slate-300">
                 <span>Subtotal</span>
                 <span className="tabular-nums">{fmt(subtotal)}</span>
               </div>
               {envio > 0 ? (
-                <div className="flex justify-between text-gray-500">
+                <div className="flex justify-between gap-3 text-slate-300">
                   <span>
                     Envío {deliveryQuote?.zone_name ? `· ${deliveryQuote.zone_name}` : ''}
                   </span>
@@ -155,13 +161,13 @@ export default function TpvPaymentModal({
                 </div>
               ) : null}
               {descuentoAplicado > 0 ? (
-                <div className="flex justify-between font-medium text-brand-600">
+                <div className="flex justify-between font-semibold text-emerald-300">
                   <span>Descuento</span>
                   <span className="tabular-nums">-{fmt(descuentoAplicado)}</span>
                 </div>
               ) : null}
               {descuentoDePuntos > 0 ? (
-                <div className="flex justify-between font-medium text-brand-600">
+                <div className="flex justify-between font-semibold text-emerald-300">
                   <span>Puntos ({puntosACanjear})</span>
                   <span className="tabular-nums">-{fmt(descuentoDePuntos)}</span>
                 </div>
@@ -181,13 +187,11 @@ export default function TpvPaymentModal({
             pide el 95% de las veces. Para usar menos está el campo al lado.
           */}
           {canje ? (
-            <div className="rounded-2xl border border-brand-200 bg-brand-50/60 p-4">
+            <div className="relative rounded-2xl border border-white/15 bg-white/10 p-4 backdrop-blur-sm">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <p className="text-[13px] font-semibold text-gray-900">
-                    Tiene {canje.saldo} puntos
-                  </p>
-                  <p className="mt-0.5 text-[12px] text-gray-500">
+                  <p className="text-[13px] font-semibold text-white">Tiene {canje.saldo} puntos</p>
+                  <p className="mt-0.5 text-[12px] text-slate-300">
                     Valen {fmt(canje.valor_saldo)} en total
                   </p>
                 </div>
@@ -195,7 +199,7 @@ export default function TpvPaymentModal({
                   <button
                     type="button"
                     onClick={() => onPuntosChange(0)}
-                    className="shrink-0 rounded-xl border border-gray-200 bg-white px-3 py-2 text-[12px] font-medium text-gray-600 transition hover:bg-gray-50"
+                    className="shrink-0 rounded-xl border border-white/20 bg-white/10 px-3 py-2 text-[12px] font-medium text-white transition hover:bg-white/20"
                   >
                     Quitar
                   </button>
@@ -203,14 +207,14 @@ export default function TpvPaymentModal({
                   <button
                     type="button"
                     onClick={() => onPuntosChange(canje.saldo)}
-                    className="shrink-0 rounded-xl bg-brand-600 px-3.5 py-2 text-[12px] font-semibold text-white transition hover:brightness-110"
+                    className="shrink-0 rounded-xl bg-white px-3.5 py-2 text-[12px] font-bold text-slate-900 transition hover:bg-slate-100"
                   >
                     Usar puntos
                   </button>
                 )}
               </div>
               {puntosACanjear > 0 ? (
-                <p className="mt-2 text-[12px] text-gray-500">
+                <p className="mt-2 text-[12px] text-slate-300">
                   Se usan {puntosACanjear} puntos. Le quedan {canje.saldo - puntosACanjear}.
                 </p>
               ) : null}
@@ -221,9 +225,9 @@ export default function TpvPaymentModal({
             <motion.div
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
-              className="rounded-2xl bg-gray-900 p-4 text-white"
+              className="relative mt-5 rounded-2xl border border-emerald-300/20 bg-emerald-400/15 p-4 text-white"
             >
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-white/60">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-emerald-100/70">
                 Vuelto
               </p>
               <p className="mt-1 text-3xl font-bold tabular-nums leading-none">{fmt(vuelto)}</p>
@@ -232,22 +236,27 @@ export default function TpvPaymentModal({
         </div>
 
         {/* ── Operación ── */}
-        <div className="flex min-w-0 flex-1 flex-col">
-          <div className="flex items-center justify-between px-6 pt-5">
-            <h2 className="text-base font-semibold text-gray-900">¿Cómo paga?</h2>
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-white">
+          <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4 sm:px-7 sm:py-5">
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-brand-600">
+                Finalizar venta
+              </p>
+              <h2 className="mt-1 text-xl font-bold tracking-tight text-slate-900">¿Cómo paga?</h2>
+            </div>
             <button
               type="button"
               onClick={onClose}
               aria-label="Cerrar"
-              className="flex h-9 w-9 items-center justify-center rounded-xl text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
+              className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 text-slate-400 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-700"
             >
               <X size={18} strokeWidth={STROKE} />
             </button>
           </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
+          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-7">
             {/* Métodos */}
-            <div className="grid grid-cols-3 gap-2.5">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
               {pagos.map((pago) => {
                 const brand = paymentBrand(pago);
                 const activo = metodoPago === pago;
@@ -258,28 +267,38 @@ export default function TpvPaymentModal({
                     onClick={() => onMetodoPagoChange(pago)}
                     aria-pressed={activo}
                     title={brand.label}
-                    className="flex h-[88px] flex-col items-center justify-center gap-1.5 rounded-2xl transition-all active:scale-[0.97]"
+                    className="group relative flex h-[104px] flex-col items-center justify-center gap-2 rounded-2xl border transition-all active:scale-[0.97]"
                     style={
                       activo
                         ? {
                             background: brand.soft,
                             color: brand.color,
-                            boxShadow: `0 8px 20px ${brand.color}1C`,
+                            borderColor: `${brand.color}70`,
+                            boxShadow: `0 10px 28px ${brand.color}22`,
                           }
                         : {
-                            background: 'transparent',
+                            background: '#FFFFFF',
                             color: brand.color,
+                            borderColor: '#E7EAF0',
                           }
                     }
                   >
+                    {activo ? (
+                      <span
+                        className="absolute right-2.5 top-2.5 flex h-5 w-5 items-center justify-center rounded-full text-white"
+                        style={{ background: brand.color }}
+                      >
+                        <CheckCircle2 size={13} strokeWidth={2.5} />
+                      </span>
+                    ) : null}
                     <span
-                      className="flex h-14 w-14 items-center justify-center rounded-2xl"
+                      className="flex h-[58px] w-[58px] items-center justify-center rounded-2xl transition-transform group-hover:scale-105"
                       style={{ background: activo ? '#FFFFFF' : brand.soft }}
                     >
                       <PaymentMark method={pago} active={activo} size={42} />
                     </span>
                     <span
-                      className={`max-w-full truncate px-1 text-[11px] leading-none ${activo ? 'font-semibold' : 'font-medium text-gray-600'}`}
+                      className={`max-w-full truncate px-2 text-[11px] leading-none ${activo ? 'font-bold' : 'font-semibold text-slate-600'}`}
                     >
                       {brand.short}
                     </span>
@@ -290,7 +309,7 @@ export default function TpvPaymentModal({
 
             {/* Reparto del pago mixto */}
             {esMixto ? (
-              <div className="mt-4 rounded-2xl bg-gray-50 p-4">
+              <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4">
                 <div className="mb-3 flex items-center justify-between">
                   <p className="text-[11px] font-semibold text-gray-500">Repartir el cobro</p>
                   <span
@@ -331,7 +350,7 @@ export default function TpvPaymentModal({
 
             {/* Efectivo + teclado */}
             {mostrarTeclado ? (
-              <div className="mt-4">
+              <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
                 <div className="flex items-baseline justify-between">
                   <p className="text-[11px] font-semibold text-gray-500">
                     {esMixto ? `Efectivo para cubrir ${fmt(splitCashTarget)}` : 'Con cuánto paga'}
@@ -361,7 +380,7 @@ export default function TpvPaymentModal({
                   ) : null}
                 </div>
 
-                <div className="mt-2 flex h-16 items-center justify-end rounded-2xl bg-gray-50 px-5 text-4xl font-bold tabular-nums text-gray-900">
+                <div className="mt-3 flex h-[72px] items-center justify-end rounded-2xl border border-slate-200 bg-white px-5 text-4xl font-bold tabular-nums tracking-tight text-slate-900 shadow-sm">
                   {recibido ? fmt(recibido) : <span className="text-gray-300">$0</span>}
                 </div>
 
@@ -371,7 +390,7 @@ export default function TpvPaymentModal({
                       key={valor}
                       type="button"
                       onClick={() => tecla(valor)}
-                      className="flex h-12 items-center justify-center rounded-xl bg-gray-50 text-lg font-semibold tabular-nums text-gray-800 transition hover:bg-gray-100 active:scale-95"
+                      className="flex h-12 items-center justify-center rounded-xl border border-slate-200 bg-white text-lg font-semibold tabular-nums text-slate-800 shadow-sm transition hover:border-slate-300 hover:bg-slate-100 active:scale-95"
                     >
                       {valor === 'back' ? (
                         <Delete size={18} strokeWidth={STROKE} aria-label="Borrar" />
@@ -386,14 +405,14 @@ export default function TpvPaymentModal({
           </div>
 
           {/* Pie */}
-          <div className="border-t border-gray-100 px-6 py-4">
+          <div className="border-t border-slate-100 bg-slate-50/80 px-5 py-4 sm:px-7 sm:py-5">
             {confirmDisabled && blockedReason ? (
               <p className="mb-3 rounded-xl bg-amber-50 px-3 py-2 text-[12px] font-medium text-amber-800">
                 {blockedReason}
               </p>
             ) : null}
 
-            <label className="mb-3 flex cursor-pointer items-center gap-2 text-[12px] font-medium text-gray-500">
+            <label className="mb-4 flex cursor-pointer items-center gap-2 text-[12px] font-semibold text-slate-600">
               <input
                 type="checkbox"
                 checked={imprimir}
@@ -407,7 +426,7 @@ export default function TpvPaymentModal({
               <button
                 type="button"
                 onClick={onClose}
-                className="h-14 rounded-2xl px-6 text-sm font-semibold text-gray-500 transition hover:bg-gray-100"
+                className="h-14 rounded-2xl px-5 text-sm font-semibold text-slate-500 transition hover:bg-white hover:text-slate-800"
               >
                 Cancelar
               </button>
@@ -415,17 +434,23 @@ export default function TpvPaymentModal({
                 ref={confirmarButtonRef}
                 type="button"
                 onClick={() => onConfirm(imprimir)}
+                aria-keyshortcuts="Enter"
                 disabled={confirmDisabled || loading}
                 style={
                   confirmDisabled || loading
                     ? { background: '#F1F2F4', color: '#9CA3AF' }
                     : { background: BRAND, color: '#FFFFFF' }
                 }
-                className="h-14 flex-1 rounded-2xl text-lg font-bold tracking-tight transition-all active:scale-[0.99] disabled:cursor-not-allowed"
+                className="h-14 flex-1 rounded-2xl text-lg font-bold tracking-tight shadow-[0_10px_22px_rgba(220,31,45,0.24)] transition-all hover:brightness-105 active:scale-[0.99] disabled:cursor-not-allowed disabled:shadow-none"
               >
                 {loading ? 'Cobrando…' : <span className="tabular-nums">Cobrar {fmt(total)}</span>}
               </button>
             </div>
+            {!confirmDisabled && !loading ? (
+              <p className="mt-2 text-right text-[11px] font-medium text-slate-400">
+                Enter confirma el cobro
+              </p>
+            ) : null}
           </div>
         </div>
       </motion.div>

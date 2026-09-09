@@ -39,6 +39,7 @@ export default function Pedidos() {
   const configRef = useRef({});
   const deliveredSeenRef = useRef(new Set());
   const deliveryPollSeenRef = useRef(new Set());
+  const conciliandoActivosRef = useRef(false);
   const [configSnapshot, setConfigSnapshot] = useState({});
   const { audioContextRef, voiceRef, fallbackAudioRef } = useOrderAlertPlayback();
 
@@ -211,67 +212,65 @@ export default function Pedidos() {
       .catch(() => setLoading(false));
   };
 
-  // ── Impresión ───────────────────────────────────────────────────
-  const imprimirEnIframe = (html) => {
-    const iframe = document.createElement('iframe');
-    iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
-    document.body.appendChild(iframe);
-
-    const doc = iframe.contentWindow?.document;
-    if (!doc) return;
-
-    doc.open();
-    doc.write(html);
-    doc.close();
-
-    setTimeout(() => {
-      iframe.contentWindow?.focus();
-      iframe.contentWindow?.print();
-      setTimeout(() => iframe.remove(), 1200);
-    }, 250);
-  };
-
-  const imprimir = useCallback(async (id, tipo, options = {}) => {
-    const { auto = false, silent = false } = options;
-    let popup = null;
-    if (!auto) {
-      popup = window.open('', '_blank', 'width=900,height=700');
-      if (!popup) {
-        toast.error('Permití las ventanas emergentes para imprimir');
-        return;
-      }
-      popup.document.write(
-        '<p style="font-family: Arial, sans-serif; padding: 24px;">Preparando impresión…</p>'
-      );
-      popup.document.close();
-    }
-
+  /*
+    El socket es la vía inmediata, pero un evento emitido durante un microcorte
+    no se repite al reconectar. Esta conciliación silenciosa toma el servidor
+    como fuente de verdad sin mostrar skeleton ni pedir que la persona haga F5.
+  */
+  const reconciliarPedidosActivos = useCallback(async () => {
+    if (document.hidden || conciliandoActivosRef.current) return;
+    conciliandoActivosRef.current = true;
     try {
-      const response = await api.post(`/pedidos/${id}/imprimir`, { tipo });
-      if (auto) {
-        imprimirEnIframe(response.html);
-      } else {
-        popup.document.open();
-        popup.document.write(response.html);
-        popup.document.close();
-      }
-      if (!silent) toast.success(`${PRINT_LABELS[tipo] || 'Documento'} listo`);
+      const data = await api.get('/pedidos/activos');
+      if (Array.isArray(data)) setPedidos(data);
     } catch {
-      if (popup) popup.close();
-      if (!silent) toast.error('No se pudo generar la impresión');
+      // El socket puede seguir conectado aunque esta consulta puntual falle.
+    } finally {
+      conciliandoActivosRef.current = false;
     }
   }, []);
 
-  const imprimirDocumentosPedidoWeb = useCallback(
-    async (pedido) => {
-      await imprimir(pedido.id, 'comanda_cocina', { auto: true, silent: true });
-      await imprimir(pedido.id, 'ticket_cliente', { auto: true, silent: true });
-      if (pedido.tipo_entrega === 'delivery') {
-        await imprimir(pedido.id, 'delivery_ticket', { auto: true, silent: true });
-      }
-    },
-    [imprimir]
-  );
+  useEffect(() => {
+    const reconciliarAlVolver = () => {
+      if (!document.hidden) void reconciliarPedidosActivos();
+    };
+    const timer = window.setInterval(reconciliarAlVolver, 15000);
+    window.addEventListener('focus', reconciliarAlVolver);
+    document.addEventListener('visibilitychange', reconciliarAlVolver);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('focus', reconciliarAlVolver);
+      document.removeEventListener('visibilitychange', reconciliarAlVolver);
+    };
+  }, [reconciliarPedidosActivos]);
+
+  // ── Impresión manual ────────────────────────────────────────────
+  // La autoimpresión vive exclusivamente en GlobalOrderAlerts. Esta pantalla
+  // sólo abre documentos cuando una persona toca Comanda/Ticket: antes ambas
+  // rutas atendían el mismo socket y el pedido salía dos veces.
+  const imprimir = useCallback(async (id, tipo, options = {}) => {
+    const { silent = false } = options;
+    const popup = window.open('', '_blank', 'width=900,height=700');
+    if (!popup) {
+      toast.error('Permití las ventanas emergentes para imprimir');
+      return;
+    }
+    popup.document.write(
+      '<p style="font-family: Arial, sans-serif; padding: 24px;">Preparando impresión…</p>'
+    );
+    popup.document.close();
+
+    try {
+      const response = await api.post(`/pedidos/${id}/imprimir`, { tipo });
+      popup.document.open();
+      popup.document.write(response.html);
+      popup.document.close();
+      if (!silent) toast.success(`${PRINT_LABELS[tipo] || 'Documento'} listo`);
+    } catch {
+      popup.close();
+      if (!silent) toast.error('No se pudo generar la impresión');
+    }
+  }, []);
 
   // ── Tiempo real ─────────────────────────────────────────────────
   useEffect(() => {
@@ -301,7 +300,6 @@ export default function Pedidos() {
     }
 
     const unsubscribeNuevo = socketManager.on('nuevo_pedido', (p) => {
-      const remoteOrder = ['web', 'whatsapp'].includes(String(p.origen || '').toLowerCase());
       setPedidos((prev) => [p, ...prev.filter((pedido) => pedido.id !== p.id)]);
       if (claimAlertKey(`nuevo:${p.id}`)) {
         runOrderAlert({
@@ -313,14 +311,6 @@ export default function Pedidos() {
         }).catch(() => {});
       }
       toast.success(`Nuevo pedido #${p.numero}`);
-      if (
-        remoteOrder &&
-        configRef.current.impresion_auto_web === '1' &&
-        canPrint &&
-        claimAlertKey(`print:${p.id}`, 8000)
-      ) {
-        imprimirDocumentosPedidoWeb(p).catch(() => {});
-      }
     });
 
     /**
@@ -381,15 +371,7 @@ export default function Pedidos() {
         socketManager.disconnect();
       }
     };
-  }, [
-    audioContextRef,
-    canPrint,
-    fallbackAudioRef,
-    imprimirDocumentosPedidoWeb,
-    isAuth,
-    token,
-    voiceRef,
-  ]);
+  }, [audioContextRef, fallbackAudioRef, isAuth, token, voiceRef]);
 
   /**
    * Red de seguridad para las entregas.
@@ -468,8 +450,11 @@ export default function Pedidos() {
     const pedido = prevPedidos.find((p) => p.id === id);
     if (!pedido) return;
 
-    if (estado === 'cancelado' && !window.confirm(`¿Cancelar el pedido #${pedido.numero}?`)) {
-      return;
+    let motivoCancelacion = '';
+    if (estado === 'cancelado') {
+      motivoCancelacion =
+        window.prompt(`Motivo de cancelación del pedido #${pedido.numero}:`, '') || '';
+      if (!motivoCancelacion.trim()) return;
     }
 
     // Optimista: la UI responde ya y hace rollback si el servidor rechaza.
@@ -481,7 +466,10 @@ export default function Pedidos() {
     }
 
     try {
-      const updated = await api.put(`/pedidos/${id}/estado`, { estado });
+      const updated = await api.put(`/pedidos/${id}/estado`, {
+        estado,
+        ...(estado === 'cancelado' ? { motivo_cancelacion: motivoCancelacion } : {}),
+      });
       if (estado === 'entregado' || estado === 'cancelado') {
         toast.success(estado === 'entregado' ? 'Pedido entregado' : 'Pedido cancelado');
       } else {

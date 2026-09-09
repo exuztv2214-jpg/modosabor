@@ -336,7 +336,8 @@ app.use('/api/repartidores', require('./routes/repartidores'));
 app.use('/api/rider-app', require('./routes/riderApp'));
 app.use('/api/reportes-delivery', require('./routes/reportesDelivery'));
 app.use('/api/personal', require('./routes/personal'));
-app.use('/api/caja', require('./routes/caja'));
+const cajaRouter = require('./routes/caja');
+app.use('/api/caja', cajaRouter);
 app.use('/api/cupones', require('./routes/cupones'));
 app.use('/api/marketing', require('./routes/marketing'));
 app.use('/api/social', require('./routes/social'));
@@ -471,6 +472,34 @@ app.use((error, _req, res, next) => {
 io.on('connection', () => {});
 
 startAutomaticBackups(db);
+/*
+  El cierre no puede depender de que alguien abra Caja. Cada 30 segundos se
+  revisa el turno vigente y, al terminar (15:00 por la mañana), se cierra la
+  caja abierta y queda persistido su reporte detallado en el historial.
+*/
+function sincronizarCierreAutomaticoDeCaja() {
+  try {
+    const operational = cajaRouter.sincronizarCajaOperativa({
+      actorNombre: 'Sistema',
+      autoOpen: false,
+    });
+    operational.events
+      .filter((event) => event.type === 'closed')
+      .forEach((event) =>
+        logger.info('Caja cerrada automáticamente por horario', {
+          caja_id: event.caja?.id,
+          motivo: event.caja?.auto_cierre_motivo || '',
+        })
+      );
+  } catch (error) {
+    logger.error('No se pudo sincronizar el cierre automático de caja', {
+      message: error.message,
+    });
+  }
+}
+sincronizarCierreAutomaticoDeCaja();
+const cajaScheduler = setInterval(sincronizarCierreAutomaticoDeCaja, 30_000);
+cajaScheduler.unref?.();
 // Se le pasa `io` para que pueda avisarle al panel cuando un chat de WhatsApp
 // necesita que lo atienda una persona. Antes eso sólo dejaba una marca en la
 // base y nadie se enteraba.

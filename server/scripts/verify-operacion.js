@@ -295,6 +295,36 @@ async function run() {
     }
     console.log('OK: cambio de estado validado');
 
+    const cancellationWithoutReason = await request(`/pedidos/${pedidoId}/estado`, {
+      method: 'PUT',
+      headers: authHeaders,
+      body: { estado: 'cancelado' },
+    });
+    if (
+      cancellationWithoutReason.status !== 400 ||
+      cancellationWithoutReason.body?.error !== 'Indicá el motivo de la cancelación'
+    ) {
+      throw new Error(
+        `La cancelacion sin motivo no fue rechazada: ${JSON.stringify(cancellationWithoutReason.body)}`
+      );
+    }
+    console.log('OK: cancelacion sin motivo rechazada');
+
+    const cancellationReason = 'Cancelacion de prueba operativa';
+    const cancelled = await request(`/pedidos/${pedidoId}/estado`, {
+      method: 'PUT',
+      headers: authHeaders,
+      body: { estado: 'cancelado', motivo_cancelacion: cancellationReason },
+    });
+    if (
+      cancelled.status !== 200 ||
+      cancelled.body?.estado !== 'cancelado' ||
+      cancelled.body?.motivo_cancelacion !== cancellationReason
+    ) {
+      throw new Error(`Cancelacion con motivo fallo: ${JSON.stringify(cancelled.body)}`);
+    }
+    console.log('OK: cancelacion con motivo persistida');
+
     const print = await request(`/pedidos/${pedidoId}/imprimir`, {
       method: 'POST',
       headers: authHeaders,

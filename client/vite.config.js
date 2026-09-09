@@ -8,6 +8,14 @@ export default defineConfig({
     proxy: {
       '/api': 'http://localhost:3001',
       '/uploads': 'http://localhost:3001',
+      // En desarrollo la app vive en 5173 y la API/Socket.IO en 3001. Sin
+      // este proxy las consultas REST funcionaban, pero los pedidos nuevos no
+      // llegaban hasta recargar porque el navegador intentaba abrir el socket
+      // contra Vite en lugar del servidor.
+      '/socket.io': {
+        target: 'http://localhost:3001',
+        ws: true,
+      },
     },
   },
   build: {

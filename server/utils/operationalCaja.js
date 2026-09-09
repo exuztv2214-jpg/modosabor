@@ -70,7 +70,7 @@ function getPreviousBusinessDate(parts) {
 }
 
 function getOperationalShiftContext(config, date = new Date()) {
-  const shiftInfo = getCurrentShiftInfo(config);
+  const shiftInfo = getCurrentShiftInfo(config, date);
   const shift = shiftInfo.turno_actual || null;
   const parts = getBusinessDateParts(date);
   let fechaOperativa = formatDateParts(parts);

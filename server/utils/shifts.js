@@ -46,9 +46,9 @@ function isNowInShift(shift, nowMinutes) {
   return nowMinutes >= from || nowMinutes <= to;
 }
 
-function getCurrentShiftInfo(config) {
+function getCurrentShiftInfo(config, date = new Date()) {
   const turnos = parseTurnos(config.turnos_negocio).filter((shift) => shift?.activo !== false);
-  const now = getBusinessTimeParts(new Date());
+  const now = getBusinessTimeParts(date);
   const nowMinutes = now.hours * 60 + now.minutes;
   const turnoActual = turnos.find((shift) => isNowInShift(shift, nowMinutes)) || null;
 

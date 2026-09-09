@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { ListPlus, Minus, Plus, Search, ShoppingCart, UtensilsCrossed } from 'lucide-react';
 
@@ -129,11 +129,52 @@ export default function TpvCatalog({
   onCatActivaChange,
   onGoCaja,
   onOpenCart,
+  productosRapidos = [],
   productosFiltrados,
   searchInputRef,
   total,
   totalItems,
 }) {
+  const gridRef = useRef(null);
+  const productRefs = useRef([]);
+  const [productoActivoId, setProductoActivoId] = useState(null);
+
+  useEffect(() => {
+    if (!productosFiltrados.some((producto) => producto.id === productoActivoId)) {
+      setProductoActivoId(productosFiltrados[0]?.id ?? null);
+    }
+  }, [productoActivoId, productosFiltrados]);
+
+  const focusProducto = (index) => {
+    const siguiente = productosFiltrados[index];
+    if (!siguiente) return;
+    setProductoActivoId(siguiente.id);
+    productRefs.current[index]?.focus();
+  };
+
+  const moverProducto = (actual, tecla) => {
+    const total = productosFiltrados.length;
+    if (!total) return;
+    const columnas = Math.max(1, Math.round(gridRef.current?.clientWidth / 165) || 1);
+    let siguiente = actual;
+    if (tecla === 'ArrowLeft') siguiente = Math.max(0, actual - 1);
+    if (tecla === 'ArrowRight') siguiente = Math.min(total - 1, actual + 1);
+    if (tecla === 'ArrowUp') siguiente = Math.max(0, actual - columnas);
+    if (tecla === 'ArrowDown') siguiente = Math.min(total - 1, actual + columnas);
+    focusProducto(siguiente);
+  };
+
+  const manejarTeclaBusqueda = (event) => {
+    if (event.key === 'ArrowDown' && productosFiltrados.length) {
+      event.preventDefault();
+      const indice = Math.max(
+        0,
+        productosFiltrados.findIndex((p) => p.id === productoActivoId)
+      );
+      focusProducto(indice);
+    }
+  };
+
   return (
     <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
       <div className="shrink-0 px-5 pb-3 pt-3">
@@ -147,6 +188,7 @@ export default function TpvCatalog({
             ref={searchInputRef}
             value={busqueda}
             onChange={(event) => onBusquedaChange(event.target.value)}
+            onKeyDown={manejarTeclaBusqueda}
             placeholder="Buscar producto…"
             disabled={!cajaAbierta}
             className="h-11 w-full rounded-xl border border-transparent bg-white pl-11 pr-12 text-sm font-medium text-gray-900 shadow-[0_1px_2px_rgba(15,23,42,0.04)] outline-none transition placeholder:text-gray-400 focus:border-brand-200"
@@ -175,6 +217,29 @@ export default function TpvCatalog({
             />
           ))}
         </div>
+
+        {productosRapidos.length ? (
+          <div className="no-scrollbar mt-3 flex items-center gap-2 overflow-x-auto pb-1">
+            <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+              Rápidos
+            </span>
+            {productosRapidos.map((producto) => {
+              const puedeVender = cajaAbierta && producto.disponible_para_venta !== false;
+              return (
+                <button
+                  key={producto.id}
+                  type="button"
+                  disabled={!puedeVender}
+                  onClick={() => onAddItem(producto)}
+                  title={`Agregar ${producto.nombre}`}
+                  className="h-8 shrink-0 rounded-lg bg-gray-100 px-3 text-[11px] font-semibold text-gray-700 transition hover:bg-gray-900 hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
+                >
+                  {producto.nombre}
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
       </div>
 
       <div className="relative min-h-0 flex-1 overflow-y-auto px-5 pb-5">
@@ -204,8 +269,11 @@ export default function TpvCatalog({
         {cargando && productosFiltrados.length === 0 ? (
           <CatalogSkeleton />
         ) : (
-          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
-            {productosFiltrados.map((producto) => {
+          <div
+            ref={gridRef}
+            className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6"
+          >
+            {productosFiltrados.map((producto, index) => {
               const badge = stockBadge(producto);
               const primaryPrice = getPrimaryDisplayPrice(producto);
               const qtyInCart = Number(cartQtyByProductId[producto.id] || 0);
@@ -220,6 +288,9 @@ export default function TpvCatalog({
               return (
                 <motion.div
                   key={producto.id}
+                  ref={(node) => {
+                    productRefs.current[index] = node;
+                  }}
                   role="button"
                   tabIndex={puedeVender ? 0 : -1}
                   aria-disabled={!puedeVender}
@@ -229,9 +300,22 @@ export default function TpvCatalog({
                     if (puedeVender && (event.key === 'Enter' || event.key === ' ')) {
                       event.preventDefault();
                       onAddItem(producto);
+                    } else if (
+                      ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)
+                    ) {
+                      event.preventDefault();
+                      moverProducto(index, event.key);
+                    } else if (event.key === 'Escape') {
+                      event.preventDefault();
+                      searchInputRef?.current?.focus();
                     }
                   }}
-                  style={qtyInCart > 0 ? { boxShadow: `0 0 0 2px ${BRAND}` } : undefined}
+                  onFocus={() => setProductoActivoId(producto.id)}
+                  style={
+                    qtyInCart > 0 || productoActivoId === producto.id
+                      ? { boxShadow: `0 0 0 2px ${BRAND}` }
+                      : undefined
+                  }
                   className={`group relative flex flex-col overflow-hidden rounded-2xl bg-white p-2 text-left shadow-[0_1px_2px_rgba(15,23,42,0.05)] transition-shadow duration-200 ${!puedeVender ? 'cursor-not-allowed opacity-55' : 'cursor-pointer hover:shadow-[0_6px_20px_rgba(15,23,42,0.09)]'}`}
                 >
                   <div className="relative mb-2 flex aspect-[4/3] items-center justify-center overflow-hidden rounded-xl bg-gray-50">

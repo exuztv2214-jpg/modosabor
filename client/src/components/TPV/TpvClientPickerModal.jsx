@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, Search, UserPlus, X } from 'lucide-react';
 
 /**
@@ -42,6 +42,7 @@ export default function TpvClientPickerModal({
   const [creando, setCreando] = useState(false);
   const [guardando, setGuardando] = useState(false);
   const [form, setForm] = useState({ nombre: '', telefono: '', direccion: '' });
+  const searchInputRef = useRef(null);
 
   const sugerido = useMemo(() => repartirBusqueda(search), [search]);
 
@@ -49,6 +50,18 @@ export default function TpvClientPickerModal({
   useEffect(() => {
     if (creando) setForm((prev) => ({ ...prev, ...sugerido }));
   }, [creando, sugerido]);
+
+  // En mostrador el primer gesto después de abrir este cuadro tiene que ser
+  // escribir. Se enfoca y selecciona el texto previo para no obligar a borrar
+  // el cliente anterior antes de buscar al siguiente.
+  useEffect(() => {
+    if (creando) return undefined;
+    const frame = requestAnimationFrame(() => {
+      searchInputRef.current?.focus();
+      searchInputRef.current?.select();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [creando]);
 
   useEffect(() => {
     const alPresionar = (evento) => {
@@ -202,8 +215,15 @@ export default function TpvClientPickerModal({
                   className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"
                 />
                 <input
+                  ref={searchInputRef}
                   value={search}
                   onChange={(evento) => onSearchChange(evento.target.value)}
+                  onKeyDown={(evento) => {
+                    if (evento.key !== 'Enter' || evento.isComposing) return;
+                    evento.preventDefault();
+                    if (clientesCatalogo[0]) onApplyCliente(clientesCatalogo[0]);
+                    else if (search.trim()) setCreando(true);
+                  }}
                   placeholder="Buscar cliente o tarjeta..."
                   className="h-11 w-full rounded-xl border border-gray-200 bg-gray-50 py-2 pl-11 pr-4 text-sm font-medium focus:border-brand-300 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/10"
                 />

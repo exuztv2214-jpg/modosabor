@@ -42,9 +42,13 @@ const trackingTokens = new Map();
 function usuarioActivoDesdeToken(token) {
   const decoded = jwt.verify(token, getJwtSecret());
   const current = db
-    .prepare('SELECT id, nombre, email, rol, activo FROM usuarios WHERE id = ?')
+    .prepare('SELECT id, nombre, email, rol, activo, token_version FROM usuarios WHERE id = ?')
     .get(decoded.id);
-  if (!current || Number(current.activo) !== 1) {
+  if (
+    !current ||
+    Number(current.activo) !== 1 ||
+    Number(decoded.tv ?? 0) !== Number(current.token_version || 0)
+  ) {
     throw new Error('Usuario inactivo');
   }
   return {

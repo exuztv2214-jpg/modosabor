@@ -36,6 +36,23 @@ function run() {
   assert.ok(migrations.includes('CREATE TABLE IF NOT EXISTS mesas_asignaciones'));
   console.log('  OK la migración guarda autor y asignación de mesa');
 
+  /*
+    La cola vive en la app, pero no puede cambiar su contrato con el servidor:
+    reintenta el mismo idempotency_key y sólo borra lo local después de una
+    respuesta correcta. Es una prueba de integración estática entre ambos
+    paquetes, como las de socketRooms de arriba.
+  */
+  const mozoAppRoot = path.join(serverRoot, '..', 'mozo-app', 'src');
+  const app = fs.readFileSync(path.join(mozoAppRoot, 'App.jsx'), 'utf8');
+  const api = fs.readFileSync(path.join(mozoAppRoot, 'lib', 'api.js'), 'utf8');
+  assert.ok(api.includes("PENDING_ORDERS_KEY = 'ms_mozo_pending_orders_v1'"));
+  assert.ok(api.includes('queuePendingOrder'));
+  assert.ok(api.includes('removePendingOrder'));
+  assert.ok(app.includes('await queuePendingOrder(payload)'));
+  assert.ok(app.includes('await removePendingOrder(payload.idempotency_key)'));
+  assert.ok(app.includes('if (err.network)'));
+  console.log('  OK la cola offline conserva la clave y no descarta un corte de red');
+
   console.log('✅ Base de Mozo verificada\n');
 }
 

@@ -359,7 +359,7 @@ function runSeed(db) {
     sucursal_actual_codigo: 'principal',
     delivery_autoasignar_activo: '1',
     turnos_negocio: JSON.stringify([
-      { id: 'manana', nombre: 'Turno manana', desde: '10:00', hasta: '14:30', activo: true },
+      { id: 'manana', nombre: 'Turno manana', desde: '10:00', hasta: '15:00', activo: true },
       { id: 'noche', nombre: 'Turno noche', desde: '20:30', hasta: '02:00', activo: true },
     ]),
     horarios: JSON.stringify({

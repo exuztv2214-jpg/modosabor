@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS usuarios (
   password_hash TEXT NOT NULL,
   rol TEXT DEFAULT 'admin',
   activo INTEGER DEFAULT 1,
+  token_version INTEGER NOT NULL DEFAULT 0,
   avatar TEXT DEFAULT '',
   creado_en DATETIME DEFAULT CURRENT_TIMESTAMP
 );
@@ -261,6 +262,7 @@ CREATE TABLE IF NOT EXISTS pedidos (
   descuento INTEGER DEFAULT 0,
   total INTEGER NOT NULL DEFAULT 0,
   estado TEXT DEFAULT 'nuevo',
+  motivo_cancelacion TEXT DEFAULT '',
   tipo_entrega TEXT DEFAULT 'delivery',
   mesa TEXT DEFAULT '',
   hora_entrega TEXT DEFAULT '',

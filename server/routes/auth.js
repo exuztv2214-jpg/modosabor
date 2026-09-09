@@ -26,6 +26,21 @@ const COOKIE_OPTIONS = {
   maxAge: 7 * 24 * 60 * 60 * 1000, // 7 días
 };
 
+function signUserToken(user) {
+  return jwt.sign(
+    {
+      id: user.id,
+      email: user.email,
+      rol: user.rol,
+      nombre: user.nombre,
+      // Los JWT anteriores quedan inválidos cuando la versión cambia en DB.
+      tv: Number(user.token_version || 0),
+    },
+    JWT_SECRET,
+    { expiresIn: '7d' }
+  );
+}
+
 router.post('/login', loginRateLimit, validateBody(loginSchema), (req, res) => {
   const email = String(req.body.email).trim().toLowerCase();
   const { password } = req.body;
@@ -34,11 +49,7 @@ router.post('/login', loginRateLimit, validateBody(loginSchema), (req, res) => {
   if (!user || !bcrypt.compareSync(password, user.password_hash)) {
     return res.status(401).json({ error: 'Credenciales invalidas' });
   }
-  const token = jwt.sign(
-    { id: user.id, email: user.email, rol: user.rol, nombre: user.nombre },
-    JWT_SECRET,
-    { expiresIn: '7d' }
-  );
+  const token = signUserToken(user);
   res.cookie('auth_token', token, COOKIE_OPTIONS);
   res.json({
     user: {
@@ -67,11 +78,7 @@ router.post('/native-login', loginRateLimit, validateBody(loginSchema), (req, re
   if (user.rol !== 'mozo') {
     return res.status(403).json({ error: 'Esta cuenta no está habilitada para la app de Mozo.' });
   }
-  const token = jwt.sign(
-    { id: user.id, email: user.email, rol: user.rol, nombre: user.nombre },
-    JWT_SECRET,
-    { expiresIn: '7d' }
-  );
+  const token = signUserToken(user);
   return res.json({
     token,
     user: {
@@ -238,20 +245,27 @@ router.put(
       }
     }
 
-    db.prepare('UPDATE usuarios SET nombre = ?, email = ?, rol = ?, activo = ? WHERE id = ?').run(
+    const hasNewPassword = typeof req.body.password === 'string' && req.body.password.length > 0;
+    const invalidatesSessions =
+      hasNewPassword ||
+      String(existing.rol) !== String(rol) ||
+      Number(existing.activo) !== Number(activo);
+    db.prepare(
+      `UPDATE usuarios
+       SET nombre = ?, email = ?, rol = ?, activo = ?,
+           password_hash = CASE WHEN ? THEN ? ELSE password_hash END,
+           token_version = token_version + CASE WHEN ? THEN 1 ELSE 0 END
+       WHERE id = ?`
+    ).run(
       nombre,
       email,
       rol,
       activo ? 1 : 0,
+      hasNewPassword ? 1 : 0,
+      hasNewPassword ? bcrypt.hashSync(req.body.password, 10) : '',
+      invalidatesSessions ? 1 : 0,
       req.params.id
     );
-
-    if (req.body.password) {
-      db.prepare('UPDATE usuarios SET password_hash = ? WHERE id = ?').run(
-        bcrypt.hashSync(req.body.password, 10),
-        req.params.id
-      );
-    }
 
     const user = db
       .prepare('SELECT id, nombre, email, rol, activo, creado_en FROM usuarios WHERE id = ?')
@@ -265,17 +279,18 @@ router.put('/password', auth, (req, res) => {
   if (typeof password_actual !== 'string' || !password_actual) {
     return res.status(400).json({ error: 'La contrasena actual es obligatoria' });
   }
-  if (!password_nuevo || password_nuevo.length < 6) {
-    return res.status(400).json({ error: 'La nueva contrasena debe tener al menos 6 caracteres' });
+  if (!password_nuevo || password_nuevo.length < 8) {
+    return res.status(400).json({ error: 'La nueva contrasena debe tener al menos 8 caracteres' });
   }
   const user = db.prepare('SELECT * FROM usuarios WHERE id = ?').get(req.user.id);
   if (!bcrypt.compareSync(password_actual, user.password_hash)) {
     return res.status(400).json({ error: 'Contrasena actual incorrecta' });
   }
-  db.prepare('UPDATE usuarios SET password_hash = ? WHERE id = ?').run(
-    bcrypt.hashSync(password_nuevo, 10),
-    req.user.id
-  );
+  db.prepare(
+    'UPDATE usuarios SET password_hash = ?, token_version = token_version + 1 WHERE id = ?'
+  ).run(bcrypt.hashSync(password_nuevo, 10), req.user.id);
+  const refreshed = db.prepare('SELECT * FROM usuarios WHERE id = ?').get(req.user.id);
+  res.cookie('auth_token', signUserToken(refreshed), COOKIE_OPTIONS);
   res.json({ success: true });
 });
 

@@ -13,6 +13,7 @@ const coerceNum = (schema) =>
 
 const emailSchema = z.string().email().min(1).max(255);
 const passwordSchema = z.string().min(1).max(255);
+const newPasswordSchema = z.string().min(8).max(255);
 
 const loginSchema = z.object({
   email: emailSchema,
@@ -22,14 +23,14 @@ const loginSchema = z.object({
 const createUserSchema = z.object({
   nombre: z.string().min(1).max(255),
   email: emailSchema,
-  password: z.string().min(6).max(255),
+  password: newPasswordSchema,
   rol: z.enum(['admin', 'caja', 'cocina', 'delivery', 'mozo']).default('caja'),
 });
 
 const updateUserSchema = z.object({
   nombre: z.string().min(1).max(255).optional(),
   email: emailSchema.optional(),
-  password: z.string().min(6).max(255).optional(),
+  password: newPasswordSchema.optional(),
   rol: z.enum(['admin', 'caja', 'cocina', 'delivery', 'mozo']).optional(),
   activo: z.boolean().optional(),
 });
