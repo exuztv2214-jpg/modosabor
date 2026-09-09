@@ -8,6 +8,7 @@ const {
   listBackups,
   backupStorageSummary,
 } = require('../utils/backupManager');
+const { getStorageUsage } = require('../utils/storagePaths');
 const { insertInventoryMovement, roundStock } = require('../utils/inventory');
 const { summarizePaymentRows } = require('../utils/paymentStatus');
 const { recalculateClienteStats } = require('../utils/loyalty');
@@ -819,6 +820,7 @@ function buildPointStatus({
     maxFiles: Number(config.backup_max_archivos || 14),
     maxTotalBytes: Number(config.backup_max_total_mb || 64) * 1024 * 1024,
   });
+  const storageUsage = getStorageUsage();
   const dailyClose = close || buildDailyClose(today());
   const bases = baseInsumos || loadBaseInsumos();
 
@@ -893,6 +895,17 @@ function buildPointStatus({
       detail: latestBackup
         ? `${backupFresh ? 'Último backup' : 'Backup atrasado desde'} ${new Date(latestBackup.created_at).toLocaleString('es-AR')} · ${backupStorage.files} archivos, ${Math.ceil(backupStorage.totalBytes / 1024 / 1024)} MB de ${Math.ceil(backupStorage.maxTotalBytes / 1024 / 1024)} MB`
         : 'Sin backups detectados',
+    },
+    {
+      id: 'almacenamiento',
+      title: 'Espacio de datos',
+      // A 85% todavía queda margen para hacer un backup y corregir el origen
+      // del crecimiento. Esperar a que el volumen esté lleno hace que falle la
+      // venta, el upload o el backup que justamente podría recuperarla.
+      ok: !storageUsage || storageUsage.percentUsed < 85,
+      detail: storageUsage
+        ? `${Math.ceil(storageUsage.usedBytes / 1024 / 1024)} MB usados de ${Math.ceil(storageUsage.totalBytes / 1024 / 1024)} MB · ${Math.ceil(storageUsage.availableBytes / 1024 / 1024)} MB libres`
+        : 'No se pudo medir el volumen en este entorno',
     },
     {
       id: 'impresion',

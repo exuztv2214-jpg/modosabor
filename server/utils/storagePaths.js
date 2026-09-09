@@ -29,6 +29,49 @@ function ensureStoragePaths() {
   ensureDir(backupsDir);
 }
 
+/**
+ * Uso del filesystem que contiene los datos operativos. No usa tamaños de
+ * archivos a mano: SQLite, uploads y backups pueden crecer en subcarpetas que
+ * no conocemos. `statfs` consulta el volumen real (por ejemplo el Volume de
+ * Railway) y deja al control diario avisar antes de agotar el disco.
+ *
+ * Algunos entornos de desarrollo o adaptadores de filesystem no implementan
+ * statfs. En ese caso devolvemos null: medir capacidad nunca debe impedir que
+ * la API arranque ni convertir una limitación de diagnóstico en una alerta
+ * falsa.
+ */
+function getStorageUsage(target = dataDir, statfsSync = fs.statfsSync) {
+  if (typeof statfsSync !== 'function') return null;
+
+  try {
+    const stats = statfsSync(target);
+    const blockSize = Number(stats?.bsize || 0);
+    const totalBlocks = Number(stats?.blocks || 0);
+    const availableBlocks = Number(stats?.bavail || 0);
+    const totalBytes = blockSize * totalBlocks;
+    const availableBytes = blockSize * availableBlocks;
+
+    if (
+      !Number.isFinite(totalBytes) ||
+      !Number.isFinite(availableBytes) ||
+      totalBytes <= 0 ||
+      availableBytes < 0
+    ) {
+      return null;
+    }
+
+    const usedBytes = Math.max(0, totalBytes - availableBytes);
+    return {
+      totalBytes: Math.round(totalBytes),
+      availableBytes: Math.round(availableBytes),
+      usedBytes: Math.round(usedBytes),
+      percentUsed: Math.min(100, Math.round((usedBytes / totalBytes) * 100)),
+    };
+  } catch {
+    return null;
+  }
+}
+
 function copyMissingEntries(sourceDir, targetDir) {
   ensureDir(targetDir);
   let copied = 0;
@@ -153,6 +196,7 @@ module.exports = {
   dbFile,
   ensureDir,
   ensureStoragePaths,
+  getStorageUsage,
   bootstrapUploadsFromBundle,
   uploadPathFromFilename,
   uploadPublicPathToFile,
