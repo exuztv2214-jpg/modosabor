@@ -10,9 +10,18 @@ const { transcribirConGemini } = require('./transcripcionGemini');
 const SCRIPT = path.join(__dirname, '..', 'scripts', 'transcribe-whatsapp-audio.py');
 const BUNDLED_MODEL_DIR = path.join(__dirname, '..', 'whisper-models');
 const MAX_AUDIO_SECONDS = 180;
-const TRANSCRIPTION_TIMEOUT_MS = 120000;
+const TRANSCRIPTION_TIMEOUT_MS = 30000;
 const MAX_AUDIO_BYTES = 8 * 1024 * 1024;
 let transcriptionQueue = Promise.resolve();
+function conPlazo(promesa, ms) {
+  let timer;
+  return Promise.race([
+    promesa,
+    new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error('Se agotó el tiempo para entender el audio')), ms);
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
 
 function contenidoInterno(message = {}) {
   let content = message?.message || {};
@@ -186,7 +195,7 @@ async function transcribeWhatsappAudio(message, conexion) {
 
   let buffer;
   try {
-    buffer = await conexion.descargarAudio(message);
+    buffer = await conPlazo(conexion.descargarAudio(message), 8000);
   } catch (error) {
     const wrapped = new Error('No se pudo descargar el audio desde WhatsApp');
     wrapped.code = 'WHATSAPP_AUDIO_DOWNLOAD';
@@ -245,6 +254,10 @@ async function transcribirRemoto(buffer, extension) {
 }
 
 async function transcribeAudioBuffer(buffer, extension = 'webm') {
+  return conPlazo(transcribeAudioBufferDentroDePlazo(buffer, extension, Date.now() + 55000), 55000);
+}
+
+async function transcribeAudioBufferDentroDePlazo(buffer, extension, deadline) {
   if (!Buffer.isBuffer(buffer) || buffer.length === 0) {
     throw new Error('El audio está vacío');
   }
@@ -261,6 +274,7 @@ async function transcribeAudioBuffer(buffer, extension = 'webm') {
   }
   const safeExtension = String(extension || 'webm').replace(/[^a-z0-9]/gi, '') || 'webm';
   const task = async () => {
+    if (Date.now() >= deadline) throw new Error('Venció la espera en la cola de audio');
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'modosabor-audio-'));
     const audioPath = path.join(tempDir, `nota.${safeExtension}`);
     try {
@@ -285,6 +299,7 @@ async function transcribeAudioBuffer(buffer, extension = 'webm') {
 }
 
 module.exports = {
+  conPlazo,
   transcribeWhatsappAudio,
   transcribeAudioBuffer,
   MAX_AUDIO_SECONDS,

@@ -1,5 +1,5 @@
 const defaultDb = require('../db');
-const { quoteProduct, findClienteByPhone } = require('../utils/systemClient');
+const { quoteProduct, findClienteByPhone, getDeliveryInfo } = require('../utils/systemClient');
 
 function json(value, fallback) {
   try {
@@ -254,6 +254,18 @@ function crearCarritoWhatsapp(db = defaultDb) {
               actualizado_en = CURRENT_TIMESTAMP
         WHERE id = ?`
     ).run(nombre, nombre, direccion, direccion, tipoEntrega, metodoPago, notas, notas, borrador.id);
+    const actualizado = db
+      .prepare('SELECT * FROM whatsapp_pedidos_borrador WHERE id = ?')
+      .get(borrador.id);
+    const envio =
+      actualizado.tipo_entrega === 'retiro'
+        ? null
+        : getDeliveryInfo(db, actualizado.cliente_direccion);
+    db.prepare('UPDATE whatsapp_pedidos_borrador SET costo_envio = ? WHERE id = ?').run(
+      Number(envio?.costo_envio || 0),
+      borrador.id
+    );
+    recalcular(borrador.id);
     return verCarrito(telefono);
   }
 

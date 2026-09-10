@@ -160,7 +160,7 @@ async function run() {
     const socketEvent = waitForNewOrder(socket);
     const first = await request('/agente/pedido', {
       method: 'POST',
-      headers: { 'x-agent-key': process.env.AGENT_API_KEY },
+      headers: { 'x-agent-key': process.env.AGENT_API_KEY, 'x-agent-telefono': PHONE },
       body,
     });
     if (first.status !== 200 || !first.body?.id) {
@@ -174,10 +174,18 @@ async function run() {
       throw new Error('El socket recibió un pedido diferente o sin origen WhatsApp');
     }
     console.log('OK: pedido WhatsApp creó y emitió el evento de alarma');
+    const cliente = db.prepare('SELECT id FROM clientes WHERE telefono = ?').get(PHONE);
+    const pedidoGuardado = db
+      .prepare('SELECT cliente_id FROM pedidos WHERE id = ?')
+      .get(first.body.id);
+    if (!cliente || pedidoGuardado.cliente_id !== cliente.id) {
+      throw new Error('El pedido no quedó vinculado al cliente registrado');
+    }
+    console.log('OK: cliente registrado y vinculado al pedido');
 
     const duplicate = await request('/agente/pedido', {
       method: 'POST',
-      headers: { 'x-agent-key': process.env.AGENT_API_KEY },
+      headers: { 'x-agent-key': process.env.AGENT_API_KEY, 'x-agent-telefono': PHONE },
       body,
     });
     const count = db

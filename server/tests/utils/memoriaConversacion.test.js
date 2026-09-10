@@ -68,6 +68,12 @@ async function run() {
     });
     assert.strictEqual(inactiva.nueva, true);
     assert.deepStrictEqual(inactiva.mensajes, []);
+    insertar.run(3, 'entrante', 'hola hoy', new Date().toISOString());
+    const reinicio = await memoria.obtenerContexto('333');
+    assert.deepStrictEqual(
+      reinicio.mensajes.map((m) => m.texto),
+      ['hola hoy']
+    );
 
     console.log('memoriaConversacion.test.js OK');
   } finally {

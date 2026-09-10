@@ -415,6 +415,15 @@ CREATE TABLE IF NOT EXISTS whatsapp_pedidos_borrador_items (
   creado_en DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS whatsapp_confirmaciones (
+  telefono TEXT PRIMARY KEY,
+  borrador_id INTEGER NOT NULL REFERENCES whatsapp_pedidos_borrador(id) ON DELETE CASCADE,
+  huella TEXT NOT NULL,
+  texto TEXT NOT NULL,
+  enviada INTEGER NOT NULL DEFAULT 0,
+  creado_en DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS cierres_caja (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   estado TEXT DEFAULT 'abierta',

@@ -61,15 +61,34 @@ function crearMemoriaConversacion(db = defaultDb, dependencias = {}) {
       return { resumen: '', mensajes: [], nueva: true };
     }
 
+    const filas = db
+      .prepare(
+        `SELECT id, direccion, contenido, creado_en FROM whatsapp_mensajes
+      WHERE conversacion_id = ? ORDER BY id DESC LIMIT 100`
+      )
+      .all(conversacion.id);
+    const recientesSesion = [];
+    for (const fila of filas) {
+      const anterior = recientesSesion[recientesSesion.length - 1];
+      if (
+        anterior &&
+        minutosDesde(fila.creado_en) - minutosDesde(anterior.creado_en) > Number(minutosInactividad)
+      ) {
+        break;
+      }
+      recientesSesion.push(fila);
+    }
+    const inicioSesion = recientesSesion[recientesSesion.length - 1]?.id || ultimo.id;
+    const resumenVigente = Number(conversacion.resumen_hasta_mensaje_id || 0) >= inicioSesion;
     const nuevos = db
       .prepare(
         `SELECT id, direccion, contenido, creado_en FROM whatsapp_mensajes
-          WHERE conversacion_id = ? AND id > ? ORDER BY id`
+          WHERE conversacion_id = ? AND id > ? AND id >= ? ORDER BY id`
       )
-      .all(conversacion.id, Number(conversacion.resumen_hasta_mensaje_id || 0))
+      .all(conversacion.id, Number(conversacion.resumen_hasta_mensaje_id || 0), inicioSesion)
       .map(aMensaje);
 
-    let resumen = conversacion.resumen_texto || '';
+    let resumen = resumenVigente ? conversacion.resumen_texto || '' : '';
     if (nuevos.length > Number(maxMensajes)) {
       resumen = await resumir({ resumenAnterior: resumen, mensajes: nuevos, telefono: numero });
       const hastaId = nuevos[nuevos.length - 1].id;
@@ -83,9 +102,9 @@ function crearMemoriaConversacion(db = defaultDb, dependencias = {}) {
     const recientes = db
       .prepare(
         `SELECT id, direccion, contenido, creado_en FROM whatsapp_mensajes
-          WHERE conversacion_id = ? ORDER BY id DESC LIMIT ?`
+          WHERE conversacion_id = ? AND id >= ? ORDER BY id DESC LIMIT ?`
       )
-      .all(conversacion.id, Math.max(1, Number(maxMensajes)))
+      .all(conversacion.id, inicioSesion, Math.max(1, Number(maxMensajes)))
       .reverse()
       .map(aMensaje);
 

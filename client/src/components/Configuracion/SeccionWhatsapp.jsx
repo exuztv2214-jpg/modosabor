@@ -73,6 +73,8 @@ export default function SeccionWhatsapp({ config, setConfig }) {
   const [estado, setEstado] = useState(null);
   const [ocupado, setOcupado] = useState(false);
   const [conversaciones, setConversaciones] = useState([]);
+  const [paginaChats, setPaginaChats] = useState(0);
+  const [totalChats, setTotalChats] = useState(0);
   const [metricas, setMetricas] = useState(null);
   const [probandoEmergencia, setProbandoEmergencia] = useState(false);
   const [resultadoEmergencia, setResultadoEmergencia] = useState(null);
@@ -81,16 +83,17 @@ export default function SeccionWhatsapp({ config, setConfig }) {
     try {
       const [status, chats, stats] = await Promise.all([
         api.get('/whatsapp/estado'),
-        api.get('/whatsapp/conversaciones?limite=12'),
+        api.get(`/whatsapp/conversaciones?limite=12&offset=${paginaChats * 12}`),
         api.get('/whatsapp/metricas-atencion'),
       ]);
       setEstado(status);
       setConversaciones(chats?.items || []);
+      setTotalChats(Number(chats?.total || 0));
       setMetricas(stats || null);
     } catch (error) {
       if (error?._httpStatus !== 401) toast.error(error?.error || 'No se pudo consultar WhatsApp');
     }
-  }, []);
+  }, [paginaChats]);
 
   useEffect(() => {
     cargar();
@@ -577,6 +580,27 @@ export default function SeccionWhatsapp({ config, setConfig }) {
           })}
           {!conversaciones.length ? (
             <p className="text-[12px] text-gray-400">Todavía no hay conversaciones.</p>
+          ) : null}
+          {totalChats > 12 ? (
+            <div className="flex items-center justify-between gap-3 text-sm">
+              <button
+                type="button"
+                disabled={paginaChats === 0}
+                onClick={() => setPaginaChats((p) => Math.max(0, p - 1))}
+              >
+                Anterior
+              </button>
+              <span>
+                Página {paginaChats + 1} · {totalChats} conversaciones · pendientes primero
+              </span>
+              <button
+                type="button"
+                disabled={(paginaChats + 1) * 12 >= totalChats}
+                onClick={() => setPaginaChats((p) => p + 1)}
+              >
+                Siguiente
+              </button>
+            </div>
           ) : null}
         </div>
       </SectionCard>

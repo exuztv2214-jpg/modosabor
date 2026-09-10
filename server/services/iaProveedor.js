@@ -285,9 +285,12 @@ function aFormatoGemini(mensajes) {
     if (m.rol === 'asistente' && m.llamadas?.length) {
       return {
         role: 'model',
-        parts: m.llamadas.map((l) => ({
-          functionCall: { name: l.nombre, args: l.argumentos || {} },
-        })),
+        parts: m.llamadas.map(
+          (l) =>
+            l.geminiPart || {
+              functionCall: { name: l.nombre, args: l.argumentos || {} },
+            }
+        ),
       };
     }
     const partes = [];
@@ -329,13 +332,19 @@ async function conversarGemini({ clave, baseUrl, modelo, sistema, mensajes, herr
   const partes = datos?.candidates?.[0]?.content?.parts || [];
   return {
     texto: partes
-      .filter((p) => p.text)
+      .filter((p) => p.text && !p.thought)
       .map((p) => p.text)
       .join('')
       .trim(),
     llamadas: partes
       .filter((p) => p.functionCall)
-      .map((p) => ({ nombre: p.functionCall.name, argumentos: p.functionCall.args || {} })),
+      .map((p, index) => ({
+        id: p.functionCall.id || `gemini-${Date.now()}-${index}`,
+        nombre: p.functionCall.name,
+        argumentos: p.functionCall.args || {},
+        // Gemini exige devolver intacta la firma del turno que pidió la herramienta.
+        geminiPart: p,
+      })),
     uso: {
       entrada: Number(datos?.usageMetadata?.promptTokenCount || 0),
       salida: Number(datos?.usageMetadata?.candidatesTokenCount || 0),

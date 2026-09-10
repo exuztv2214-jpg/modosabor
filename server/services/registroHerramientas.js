@@ -30,6 +30,19 @@ const PERMISOS_CLIENTE = new Set([
 ]);
 
 const schemaVacio = { type: 'object', properties: {} };
+const schemaVariantes = {
+  type: 'array',
+  description: 'Opciones elegidas, indicando grupo y nombre exactos del catálogo.',
+  items: {
+    type: 'object',
+    properties: { grupo: { type: 'string' }, nombre: { type: 'string' } },
+    required: ['grupo', 'nombre'],
+  },
+};
+const schemaExtras = {
+  type: 'array',
+  items: { type: 'object', properties: { nombre: { type: 'string' } }, required: ['nombre'] },
+};
 const schemaTexto = (nombre, descripcion) => ({
   type: 'object',
   properties: { [nombre]: { type: 'string', description: descripcion } },
@@ -64,7 +77,7 @@ function textoComparable(valor) {
 */
 function esConfirmacionNatural(texto) {
   const normalizado = textoComparable(texto);
-  return /^(?:si|si confirmo|confirmo|dale|dale nomas|ok|okay|de una|mandalo|mandale|listo|esta bien|correcto)(?: por favor| por fa| porfa| gracias)?$/.test(
+  return /^(?:si(?: dale| confirmo| confirmalo)?|confirmo|confirmar|confirmalo|dale|dale nomas|ok|okay|de una|mandalo|mandale|listo|esta bien|correcto)(?: por favor| por fa| porfa| gracias)?$/.test(
     normalizado
   );
 }
@@ -72,7 +85,10 @@ function esConfirmacionNatural(texto) {
 function pidioConfirmacionExplicita(texto) {
   const normalizado = textoComparable(texto);
   if (!normalizado) return false;
-  const mencionaPedido = /\b(?:pedido|resumen|total|direccion|envio)\b/.test(normalizado);
+  const mencionaPedido =
+    /\b(?:pedido|resumen)\b/.test(normalizado) &&
+    /\btotal\b/.test(normalizado) &&
+    /\d/.test(normalizado);
   const pideConfirmar =
     /\bconfirm(?:a|ame|as|amos)\b/.test(normalizado) ||
     /\b(?:lo mando|lo mandamos|lo envio|lo enviamos|queda asi|esta todo bien)\b/.test(normalizado);
@@ -89,6 +105,19 @@ function exigirConfirmacionPedido(contexto = {}) {
 }
 
 const HERRAMIENTAS_BASE = [
+  {
+    nombre: 'preparar_confirmacion',
+    descripcion:
+      'Genera el resumen exacto listo para enviar al cliente. Usar antes de pedir confirmación; termina este turno.',
+    parametros: schemaVacio,
+    permiso: 'WRITE_CART',
+    escribe: true,
+    ejecutar: (_args, contexto = {}) =>
+      require('./confirmacionWhatsapp').preparar(
+        contexto.db || defaultDb,
+        telefonoSeguro({}, contexto)
+      ),
+  },
   {
     nombre: 'consultar_estado',
     descripcion: 'Consulta negocio, turno y horarios vigentes.',
@@ -200,8 +229,8 @@ const HERRAMIENTAS_BASE = [
       properties: {
         producto_id: { type: 'integer' },
         cantidad: { type: 'integer' },
-        variantes: { type: 'object' },
-        extras: { type: 'array' },
+        variantes: schemaVariantes,
+        extras: schemaExtras,
         notas: { type: 'string' },
       },
       required: ['producto_id'],
@@ -238,8 +267,8 @@ const HERRAMIENTAS_BASE = [
       properties: {
         itemId: { type: 'integer' },
         cantidad: { type: 'integer' },
-        variantes: { type: 'object' },
-        extras: { type: 'array' },
+        variantes: schemaVariantes,
+        extras: schemaExtras,
         notas: { type: 'string' },
       },
       required: ['itemId'],
@@ -294,6 +323,16 @@ const HERRAMIENTAS_BASE = [
     escribe: true,
     ejecutar: (_args, contexto = {}) => {
       exigirConfirmacionPedido(contexto);
+      if (
+        contexto.confirmacionSegura &&
+        crearCarritoWhatsapp(contexto.db || defaultDb).verCarrito(telefonoSeguro({}, contexto))
+          .abierto
+      ) {
+        require('./confirmacionWhatsapp').validar(
+          contexto.db || defaultDb,
+          telefonoSeguro({}, contexto)
+        );
+      }
       return crearCarritoWhatsapp(contexto.db || defaultDb).confirmarCarrito(
         telefonoSeguro({}, contexto),
         { whatsappMessageId: contexto.mensajeId },
@@ -346,6 +385,12 @@ function catalogoParaPerfil(perfil, contexto = {}) {
 }
 
 async function ejecutarRegistrada(nombre, args, contexto = {}, perfil = 'cliente') {
+  if (['agregar_item', 'modificar_item'].includes(nombre) && Array.isArray(args?.variantes)) {
+    args = {
+      ...args,
+      variantes: Object.fromEntries(args.variantes.map((opcion) => [opcion.grupo, opcion.nombre])),
+    };
+  }
   const herramienta = herramientasParaPerfil(perfil, contexto).find(
     (item) => item.nombre === nombre
   );

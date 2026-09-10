@@ -1593,6 +1593,7 @@ async function createRealOrder(db, body = {}, dependencias = {}) {
   const crearPedido = dependencias.createPedidoWithInventory || createPedidoWithInventory;
   const hidratar = dependencias.hydratePedido || hydratePedido;
   const payload = await construirPayload(normalizedBody, { config: getConfigMap(db) });
+  dependencias.assertControl?.();
   const pedido = crearPedido({
     ...payload,
     pago_estado: resolveInitialPagoEstado({

@@ -12,11 +12,13 @@ const {
   getMenuDiaToday,
   cleanText,
 } = require('../utils/systemClient');
-const { emitAtencionHumana } = require('../utils/socketRooms');
+const { emitAtencionHumana, emitNuevoPedido } = require('../utils/socketRooms');
 const { transcribeWhatsappAudio } = require('./whatsappAudioTranscription');
 const { buildAgentTraining } = require('./whatsappAgentTraining');
 const { atenderConMotorPropio, elegirMotorWhatsapp } = require('./agenteWhatsapp');
 const { crearAgrupadorMensajes } = require('./agruparMensajes');
+const { crearControl } = require('./controlWhatsapp');
+const { marcarEnviada } = require('./confirmacionWhatsapp');
 const { registrarRespuesta } = require('./whatsappMasivo/motor');
 const { deJid } = require('./whatsappMasivo/telefono');
 const { conexion } = require('./whatsappMasivo/conexion');
@@ -237,7 +239,6 @@ function syncCustomerFromWhatsapp(telefono, whatsappName = '', nombreDeclarado =
     return existing;
   }
   const nombreNuevo = explicitName || visibleName;
-  if (!nombreNuevo) return null;
   const result = db
     .prepare("INSERT INTO clientes (nombre, telefono, direccion, notas) VALUES (?, ?, '', ?)")
     .run(nombreNuevo, telefono, 'Alta automática desde WhatsApp');
@@ -272,6 +273,13 @@ function normalizeIntentText(value) {
 
 function shouldAnswerMenuDayDirectly(text, recentHistory = '') {
   const current = normalizeIntentText(text);
+  if (
+    /\b(?:envio|direccion|demora|tarda|falta|mi pedido|transferencia|pago|cancelar|reclamo)\b/.test(
+      current
+    )
+  ) {
+    return false;
+  }
   const history = normalizeIntentText(recentHistory);
   const asksGeneralMenu =
     /\b(?:q|que|cual|cuales|lista|mostrar|mostrame|ver)\b.*\bmenu\b/.test(current) ||
@@ -401,15 +409,16 @@ async function sendCarta(jid, conversation, telefono) {
 function saveMessage(conversationId, telefono, direction, type, content, payload = {}) {
   db.prepare(
     `INSERT INTO whatsapp_mensajes
-       (conversacion_id, telefono, direccion, tipo, contenido, payload)
-     VALUES (?, ?, ?, ?, ?, ?)`
+       (conversacion_id, telefono, direccion, tipo, contenido, payload, whatsapp_message_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
   ).run(
     conversationId,
     telefono,
     direction,
     type,
     String(content || '').slice(0, 8000),
-    JSON.stringify(payload)
+    JSON.stringify(payload),
+    String(payload.whatsapp_id || '')
   );
 }
 
@@ -463,9 +472,15 @@ function claimsOrderWasCreated(output) {
     .toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '');
-  return /(pedido (?:fue |ha sido )?(?:cargado|creado|tomado|confirmado)|pedido esta en camino|listo.{0,30}pedido|sale en \d+)/i.test(
-    normalized
-  );
+  return normalized
+    .split(/[.!?\n]+/)
+    .some(
+      (frase) =>
+        !/\b(?:no|todavia no|aun no|sin|cuando|si confirmas)\b/.test(frase) &&
+        /(?:pedido (?:fue |ha sido |esta |quedo )?(?:cargado|creado|tomado|confirmado|en camino)|ya lo pase a cocina|listo.{0,30}pedido|sale en \d+)/i.test(
+          frase
+        )
+    );
 }
 
 function usesExternalAgentCatalog() {
@@ -516,6 +531,16 @@ function createdWhatsappOrderAfter(telefono, previousOrderId) {
 }
 
 async function handleIncoming(message) {
+  if (message.mensajesOriginales) {
+    const originales = message.mensajesOriginales.filter(
+      (item) =>
+        !db
+          .prepare('SELECT 1 FROM whatsapp_mensajes WHERE whatsapp_message_id = ?')
+          .get(String(item.key?.id || ''))
+    );
+    if (!originales.length) return;
+    message = combinarMensajes(originales);
+  }
   const jid = String(message?.key?.remoteJid || '');
   // WhatsApp hoy suele entregar el chat como @lid y el teléfono real en
   // remoteJidAlt. Guardar el LID como teléfono rompe el historial y la ficha
@@ -523,12 +548,14 @@ async function handleIncoming(message) {
   const telefono = phoneFromMessage(message);
   const id = String(message?.key?.id || '');
   if (!telefono || !id || seen.has(id)) return;
+  if (db.prepare('SELECT 1 FROM whatsapp_mensajes WHERE whatsapp_message_id = ?').get(id)) return;
   seen.add(id);
   if (seen.size > 2000) seen.delete(seen.values().next().value);
 
   const text = textFromMessage(message);
   const type = typeFromMessage(message);
-  let usableText = text;
+  const requiereRevision = ['imagen', 'video', 'documento'].includes(type);
+  let usableText = text || (requiereRevision ? `[${type} recibido: requiere revisión humana]` : '');
   let transcriptionError = null;
   if (!usableText && type === 'audio') {
     try {
@@ -545,21 +572,20 @@ async function handleIncoming(message) {
   const customer = syncCustomerFromWhatsapp(telefono, message?.pushName || '', nombreDeclarado);
   const knownName = customer?.nombre || message?.pushName || '';
   const conversation = upsertConversation(telefono, knownName);
-  if (direction === 'entrante') {
-    const duplicate = db
-      .prepare(
-        `SELECT id FROM whatsapp_mensajes
-          WHERE telefono = ? AND direccion = 'entrante' AND contenido = ?
-            AND datetime(creado_en) >= datetime('now', '-4 seconds')
-          ORDER BY id DESC LIMIT 1`
-      )
-      .get(telefono, usableText);
-    if (duplicate) return;
+  const originales = message.mensajesOriginales || [message];
+  for (const original of originales) {
+    saveMessage(
+      conversation.id,
+      telefono,
+      direction,
+      type,
+      message.mensajesOriginales ? textFromMessage(original) : usableText,
+      {
+        whatsapp_id: String(original.key.id),
+        transcripto: type === 'audio' && !transcriptionError,
+      }
+    );
   }
-  saveMessage(conversation.id, telefono, direction, type, usableText, {
-    whatsapp_id: id,
-    transcripto: type === 'audio' && !transcriptionError,
-  });
 
   if (message?.key?.fromMe && !message.enviadoPorSistema) {
     // Cuando alguien responde desde el teléfono, la IA se retira de ese chat.
@@ -581,6 +607,20 @@ async function handleIncoming(message) {
   const config = gatewayConfig();
   if (config.pausaTotal || !config.atencionIa || conversation.pausa_humana) return;
 
+  if (requiereRevision) {
+    db.prepare(
+      `UPDATE whatsapp_conversaciones SET bot_silenciado = 1, escalado_humano = 1,
+      bot_silenciado_hasta = NULL, ultimo_estado = 'esperando_humano',
+      ultimo_contexto = ?, actualizado_en = CURRENT_TIMESTAMP WHERE id = ?`
+    ).run(`Revisar ${type} en el WhatsApp del local`, conversation.id);
+    pedirUnaPersona(conversation, telefono, `Revisar ${type} en el WhatsApp del local`);
+    const respuesta =
+      'Recibí tu archivo. Una persona del local tiene que revisarlo; si es un comprobante, el pago todavía está pendiente de verificación.';
+    await conexion.enviarTexto(jid, respuesta);
+    saveMessage(conversation.id, telefono, 'saliente', 'texto', respuesta, { origen: 'sistema' });
+    return;
+  }
+
   if (transcriptionError) {
     const fallback =
       'No pude escuchar bien ese audio. ¿Me lo escribís en un mensaje así tomo el pedido?';
@@ -599,6 +639,8 @@ async function handleIncoming(message) {
   // de haber creado un pedido. Sólo el segundo caso necesita intervención
   // humana para evitar que un reintento duplique la venta.
   const previousOrder = getLastOrderByPhone(db, telefono);
+  const control = crearControl(db, telefono);
+  let pedidoConsultado = null;
 
   try {
     await conexion.enviarPresencia(jid, 'composing');
@@ -646,7 +688,7 @@ async function handleIncoming(message) {
       ultimaActividad = `Menú del día informado a ${telefono}`;
       return;
     }
-    const externalCatalog = usesExternalAgentCatalog();
+    const externalCatalog = !config.motorPropio && usesExternalAgentCatalog();
     // Es deliberadamente no bloqueante: si la consulta externa no está
     // disponible, el flujo conserva las validaciones locales y n8n devolverá
     // su propio error al intentar crear un pedido.
@@ -720,7 +762,21 @@ async function handleIncoming(message) {
       usarMotorPropio: config.motorPropio,
       payload: agentPayload,
       llamarN8n,
-      llamarMotor: atenderConMotorPropio,
+      llamarMotor: (payload) =>
+        atenderConMotorPropio(payload, {
+          assertControl: control.assertControl,
+          dependenciasPedido: { assertControl: control.assertControl },
+          onPedidoConsultado: (resultado) => {
+            if (resultado?.encontrado && resultado?.pedido) pedidoConsultado = resultado.pedido;
+          },
+          onHandoff: (motivo) => {
+            control.aceptarDerivacion();
+            pedirUnaPersona(conversation, telefono, motivo);
+          },
+          onPedidoCreado: (pedido) => {
+            if (socketDelPanel) emitNuevoPedido(socketDelPanel, pedido);
+          },
+        }),
     });
 
     const createdOrder = createdWhatsappOrderAfter(telefono, previousOrder?.id);
@@ -769,7 +825,13 @@ async function handleIncoming(message) {
       una persona. Molesta, pero no deja a nadie esperando una comida que
       nadie está cocinando.
     */
-    if (claimsOrderWasCreated(output) && !createdOrder && !createdExternalOrder) {
+    control.assertControl();
+    if (
+      claimsOrderWasCreated(output) &&
+      !createdOrder &&
+      !createdExternalOrder &&
+      !pedidoConsultado
+    ) {
       // La frase del modelo no es evidencia: el pedido debe existir realmente.
       // Si no existe, nunca se confirma al cliente y se entrega el chat a una
       // persona para evitar pérdida de ventas o preparación fantasma.
@@ -793,6 +855,7 @@ async function handleIncoming(message) {
       logger.error('WhatsApp Gateway: confirmacion de pedido bloqueada', { telefono });
     }
     await conexion.enviarTexto(jid, output);
+    marcarEnviada(db, telefono, output);
     await conexion.enviarPresencia(jid, 'paused');
     saveMessage(conversation.id, telefono, 'saliente', 'texto', output, { origen: 'ia' });
     db.prepare(
@@ -804,6 +867,12 @@ async function handleIncoming(message) {
     ultimoError = integrityError;
     ultimaActividad = `IA respondio a ${telefono}`;
   } catch (error) {
+    if (error?.code === 'WHATSAPP_CONTROL_CHANGED') return;
+    try {
+      control.assertControl();
+    } catch {
+      return;
+    }
     ultimoError = error.message;
     ultimaActividad = `Error atendiendo a ${telefono}`;
     logger.error('WhatsApp Gateway: fallo la atencion IA', { message: error.message, telefono });
@@ -884,6 +953,7 @@ function serializeByKey(key, task) {
 }
 
 function combinarMensajes(mensajes) {
+  mensajes = [...new Map(mensajes.map((item) => [item.key?.id, item])).values()];
   const ultimo = mensajes[mensajes.length - 1];
   const texto = mensajes.map(textFromMessage).filter(Boolean).join('\n');
   const ids = mensajes.map((item) => String(item?.key?.id || '')).filter(Boolean);
@@ -892,6 +962,7 @@ function combinarMensajes(mensajes) {
     key: { ...ultimo.key, id: ids.join('+').slice(0, 240) },
     message: { conversation: texto },
     mensajesAgrupados: ids,
+    mensajesOriginales: mensajes,
   };
 }
 
@@ -907,6 +978,11 @@ const agrupadorMotorPropio = crearAgrupadorMensajes({
 
 function enqueueIncoming(message) {
   const key = phoneFromMessage(message) || String(message?.key?.remoteJid || 'desconocido');
+  if (message?.key?.fromMe && !message.enviadoPorSistema) {
+    db.prepare(
+      "UPDATE whatsapp_conversaciones SET bot_silenciado = 1, escalado_humano = 1, bot_silenciado_hasta = datetime('now', '+30 minutes') WHERE telefono = ?"
+    ).run(key);
+  }
   const config = gatewayConfig();
   const agrupar =
     config.motorPropio &&

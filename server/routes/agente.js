@@ -8,7 +8,7 @@ const { getConfigMap } = require('../utils/mercadoPago');
 const { getCurrentShiftInfo } = require('../utils/shifts');
 const { buildAgentTraining } = require('../services/whatsappAgentTraining');
 const { logAudit } = require('../utils/audit');
-const { emitNuevoPedido } = require('../utils/socketRooms');
+const { emitNuevoPedido, emitAtencionHumana } = require('../utils/socketRooms');
 const logger = require('../utils/logger');
 const {
   getMenuOverview,
@@ -247,6 +247,18 @@ router.post('/derivar', (req, res) => {
       actor_nombre: 'Agente WhatsApp',
       detalle: { telefono, motivo },
     });
+    const io = req.app.get('io');
+    const conversacion = db
+      .prepare('SELECT id, nombre FROM whatsapp_conversaciones WHERE telefono = ?')
+      .get(telefono);
+    if (io) {
+      emitAtencionHumana(io, {
+        telefono,
+        motivo,
+        conversacionId: conversacion.id,
+        nombre: conversacion.nombre,
+      });
+    }
     res.json({ ok: true, estado: 'esperando_humano' });
   } catch (error) {
     res.status(error.statusCode || 500).json({ error: error.message });
@@ -281,6 +293,13 @@ router.post('/pedido', async (req, res) => {
     }
 
     const items = Array.isArray(payload?.items) ? payload.items : [];
+    {
+      const telefono = resolveConversationPhone(req);
+      if (comparableAgentPhone(payload?.cliente_telefono) !== comparableAgentPhone(telefono)) {
+        return res.status(403).json({ error: 'El pedido no pertenece a esta conversación' });
+      }
+      payload.cliente_telefono = telefono;
+    }
     if (!items.length) {
       return res.status(400).json({ error: 'El pedido necesita al menos un item' });
     }

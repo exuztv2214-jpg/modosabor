@@ -142,14 +142,16 @@ function run() {
   // La prueba válida es una sola: haberlo encontrado en la base local o en la
   // remota. Si ninguna lo encuentra, no se confirma.
   assert.ok(
-    /claimsOrderWasCreated\(output\) && !createdOrder && !createdExternalOrder/.test(gateway),
+    /claimsOrderWasCreated\(output\)\s*&&\s*!createdOrder\s*&&\s*!createdExternalOrder\s*&&\s*!pedidoConsultado/.test(
+      gateway
+    ),
     'cambió la condición que bloquea la confirmación: revisá que siga exigiendo el pedido real'
   );
   console.log('  ✓ sólo se confirma si el pedido apareció de verdad');
 
   // Y que al bloquear se le pase el chat a una persona, o el cliente queda
   // esperando una respuesta que no llega.
-  const bloque = gateway.slice(gateway.indexOf('claimsOrderWasCreated(output) && !createdOrder'));
+  const bloque = gateway.slice(gateway.search(/if\s*\(\s*claimsOrderWasCreated\(output\)/));
   assert.ok(
     /escalado_humano = 1/.test(bloque.slice(0, 900)),
     'se bloquea la confirmación pero no se avisa a nadie del local'

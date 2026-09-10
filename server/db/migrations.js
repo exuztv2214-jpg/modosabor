@@ -476,6 +476,11 @@ function runMigrations(db) {
   ensureColumn(db, 'whatsapp_pedidos_borrador', 'marketing_campaign', "TEXT DEFAULT ''");
   ensureColumn(db, 'whatsapp_pedidos_borrador', 'marketing_content', "TEXT DEFAULT ''");
   ensureColumn(db, 'whatsapp_conversaciones', 'bot_silenciado', 'INTEGER DEFAULT 0');
+  ensureColumn(db, 'whatsapp_conversaciones', 'control_version', 'INTEGER DEFAULT 0');
+  db.exec(`CREATE TRIGGER IF NOT EXISTS whatsapp_control_version
+    AFTER UPDATE OF bot_silenciado ON whatsapp_conversaciones BEGIN
+      UPDATE whatsapp_conversaciones SET control_version = COALESCE(control_version, 0) + 1 WHERE id = NEW.id;
+    END`);
   ensureColumn(db, 'whatsapp_conversaciones', 'bot_silenciado_hasta', 'DATETIME');
   ensureColumn(db, 'whatsapp_conversaciones', 'resumen_texto', "TEXT DEFAULT ''");
   ensureColumn(db, 'whatsapp_conversaciones', 'resumen_hasta_mensaje_id', 'INTEGER DEFAULT 0');

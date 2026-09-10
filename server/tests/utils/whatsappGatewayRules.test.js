@@ -41,6 +41,9 @@ function run() {
     true
   );
   assert.strictEqual(shouldAnswerMenuDayDirectly('Quiero un canelón'), false);
+  for (const pregunta of ['cuánto sale el envío', 'cuánto falta para mi pedido']) {
+    assert.strictEqual(shouldAnswerMenuDayDirectly(pregunta, 'Te paso el menú del día'), false);
+  }
   assert.strictEqual(requestedMenuDayKind('precio de los económicos'), 'economico');
   assert.strictEqual(requestedMenuDayKind('precio ejecutivo'), 'ejecutivo');
   assert.strictEqual(
@@ -89,6 +92,9 @@ function run() {
   assert.strictEqual(usableWhatsappName('+5493863000000'), '');
   assert.strictEqual(claimsOrderWasCreated('¡Listo! Pedido cargado con éxito.'), true);
   assert.strictEqual(claimsOrderWasCreated('¿Confirmás así el pedido?'), false);
+  assert.strictEqual(claimsOrderWasCreated('Tu pedido está confirmado'), true);
+  assert.strictEqual(claimsOrderWasCreated('Ya lo pasé a cocina'), true);
+  assert.strictEqual(claimsOrderWasCreated('Tu pedido no está confirmado'), false);
   const previousNodeEnv = process.env.NODE_ENV;
   process.env.NODE_ENV = 'production';
   assert.strictEqual(

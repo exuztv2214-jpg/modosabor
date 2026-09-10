@@ -34,6 +34,7 @@ async function ejecutarAgente({
       try {
         resultado = await ejecutar(llamada.nombre, llamada.argumentos);
       } catch (cause) {
+        if (cause?.code === 'WHATSAPP_CONTROL_CHANGED') throw cause;
         error = cause;
         resultado = { error: String(cause?.message || cause) };
       }

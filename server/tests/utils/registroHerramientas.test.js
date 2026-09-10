@@ -16,12 +16,24 @@ assert.throws(
   () => telefonoSeguro({ telefono: '3815551111' }, { telefono: '3815552222' }),
   /otro cliente/
 );
-for (const confirmacion of ['sí', 'Si por fa', 'confirmo', 'dale', 'ok', 'de una', 'mandalo']) {
+for (const confirmacion of [
+  'sí',
+  'sí dale',
+  'confirmar',
+  'confirmalo',
+  'Si por fa',
+  'confirmo',
+  'dale',
+  'ok',
+  'de una',
+  'mandalo',
+]) {
   assert.strictEqual(esConfirmacionNatural(confirmacion), true, confirmacion);
 }
 for (const respuestaAmbigua of ['sí, pero sin cebolla', 'quiero una Pepsi', 'no', 'cuánto tarda']) {
   assert.strictEqual(esConfirmacionNatural(respuestaAmbigua), false, respuestaAmbigua);
 }
+assert.strictEqual(pidioConfirmacionExplicita('¿Confirmás la dirección?'), false);
 assert.strictEqual(
   pidioConfirmacionExplicita(
     'Resumen del pedido: milanesa y Pepsi. Total $16.500. ¿Confirmás el pedido?'

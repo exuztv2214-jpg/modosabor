@@ -178,6 +178,7 @@ router.post('/emergencia/probar', async (_req, res) => {
 
 router.get('/conversaciones', (req, res) => {
   const limite = Math.min(Math.max(Number(req.query.limite) || 30, 1), 100);
+  const offset = Math.max(0, Math.floor(Number(req.query.offset) || 0));
   const items = db
     .prepare(
       `SELECT c.*,
@@ -190,11 +191,14 @@ router.get('/conversaciones', (req, res) => {
                   LIKE '%' || REPLACE(REPLACE(REPLACE(c.telefono, ' ', ''), '+', ''), '-', '')
                   AND p.origen = 'whatsapp') AS pedidos_creados
          FROM whatsapp_conversaciones c
-        ORDER BY datetime(c.ultimo_mensaje_en) DESC, c.id DESC
-        LIMIT ?`
+        ORDER BY CASE WHEN c.escalado_humano = 1 AND c.bot_silenciado = 1
+          AND (c.bot_silenciado_hasta IS NULL OR c.bot_silenciado_hasta > CURRENT_TIMESTAMP) THEN 0 ELSE 1 END,
+          datetime(c.ultimo_mensaje_en) DESC, c.id DESC
+        LIMIT ? OFFSET ?`
     )
-    .all(limite);
-  res.json({ items });
+    .all(limite, offset);
+  const total = db.prepare('SELECT COUNT(*) total FROM whatsapp_conversaciones').get().total;
+  res.json({ items, total });
 });
 
 router.get('/conversaciones/:id/mensajes', (req, res) => {

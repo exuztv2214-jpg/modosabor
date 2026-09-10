@@ -89,6 +89,33 @@ function run() {
           'un audio mudo no puede pasar como transcripción vacía'
         );
         console.log('  ✓ un audio sin voz falla en vez de devolver vacío');
+        global.fetch = async () => ({
+          ok: true,
+          json: async () => ({
+            candidates: [
+              { finishReason: 'MAX_TOKENS', content: { parts: [{ text: 'Quiero dos' }] } },
+            ],
+          }),
+        });
+        await assert.rejects(() => transcribirConGemini(audio, 'audio/ogg', config), /incompleta/);
+        global.fetch = async () => ({
+          ok: true,
+          json: async () => ({
+            candidates: [
+              {
+                finishReason: 'STOP',
+                content: {
+                  parts: [
+                    { text: 'Pensamiento', thought: true },
+                    { text: 'dos ' },
+                    { text: 'milanesas' },
+                  ],
+                },
+              },
+            ],
+          }),
+        });
+        assert.strictEqual(await transcribirConGemini(audio, 'audio/ogg', config), 'dos milanesas');
 
         /* ── 3. Sin clave ────────────────────────────────────────────── */
         let salio = false;

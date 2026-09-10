@@ -30,7 +30,7 @@ const { desencriptar } = require('../utils/encryptConfig');
  */
 
 const MODELO_POR_DEFECTO = 'gemini-3.6-flash';
-const TIMEOUT_MS = 45000;
+const TIMEOUT_MS = 20000;
 
 /*
   El apunte que se le da al modelo. Sin esto transcribe "cuánto cuesta el
@@ -48,6 +48,7 @@ const CONTEXTO =
 const INSTRUCCION =
   'Transcribí este audio literalmente, en español. ' +
   'Devolvé únicamente el texto dicho, sin comillas, sin explicaciones y sin agregar nada. ' +
+  'Conservá cantidades, negaciones y correcciones. Si un fragmento es dudoso escribí [inaudible] sin completarlo por contexto. ' +
   'Si no se entiende ninguna palabra, devolvé exactamente: SIN_VOZ';
 
 function claveGemini(config = {}) {
@@ -111,7 +112,15 @@ async function transcribirConGemini(buffer, mimeType = 'audio/ogg', config = {})
     }
 
     const datos = await respuesta.json();
-    const texto = String(datos?.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
+    const candidate = datos?.candidates?.[0];
+    if (candidate?.finishReason && candidate.finishReason !== 'STOP') {
+      throw new Error('La transcripción quedó incompleta; no se puede tomar el pedido');
+    }
+    const texto = (candidate?.content?.parts || [])
+      .filter((part) => !part.thought && typeof part.text === 'string')
+      .map((part) => part.text)
+      .join('')
+      .trim();
 
     if (!texto || texto === 'SIN_VOZ') throw new Error('No se detectó voz en el audio');
 
