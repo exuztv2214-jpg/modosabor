@@ -148,6 +148,38 @@ async function run() {
     assert.strictEqual(respuestaRespaldo, 'Hola desde el respaldo');
     assert.strictEqual(principal, 1);
     assert.strictEqual(respaldo, 1);
+    db.prepare('INSERT INTO configuracion (clave, valor) VALUES (?, ?)').run(
+      'whatsapp_ia_priorizar_respaldo',
+      '1'
+    );
+    for (const falla of [false, true]) {
+      let principalUsado = 0;
+      let preferidoUsado = 0;
+      await atenderConMotorPropio(
+        { telefono: '5493811111111', texto: 'hola' },
+        {
+          db,
+          memoria: { obtenerContexto: async () => ({ mensajes: [] }) },
+          obtenerRespaldo: () => ({ id: 'preferido' }),
+          conversarRespaldo: async () => {
+            preferidoUsado += 1;
+            if (falla) throw new Error('proveedor temporalmente caído');
+            return { texto: 'Preferido', llamadas: [] };
+          },
+          conversarPrincipal: async () => {
+            principalUsado += 1;
+            return { texto: 'Principal', llamadas: [] };
+          },
+          ejecutarAgente: async ({ _conversar }) => {
+            await _conversar({ mensajes: [] });
+            return { respuesta: await _conversar({ mensajes: [] }) };
+          },
+        }
+      );
+      assert.strictEqual(principalUsado, falla ? 2 : 0);
+      assert.strictEqual(preferidoUsado, falla ? 1 : 2);
+    }
+    db.prepare('DELETE FROM configuracion WHERE clave = ?').run('whatsapp_ia_priorizar_respaldo');
     assert.strictEqual(proveedorRespaldoWhatsapp({ whatsapp_emergencia_activa: '1' }), null);
     const gemini = proveedorRespaldoWhatsapp({
       whatsapp_emergencia_activa: '1',

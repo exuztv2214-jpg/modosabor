@@ -166,8 +166,22 @@ async function atenderConMotorPropio(payload, dependencias = {}) {
   const obtenerRespaldo = dependencias.obtenerRespaldo || proveedorRespaldoWhatsapp;
   const resolverRespaldo = dependencias.conversarRespaldo || conversarConProveedor;
   const respaldo = obtenerRespaldo(config);
+  const priorizarRespaldo =
+    respaldo && String(config.whatsapp_ia_priorizar_respaldo || '0') === '1';
+  let volverAlPrincipal = false;
   let usandoRespaldo = false;
   const conversarConRespaldo = async (opciones) => {
+    if (priorizarRespaldo) {
+      if (volverAlPrincipal) return resolverPrincipal(opciones);
+      try {
+        return await resolverRespaldo({ ...opciones, proveedor: respaldo });
+      } catch {
+        // Mantener el proveedor global intacto y evitar insistir con el caído
+        // en cada ronda de herramientas de esta misma respuesta.
+        volverAlPrincipal = true;
+        return resolverPrincipal(opciones);
+      }
+    }
     if (usandoRespaldo) return resolverRespaldo({ ...opciones, proveedor: respaldo });
     try {
       return await resolverPrincipal(opciones);

@@ -15,6 +15,13 @@ async function run() {
     'ia_base_url',
     'gemini_api_key',
     'transcripcion_modelo',
+    'ia_fallback_activo',
+    'whatsapp_emergencia_activa',
+    'whatsapp_emergencia_proveedor',
+    'whatsapp_emergencia_base_url',
+    'whatsapp_emergencia_modelo',
+    'whatsapp_emergencia_api_key',
+    'whatsapp_ia_priorizar_respaldo',
   ];
   const config = keys.map((clave) => ({
     clave,
@@ -34,7 +41,7 @@ async function run() {
   global.fetch = (url, opts = {}) =>
     originalFetch(url, {
       ...opts,
-      signal: AbortSignal.any([AbortSignal.timeout(20000), ...(opts.signal ? [opts.signal] : [])]),
+      signal: AbortSignal.any([AbortSignal.timeout(30000), ...(opts.signal ? [opts.signal] : [])]),
     });
   try {
     const guardar = db.prepare(
@@ -55,8 +62,11 @@ async function run() {
           'gemini-3.6-flash'
       );
     }
-    guardar.run('ia_fallback_activo', '0');
-    guardar.run('whatsapp_emergencia_activa', '0');
+    if (!process.argv.includes('--config-real')) {
+      guardar.run('ia_fallback_activo', '0');
+      guardar.run('whatsapp_emergencia_activa', '0');
+      guardar.run('whatsapp_ia_priorizar_respaldo', '0');
+    }
     const telefono = '5493815550987';
     db.prepare('INSERT INTO whatsapp_conversaciones (telefono, nombre) VALUES (?, ?)').run(
       telefono,

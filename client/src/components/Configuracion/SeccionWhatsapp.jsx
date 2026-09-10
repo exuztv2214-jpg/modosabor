@@ -379,8 +379,8 @@ export default function SeccionWhatsapp({ config, setConfig }) {
 
       <SectionCard
         icon={ShieldCheck}
-        title="IA de emergencia"
-        subtitle="Responde si el proveedor principal está caído, lento o sin cuota"
+        title="Proveedor de IA para WhatsApp"
+        subtitle="Puede actuar como respaldo o atender primero sin cambiar la IA del panel"
       >
         <Switch
           checked={String(config?.whatsapp_emergencia_activa ?? '0') === '1'}
@@ -389,6 +389,15 @@ export default function SeccionWhatsapp({ config, setConfig }) {
           description="Si Chispita no obtiene respuesta del proveedor principal, intenta esta API una sola vez."
           icon={ShieldCheck}
           onChange={(value) => editar('whatsapp_emergencia_activa', value ? '1' : '0')}
+        />
+
+        <Switch
+          checked={String(config?.whatsapp_ia_priorizar_respaldo ?? '0') === '1'}
+          disabled={ocupado || String(config?.whatsapp_emergencia_activa ?? '0') !== '1'}
+          label="Priorizar este proveedor en WhatsApp"
+          description="Atiende primero con esta API. Si falla, utiliza la IA principal del sistema. Requiere el respaldo automático activado."
+          icon={ShieldCheck}
+          onChange={(value) => editar('whatsapp_ia_priorizar_respaldo', value ? '1' : '0')}
         />
 
         <div className="mt-4 grid gap-4 lg:grid-cols-2">

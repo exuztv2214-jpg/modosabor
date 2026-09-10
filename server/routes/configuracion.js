@@ -347,6 +347,11 @@ function normalizeConfigUpdates(rawUpdates = {}) {
       String(updates.whatsapp_emergencia_activa) === '1' ? '1' : '0';
   }
 
+  if (updates.whatsapp_ia_priorizar_respaldo !== undefined) {
+    updates.whatsapp_ia_priorizar_respaldo =
+      String(updates.whatsapp_ia_priorizar_respaldo) === '1' ? '1' : '0';
+  }
+
   if (updates.whatsapp_emergencia_base_url !== undefined) {
     const url = String(updates.whatsapp_emergencia_base_url || '')
       .trim()
