@@ -112,8 +112,11 @@ async function run() {
       ).run();
       const { conexion } = require('../services/whatsappMasivo/conexion');
       const { enqueueIncoming } = require('../services/whatsappGateway');
-      conexion.enviarTexto = async (_jid, texto) =>
+      const respuestasVenta = [];
+      conexion.enviarTexto = async (_jid, texto) => {
+        respuestasVenta.push(texto);
         console.log(JSON.stringify({ respuestaVenta: texto }));
+      };
       conexion.enviarPresencia = async () => {};
       const telefonoVenta = '5493815550988';
       for (const [i, texto] of [
@@ -132,6 +135,10 @@ async function run() {
         .all(telefonoVenta);
       const ok = Boolean(
         cliente &&
+        respuestasVenta.length === 3 &&
+        /Resumen del pedido/.test(respuestasVenta[0]) &&
+        /Pedido #\d+ confirmado/.test(respuestasVenta[1]) &&
+        /Tu pedido #\d+ está/.test(respuestasVenta[2]) &&
         pedidos.length === 1 &&
         pedidos[0].cliente_id === cliente.id &&
         pedidos[0].total === 500000 &&

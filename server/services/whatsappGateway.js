@@ -877,32 +877,6 @@ async function handleIncoming(message) {
     ultimaActividad = `Error atendiendo a ${telefono}`;
     logger.error('WhatsApp Gateway: fallo la atencion IA', { message: error.message, telefono });
     const orderCreatedDuringFailure = createdWhatsappOrderAfter(telefono, previousOrder?.id);
-    const transientProviderError =
-      /\b(?:429|500|502|503|504)\b|high demand|service unavailable|timeout/i.test(
-        String(error.message || '')
-      );
-
-    if (!orderCreatedDuringFailure) {
-      const fallback = transientProviderError
-        ? 'Estoy con mucha demora ahora. Mandame el mensaje otra vez en un momento y seguimos desde donde quedamos.'
-        : 'Tuve un problema para responder ahora. Mandame el mensaje otra vez y seguimos; no se perdió ningún pedido.';
-      try {
-        await conexion.enviarPresencia(jid, 'paused');
-        await conexion.enviarTexto(jid, fallback);
-        saveMessage(conversation.id, telefono, 'saliente', 'texto', fallback, {
-          origen: 'sistema',
-          motivo: transientProviderError ? 'proveedor_ia_temporal' : 'error_agente_reintentable',
-        });
-        ultimaActividad = `Error recuperable de IA avisado a ${telefono}`;
-      } catch (sendError) {
-        logger.error('WhatsApp Gateway: no pudo avisar error recuperable', {
-          message: sendError.message,
-          telefono,
-        });
-      }
-      return;
-    }
-
     // Si apareció un pedido nuevo durante la llamada, el resultado es ambiguo:
     // la tool alcanzó a crearlo pero falló al devolver la respuesta. Nunca
     // reintentamos automáticamente porque duplicaría pedidos. En su lugar,
@@ -919,9 +893,16 @@ async function handleIncoming(message) {
               actualizado_en = CURRENT_TIMESTAMP
         WHERE id = ?`
     ).run(conversation.id);
-    pedirUnaPersona(conversation, telefono, `Falló la atención automática: ${error.message}`);
-    const fallback =
-      'Tuve un problema al terminar de cargarlo. Ya te atiende una persona del local para verificar el pedido.';
+    // También sin pedido creado: no dejar al cliente repitiendo mensajes
+    // contra una cuota agotada o un proveedor caído. Conservar el borrador.
+    pedirUnaPersona(
+      conversation,
+      telefono,
+      'La atención automática falló. Revisá la conversación y el borrador antes de confirmar.'
+    );
+    const fallback = orderCreatedDuringFailure
+      ? 'Hubo un problema al responder después de cargar el pedido. Le dejé un aviso a una persona del local para que lo verifique.'
+      : 'No pude completar la atención automática. Le dejé un aviso a una persona del local para que revise tu consulta.';
     try {
       await conexion.enviarPresencia(jid, 'paused');
       await conexion.enviarTexto(jid, fallback);
