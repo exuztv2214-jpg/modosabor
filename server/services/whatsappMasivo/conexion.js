@@ -131,6 +131,7 @@ class ConexionWhatsapp extends EventEmitter {
   }
 
   async conectar() {
+    if (process.env.ISOLATED_OPERATIONAL_TEST === '1') return;
     if (this.socket || this.estado === 'conectando') return this.resumen();
 
     this.cerradoAProposito = false;

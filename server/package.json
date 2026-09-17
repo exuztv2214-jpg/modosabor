@@ -11,6 +11,7 @@
     "verify:mozo": "node scripts/verify-isolated.js scripts/verify-mozo.js",
     "verify:operacion": "node scripts/verify-isolated.js scripts/verify-operacion.js",
     "verify:whatsapp": "node scripts/verify-isolated.js scripts/verify-whatsapp-agent.js",
+    "verify:whatsapp-attention": "node scripts/verify-isolated.js scripts/verify-whatsapp-attention.js",
     "verify:asistente": "node scripts/verify-isolated.js tests/utils/asistente.test.js",
     "verify:backup": "node scripts/verify-backup-restore.js",
     "lint": "eslint .",
@@ -42,7 +43,8 @@
     "eslint": "^9.39.5",
     "eslint-plugin-import": "^2.32.0",
     "globals": "^15.15.0",
-    "nodemon": "^3.0.3"
+    "nodemon": "^3.0.3",
+    "socket.io-client": "4.8.3"
   },
   "overrides": {
     "body-parser": "1.20.6",

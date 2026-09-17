@@ -4,6 +4,7 @@ import {
   ArrowDown,
   ArrowUp,
   Clock,
+  Eye,
   ImageOff,
   ImagePlus,
   LayoutGrid,
@@ -20,6 +21,7 @@ import {
 import api from '../lib/api.js';
 import ActionDialog from '../components/ActionDialog.jsx';
 import { resolveAssetUrl } from '../lib/assets.js';
+import { fmtMoney } from '../lib/formatters.js';
 import { APP_BG, BRAND, STROKE } from '../lib/theme.js';
 import { Stat } from './Clientes/clientesUi.jsx';
 
@@ -124,6 +126,126 @@ function avisoVacia(categoria) {
   return Number(categoria.activo) === 1 && categoria.productos === 0;
 }
 
+function DetalleCategoria({ categoria, productos, turno, onClose, onEdit }) {
+  const dialog = useRef(null);
+  const asociados = productos.filter(
+    (producto) => String(producto.categoria_id ?? producto.categoriaId) === String(categoria.id)
+  );
+
+  useEffect(() => {
+    const element = dialog.current;
+    element.showModal();
+    return () => element.close();
+  }, []);
+
+  return (
+    <dialog
+      ref={dialog}
+      onClose={onClose}
+      aria-labelledby="detalle-categoria-titulo"
+      className="w-[calc(100%-2rem)] max-w-3xl max-h-[90vh] overflow-y-auto rounded-2xl bg-white p-0 text-gray-900 shadow-2xl backdrop:bg-slate-900/40"
+    >
+      <header className="flex items-center gap-4 border-b border-gray-100 p-5">
+        <Miniatura categoria={categoria} size="h-16 w-16" />
+        <div className="min-w-0 flex-1">
+          <p className="text-xs text-gray-500">Detalle de categoría · Solo lectura</p>
+          <h2 id="detalle-categoria-titulo" className="break-words text-xl font-semibold">
+            {categoria.nombre}
+          </h2>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Cerrar detalle"
+          className="rounded-xl p-2 hover:bg-gray-100"
+        >
+          <X size={20} />
+        </button>
+      </header>
+      <div className="space-y-5 p-5">
+        <dl className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-4">
+          <div>
+            <dt className="text-gray-500">Estado</dt>
+            <dd className="font-medium">
+              {Number(categoria.activo) === 1 ? 'Publicada' : 'Oculta'}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-gray-500">Se ve en</dt>
+            <dd className="break-words font-medium">{turno}</dd>
+          </div>
+          <div>
+            <dt className="text-gray-500">Orden en la carta</dt>
+            <dd className="font-medium">{categoria.orden ?? 0}</dd>
+          </div>
+          <div>
+            <dt className="text-gray-500">Productos</dt>
+            <dd className="font-medium">{asociados.length} en total</dd>
+          </div>
+        </dl>
+        <section aria-label="Subcategorías">
+          <h3 className="mb-2 text-sm font-semibold">Subcategorías</h3>
+          {categoria.subcategorias?.length ? (
+            <ul className="flex flex-wrap gap-2">
+              {categoria.subcategorias.map((sub, index) => (
+                <li key={sub.id ?? index} className="rounded-full bg-gray-100 px-3 py-1 text-sm">
+                  {sub.nombre}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-gray-500">Sin subcategorías.</p>
+          )}
+        </section>
+        <section aria-label="Productos de la categoría">
+          <h3 className="mb-2 text-sm font-semibold">Productos de la categoría</h3>
+          <p className="mb-3 text-xs text-gray-500">
+            Precios base. Las variantes pueden modificar el precio final.
+          </p>
+          {asociados.length === 0 ? (
+            <p className="rounded-xl bg-gray-50 p-4 text-sm text-gray-500">
+              Esta categoría todavía no tiene productos.
+            </p>
+          ) : (
+            <ul className="divide-y divide-gray-100">
+              {asociados.map((producto) => (
+                <li key={producto.id} className="flex items-center justify-between gap-3 py-3">
+                  <div className="min-w-0">
+                    <p className="break-words text-sm font-medium">{producto.nombre}</p>
+                    <p className="text-xs text-gray-500">
+                      {Number(producto.activo) === 1 ? 'Publicado' : 'Sin publicar'}
+                    </p>
+                  </div>
+                  <span className="shrink-0 text-sm font-semibold tabular-nums">
+                    {fmtMoney(producto.precio)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      </div>
+      <footer className="flex justify-end gap-2 border-t border-gray-100 p-5">
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded-xl bg-gray-100 px-4 py-2 text-sm font-semibold"
+        >
+          Cerrar
+        </button>
+        <button
+          type="button"
+          onClick={onEdit}
+          style={{ background: BRAND }}
+          className="rounded-xl px-4 py-2 text-sm font-semibold text-white"
+        >
+          Editar categoría
+        </button>
+      </footer>
+    </dialog>
+  );
+}
+
 export default function Categorias() {
   const [categorias, setCategorias] = useState([]);
   const [productos, setProductos] = useState([]);
@@ -136,6 +258,7 @@ export default function Categorias() {
   const [estadoFiltro, setEstadoFiltro] = useState('todas');
   const [sortBy, setSortBy] = useState('orden');
   const [modal, setModal] = useState(null);
+  const [detalle, setDetalle] = useState(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [imageFile, setImageFile] = useState(null);
   const [imagePreview, setImagePreview] = useState('');
@@ -721,6 +844,14 @@ export default function Categorias() {
                       </div>
                     ) : null}
 
+                    <button
+                      type="button"
+                      onClick={() => setDetalle(categoria)}
+                      aria-label={`Ver categoría ${categoria.nombre}`}
+                      className="mt-3 flex h-9 w-full items-center justify-center gap-2 rounded-xl border border-gray-200 text-[12px] font-semibold text-gray-700 hover:bg-gray-50"
+                    >
+                      <Eye size={15} strokeWidth={STROKE} /> Ver categoría
+                    </button>
                     <div className="mt-3 grid grid-cols-[1fr_auto_auto] gap-2">
                       <button
                         type="button"
@@ -859,6 +990,16 @@ export default function Categorias() {
                           <div className="flex items-center justify-end gap-0.5">
                             <button
                               type="button"
+                              onClick={() => setDetalle(categoria)}
+                              aria-label={`Ver categoría ${categoria.nombre}`}
+                              title="Ver categoría"
+                              className="flex items-center gap-1 rounded-lg p-1.5 text-gray-600 hover:bg-gray-200"
+                            >
+                              <Eye size={15} strokeWidth={STROKE} />
+                              <span className="text-xs">Ver</span>
+                            </button>
+                            <button
+                              type="button"
                               onClick={() => abrir(categoria)}
                               title="Editar"
                               className="rounded-lg p-1.5 text-gray-400 transition hover:bg-gray-200 hover:text-gray-700"
@@ -897,6 +1038,18 @@ export default function Categorias() {
       </div>
 
       {/* ── Modal ── */}
+      {detalle && (
+        <DetalleCategoria
+          categoria={detalle}
+          productos={productos}
+          turno={turnoLabel(detalle.turno_id)}
+          onClose={() => setDetalle(null)}
+          onEdit={() => {
+            setDetalle(null);
+            abrir(detalle);
+          }}
+        />
+      )}
       {modal && (
         <div
           role="presentation"

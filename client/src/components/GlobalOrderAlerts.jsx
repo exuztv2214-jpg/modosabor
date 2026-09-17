@@ -27,7 +27,7 @@ function wasCreatedRecently(value) {
 }
 
 export default function GlobalOrderAlerts() {
-  const { isAuth, token } = useAuth();
+  const { isAuth, token, user } = useAuth();
   const { config } = useAppConfig();
   const navigate = useNavigate();
   const { audioContextRef, voiceRef, fallbackAudioRef } = useOrderAlertPlayback();
@@ -166,6 +166,7 @@ export default function GlobalOrderAlerts() {
     };
 
     const announceWhatsappHumanHandoff = async (event = {}) => {
+      if (!['admin', 'caja'].includes(user?.rol)) return;
       const conversationId = event?.conversacion_id;
       const phone = String(event?.telefono || '').trim();
       const name = String(event?.nombre || '').trim();
@@ -192,7 +193,7 @@ export default function GlobalOrderAlerts() {
 
       const query = new URLSearchParams({ tab: 'whatsapp' });
       if (conversationId) query.set('conversacion', String(conversationId));
-      const destination = `/admin/configuracion?${query.toString()}`;
+      const destination = `/admin/atencion-whatsapp?${query.toString()}`;
 
       toast.custom(
         (currentToast) => (
@@ -264,7 +265,7 @@ export default function GlobalOrderAlerts() {
         socketManager.releaseAuthenticated();
       }
     };
-  }, [audioContextRef, config, fallbackAudioRef, isAuth, navigate, token, voiceRef]);
+  }, [audioContextRef, config, fallbackAudioRef, isAuth, navigate, token, voiceRef, user?.rol]);
 
   return null;
 }

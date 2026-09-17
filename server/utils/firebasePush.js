@@ -6,6 +6,7 @@ let initializationAttempted = false;
 let firebaseMessaging = null;
 
 function getMessaging() {
+  if (process.env.ISOLATED_OPERATIONAL_TEST === '1') return null;
   if (initializationAttempted) return firebaseMessaging;
   initializationAttempted = true;
 

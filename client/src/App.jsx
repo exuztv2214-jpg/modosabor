@@ -23,6 +23,7 @@ import { isMasivosSurface, isSocialSurface } from './lib/appSurface.js';
 import WebPublica from './pages/WebPublica.jsx';
 
 const Layout = lazy(() => import('./components/Layout.jsx'));
+const AtencionWhatsapp = lazy(() => import('./pages/AtencionWhatsapp.jsx'));
 const ClubFidelidad = lazy(() => import('./pages/ClubFidelidad.jsx'));
 const TerminosCondiciones = lazy(() => import('./pages/ClubFidelidad/TerminosCondiciones.jsx'));
 const PersonalClock = lazy(() => import('./pages/PersonalClock.jsx'));
@@ -242,6 +243,9 @@ export default function App() {
                       </Route>
                       <Route element={<PrivateRoute permission="pedidos.view" />}>
                         <Route path="/admin/pedidos" element={<Pedidos />} />
+                      </Route>
+                      <Route element={<PrivateRoute permission="whatsapp.attend" />}>
+                        <Route path="/admin/atencion-whatsapp" element={<AtencionWhatsapp />} />
                       </Route>
                       <Route element={<PrivateRoute permission="pedidos.edit" />}>
                         <Route path="/admin/direcciones" element={<Direcciones />} />

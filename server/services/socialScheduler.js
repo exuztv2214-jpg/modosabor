@@ -200,6 +200,7 @@ function correrAutolistas() {
 }
 
 function startSocialScheduler() {
+  if (process.env.ISOLATED_OPERATIONAL_TEST === '1') return null;
   recoverAndQueueSocialWork();
 
   const timer = setInterval(() => {

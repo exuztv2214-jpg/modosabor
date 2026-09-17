@@ -6,7 +6,7 @@ const QRCode = require('qrcode');
 const db = require('../db');
 const logger = require('../utils/logger');
 const auth = require('../middleware/auth');
-const { requirePermission } = require('../utils/permissions');
+const { requirePermission, hasPermission } = require('../utils/permissions');
 const { conexion } = require('../services/whatsappMasivo/conexion');
 const { motor, registrarRespuesta } = require('../services/whatsappMasivo/motor');
 const {
@@ -71,7 +71,10 @@ router.get('/conversaciones/esperando-persona', auth, (_req, res) => {
   res.json({ cantidad: contarConversacionesEsperandoPersona(db) });
 });
 
-router.use(auth, requirePermission('marketing.edit'));
+router.use(auth, (req, res, next) => {
+  const { permisoWhatsapp } = require('../utils/whatsappPermissions');
+  return requirePermission(permisoWhatsapp(req.method, req.path))(req, res, next);
+});
 
 router.post('/media', uploadMedia.single('archivo'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Elegí una imagen o un PDF' });
@@ -270,6 +273,12 @@ router.post('/responder', async (req, res) => {
   if (!telefono) return res.status(400).json({ error: 'Falta el teléfono' });
   if (!texto) return res.status(400).json({ error: 'Escribí algo para mandar' });
   if (texto.length > 4000) return res.status(400).json({ error: 'El mensaje es demasiado largo' });
+  if (
+    !hasPermission(req.user, 'marketing.edit') &&
+    !db.prepare('SELECT id FROM whatsapp_conversaciones WHERE telefono = ?').get(telefono)
+  ) {
+    return res.status(404).json({ error: 'La respuesta requiere una conversación existente' });
+  }
 
   if (!conexion.listo) {
     return res.status(409).json({ error: 'WhatsApp no está conectado' });

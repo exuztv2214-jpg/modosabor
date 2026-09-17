@@ -1,5 +1,5 @@
 /*
- * Ejecuta las verificaciones HTTP contra una copia temporal de la base real.
+ * Ejecuta las verificaciones HTTP con una base ficticia temporal y autónoma.
  * Los scripts de operación crean pedidos, usuarios y movimientos: hacerlo
  * contra el proceso local podía dejar residuos si el test se interrumpía.
  */
@@ -9,8 +9,7 @@ const net = require('net');
 const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
-const Database = require('better-sqlite3');
-const { dbFile } = require('../utils/storagePaths');
+const networkGuard = path.join(__dirname, 'isolated-network.js');
 
 const targetScript = String(process.argv[2] || '').trim();
 if (!targetScript) {
@@ -69,10 +68,6 @@ async function main() {
   let apiExit = null;
 
   try {
-    const source = new Database(dbFile, { readonly: true, fileMustExist: true });
-    await source.backup(testDbFile);
-    source.close();
-
     const env = {
       ...process.env,
       PORT: String(port),
@@ -82,16 +77,39 @@ async function main() {
       BACKUPS_DIR: path.join(tempDir, 'backups'),
       NODE_ENV: 'test',
       ISOLATED_OPERATIONAL_TEST: '1',
+      WHATSAPP_DISABLE_STARTUP: '1',
+      FIREBASE_SERVICE_ACCOUNT_JSON: '',
+      JWT_SECRET: 'isolated-verification-only-secret-not-for-production',
+      AGENT_API_KEY: 'isolated-verification-agent-key',
+      INITIAL_ADMIN_EMAIL: 'verification@example.invalid',
+      INITIAL_ADMIN_PASSWORD: 'isolated-verification-only-password',
+      EMERGENCY_ADMIN_EMAIL: '',
+      EMERGENCY_ADMIN_ENABLED: '0',
+      EMERGENCY_ADMIN_PASSWORD: '',
     };
-    api = spawn(process.execPath, ['index.js'], {
+    await run(
+      process.execPath,
+      [
+        '--require',
+        networkGuard,
+        '-e',
+        "const db=require('./db');require('./tests/fixtures').sembrarCatalogoBase(db);db.close();",
+      ],
+      { cwd: path.join(__dirname, '..'), env }
+    );
+    api = spawn(process.execPath, ['--require', networkGuard, 'index.js'], {
       cwd: path.join(__dirname, '..'),
       env,
       stdio: 'pipe',
     });
     apiExit = new Promise((resolve) => api.once('exit', resolve));
     api.stderr.on('data', (chunk) => process.stderr.write(chunk));
+    api.stdout.resume();
     await waitForHealth(port);
-    await run(process.execPath, [targetScript], { cwd: path.join(__dirname, '..'), env });
+    await run(process.execPath, ['--require', networkGuard, targetScript], {
+      cwd: path.join(__dirname, '..'),
+      env,
+    });
   } finally {
     if (api && !api.killed) api.kill();
     if (apiExit) await apiExit;

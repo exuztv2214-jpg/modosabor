@@ -45,6 +45,7 @@ jobs:
           npm run verify:operacion
           npm run verify:mozo
           npm run verify:whatsapp
+          npm run verify:whatsapp-attention
           npm run verify:asistente
 
       - name: Run linter

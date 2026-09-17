@@ -1,9 +1,7 @@
 const http = require('http');
 const path = require('path');
 const bcrypt = require('bcryptjs');
-const { io } = require(
-  path.join(__dirname, '..', '..', 'client', 'node_modules', 'socket.io-client')
-);
+const { io } = require('socket.io-client');
 
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
@@ -69,14 +67,7 @@ function ensureAdmin() {
 }
 
 function getProduct() {
-  return db
-    .prepare(
-      `SELECT id, nombre FROM productos
-       WHERE activo = 1 AND disponible_para_venta = 1 AND precio > 0
-         AND stock_mode != 'recipe'
-       ORDER BY id LIMIT 1`
-    )
-    .get();
+  return require('./verification-product')(db);
 }
 
 function waitForSocket(socket) {

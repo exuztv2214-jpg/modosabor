@@ -14,6 +14,7 @@ const ROLE_PERMISSIONS = {
     'caja.view',
     'caja.manage',
     'configuracion.view',
+    'whatsapp.attend',
   ],
   cocina: ['dashboard.view', 'kds.view', 'pedidos.view', 'pedidos.kitchen', 'pedidos.print'],
   delivery: [

@@ -12,6 +12,7 @@
     "verify:operacion": "npm --prefix server run verify:operacion",
     "verify:mozo": "npm --prefix server run verify:mozo",
     "verify:whatsapp": "npm --prefix server run verify:whatsapp",
+    "verify:whatsapp-attention": "npm --prefix server run verify:whatsapp-attention",
     "verify:asistente": "npm --prefix server run verify:asistente",
     "verify:backup": "npm --prefix server run verify:backup",
     "whatsapp:analizar-historial": "node agente-whatsapp/analizar-historial.js",

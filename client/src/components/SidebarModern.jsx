@@ -22,6 +22,7 @@ import {
   LogOut,
   MapPinned,
   Megaphone,
+  MessageCircle,
   MonitorUp,
   Package,
   Receipt,
@@ -89,6 +90,12 @@ const GRUPOS = [
         moduleKey: 'tpv',
       },
       { to: '/admin/pedidos', icon: ClipboardList, label: 'Pedidos', permission: 'pedidos.view' },
+      {
+        to: '/admin/atencion-whatsapp',
+        icon: MessageCircle,
+        label: 'Atención WhatsApp',
+        permission: 'whatsapp.attend',
+      },
       {
         to: '/admin/kds',
         icon: ChefHat,
@@ -294,13 +301,10 @@ export default function SidebarModern({ onCloseMobile }) {
     if (location.pathname === '/admin/pedidos') setPedidosBadge(0);
   }, [location.pathname]);
 
-  // Al entrar a configuración con tab whatsapp, el badge se limpia porque
+  // Al entrar a atención WhatsApp, el badge se limpia porque
   // ya está viendo los chats.
   useEffect(() => {
-    if (
-      location.pathname === '/admin/configuracion' &&
-      new URLSearchParams(location.search).get('tab') === 'whatsapp'
-    ) {
+    if (location.pathname === '/admin/atencion-whatsapp') {
       setChatsEsperando(0);
     }
   }, [location.pathname, location.search]);
@@ -311,7 +315,7 @@ export default function SidebarModern({ onCloseMobile }) {
     const unsub = socketManager.on('nuevo_pedido', () => {
       if (location.pathname !== '/admin/pedidos') setPedidosBadge((n) => n + 1);
     });
-    // Cuando la IA deriva un chat, el badge aparece en Configuración.
+    // Cuando la IA deriva un chat, el badge aparece en Atención WhatsApp.
     const unsubWa = socketManager.on('whatsapp_necesita_persona', () => {
       setChatsEsperando((n) => n + 1);
     });
@@ -410,7 +414,7 @@ export default function SidebarModern({ onCloseMobile }) {
               const badge =
                 item.to === '/admin/pedidos'
                   ? pedidosBadge
-                  : item.to === '/admin/configuracion'
+                  : item.to === '/admin/atencion-whatsapp'
                     ? chatsEsperando
                     : 0;
 

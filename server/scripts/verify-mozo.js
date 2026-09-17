@@ -141,8 +141,9 @@ async function run() {
       throw new Error('El estado de Mozo no expuso la mesa ni la operación temporal');
     }
 
+    const propio = require('./verification-product')(db);
     const catalogo = await request('/mozo/catalogo', { headers });
-    const product = catalogo.body?.productos?.find((item) => Number(item.precio || 0) > 0);
+    const product = catalogo.body?.productos?.find((item) => Number(item.id) === Number(propio.id));
     if (catalogo.status !== 200 || !product) {
       throw new Error('No hay un producto activo disponible para verificar la comanda');
     }
