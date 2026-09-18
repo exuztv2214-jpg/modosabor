@@ -87,6 +87,7 @@ function ensureMenuDiaCategory() {
 // Los precios y la lista global de guarniciones se guardan en `configuracion`
 // para poder editarlos desde la UI sin re-deployar.
 const EXTRA_POSTRE_NOMBRE = 'Postre';
+const { menuDiaBenefits } = require('../utils/menuDiaBenefits');
 const EXTRA_BEBIDA_POSTRE_NOMBRE = 'Bebida + Postre';
 const VARIANTE_GUARNICION_NOMBRE = 'Guarnición';
 /* En centavos, igual que lo que guarda `configuracion`. Estaba en pesos, asi
@@ -437,17 +438,19 @@ function persistMenuDiaItems(items = [], fecha = today()) {
           ? prevFlags.ofreceBebidaPostre
           : Number(rawItem.ofrece_bebida_postre_hoy) === 1 && tipo === 'ejecutivo';
       const extras = buildMenuDiaExtras({ ofrecePostre, ofreceBebidaPostre }, settings);
+      const benefits = menuDiaBenefits(precio, existing.extras, descripcion);
+      const hasBenefitRule = [500000, 700000, 900000].includes(precio);
 
       updateProduct.run(
         category.id,
         precio,
-        descripcion,
+        hasBenefitRule ? benefits.descripcion : descripcion,
         stock,
         destacado,
         disponible,
         tipo,
         variantes,
-        extras,
+        hasBenefitRule ? benefits.extras : extras,
         id
       );
       /*
@@ -478,7 +481,7 @@ function persistMenuDiaItems(items = [], fecha = today()) {
         precioEconomico || null,
         precioEjecutivo || null,
         stock,
-        descripcion,
+        hasBenefitRule ? benefits.descripcion : descripcion,
         destacado,
         Number.isFinite(Number(rawItem?.orden_hoy)) ? Number(rawItem.orden_hoy) : index
       );

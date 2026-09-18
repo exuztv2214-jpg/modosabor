@@ -34,6 +34,7 @@ const {
 const { fechaLocal, hoyArgentina, hoyLocal } = require('../utils/fechaLocal');
 const { aplicarListaDePrecios, CANALES } = require('../utils/listasPrecios');
 const { asegurarNombreProductoUnico } = require('../utils/productosDuplicados');
+const { filtrarCatalogo } = require('../utils/catalogVisibility');
 
 /**
  * Lo que ve alguien que no está adentro del panel.
@@ -63,6 +64,7 @@ const { asegurarNombreProductoUnico } = require('../utils/productosDuplicados');
  * el número de porciones.
  */
 const CAMPOS_PUBLICOS = [
+  'subcategoria',
   'id',
   'nombre',
   'descripcion',
@@ -102,7 +104,7 @@ function paraElPublico(productos) {
 
 /** El panel ve todo; cualquier otro, sólo lo que la carta necesita mostrar. */
 function segunQuienPregunta(req, productos) {
-  return req.user ? productos : paraElPublico(productos);
+  return req.user ? productos : paraElPublico(filtrarCatalogo(db, productos));
 }
 
 // Multer populates req.body AFTER the global money middleware has already run,
@@ -173,6 +175,7 @@ function parseArrayField(value, fieldName) {
 
 function normalizeVariantGroups(groups) {
   return (groups || [])
+    .filter((group) => !group?.lista_id)
     .map((group) => ({
       nombre: cleanText(group?.nombre),
       opciones: (group?.opciones || [])
@@ -190,6 +193,7 @@ function normalizeVariantGroups(groups) {
 
 function normalizeExtras(extras) {
   return (extras || [])
+    .filter((extra) => !extra?.lista_id)
     .map((extra) => {
       const precio = Number(extra?.precio ?? 0);
       return {
@@ -231,16 +235,31 @@ function buildProductPayload(body, options = {}) {
     existing?.tiempo_preparacion ?? 15
   );
   const categoriaId = parseCategoriaId(body?.categoria_id, existing?.categoria_id ?? null);
+  const subcategoria = cleanText(
+    body.subcategoria ?? (categoriaId === existing?.categoria_id ? existing?.subcategoria : '')
+  );
+  if (subcategoria) {
+    const cat = db.prepare('SELECT subcategorias FROM categorias WHERE id = ?').get(categoriaId);
+    if (!cat || !JSON.parse(cat.subcategorias || '[]').some((s) => s.nombre === subcategoria)) {
+      throw new Error('Subcategoría inválida para esta categoría');
+    }
+  }
   const activo = parseFlag(body?.activo, existing?.activo ?? 1);
   const destacado = parseFlag(body?.destacado, existing?.destacado ?? 0);
-  const variantes = JSON.stringify(
-    normalizeVariantGroups(
-      parseArrayField(body?.variantes ?? existing?.variantes ?? '[]', 'variantes')
-    )
-  );
-  const extras = JSON.stringify(
-    normalizeExtras(parseArrayField(body?.extras ?? existing?.extras ?? '[]', 'extras'))
-  );
+  const variantes =
+    body.variantes === undefined && existing
+      ? existing.variantes
+      : JSON.stringify(
+          normalizeVariantGroups(
+            parseArrayField(body?.variantes ?? existing?.variantes ?? '[]', 'variantes')
+          )
+        );
+  const extras =
+    body.extras === undefined && existing
+      ? existing.extras
+      : JSON.stringify(
+          normalizeExtras(parseArrayField(body?.extras ?? existing?.extras ?? '[]', 'extras'))
+        );
 
   if (!nombre) {
     throw new Error('Nombre requerido');
@@ -263,6 +282,7 @@ function buildProductPayload(body, options = {}) {
 
   // precio_anterior: nullable, only set if explicitly provided
   let precioAnterior = existing?.precio_anterior ?? null;
+  if (body.precio_anterior === null || body.precio_anterior === '') precioAnterior = null;
   if (
     body?.precio_anterior !== undefined &&
     body?.precio_anterior !== null &&
@@ -273,6 +293,7 @@ function buildProductPayload(body, options = {}) {
   }
 
   return {
+    subcategoria,
     nombre,
     descripcion,
     precio,
@@ -286,6 +307,15 @@ function buildProductPayload(body, options = {}) {
     tiempo_preparacion: tiempoPreparacion,
   };
 }
+
+router.get('/administracion', auth, requirePermission('productos.edit'), (_req, res) => {
+  const productos = db
+    .prepare(
+      'SELECT p.*, c.nombre AS categoria_nombre, c.icono AS categoria_icono FROM productos p LEFT JOIN categorias c ON c.id=p.categoria_id ORDER BY c.orden, p.nombre'
+    )
+    .all();
+  res.json(decorateProductsWithInventory(db, aplicarListasCompartidas(db, productos)));
+});
 
 router.get('/', authOpcional, (req, res) => {
   const { categoria_id, activo } = req.query;
@@ -378,7 +408,7 @@ router.get('/catalogo-tpv', auth, requirePermission('tpv.use'), (req, res) => {
 
   // `paraElPublico` es la lista explícita de campos seguros: precio y opciones
   // sí, costo y cantidades reales de stock no.
-  res.json(paraElPublico(decorateProductsWithInventory(db, productos)));
+  res.json(paraElPublico(decorateProductsWithInventory(db, filtrarCatalogo(db, productos))));
 });
 
 /**
@@ -475,12 +505,17 @@ router.post(
 router.get('/:id', authOpcional, (req, res) => {
   const p = db
     .prepare(
-      'SELECT p.*, c.nombre as categoria_nombre FROM productos p LEFT JOIN categorias c ON p.categoria_id = c.id WHERE p.id = ?'
+      'SELECT p.*, c.nombre as categoria_nombre, mdh.disponible AS menu_dia_disponible_fecha, mdh.precio_economico AS menu_dia_precio_economico, mdh.precio_ejecutivo AS menu_dia_precio_ejecutivo FROM productos p LEFT JOIN categorias c ON p.categoria_id = c.id LEFT JOIN menu_dia_historial mdh ON mdh.producto_id=p.id AND mdh.fecha=? WHERE p.id = ?'
     )
-    .get(req.params.id);
+    .get(hoyLocal(), req.params.id);
   if (!p) return res.status(404).json({ error: 'Producto no encontrado' });
-  const [conListas] = aplicarListasCompartidas(db, [p]);
-  res.json(segunQuienPregunta(req, decorateProductsWithInventory(db, [conListas]))[0]);
+  if (!req.user && !filtrarCatalogo(db, [p]).length) {
+    return res.status(404).json({ error: 'Producto no disponible' });
+  }
+  const canal = CANALES.includes(String(req.query.canal || '')) ? req.query.canal : 'mostrador';
+  const conListas = aplicarListasCompartidas(db, aplicarListaDePrecios(db, [p], canal));
+  const calculados = applyMenuDiaSnapshotAvailabilityList(applyMenuDiaPricingList(conListas));
+  res.json(segunQuienPregunta(req, decorateProductsWithInventory(db, calculados))[0]);
 });
 
 router.post(
@@ -527,6 +562,10 @@ router.post(
           'direct'
         );
       const created = db.prepare('SELECT * FROM productos WHERE id = ?').get(r.lastInsertRowid);
+      db.prepare('UPDATE productos SET subcategoria=? WHERE id=?').run(
+        payload.subcategoria,
+        r.lastInsertRowid
+      );
 
       if (stockDirecto !== 0) {
         registerManualStockAdjustment(
@@ -617,6 +656,11 @@ router.put(
           `Ajuste de stock directo para ${payload.nombre}`
         );
       }
+
+      db.prepare('UPDATE productos SET subcategoria=? WHERE id=?').run(
+        payload.subcategoria,
+        req.params.id
+      );
 
       db.exec('COMMIT');
       if (existing.imagen && (req.file || wantsRemoveImage) && existing.imagen !== imagen) {

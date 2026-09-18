@@ -69,6 +69,8 @@ export default function ProductoFormModal({
   extrasEditor,
   listasDisponibles = [],
   listasElegidas = [],
+  listasEstado = 'ready',
+  onRetryListas,
   onToggleLista,
   imagePreview,
   recipeManagedStock,
@@ -180,6 +182,39 @@ export default function ProductoFormModal({
                       </select>
                     </Campo>
 
+                    <Campo
+                      label="Subcategoría"
+                      hint="Opcional: permite filtrar los productos de esta categoría"
+                    >
+                      <select
+                        aria-label="Subcategoría"
+                        value={form.subcategoria || ''}
+                        onChange={(event) => onFormChange('subcategoria', event.target.value)}
+                        className={`${CONTROL} w-full`}
+                      >
+                        <option value="">Sin subcategoría</option>
+                        {(selectedCategoryInfo?.subcategorias || []).map((sub) => (
+                          <option key={sub.nombre} value={sub.nombre}>
+                            {sub.nombre}
+                          </option>
+                        ))}
+                      </select>
+                    </Campo>
+                    {listasEstado !== 'ready' && (
+                      <div
+                        role="status"
+                        className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900 sm:col-span-2"
+                      >
+                        {listasEstado === 'loading'
+                          ? 'Cargando listas asignadas. Esperá antes de guardar.'
+                          : 'No se pudieron cargar las listas. No se guardará hasta recuperarlas para evitar perder opciones.'}
+                        {listasEstado === 'error' && (
+                          <button type="button" onClick={onRetryListas} className="ml-2 underline">
+                            Reintentar
+                          </button>
+                        )}
+                      </div>
+                    )}
                     <Campo label="Tiempo de preparación" hint="En minutos, para la cocina">
                       <input
                         type="number"
@@ -619,7 +654,7 @@ export default function ProductoFormModal({
             <button
               type="button"
               onClick={onGuardar}
-              disabled={saving}
+              disabled={saving || listasEstado !== 'ready'}
               style={{ background: BRAND }}
               className="h-11 rounded-xl px-6 text-[13px] font-semibold text-white transition hover:brightness-110 disabled:opacity-50"
             >

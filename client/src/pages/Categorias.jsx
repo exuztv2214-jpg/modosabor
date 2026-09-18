@@ -270,7 +270,7 @@ export default function Categorias() {
     try {
       const [cats, prods, config] = await Promise.all([
         api.get('/categorias'),
-        api.get('/productos'),
+        api.get('/productos/administracion'),
         api.get('/configuracion/panel'),
       ]);
       setCategorias(cats || []);
@@ -376,10 +376,7 @@ export default function Categorias() {
 
     setReordenando(true);
     try {
-      await Promise.all([
-        api.put(`/categorias/${categoria.id}`, { orden: Number(vecino.orden || 0) }),
-        api.put(`/categorias/${vecino.id}`, { orden: Number(categoria.orden || 0) }),
-      ]);
+      await api.put(`/categorias/${categoria.id}/mover`, { direccion });
       await cargar();
     } catch (error) {
       toast.error(error?.error || 'No se pudo reordenar');

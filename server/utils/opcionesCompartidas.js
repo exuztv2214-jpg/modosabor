@@ -98,7 +98,7 @@ function listasPorProducto(db, productoIds) {
   const listaIds = [...new Set(asignaciones.map((a) => a.id))];
   const opciones = db
     .prepare(
-      `SELECT lista_id, nombre, precio
+      `SELECT lista_id, nombre, precio, imagen
          FROM opcion_items
         WHERE lista_id IN (${listaIds.map(() => '?').join(',')})
           AND activo = 1
@@ -164,6 +164,7 @@ function mezclarListas(variantesCrudas, extrasCrudos, listas) {
           nombre: opcion.nombre,
           precio: Number(opcion.precio || 0),
           lista_id: lista.id,
+          ...(opcion.imagen ? { imagen: opcion.imagen } : {}),
         });
       }
       continue;
@@ -178,6 +179,7 @@ function mezclarListas(variantesCrudas, extrasCrudos, listas) {
       opciones: lista.opciones.map((opcion) => ({
         nombre: opcion.nombre,
         precio_extra: Number(opcion.precio || 0),
+        ...(opcion.imagen ? { imagen: opcion.imagen } : {}),
       })),
     });
   }
@@ -281,18 +283,19 @@ function guardarNombresDeLista(db, nombre, nombres, opciones = {}) {
 
   const preciosPrevios = new Map(
     db
-      .prepare('SELECT nombre, precio FROM opcion_items WHERE lista_id = ?')
+      .prepare('SELECT nombre, precio, imagen FROM opcion_items WHERE lista_id = ?')
       .all(lista.id)
-      .map((fila) => [textoNormalizado(fila.nombre), fila.precio])
+      .map((fila) => [textoNormalizado(fila.nombre), fila])
   );
 
   const escribir = db.transaction(() => {
     db.prepare('DELETE FROM opcion_items WHERE lista_id = ?').run(lista.id);
     const insertar = db.prepare(
-      'INSERT INTO opcion_items (lista_id, nombre, precio, orden, activo) VALUES (?, ?, ?, ?, 1)'
+      'INSERT INTO opcion_items (lista_id, nombre, precio, orden, activo, imagen) VALUES (?, ?, ?, ?, 1, ?)'
     );
     limpios.forEach((valor, indice) => {
-      insertar.run(lista.id, valor, preciosPrevios.get(textoNormalizado(valor)) || 0, indice);
+      const anterior = preciosPrevios.get(textoNormalizado(valor));
+      insertar.run(lista.id, valor, anterior?.precio || 0, indice, anterior?.imagen || '');
     });
   });
   escribir();

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import api from '../../lib/api.js';
+import { claveSubcategoria } from '../../lib/catalogVisibility.js';
 import { resolveAssetUrl } from '../../lib/assets.js';
 import {
   EMPTY_FORM,
@@ -24,6 +25,8 @@ export default function useProductos() {
   const [categorias, setCategorias] = useState([]);
   const [busqueda, setBusqueda] = useState('');
   const [filtroCategoria, setFiltroCategoria] = useState('todas');
+  const [filtroSubcategoria, setFiltroSubcategoria] = useState('');
+  useEffect(() => setFiltroSubcategoria(''), [filtroCategoria]);
   const [filtroEstado, setFiltroEstado] = useState('todos');
   const [sortBy, setSortBy] = useState('nombre');
   const [viewMode, setViewMode] = useState('grid');
@@ -49,12 +52,30 @@ export default function useProductos() {
   */
   const [listasDisponibles, setListasDisponibles] = useState([]);
   const [listasElegidas, setListasElegidas] = useState([]);
+  const [listasEstado, setListasEstado] = useState('ready');
+  const listasRequest = useRef(0);
+  const listasSource = useRef(null);
+  const cargarListas = async (id) => {
+    const version = ++listasRequest.current;
+    listasSource.current = id;
+    setListasElegidas([]);
+    setListasEstado('loading');
+    try {
+      const listas = await api.get(`/opcion-listas/producto/${id}`);
+      if (!Array.isArray(listas)) throw new Error('Respuesta inválida');
+      if (version !== listasRequest.current) return;
+      setListasElegidas(listas.map((l) => l.id));
+      setListasEstado('ready');
+    } catch {
+      if (version === listasRequest.current) setListasEstado('error');
+    }
+  };
 
   const cargar = async () => {
     setLoading(true);
     try {
       const [prods, cats, listas] = await Promise.all([
-        api.get('/productos'),
+        api.get('/productos/administracion'),
         api.get('/categorias'),
         // Si falla no se cae la pantalla entera: sin listas el formulario
         // funciona como funcionaba antes de que existieran.
@@ -144,7 +165,12 @@ export default function useProductos() {
         (filtroEstado === 'activos' && Number(producto.activo) === 1) ||
         (filtroEstado === 'inactivos' && Number(producto.activo) !== 1);
 
-      return matchesSearch && matchesCategory && matchesState;
+      return (
+        matchesSearch &&
+        matchesCategory &&
+        matchesState &&
+        (!filtroSubcategoria || claveSubcategoria(producto) === filtroSubcategoria)
+      );
     });
 
     const porNombre = (a, b) => String(a.nombre || '').localeCompare(String(b.nombre || ''), 'es');
@@ -162,7 +188,7 @@ export default function useProductos() {
           ) || porNombre(a, b)
       );
     return [...list].sort(porNombre);
-  }, [busqueda, filtroCategoria, filtroEstado, sortBy, productosUi]);
+  }, [busqueda, filtroCategoria, filtroEstado, sortBy, productosUi, filtroSubcategoria]);
 
   const stats = useMemo(() => {
     const activos = productosUi.filter((producto) => Number(producto.activo) === 1).length;
@@ -205,6 +231,9 @@ export default function useProductos() {
   const recipeManagedStock = editingProduct?.stock_mode === 'recipe';
 
   const abrirNuevo = () => {
+    listasRequest.current++;
+    listasSource.current = null;
+    setListasEstado('ready');
     const defaultCategory = categorias[0] || null;
     setForm({
       ...EMPTY_FORM,
@@ -231,13 +260,7 @@ export default function useProductos() {
       ya tenía un grupo propio con el mismo nombre, la compartida no se mezcla
       —gana lo cargado a mano—. Deducirla la haría desaparecer al guardar.
     */
-    setListasElegidas([]);
-    api
-      .get(`/opcion-listas/producto/${producto.id}`)
-      .then((listas) =>
-        setListasElegidas(Array.isArray(listas) ? listas.map((lista) => lista.id) : [])
-      )
-      .catch(() => setListasElegidas([]));
+    cargarListas(producto.id);
 
     const normalizedPricing = normalizeStructuredPricingState(
       categoriasMap.get(producto.categoria_id)?.nombre,
@@ -250,6 +273,7 @@ export default function useProductos() {
 
     setForm({
       nombre: producto.nombre || '',
+      subcategoria: producto.subcategoria || '',
       descripcion: producto.descripcion || '',
       precio: normalizedPricing.basePrice || '',
       precio_anterior: producto.precio_anterior || '',
@@ -272,6 +296,7 @@ export default function useProductos() {
   };
 
   const duplicarProducto = (producto) => {
+    cargarListas(producto.id);
     const normalizedPricing = normalizeStructuredPricingState(
       categoriasMap.get(producto.categoria_id)?.nombre,
       producto.precio,
@@ -282,6 +307,7 @@ export default function useProductos() {
     );
     setForm({
       nombre: `${producto.nombre || ''} (copia)`,
+      subcategoria: producto.subcategoria || '',
       descripcion: producto.descripcion || '',
       precio: normalizedPricing.basePrice || '',
       precio_anterior: producto.precio_anterior || '',
@@ -303,6 +329,10 @@ export default function useProductos() {
   };
 
   const cerrarModal = () => {
+    listasRequest.current++;
+    listasSource.current = null;
+    setListasElegidas([]);
+    setListasEstado('ready');
     setModal(null);
     setForm(EMPTY_FORM);
     setVariantesEditor([]);
@@ -324,7 +354,7 @@ export default function useProductos() {
       return;
     }
 
-    setForm((prev) => ({ ...prev, categoria_id: nextId }));
+    setForm((prev) => ({ ...prev, categoria_id: nextId, subcategoria: '' }));
     setVariantesEditor(
       ensureStructuredPricingGroups(nextCategory?.nombre, getVariantTemplate(nextCategory?.nombre))
     );
@@ -527,6 +557,11 @@ export default function useProductos() {
   };
 
   const guardar = async () => {
+    if (saving) return;
+    if (listasEstado !== 'ready') {
+      toast.error('Esperá o reintentá la carga de listas antes de guardar');
+      return;
+    }
     if (!validateForm()) return;
 
     setSaving(true);
@@ -538,6 +573,7 @@ export default function useProductos() {
       payload.append('costo', String(form.costo || 0));
       payload.append('precio_anterior', String(form.precio_anterior || ''));
       payload.append('categoria_id', String(form.categoria_id || ''));
+      payload.append('subcategoria', form.subcategoria || '');
       payload.append('tiempo_preparacion', String(form.tiempo_preparacion || 15));
       payload.append('activo', String(form.activo));
       payload.append('destacado', String(form.destacado));
@@ -583,7 +619,7 @@ export default function useProductos() {
 
   const confirmarCambioCategoria = () => {
     if (!categoryDialog) return;
-    setForm((prev) => ({ ...prev, categoria_id: categoryDialog.nextId }));
+    setForm((prev) => ({ ...prev, categoria_id: categoryDialog.nextId, subcategoria: '' }));
     setVariantesEditor(
       ensureStructuredPricingGroups(
         categoryDialog.nextCategory?.nombre,
@@ -621,17 +657,7 @@ export default function useProductos() {
 
   const toggleActivo = async (producto) => {
     try {
-      const payload = new FormData();
-      payload.append('nombre', producto.nombre);
-      payload.append('descripcion', producto.descripcion || '');
-      payload.append('precio', String(producto.precio || 0));
-      payload.append('costo', String(producto.costo || 0));
-      payload.append('categoria_id', String(producto.categoria_id || ''));
-      payload.append('tiempo_preparacion', String(producto.tiempo_preparacion || 15));
-      payload.append('activo', String(Number(producto.activo) === 1 ? 0 : 1));
-      payload.append('destacado', String(producto.destacado || 0));
-      payload.append('variantes', producto.variantes || '[]');
-      payload.append('extras', producto.extras || '[]');
+      const payload = { activo: Number(producto.activo) === 1 ? 0 : 1 };
 
       await api.put(`/productos/${producto.id}`, payload);
       toast.success(Number(producto.activo) === 1 ? 'Producto desactivado' : 'Producto activado');
@@ -661,17 +687,7 @@ export default function useProductos() {
     try {
       await Promise.all(
         targets.map((producto) => {
-          const payload = new FormData();
-          payload.append('nombre', producto.nombre);
-          payload.append('descripcion', producto.descripcion || '');
-          payload.append('precio', String(producto.precio || 0));
-          payload.append('costo', String(producto.costo || 0));
-          payload.append('categoria_id', String(producto.categoria_id || ''));
-          payload.append('tiempo_preparacion', String(producto.tiempo_preparacion || 15));
-          payload.append('activo', String(value));
-          payload.append('destacado', String(producto.destacado || 0));
-          payload.append('variantes', producto.variantes || '[]');
-          payload.append('extras', producto.extras || '[]');
+          const payload = { activo: value };
           return api.put(`/productos/${producto.id}`, payload);
         })
       );
@@ -733,6 +749,10 @@ export default function useProductos() {
     categoryDialog,
     listasDisponibles,
     listasElegidas,
+    filtroSubcategoria,
+    setFiltroSubcategoria,
+    listasEstado,
+    reintentarListas: () => listasSource.current && cargarListas(listasSource.current),
     toggleLista,
     // Computed
     categoriasMap,

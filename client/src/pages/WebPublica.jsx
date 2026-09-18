@@ -12,6 +12,8 @@ import {
   Search,
   CheckCircle,
 } from 'lucide-react';
+import { filtrarCatalogo, claveSubcategoria } from '../lib/catalogVisibility.js';
+import SubcategoryFilter from '../components/SubcategoryFilter.jsx';
 
 import api from '../lib/api.js';
 import { resolveAssetUrl } from '../lib/assets.js';
@@ -72,12 +74,18 @@ export default function WebPublica({ mode = 'web' }) {
   const modoKiosco = mode === 'kiosco';
   const [config, setConfig] = useState({});
   const [categorias, setCategorias] = useState([]);
-  const [productos, setProductos] = useState([]);
+  const [productosBase, setProductos] = useState([]);
+  const productos = useMemo(
+    () => filtrarCatalogo(productosBase, categorias, config),
+    [productosBase, categorias, config]
+  );
+  const [subcategoriaFiltro, setSubcategoriaFiltro] = useState('');
   const [cargando, setCargando] = useState(true);
   const [errorCarga, setErrorCarga] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
   const [badgePop, setBadgePop] = useState(0);
   const [catActiva, setCatActiva] = useState(null);
+  useEffect(() => setSubcategoriaFiltro(''), [catActiva]);
   const [carrito, setCarrito] = useState(() => (modoKiosco ? [] : getInitialCart()));
   const [carritoOpen, setCarritoOpen] = useState(false);
   const [checkout, setCheckout] = useState(false);
@@ -329,6 +337,7 @@ export default function WebPublica({ mode = 'web' }) {
     const needle = normalizeText(busqueda);
     return productos.filter((p) => {
       if (!isVisibleOnPublicMenu(p)) return false;
+      if (subcategoriaFiltro && claveSubcategoria(p) !== subcategoriaFiltro) return false;
       if (catActiva && p.categoria_id !== catActiva) return false;
       if (quickFilter === 'destacados' && Number(p.destacado) !== 1) return false;
       if (quickFilter === 'menu-dia' && !isMenuDelDiaProduct(p)) return false;
@@ -345,7 +354,7 @@ export default function WebPublica({ mode = 'web' }) {
       }
       return true;
     });
-  }, [productos, catActiva, busqueda, quickFilter]);
+  }, [productos, catActiva, busqueda, quickFilter, subcategoriaFiltro]);
 
   const summary = useMemo(
     () =>
@@ -371,7 +380,7 @@ export default function WebPublica({ mode = 'web' }) {
     form.tipo_entrega === 'retiro'
       ? Number(config?.tiempo_retiro || 20)
       : Number(deliveryQuote?.tiempo_estimado_min || config?.tiempo_delivery || 30);
-  const browseAll = !catActiva && !busqueda && quickFilter === 'all';
+  const browseAll = !catActiva && !busqueda && !subcategoriaFiltro && quickFilter === 'all';
 
   const cantidadesEnCarrito = useMemo(() => {
     const map = {};
@@ -1062,6 +1071,11 @@ export default function WebPublica({ mode = 'web' }) {
         onOpenCart={() => setCarritoOpen(true)}
       />
 
+      <SubcategoryFilter
+        productos={productos.filter((p) => !catActiva || p.categoria_id === catActiva)}
+        value={subcategoriaFiltro}
+        onChange={setSubcategoriaFiltro}
+      />
       <MenuSection
         browseAll={browseAll}
         menuDelDiaItems={menuDelDiaItems}

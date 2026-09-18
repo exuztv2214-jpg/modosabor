@@ -1,4 +1,5 @@
 export const EMPTY_FORM = {
+  subcategoria: '',
   nombre: '',
   descripcion: '',
   precio: '',

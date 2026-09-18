@@ -139,6 +139,9 @@ export default function ProductoDetailModal({ detalle, onClose, onEdit }) {
 
           <p className="mt-3 text-[13px] leading-6 text-gray-600">
             {detalle.descripcion || 'Sin descripción cargada.'}
+            {detalle.subcategoria && (
+              <span className="block">Subcategoría: {detalle.subcategoria}</span>
+            )}
           </p>
 
           <div className="mt-4 grid gap-2 sm:grid-cols-4">
