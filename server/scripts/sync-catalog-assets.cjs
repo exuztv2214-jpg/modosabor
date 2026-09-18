@@ -9,7 +9,7 @@ async function main(){
   try {images=[...new Set(['productos','categorias','opcion_items'].flatMap(t=>db.prepare(`SELECT imagen FROM ${t}`).all().map(r=>r.imagen)).filter(Boolean))];}finally{db.close();}
   const result={downloaded:0,existing:0,external:0,failed:[]};
   for(const img of images){
-    if(!/^\/uploads\/[A-Za-z0-9_-][A-Za-z0-9_.-]*\.(png|jpe?g|webp|gif)$/i.test(img)){result.external++;continue;}
+    if(!/^\/uploads\/[A-Za-z0-9_-][A-Za-z0-9_. ()-]*\.(png|jpe?g|jfif|webp|gif)$/i.test(img)){result.external++;continue;}
     const file=path.join(uploadsDir,path.basename(img));
     if(fs.existsSync(file)){result.existing++;continue;}
     try{
