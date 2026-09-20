@@ -97,10 +97,18 @@ function run() {
       path.join(__dirname, '../../routes/productos.js'),
       'utf8'
     );
-    const catalogoTpv = rutaProductos.slice(rutaProductos.indexOf("router.get('/catalogo-tpv'"));
+    const catalogoTpv = rutaProductos
+      .slice(rutaProductos.indexOf("router.get('/catalogo-tpv'"))
+      .split('});')[0];
+    // `filtrarCatalogo(` es el que mira el turno; `filtrarCatalogoCaja(` no.
     assert.ok(
-      !/filtrarCatalogo/.test(catalogoTpv.slice(0, catalogoTpv.indexOf('});'))),
+      !/filtrarCatalogo\(/.test(catalogoTpv),
       'el catálogo del TPV no se filtra por turno: el cajero ve lo que hay en cocina'
+    );
+    assert.match(
+      catalogoTpv,
+      /filtrarCatalogoCaja\(/,
+      'pero sí se respeta que la categoría esté activa'
     );
     assert.match(
       rutaProductos,

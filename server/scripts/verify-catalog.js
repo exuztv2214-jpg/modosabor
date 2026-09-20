@@ -120,7 +120,17 @@ async function main() {
     1
   );
 
+  /*
+    Apagar una categoría y atarla a otro turno no son lo mismo.
+
+    Apagada es "esto no se vende más": se oculta en todos lados, también en la
+    caja. Atada a un turno es "el cliente no lo pide a esta hora": se oculta en
+    la web y en WhatsApp, pero el TPV la sigue mostrando, porque quien cobra en
+    el mostrador sabe qué hay en cocina. Sin esa distinción, con las categorías
+    marcadas "noche" al mediodía no se podía vender ni una bebida.
+  */
   for (const change of [{ activo: 0 }, { activo: 1, turno_id: 'otro' }]) {
+    const apagada = change.activo === 0;
     assert.equal((await request(`/categorias/${cid}`, 'PUT', change)).status, 200);
     assert.equal(
       (await request('/productos', 'GET', null, false)).data.some((p) => p.id === pid),
@@ -128,7 +138,10 @@ async function main() {
     );
     assert.equal(
       (await request('/productos/catalogo-tpv')).data.some((p) => p.id === pid),
-      false
+      !apagada,
+      apagada
+        ? 'una categoría apagada no se vende ni en la caja'
+        : 'el turno no puede esconderle la carta a la caja'
     );
     assert.equal((await request(`/productos/${pid}`, 'GET', null, false)).status, 404);
     assert.throws(() => validarCatalogoPedido(db, [{ producto_id: pid }]), /no está disponible/);

@@ -34,7 +34,7 @@ const {
 const { fechaLocal, hoyArgentina, hoyLocal } = require('../utils/fechaLocal');
 const { aplicarListaDePrecios, CANALES } = require('../utils/listasPrecios');
 const { asegurarNombreProductoUnico } = require('../utils/productosDuplicados');
-const { filtrarCatalogo } = require('../utils/catalogVisibility');
+const { filtrarCatalogo, filtrarCatalogoCaja } = require('../utils/catalogVisibility');
 
 /**
  * Lo que ve alguien que no está adentro del panel.
@@ -416,11 +416,12 @@ router.get('/catalogo-tpv', auth, requirePermission('tpv.use'), (req, res) => {
     no existe.
 
     Quien cobra en el mostrador sabe qué hay en cocina. Lo que sí se respeta
-    acá es el stock y que el producto esté activo.
+    acá es el stock, que el producto esté activo y que su categoría no esté
+    apagada: eso último es "esto no se vende más", y vale para todos.
   */
   // `paraElPublico` es la lista explícita de campos seguros: precio y opciones
   // sí, costo y cantidades reales de stock no.
-  res.json(paraElPublico(decorateProductsWithInventory(db, productos)));
+  res.json(paraElPublico(decorateProductsWithInventory(db, filtrarCatalogoCaja(db, productos))));
 });
 
 /**

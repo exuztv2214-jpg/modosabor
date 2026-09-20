@@ -23,6 +23,27 @@ function filtrarCatalogo(db, productos) {
     (p) => Number(p.activo) === 1 && (!p.categoria_id || ids.has(Number(p.categoria_id)))
   );
 }
+/*
+  Lo que puede vender la caja: todo lo activo, sin mirar el turno.
+
+  El turno de la categoría es para el cliente —que no pida de noche algo que
+  sólo se cocina al mediodía—. En el mostrador no protege nada: con las
+  categorías marcadas "noche", al mediodía no se podía vender ni una bebida.
+
+  Lo que sí se respeta es que la categoría esté activa: una categoría apagada
+  es una decisión de "esto no se vende más", y esa vale para todos los canales.
+*/
+function filtrarCatalogoCaja(db, productos) {
+  const activas = new Set(
+    db
+      .prepare('SELECT id FROM categorias WHERE activo = 1')
+      .all()
+      .map((c) => Number(c.id))
+  );
+  return productos.filter(
+    (p) => Number(p.activo) === 1 && (!p.categoria_id || activas.has(Number(p.categoria_id)))
+  );
+}
 function validarCatalogoPedido(db, items) {
   const ids = categoriasVisibles(db);
   const buscar = db.prepare('SELECT nombre, activo, categoria_id FROM productos WHERE id=?');
@@ -41,4 +62,9 @@ function validarCatalogoPedido(db, items) {
     }
   }
 }
-module.exports = { categoriasVisibles, filtrarCatalogo, validarCatalogoPedido };
+module.exports = {
+  categoriasVisibles,
+  filtrarCatalogo,
+  filtrarCatalogoCaja,
+  validarCatalogoPedido,
+};
