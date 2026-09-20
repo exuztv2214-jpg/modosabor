@@ -97,6 +97,11 @@ const updatePedidoSchema = z.object({
 });
 
 const createProductoSchema = z.object({
+  subcategoria: z.string().trim().max(120).default(''),
+  precio_anterior: z.preprocess(
+    (v) => (v === '' || v === null ? null : v === undefined ? undefined : Number(v)),
+    z.number().nonnegative().nullable().optional()
+  ),
   nombre: z.string().min(1).max(255),
   descripcion: z.string().max(2000).default(''),
   precio: coerceNum(z.number().nonnegative()),
@@ -115,6 +120,12 @@ const createProductoSchema = z.object({
 });
 
 const updateProductoSchema = z.object({
+  subcategoria: z.string().trim().max(120).optional(),
+  remove_imagen: z.enum(['0', '1']).optional(),
+  precio_anterior: z.preprocess(
+    (v) => (v === '' || v === null ? null : v === undefined ? undefined : Number(v)),
+    z.number().nonnegative().nullable().optional()
+  ),
   nombre: z.string().min(1).max(255).optional(),
   descripcion: z.string().max(2000).optional(),
   precio: coerceNum(z.number().nonnegative().optional()),

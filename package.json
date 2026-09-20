@@ -9,6 +9,7 @@
     "setup": "npm install && npm --prefix server install && npm --prefix client install",
     "smoke": "npm --prefix server run smoke",
     "verify:core": "npm --prefix server run verify:core",
+    "verify:catalog": "npm --prefix server run verify:catalog",
     "verify:operacion": "npm --prefix server run verify:operacion",
     "verify:mozo": "npm --prefix server run verify:mozo",
     "verify:whatsapp": "npm --prefix server run verify:whatsapp",

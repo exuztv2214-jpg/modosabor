@@ -3,6 +3,8 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 
 import api from '../lib/api.js';
+import { filtrarCatalogo, categoriaVisible, claveSubcategoria } from '../lib/catalogVisibility.js';
+import SubcategoryFilter from '../components/SubcategoryFilter.jsx';
 import { resolveAssetUrl } from '../lib/assets.js';
 import { DEFAULT_BRAND_LOGO } from '../lib/webPublicaHelpers.js';
 import { parseGpsInput } from '../lib/parseGpsInput.js';
@@ -170,7 +172,12 @@ export default function TPV() {
 
   const [config, setConfig] = useState({});
   const [categorias, setCategorias] = useState([]);
-  const [productos, setProductos] = useState([]);
+  const [productosBase, setProductos] = useState([]);
+  const productos = useMemo(
+    () => filtrarCatalogo(productosBase, categorias, config),
+    [productosBase, categorias, config]
+  );
+  const [subcategoriaFiltro, setSubcategoriaFiltro] = useState('');
   const [productosRapidos, setProductosRapidos] = useState([]);
   // Se usa para mostrar el skeleton del catálogo en vez de una grilla vacía.
   const [cargandoCatalogo, setCargandoCatalogo] = useState(true);
@@ -180,6 +187,7 @@ export default function TPV() {
   const [cajaAbierta, setCajaAbierta] = useState(false);
   const [cajaEstado, setCajaEstado] = useState(null);
   const [catActiva, setCatActiva] = useState(null);
+  useEffect(() => setSubcategoriaFiltro(''), [catActiva]);
   const [busqueda, setBusqueda] = useState('');
   const [items, setItems] = useState([]);
   const [tipoEntrega, setTipoEntrega] = useState('retiro');
@@ -708,9 +716,13 @@ export default function TPV() {
         const matchCat = !catActiva || producto.categoria_id === catActiva;
         const matchSearch =
           !busqueda || normalizeText(producto.nombre).includes(normalizeText(busqueda));
-        return matchCat && matchSearch;
+        return (
+          matchCat &&
+          matchSearch &&
+          (!subcategoriaFiltro || claveSubcategoria(producto) === subcategoriaFiltro)
+        );
       }),
-    [productos, catActiva, busqueda]
+    [productos, catActiva, busqueda, subcategoriaFiltro]
   );
   const productosDeAccesoRapido = useMemo(() => {
     const porId = new Map(productos.map((producto) => [Number(producto.id), producto]));
@@ -2153,6 +2165,11 @@ export default function TPV() {
           alto de pantalla y obligaba a leer el mismo dato dos veces.
         */}
 
+        <SubcategoryFilter
+          productos={productos.filter((p) => !catActiva || p.categoria_id === catActiva)}
+          value={subcategoriaFiltro}
+          onChange={setSubcategoriaFiltro}
+        />
         <div className="relative flex min-h-0 flex-1 overflow-hidden">
           <TpvCatalog
             busqueda={busqueda}
@@ -2160,7 +2177,7 @@ export default function TPV() {
             cartQtyByProductId={cartQtyByProductId}
             cartLinesByProductId={cartLinesByProductId}
             catActiva={catActiva}
-            categorias={categorias}
+            categorias={categorias.filter((c) => categoriaVisible(c, config))}
             conteoPorCategoria={conteoPorCategoria}
             totalProductos={productos.length}
             cargando={cargandoCatalogo}

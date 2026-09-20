@@ -42,6 +42,9 @@ jobs:
       - name: Run isolated critical flows
         run: |
           npm run verify:core
+          npm run verify:catalog
+          node scripts/verify-isolated.js scripts/verify-option-images.js
+          node scripts/verify-isolated.js scripts/verify-client-duplicates.js
           npm run verify:operacion
           npm run verify:mozo
           npm run verify:whatsapp

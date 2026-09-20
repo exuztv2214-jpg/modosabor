@@ -181,7 +181,7 @@ function run() {
   const productos = leer('routes/productos.js');
   assert.strictEqual(
     (productos.match(/aplicarListasCompartidas\(db,/g) || []).length,
-    3,
+    4,
     'alguna de las rutas del catálogo dejó de resolver las listas compartidas'
   );
   assert.ok(

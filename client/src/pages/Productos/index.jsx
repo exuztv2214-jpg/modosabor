@@ -1,3 +1,4 @@
+import SubcategoryFilter from '../../components/SubcategoryFilter.jsx';
 import useProductos from './useProductos';
 import ProductosHeader from './ProductosHeader';
 import ProductosGrid from './ProductosGrid';
@@ -10,10 +11,12 @@ export default function Productos() {
 
   const hayFiltros =
     Boolean(hook.busqueda.trim()) ||
+    Boolean(hook.filtroSubcategoria) ||
     hook.filtroCategoria !== 'todas' ||
     hook.filtroEstado !== 'todos';
 
   const limpiarFiltros = () => {
+    hook.setFiltroSubcategoria('');
     hook.setBusqueda('');
     hook.setFiltroCategoria('todas');
     hook.setFiltroEstado('todos');
@@ -45,6 +48,11 @@ export default function Productos() {
         onLimpiarFiltros={limpiarFiltros}
       />
 
+      <SubcategoryFilter
+        productos={hook.productosUi}
+        value={hook.filtroSubcategoria}
+        onChange={hook.setFiltroSubcategoria}
+      />
       <ProductosGrid
         loading={hook.loading}
         viewMode={hook.viewMode}
@@ -75,6 +83,8 @@ export default function Productos() {
         extrasEditor={hook.extrasEditor}
         listasDisponibles={hook.listasDisponibles}
         listasElegidas={hook.listasElegidas}
+        listasEstado={hook.listasEstado}
+        onRetryListas={hook.reintentarListas}
         onToggleLista={hook.toggleLista}
         imagePreview={hook.imagePreview}
         recipeManagedStock={hook.recipeManagedStock}

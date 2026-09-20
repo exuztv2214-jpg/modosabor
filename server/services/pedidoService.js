@@ -28,6 +28,7 @@ const {
 } = require('../utils/pedidoItems');
 const { canalDePedido, listaDelCanal } = require('../utils/listasPrecios');
 const { geocodeClienteDireccion } = require('../utils/geocode');
+const { validarCatalogoPedido } = require('../utils/catalogVisibility');
 const {
   asegurarCodigoTarjeta,
   getConfig: getFidelizacionConfig,
@@ -925,6 +926,7 @@ async function buildPedidoPayload(body, options = {}) {
     cargar precios a mano. Ver services/preciosServidor.js.
   */
   const itemsEscalados = scalePedidoItemsToStorage(body.items);
+  validarCatalogoPedido(db, itemsEscalados);
   // Los pedidos de Mozo también se calculan desde catálogo. A diferencia del
   // TPV, el celular nunca puede fijar precios ni descuentos manuales.
   const forceServerPrices = options.forceServerPrices === true;

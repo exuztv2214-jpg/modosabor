@@ -153,6 +153,7 @@ function sembrarIdentidades(db) {
 }
 
 function runMigrations(db) {
+  ensureColumn(db, 'productos', 'subcategoria', "TEXT NOT NULL DEFAULT ''");
   // ============================================
   // ENSURE COLUMNS
   // ============================================
@@ -1378,6 +1379,7 @@ function runMigrations(db) {
   // Va después de `db.exec(tableStatements)` en db/index.js, así que
   // `opcion_listas` ya existe cuando esto corre.
   migrarGuarnicionesAListaCompartida(db);
+  ensureColumn(db, 'opcion_items', 'imagen', "TEXT NOT NULL DEFAULT ''");
   migrarTamanosDelMenuDia(db);
 }
 

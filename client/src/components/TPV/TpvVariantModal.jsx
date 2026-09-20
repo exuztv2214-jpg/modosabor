@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { Check, X } from 'lucide-react';
 
 import { faltaElegirGrupo, grupoEsObligatorio } from '../../lib/variantesObligatorias.js';
+import { resolveAssetUrl } from '../../lib/assets.js';
 import { BRAND, fmt, STROKE } from './tpvUi.jsx';
 
 /**
@@ -106,7 +107,7 @@ export default function TpvVariantModal({
         role="dialog"
         aria-modal="true"
         aria-label={`Armar ${variantModal.producto.nombre}`}
-        className="flex max-h-[88vh] w-full max-w-[460px] flex-col overflow-hidden rounded-3xl bg-white shadow-2xl"
+        className="flex max-h-[92dvh] w-full max-w-[960px] flex-col overflow-hidden rounded-3xl bg-white shadow-2xl"
         onClick={(event) => event.stopPropagation()}
       >
         {/* ── Cabecera ── */}
@@ -135,6 +136,11 @@ export default function TpvVariantModal({
 
         {/* ── Cuerpo ── */}
         <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+          {variantModal.producto.descripcion?.includes('Incluye postre y bebida sin recargo.') ? (
+            <p className="mb-4 rounded-xl bg-emerald-50 p-3 text-sm font-medium text-emerald-800">
+              Postre y bebida incluidos, sin recargo.
+            </p>
+          ) : null}
           {variantModal.variantes.map((group) => {
             const pendiente = group.nombre === grupoPendiente;
             return (
@@ -151,7 +157,7 @@ export default function TpvVariantModal({
                     <span className="text-[11px] font-medium text-gray-400">Opcional</span>
                   )}
                 </div>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
                   {(group.opciones || []).map((option) => {
                     const optionName = option.nombre || option;
                     const selected = variantModal.sel[group.nombre]?.nombre === optionName;
@@ -170,6 +176,14 @@ export default function TpvVariantModal({
                               : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
                         }`}
                       >
+                        {option.imagen ? (
+                          <img
+                            src={resolveAssetUrl(option.imagen)}
+                            alt=""
+                            loading="lazy"
+                            className="mb-2 aspect-[4/3] w-full rounded-xl object-cover"
+                          />
+                        ) : null}
                         <span className="block pr-5 text-[13px] font-medium leading-snug text-gray-900">
                           {optionName}
                         </span>

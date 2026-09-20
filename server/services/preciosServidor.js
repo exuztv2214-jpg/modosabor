@@ -3,6 +3,7 @@ const { listasPorProducto, mezclarListas } = require('../utils/opcionesCompartid
 const { applyMenuDiaPricing } = require('../utils/menuDiaPricing');
 const { aplicarListaDePrecios } = require('../utils/listasPrecios');
 const { hoyArgentina } = require('../utils/fechaLocal');
+const { categoriasVisibles } = require('../utils/catalogVisibility');
 
 /**
  * Recálculo de precios del lado del servidor.
@@ -164,6 +165,7 @@ function recalcularPreciosPublicos(items, canal = 'mostrador', opciones = {}, ba
   const lista = Array.isArray(items) ? items : [];
   if (!lista.length) return lista;
   const permitirDescuentoItems = opciones?.permitirDescuentoItems === true;
+  const categoriasPermitidas = categoriasVisibles(baseDatos);
 
   /*
     ── Los descuentos por ítem no existen en el flujo público ─────────────────
@@ -179,7 +181,7 @@ function recalcularPreciosPublicos(items, canal = 'mostrador', opciones = {}, ba
     peor que ignorarlo.
   */
   const buscarProducto = baseDatos.prepare(
-    `SELECT p.id, p.nombre, p.precio, p.activo, p.variantes, p.extras,
+    `SELECT p.id, p.nombre, p.precio, p.activo, p.categoria_id, p.variantes, p.extras,
             mdh.precio_economico AS menu_dia_precio_economico,
             mdh.precio_ejecutivo AS menu_dia_precio_ejecutivo
        FROM productos p
@@ -233,7 +235,10 @@ function recalcularPreciosPublicos(items, canal = 'mostrador', opciones = {}, ba
         `El producto "${item?.nombre || productoId}" ya no está en la carta.`
       );
     }
-    if (!producto.activo) {
+    if (
+      !producto.activo ||
+      (producto.categoria_id && !categoriasPermitidas.has(Number(producto.categoria_id)))
+    ) {
       throw new PrecioInvalidoError(`"${producto.nombre}" no está disponible en este momento.`);
     }
 

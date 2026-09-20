@@ -14,6 +14,8 @@ import {
 } from 'lucide-react';
 
 import api from '../lib/api.js';
+import OptionPhotoPicker from '../components/OptionPhotoPicker.jsx';
+import { resolveAssetUrl } from '../lib/assets.js';
 import ActionDialog from '../components/ActionDialog.jsx';
 import { APP_BG, BRAND, STROKE } from '../lib/theme.js';
 import { formatAmountForInput, parseLocalizedAmount } from '../lib/amountInput.js';
@@ -115,6 +117,9 @@ export default function ListasOpciones() {
         // El campo es de texto para poder escribir "1.000" como se escribe.
         // Va a pesos: el servidor lo pasa a centavos.
         precio: parseLocalizedAmount(opcion.precio, 0),
+        activo: opcion.activo ?? 1,
+        imagen: opcion.imagen || '',
+        photoFile: opcion.photoFile,
       }));
 
     if (opciones.length === 0) {
@@ -124,6 +129,15 @@ export default function ListasOpciones() {
 
     setGuardando(true);
     try {
+      for (const opcion of opciones) {
+        if (opcion.photoFile) {
+          const form = new FormData();
+          form.append('imagen', opcion.photoFile);
+          const uploaded = await api.post('/productos/upload', form);
+          opcion.imagen = uploaded.url;
+        }
+        delete opcion.photoFile;
+      }
       const cuerpo = {
         nombre,
         tipo: modal.tipo,
@@ -338,6 +352,14 @@ export default function ListasOpciones() {
                     key={opcion.id}
                     className="rounded-lg bg-gray-50 px-2.5 py-1 text-[12px] text-gray-700"
                   >
+                    {opcion.imagen ? (
+                      <img
+                        src={resolveAssetUrl(opcion.imagen)}
+                        alt=""
+                        className="mr-1 inline-block h-7 w-7 rounded object-cover"
+                        loading="lazy"
+                      />
+                    ) : null}
                     {opcion.nombre}
                     {Number(opcion.precio) > 0 ? (
                       <span className="ml-1 font-semibold tabular-nums">+{fmt(opcion.precio)}</span>
@@ -355,7 +377,7 @@ export default function ListasOpciones() {
         <div
           className="fixed inset-0 z-[60] flex items-center justify-center bg-gray-900/40 p-4 backdrop-blur-[2px]"
           onClick={(evento) => {
-            if (evento.target === evento.currentTarget) setModal(null);
+            if (!guardando && evento.target === evento.currentTarget) setModal(null);
           }}
           role="presentation"
         >
@@ -373,13 +395,17 @@ export default function ListasOpciones() {
                 type="button"
                 onClick={() => setModal(null)}
                 aria-label="Cerrar"
+                disabled={guardando}
                 className="rounded-xl p-1.5 text-gray-400 transition hover:bg-gray-100 hover:text-gray-600"
               >
                 <X size={18} strokeWidth={STROKE} />
               </button>
             </div>
 
-            <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 py-5">
+            <fieldset
+              disabled={guardando}
+              className="min-h-0 min-w-0 flex-1 space-y-5 overflow-y-auto px-6 py-5"
+            >
               <div>
                 <label
                   htmlFor="lista-nombre"
@@ -465,33 +491,44 @@ export default function ListasOpciones() {
                 </div>
                 <div className="space-y-2">
                   {modal.opciones.map((opcion, indice) => (
-                    <div key={indice} className="flex gap-2">
-                      <input
-                        value={opcion.nombre}
-                        onChange={(e) => cambiarOpcion(indice, 'nombre', e.target.value)}
-                        placeholder="Papas fritas"
-                        className={CONTROL}
-                      />
-                      <input
-                        value={opcion.precio}
-                        onChange={(e) => cambiarOpcion(indice, 'precio', e.target.value)}
-                        placeholder="0"
-                        inputMode="decimal"
-                        className={`${CONTROL} w-32 shrink-0 text-right tabular-nums`}
-                      />
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setModal({
-                            ...modal,
-                            opciones: modal.opciones.filter((_, i) => i !== indice),
-                          })
+                    <div key={indice} className="space-y-2 rounded-xl border border-gray-100 p-2">
+                      <div className="flex gap-2">
+                        <input
+                          value={opcion.nombre}
+                          onChange={(e) => cambiarOpcion(indice, 'nombre', e.target.value)}
+                          placeholder="Papas fritas"
+                          className={CONTROL}
+                        />
+                        <input
+                          value={opcion.precio}
+                          onChange={(e) => cambiarOpcion(indice, 'precio', e.target.value)}
+                          placeholder="0"
+                          inputMode="decimal"
+                          className={`${CONTROL} w-32 shrink-0 text-right tabular-nums`}
+                        />
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setModal({
+                              ...modal,
+                              opciones: modal.opciones.filter((_, i) => i !== indice),
+                            })
+                          }
+                          aria-label={`Sacar la opción ${indice + 1}`}
+                          className="shrink-0 rounded-xl px-2 text-gray-400 transition hover:bg-danger-50 hover:text-danger-600"
+                        >
+                          <Trash2 size={15} strokeWidth={STROKE} />
+                        </button>
+                      </div>
+                      <OptionPhotoPicker
+                        option={opcion}
+                        onChange={(updated) =>
+                          setModal((prev) => ({
+                            ...prev,
+                            opciones: prev.opciones.map((o, i) => (i === indice ? updated : o)),
+                          }))
                         }
-                        aria-label={`Sacar la opción ${indice + 1}`}
-                        className="shrink-0 rounded-xl px-2 text-gray-400 transition hover:bg-danger-50 hover:text-danger-600"
-                      >
-                        <Trash2 size={15} strokeWidth={STROKE} />
-                      </button>
+                      />
                     </div>
                   ))}
                 </div>
@@ -509,12 +546,13 @@ export default function ListasOpciones() {
                   Agregar opción
                 </button>
               </div>
-            </div>
+            </fieldset>
 
             <div className="flex justify-end gap-2 border-t border-gray-100 bg-gray-50 px-6 py-4">
               <button
                 type="button"
                 onClick={() => setModal(null)}
+                disabled={guardando}
                 className="h-11 rounded-xl border border-gray-200 bg-white px-5 text-[13px] font-medium text-gray-600 transition hover:bg-gray-100"
               >
                 Cancelar

@@ -57,7 +57,7 @@ async function main() {
           { id: 2, nombre: 'Vacía', activo: 0, orden: 2, subcategorias: [] },
         ];
       }
-      if (url.pathname === '/api/productos') {
+      if (url.pathname === '/api/productos/administracion') {
         body = [
           { id: 10, categoria_id: '1', nombre: 'Muzzarella', precio: 5000, activo: 1 },
           { id: 11, categoria_id: 1, nombre: 'Especial oculta', precio: 6500, activo: 0 },

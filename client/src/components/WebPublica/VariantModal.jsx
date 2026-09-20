@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { fmt, getVariantSelectionPrice } from '../../lib/webPublicaHelpers.js';
 import { getStructuredDisplayPrices } from '../../lib/pedidoForm.js';
 import { variantesCompletas as esCompleto } from '../../lib/variantesObligatorias.js';
+import { resolveAssetUrl } from '../../lib/assets.js';
 
 export default function VariantModal({ modal, setModal, colorPrimario, onClose, onAddToCart }) {
   const variantesCompletas = useMemo(
@@ -69,6 +70,11 @@ export default function VariantModal({ modal, setModal, colorPrimario, onClose, 
             )}
 
             <div className="overflow-y-auto space-y-6 px-6 pb-6">
+              {modal.producto.descripcion?.includes('Incluye postre y bebida sin recargo.') ? (
+                <p className="rounded-xl bg-emerald-50 p-3 text-sm font-medium text-emerald-800">
+                  Postre y bebida incluidos, sin recargo.
+                </p>
+              ) : null}
               {modal.variantes.map((v) => (
                 <div key={v.nombre} className="space-y-3">
                   <label className="text-xs font-semibold text-gray-500">
@@ -107,6 +113,14 @@ export default function VariantModal({ modal, setModal, colorPrimario, onClose, 
                               : {}
                           }
                         >
+                          {o.imagen ? (
+                            <img
+                              src={resolveAssetUrl(o.imagen)}
+                              alt=""
+                              loading="lazy"
+                              className="mb-2 h-24 w-full rounded-lg object-cover"
+                            />
+                          ) : null}
                           <span className="text-xs font-semibold">{oNombre}</span>
                           <span className={`text-sm font-bold ${selected ? '' : 'text-gray-900'}`}>
                             {fmt(finalPrice)}

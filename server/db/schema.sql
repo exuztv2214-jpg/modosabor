@@ -207,6 +207,7 @@ CREATE TABLE IF NOT EXISTS opcion_items (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   lista_id INTEGER NOT NULL REFERENCES opcion_listas(id) ON DELETE CASCADE,
   nombre TEXT NOT NULL,
+  imagen TEXT NOT NULL DEFAULT '',
   -- Centavos, igual que productos.precio. Es un recargo sobre el plato: 0 en
   -- una guarnición incluida, 100000 en el postre de $1.000.
   precio INTEGER NOT NULL DEFAULT 0,

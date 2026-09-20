@@ -116,12 +116,10 @@ function replaceClienteDirecciones(db, clienteId, direcciones = []) {
     )
     .filter((direccion) => direccion.direccion);
 
-  db.exec('BEGIN');
-  try {
+  return db.transaction(() => {
     if (normalized.length === 0) {
       db.prepare('DELETE FROM cliente_direcciones WHERE cliente_id = ?').run(clienteId);
       db.prepare('UPDATE clientes SET direccion = ? WHERE id = ?').run('', clienteId);
-      db.exec('COMMIT');
       return [];
     }
 
@@ -188,17 +186,13 @@ function replaceClienteDirecciones(db, clienteId, direcciones = []) {
     ).run(clienteId, principalId);
 
     const principal = syncClienteDireccionPrincipal(db, clienteId);
-    db.exec('COMMIT');
 
     const direccionesActualizadas = getClienteDirecciones(db, clienteId);
     if (!principal && direccionesActualizadas.length) {
       syncClienteDireccionPrincipal(db, clienteId);
     }
     return direccionesActualizadas;
-  } catch (error) {
-    db.exec('ROLLBACK');
-    throw error;
-  }
+  })();
 }
 
 function createClienteDireccion(db, clienteId, payload = {}) {

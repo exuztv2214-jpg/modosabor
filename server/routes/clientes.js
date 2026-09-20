@@ -8,6 +8,7 @@ const { requirePermission } = require('../utils/permissions');
 const { getConfigMap } = require('../utils/mercadoPago');
 const { hydratePedido } = require('../services/pedidoService');
 const { hoyArgentina } = require('../utils/fechaLocal');
+const { findClienteDuplicate, phoneKey, emailKey } = require('../utils/clienteDuplicates');
 const {
   createClienteDireccion,
   deleteClienteDireccion,
@@ -887,39 +888,52 @@ router.post('/', auth, requirePermission('clientes.edit'), (req, res) => {
     fidelizacion_activa = 1,
   } = req.body;
 
-  if (!nombre) return res.status(400).json({ error: 'Nombre requerido' });
+  if (!String(nombre || '').trim()) return res.status(400).json({ error: 'Nombre requerido' });
 
-  const result = db
-    .prepare(
-      `
+  const outcome = db
+    .transaction(() => {
+      const duplicate = findClienteDuplicate(db, { telefono, email });
+      if (duplicate) return { duplicate };
+      const result = db
+        .prepare(
+          `
         INSERT INTO clientes (
           nombre, telefono, email, direccion, notas, tags,
           fecha_nacimiento, avatar_url, fidelizacion_activa
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `
-    )
-    .run(
-      nombre,
-      telefono,
-      email,
-      direccion,
-      notas,
-      tagsToString(tags),
-      fecha_nacimiento || '',
-      avatar_url || '',
-      fidelizacion_activa ? 1 : 0
-    );
+        )
+        .run(
+          String(nombre).trim(),
+          telefono,
+          email,
+          direccion,
+          notas,
+          tagsToString(tags),
+          fecha_nacimiento || '',
+          avatar_url || '',
+          fidelizacion_activa ? 1 : 0
+        );
 
-  const clienteId = result.lastInsertRowid;
-  asegurarCodigoTarjeta(clienteId);
+      const clienteId = result.lastInsertRowid;
+      asegurarCodigoTarjeta(clienteId);
 
-  const direccionesInput = resolveDireccionesInput(req.body, []);
-  if (direccionesInput) {
-    replaceClienteDirecciones(db, clienteId, direccionesInput);
+      const direccionesInput = resolveDireccionesInput(req.body, []);
+      if (direccionesInput) {
+        replaceClienteDirecciones(db, clienteId, direccionesInput);
+      }
+
+      return { created: getClienteDetail(clienteId) };
+    })
+    .immediate();
+  if (outcome.duplicate) {
+    return res.status(409).json({
+      code: 'CLIENTE_DUPLICADO',
+      error: `Ya existe un cliente con ese ${outcome.duplicate.campo}: ${outcome.duplicate.nombre}. Buscalo y seleccioná su ficha.`,
+      cliente_existente_id: outcome.duplicate.id,
+    });
   }
-
-  const created = getClienteDetail(clienteId);
-  res.json(created);
+  res.json(outcome.created);
 });
 
 router.put('/:id', auth, requirePermission('clientes.edit'), (req, res) => {
@@ -944,35 +958,54 @@ router.put('/:id', auth, requirePermission('clientes.edit'), (req, res) => {
         : existing.fidelizacion_activa,
   };
 
-  db.prepare(
-    `
+  const outcome = db
+    .transaction(() => {
+      // Historical duplicates must not prevent unrelated edits. Check only new identities.
+      const changed = {
+        telefono:
+          phoneKey(payload.telefono) !== phoneKey(existing.telefono) ? payload.telefono : '',
+        email: emailKey(payload.email) !== emailKey(existing.email) ? payload.email : '',
+      };
+      const duplicate = findClienteDuplicate(db, changed, existing.id);
+      if (duplicate) return { duplicate };
+      db.prepare(
+        `
       UPDATE clientes
       SET nombre = ?, telefono = ?, email = ?, direccion = ?, notas = ?, tags = ?,
           fecha_nacimiento = ?, avatar_url = ?, fidelizacion_activa = ?
       WHERE id = ?
     `
-  ).run(
-    payload.nombre,
-    payload.telefono,
-    payload.email,
-    payload.direccion,
-    payload.notas,
-    payload.tags,
-    payload.fecha_nacimiento,
-    payload.avatar_url,
-    payload.fidelizacion_activa,
-    req.params.id
-  );
+      ).run(
+        payload.nombre,
+        payload.telefono,
+        payload.email,
+        payload.direccion,
+        payload.notas,
+        payload.tags,
+        payload.fecha_nacimiento,
+        payload.avatar_url,
+        payload.fidelizacion_activa,
+        req.params.id
+      );
 
-  asegurarCodigoTarjeta(req.params.id);
+      asegurarCodigoTarjeta(req.params.id);
 
-  const direccionesInput = resolveDireccionesInput(req.body, direccionesExistentes);
-  if (direccionesInput) {
-    replaceClienteDirecciones(db, req.params.id, direccionesInput);
+      const direccionesInput = resolveDireccionesInput(req.body, direccionesExistentes);
+      if (direccionesInput) {
+        replaceClienteDirecciones(db, req.params.id, direccionesInput);
+      }
+
+      return { updated: getClienteDetail(req.params.id) };
+    })
+    .immediate();
+  if (outcome.duplicate) {
+    return res.status(409).json({
+      code: 'CLIENTE_DUPLICADO',
+      error: `Ese ${outcome.duplicate.campo} pertenece a ${outcome.duplicate.nombre}.`,
+      cliente_existente_id: outcome.duplicate.id,
+    });
   }
-
-  const updated = getClienteDetail(req.params.id);
-  res.json(updated);
+  res.json(outcome.updated);
 });
 
 router.post('/:id/canjear-regalo', auth, requirePermission('clientes.edit'), (req, res) => {

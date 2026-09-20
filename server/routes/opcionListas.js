@@ -33,6 +33,24 @@ const { textoNormalizado } = require('../utils/opcionesCompartidas');
 
 const TIPOS = new Set(['variante', 'extra']);
 
+// Images are uploaded separately through the existing authenticated product upload.
+// Keep prices in JSON to preserve the centavos conversion middleware.
+router.use((req, res, next) => {
+  if (
+    Array.isArray(req.body?.opciones) &&
+    req.body.opciones.some(
+      (o) =>
+        o?.imagen !== undefined &&
+        o.imagen !== '' &&
+        (typeof o.imagen !== 'string' ||
+          !/^\/uploads\/[a-zA-Z0-9_-][a-zA-Z0-9_.-]*\.(png|jpe?g|webp|gif)$/i.test(o.imagen))
+    )
+  ) {
+    return res.status(400).json({ error: 'Subí una imagen válida para la opción' });
+  }
+  next();
+});
+
 function normalizarTipo(valor) {
   const tipo = String(valor || '')
     .trim()
@@ -47,6 +65,7 @@ function normalizarOpciones(opciones) {
       nombre: String(opcion?.nombre || '').trim(),
       precio: Math.round(Number(opcion?.precio || 0)),
       activo: Number(opcion?.activo ?? 1) === 1 ? 1 : 0,
+      ...(opcion?.imagen !== undefined ? { imagen: opcion.imagen } : {}),
     }))
     .filter((opcion) => {
       if (!opcion.nombre) return false;
@@ -66,7 +85,7 @@ function leerLista(id) {
     ...lista,
     opciones: db
       .prepare(
-        'SELECT id, nombre, precio, orden, activo FROM opcion_items WHERE lista_id = ? ORDER BY orden ASC, id ASC'
+        'SELECT id, nombre, precio, orden, activo, imagen FROM opcion_items WHERE lista_id = ? ORDER BY orden ASC, id ASC'
       )
       .all(id),
     productos: db
@@ -93,12 +112,25 @@ router.get('/:id', auth, (req, res) => {
 });
 
 function guardarOpciones(listaId, opciones) {
+  const imagenes = new Map(
+    db
+      .prepare('SELECT nombre, imagen FROM opcion_items WHERE lista_id = ?')
+      .all(listaId)
+      .map((o) => [textoNormalizado(o.nombre), o.imagen])
+  );
   db.prepare('DELETE FROM opcion_items WHERE lista_id = ?').run(listaId);
   const insertar = db.prepare(
-    'INSERT INTO opcion_items (lista_id, nombre, precio, orden, activo) VALUES (?, ?, ?, ?, ?)'
+    'INSERT INTO opcion_items (lista_id, nombre, precio, orden, activo, imagen) VALUES (?, ?, ?, ?, ?, ?)'
   );
   opciones.forEach((opcion, indice) => {
-    insertar.run(listaId, opcion.nombre, opcion.precio, indice, opcion.activo);
+    insertar.run(
+      listaId,
+      opcion.nombre,
+      opcion.precio,
+      indice,
+      opcion.activo,
+      opcion.imagen ?? imagenes.get(textoNormalizado(opcion.nombre)) ?? ''
+    );
   });
 }
 
