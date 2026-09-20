@@ -33,12 +33,14 @@ function instruccionesCliente(atencion) {
   return `Sos ${atencion.nombre || 'Chispita'}, quien atiende WhatsApp para Modo Sabor.
 Hablá en castellano rioplatense, de vos, con mensajes breves y cálidos.
 Usá las herramientas para consultar carta, stock, clientes, pedidos y para armar el pedido.
+El carrito es tu memoria: lo que no está cargado ahí, no existe. Apenas el cliente nombra algo que quiere llevar, cargalo con agregar_item en ese mismo turno, aunque falten la guarnición o la dirección — después lo ajustás con modificar_item. No esperes a tener todos los datos para recién cargarlo.
+agregar_item ya cotiza sola contra el catálogo, así que no hace falta cotizar antes de cargar. Usá cotizar_item nada más cuando el cliente pregunta un precio sin pedirlo todavía.
 Nunca inventes productos, disponibilidad, direcciones ni precios. Los precios salen del servidor.
 No digas que un pedido quedó confirmado hasta que crear_pedido devuelva el pedido real.
 Para presentar el resumen usá siempre preparar_confirmacion: el servidor genera el texto y espera un nuevo mensaje del cliente. No redactes un resumen por tu cuenta. Si cambian productos, cantidades, datos o precios, prepará un resumen nuevo.
 La ficha y el teléfono del cliente son los del contexto; nunca consultes a otra persona.
 Si falta un dato indispensable, preguntá solamente ese dato. Si el cliente pide una persona, derivá.
-Si ya están el producto, cantidad, opciones obligatorias y entrega, cargá esos datos con las herramientas y enviá el resumen para confirmar. No retrases el cierre preguntando “¿algo más?” ni la hora de retiro si no pidió programarlo. Un retiro sin hora se prepara cuanto antes, sin prometer minutos que el sistema no informó.
+Si ya están el producto, cantidad, opciones obligatorias y entrega, cargá esos datos con las herramientas y enviá el resumen para confirmar. No retrases el cierre preguntando “¿algo más?” ni la hora de retiro si no pidió programarlo. Un retiro sin hora se prepara cuanto antes, sin prometer minutos que el sistema no informó. Si el cliente sí pide una hora (“lo retiro a las 13:30”), guardala con actualizar_datos_pedido en formato HH:MM y repetila en el resumen.
 Si el audio transcripto contiene [inaudible], pedí aclarar solamente ese fragmento. Nunca adivines cantidades, productos ni direcciones.
 Para preguntas por el envío usá cotizar_envio; para la demora de un pedido ya realizado consultá consultar_pedido_actual. No respondas con el menú a esas preguntas.
 Para un cliente nuevo pedí su nombre antes del resumen final y guardalo con actualizar_datos_pedido; no necesitás pedir su teléfono, ya viene del chat.
@@ -46,6 +48,7 @@ Saludá una sola vez por conversación: si hay historial reciente, continuá sin
 Conservá los detalles de cocina que diga el cliente (por ejemplo “con ají” o “sin cebolla”) dentro de la descripción/notas del ítem y repetilos en el resumen antes de confirmar.
 Antes de crear_pedido, enviá un resumen completo (ítems, variantes/notas, dirección y total) y esperá una confirmación posterior. Aceptá como confirmación natural “sí”, “si”, “confirmo”, “dale”, “ok”, “okay”, “de una”, “mandalo”, “listo”, “está bien”, “correcto” y variantes equivalentes, pero sólo si acabás de enviar ese resumen y no falta ningún dato.
 Después de crear un pedido real, respondé agradecimientos y referencias al mismo pedido sin abrir una venta nueva; para demora o estado usá consultar_pedido_actual.
+Si el cliente quiere cancelar, preguntale una vez si confirma que cancelás el pedido y recién con su “sí” usá cancelar_pedido. Si la herramienta responde que ya está en preparación, no insistas: explicá que la cocina ya empezó y derivá a una persona.
 El nombre que figura en la ficha del cliente es el dato principal. No lo cambies ni inventes otro nombre. Sólo registrá un nombre distinto si el cliente lo declara expresamente (por ejemplo, “me llamo…” o “mi nombre es…”), usando actualizar_datos_pedido.
 No preguntes cómo va a pagar por iniciativa propia. Si el cliente dice que pagará por transferencia, registrá “transferencia” con actualizar_datos_pedido y compartí exactamente los datos de transferencia configurados abajo. No inventes alias, titulares ni bancos. Si esos datos están vacíos, derivá a una persona en vez de dar información de pago incompleta.
 
@@ -105,7 +108,7 @@ function proveedorRespaldoWhatsapp(config = {}) {
   const modelo = usaGemini
     ? /^gemini-/i.test(modeloConfigurado)
       ? modeloConfigurado
-      : 'gemini-3.6-flash'
+      : 'gemini-3.5-flash-lite'
     : modeloConfigurado;
   if (!baseUrl || !modelo || !clave) return null;
 
@@ -175,7 +178,20 @@ async function atenderConMotorPropio(payload, dependencias = {}) {
       if (volverAlPrincipal) return resolverPrincipal(opciones);
       try {
         return await resolverRespaldo({ ...opciones, proveedor: respaldo });
-      } catch {
+      } catch (errorRespaldo) {
+        /*
+          Este error se descartaba sin dejar rastro, y por eso el proveedor que
+          el dueño eligió para atender podía no atender nunca sin que nadie se
+          enterara: la métrica registraba al principal como si hubiera sido la
+          primera opción. Si el elegido se cae, tiene que constar.
+
+          No incluye teléfono ni texto del cliente: sólo el motivo técnico.
+        */
+        logger.warn('WhatsApp: el proveedor prioritario falló; contesta el principal', {
+          proveedor: respaldo?.nombre || respaldo?.id || 'respaldo',
+          modelo: respaldo?.modelo || '',
+          detalle: String(errorRespaldo?.message || errorRespaldo).slice(0, 300),
+        });
         // Mantener el proveedor global intacto y evitar insistir con el caído
         // en cada ronda de herramientas de esta misma respuesta.
         volverAlPrincipal = true;
@@ -245,11 +261,26 @@ async function atenderConMotorPropio(payload, dependencias = {}) {
     ? memoriaActual.mensajes.map(({ rol, texto }) => ({ rol, texto }))
     : historialAMensajes(payload?.historial);
   const textoActual = String(payload?.texto || '').slice(0, 8000);
-  const ultimo = historial[historial.length - 1];
-  const mensajes =
-    ultimo?.rol === 'usuario' && ultimo.texto === textoActual
-      ? historial
-      : [...historial, { rol: 'usuario', texto: textoActual }];
+  /*
+    Cuando el cliente manda varios mensajes seguidos, el gateway los agrupa y
+    acá llega el texto combinado, pero en la base cada uno quedó guardado por
+    separado —hace falta así para no procesar dos veces el mismo id de
+    WhatsApp—. Comparar sólo contra el último mensaje no alcanzaba: "si" y
+    "gracias" no son iguales a "si\ngracias", así que el combinado se agregaba
+    otra vez y el modelo leía dos veces lo mismo.
+
+    Se compara contra toda la cola de mensajes seguidos del cliente. Con un
+    solo mensaje el resultado es el de antes.
+  */
+  const colaDelCliente = [];
+  for (let i = historial.length - 1; i >= 0 && historial[i]?.rol === 'usuario'; i -= 1) {
+    colaDelCliente.unshift(historial[i].texto);
+  }
+  const yaEstaEnElHistorial =
+    colaDelCliente.length > 0 && colaDelCliente.join('\n') === textoActual;
+  const mensajes = yaEstaEnElHistorial
+    ? historial
+    : [...historial, { rol: 'usuario', texto: textoActual }];
   contexto.mensajeActual = textoActual;
   contexto.ultimoMensajeAsistente =
     [...historial].reverse().find((mensaje) => mensaje?.rol === 'asistente')?.texto || '';
@@ -288,6 +319,13 @@ async function atenderConMotorPropio(payload, dependencias = {}) {
         if (nombre === 'crear_pedido' && resultado?.id) {
           return detenerAgente({
             texto: `Pedido #${resultado.numero || resultado.id} confirmado. ${resultado.tipo_entrega === 'retiro' ? 'Lo preparamos para retirar en el local.' : 'Quedó registrado para entrega.'} ¡Gracias!`,
+          });
+        }
+        if (nombre === 'cancelar_pedido' && resultado?.ok) {
+          return detenerAgente({
+            texto: resultado.yaEstaba
+              ? `Tu pedido #${resultado.numero} ya figuraba cancelado.`
+              : `Listo, cancelé tu pedido #${resultado.numero}. Cualquier cosa escribinos y lo hacemos de nuevo.`,
           });
         }
         if (nombre === 'derivar_a_persona' && resultado?.ok) {
@@ -343,14 +381,8 @@ async function atenderConMotorPropio(payload, dependencias = {}) {
   }
 }
 
-async function elegirMotorWhatsapp({ usarMotorPropio, payload, llamarN8n, llamarMotor }) {
-  if (usarMotorPropio) return llamarMotor(payload);
-  return llamarN8n(payload);
-}
-
 module.exports = {
   atenderConMotorPropio,
-  elegirMotorWhatsapp,
   historialAMensajes,
   instruccionesCliente,
   leerPoliticaConversacional,

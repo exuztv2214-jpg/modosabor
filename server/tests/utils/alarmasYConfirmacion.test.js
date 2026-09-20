@@ -139,12 +139,10 @@ function run() {
   );
   console.log('  ✓ el número que escribe la IA no vale como prueba');
 
-  // La prueba válida es una sola: haberlo encontrado en la base local o en la
-  // remota. Si ninguna lo encuentra, no se confirma.
+  // La prueba válida es una sola: haber encontrado el pedido en la base. Si no
+  // está, no se confirma.
   assert.ok(
-    /claimsOrderWasCreated\(output\)\s*&&\s*!createdOrder\s*&&\s*!createdExternalOrder\s*&&\s*!pedidoConsultado/.test(
-      gateway
-    ),
+    /claimsOrderWasCreated\(output\)\s*&&\s*!createdOrder\s*&&\s*!pedidoConsultado/.test(gateway),
     'cambió la condición que bloquea la confirmación: revisá que siga exigiendo el pedido real'
   );
   console.log('  ✓ sólo se confirma si el pedido apareció de verdad');

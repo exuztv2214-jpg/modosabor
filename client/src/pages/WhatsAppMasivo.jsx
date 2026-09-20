@@ -3918,11 +3918,6 @@ function ConfigVista({ config, onGuardar, estado, gateway, onGateway, onConectar
               ayuda: 'Apagarlo frena los envíos masivos sin tocar la atención.',
             },
             {
-              clave: 'motorPropio',
-              label: 'Motor propio de IA',
-              ayuda: 'El agente que toma pedidos con la carta del sistema.',
-            },
-            {
               clave: 'pausaTotal',
               label: 'Pausa total',
               ayuda: 'Corta todo de una: atención y campañas. Es el botón rojo.',

@@ -4,8 +4,8 @@
     "nombre": "Google Gemini",
     "familia": "gemini",
     "baseUrl": "https://generativelanguage.googleapis.com/v1beta",
-    "modeloPorDefecto": "gemini-3.6-flash",
-    "modelos": ["gemini-3.6-flash"],
+    "modeloPorDefecto": "gemini-3.5-flash-lite",
+    "modelos": ["gemini-3.5-flash-lite", "gemini-3.6-flash"],
     "donde": "aistudio.google.com/apikey",
     "nota": "Tiene nivel gratuito."
   },
@@ -17,16 +17,6 @@
     "modeloPorDefecto": "claude-sonnet-4-20250514",
     "modelos": ["claude-sonnet-4-20250514", "claude-opus-4-20250514", "claude-3-5-haiku-20241022"],
     "donde": "console.anthropic.com",
-    "nota": "Sin nivel gratuito."
-  },
-  {
-    "id": "openai",
-    "nombre": "OpenAI (GPT)",
-    "familia": "openai",
-    "baseUrl": "https://api.openai.com/v1",
-    "modeloPorDefecto": "gpt-4o-mini",
-    "modelos": ["gpt-4o-mini", "gpt-4o", "o4-mini"],
-    "donde": "platform.openai.com/api-keys",
     "nota": "Sin nivel gratuito."
   },
   {
@@ -67,7 +57,6 @@
     "modeloPorDefecto": "anthropic/claude-3.5-sonnet",
     "modelos": [
       "anthropic/claude-3.5-sonnet",
-      "openai/gpt-4o-mini",
       "google/gemini-2.0-flash-001",
       "deepseek/deepseek-chat"
     ],

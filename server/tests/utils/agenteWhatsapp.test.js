@@ -5,7 +5,6 @@ const Database = require('better-sqlite3');
 const { runMigrations } = require('../../db/migrations');
 const {
   atenderConMotorPropio,
-  elegirMotorWhatsapp,
   instruccionesCliente,
   proveedorRespaldoWhatsapp,
 } = require('../../services/agenteWhatsapp');
@@ -36,39 +35,6 @@ function crearBase() {
 }
 
 async function run() {
-  const llamadas = [];
-  const llamarN8n = async (payload) => {
-    llamadas.push(['n8n', payload.telefono]);
-    return 'n8n';
-  };
-  const llamarMotor = async (payload) => {
-    llamadas.push(['propio', payload.telefono]);
-    return 'propio';
-  };
-
-  assert.strictEqual(
-    await elegirMotorWhatsapp({
-      usarMotorPropio: false,
-      payload: { telefono: '1' },
-      llamarN8n,
-      llamarMotor,
-    }),
-    'n8n'
-  );
-  assert.deepStrictEqual(llamadas, [['n8n', '1']]);
-
-  llamadas.length = 0;
-  assert.strictEqual(
-    await elegirMotorWhatsapp({
-      usarMotorPropio: true,
-      payload: { telefono: '2' },
-      llamarN8n,
-      llamarMotor,
-    }),
-    'propio'
-  );
-  assert.deepStrictEqual(llamadas, [['propio', '2']]);
-
   const db = crearBase();
   try {
     assert.strictEqual(
@@ -190,7 +156,7 @@ async function run() {
       { familia: gemini.familia, modelo: gemini.modelo, baseUrl: gemini.baseUrl },
       {
         familia: 'gemini',
-        modelo: 'gemini-3.6-flash',
+        modelo: 'gemini-3.5-flash-lite',
         baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
       }
     );
@@ -208,6 +174,56 @@ async function run() {
       }
     );
     assert.strictEqual(respuestaSinResumen, 'Sigo atendiendo');
+
+    /*
+      Mensajes agrupados: el cliente escribió dos veces seguidas y el gateway
+      los manda juntos, pero en la base están separados. El modelo tiene que
+      leer ese contenido una sola vez.
+
+      Si esto se rompe no falla nada a la vista: el modelo simplemente lee dos
+      veces lo que el cliente dijo una, y un "sí" duplicado al lado de un
+      resumen de pedido es exactamente la clase de ambigüedad que no queremos
+      cerca de la confirmación.
+    */
+    const agrupados = '5493811111111';
+    const conversacion = db
+      .prepare('SELECT id FROM whatsapp_conversaciones WHERE telefono = ?')
+      .get(agrupados);
+    const conversacionId =
+      conversacion?.id ||
+      Number(
+        db
+          .prepare("INSERT INTO whatsapp_conversaciones (telefono, nombre) VALUES (?, 'Cliente')")
+          .run(agrupados).lastInsertRowid
+      );
+    db.prepare('DELETE FROM whatsapp_mensajes WHERE conversacion_id = ?').run(conversacionId);
+    ['si', 'gracias'].forEach((texto, indice) => {
+      db.prepare(
+        `INSERT INTO whatsapp_mensajes
+           (conversacion_id, telefono, direccion, tipo, contenido, whatsapp_message_id)
+         VALUES (?, ?, 'entrante', 'texto', ?, ?)`
+      ).run(conversacionId, agrupados, texto, `agrupado-${indice}`);
+    });
+
+    let mensajesVistos = [];
+    await atenderConMotorPropio(
+      { telefono: agrupados, texto: 'si\ngracias', mensaje_id: 'agrupado-0+agrupado-1' },
+      {
+        db,
+        ejecutarAgente: async ({ mensajes }) => {
+          mensajesVistos = mensajes;
+          return { respuesta: { texto: 'Listo' } };
+        },
+      }
+    );
+    const delCliente = mensajesVistos
+      .filter((mensaje) => mensaje.rol === 'usuario')
+      .map((mensaje) => mensaje.texto);
+    assert.deepStrictEqual(
+      delCliente,
+      ['si', 'gracias'],
+      'el texto combinado no puede sumarse encima de los mensajes que ya están en el historial'
+    );
   } finally {
     db.close();
   }

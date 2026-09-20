@@ -9,7 +9,6 @@ const {
   buildMenuDayReply,
   usableWhatsappName,
   claimsOrderWasCreated,
-  safeWebhookUrl,
   closedBusinessMessage,
 } = require('../../services/whatsappGateway');
 
@@ -95,16 +94,6 @@ function run() {
   assert.strictEqual(claimsOrderWasCreated('Tu pedido está confirmado'), true);
   assert.strictEqual(claimsOrderWasCreated('Ya lo pasé a cocina'), true);
   assert.strictEqual(claimsOrderWasCreated('Tu pedido no está confirmado'), false);
-  const previousNodeEnv = process.env.NODE_ENV;
-  process.env.NODE_ENV = 'production';
-  assert.strictEqual(
-    safeWebhookUrl('http://127.0.0.1:5678/webhook/incorrecto', 'https://n8n.example/webhook/ok'),
-    'https://n8n.example/webhook/ok'
-  );
-  assert.strictEqual(
-    safeWebhookUrl('https://n8n.example/webhook/principal', 'https://fallback.example'),
-    'https://n8n.example/webhook/principal'
-  );
   const cierre = closedBusinessMessage([
     { nombre: 'Turno mañana', desde: '10:00', hasta: '15:00' },
     { nombre: 'Turno noche', desde: '20:30', hasta: '02:00' },
@@ -113,7 +102,6 @@ function run() {
   assert.match(cierre, /10:00 a 15:00/);
   assert.match(cierre, /20:30 a 02:00/);
   assert.match(cierre, /preparamos algo rico para vos/i);
-  process.env.NODE_ENV = previousNodeEnv;
   const agentRoute = fs.readFileSync(
     path.join(__dirname, '..', '..', 'routes', 'agente.js'),
     'utf8'

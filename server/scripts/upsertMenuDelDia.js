@@ -1,308 +1,282 @@
 /**
- * Carga el menú del día de HOY.
+ * Carga el menú del día de HOY y los platos de parrilla.
  *
  * Uso:
  *   node server/scripts/upsertMenuDelDia.js
+ *   node server/scripts/upsertMenuDelDia.js --dry
  *
  * Idempotente: se puede correr las veces que haga falta sin duplicar platos.
  *
- * ─────────────────────────────────────────────────────────────────────────
- * Este archivo estaba desactualizado y escribía mal dos cosas:
+ * ── Dos cosas que este script NO hace, a propósito ─────────────────────────
  *
- * 1. PRECIO. Tenía `MENU_PRICE = 5000` y lo guardaba tal cual, pero
- *    `productos.precio` se migró de REAL a INTEGER en centavos (ver
- *    `migrateMoneyColumns` en db/migrations.js). Cinco mil centavos son $50:
- *    el menú aparecía a cincuenta pesos en el TPV y en la carta online.
+ * 1. NO RENOMBRA platos que ya existen. La versión anterior usaba los alias
+ *    para encontrar una fila y después le escribía el nombre nuevo encima: con
+ *    el alias "Costeleta de res a caballo" colgado de "Costeleta a la riojana",
+ *    una corrida convertía un plato del repertorio en otro. Acá el alias sólo
+ *    sirve para *encontrar* la fila y no pisarla con un duplicado; el nombre
+ *    que ya tiene se respeta.
  *
- * 2. MECANISMO. No conocía `menu_dia_tipo` (económico / ejecutivo), ni las
- *    guarniciones como variantes, ni el snapshot diario en
- *    `menu_dia_historial`. Es decir, cargaba los platos pero por fuera de
- *    todo lo que la pantalla de Operación → Menú del día usa para funcionar.
+ * 2. NO da de baja lo que no esté en la lista de hoy. Sólo lo saca del menú
+ *    del día (`menu_dia_disponible_hoy = 0`), que es lo que corresponde: un
+ *    plato que hoy no se cocina no es un plato que dejó de existir.
  *
- * Ahora sigue el mismo mecanismo que `seedMenuManana.js`, que es el que el
- * sistema realmente lee. Si algún día se unifican los dos scripts, este es
- * el que hay que conservar.
- * ─────────────────────────────────────────────────────────────────────────
+ * ── Precio por plato, no por nivel ─────────────────────────────────────────
+ *
+ * Antes había dos constantes de precio y cada plato caía en una. El menú real
+ * no siempre entra en dos cajas: hoy hay uno de $7.000 y otro de $9.000, y la
+ * parrilla va de $12.000 a $14.000. Cada plato lleva su precio.
  */
 const db = require('../db');
 
-const CATEGORY_NAME = 'Menu del Dia';
+const SOLO_SIMULAR = process.argv.includes('--dry');
 
-const PRECIO_ECONOMICO = 5000;
-const PRECIO_EJECUTIVO = 7000;
-const STOCK_MENU_DIA = 20;
+const CATEGORIA_MENU = 'Menu del Dia';
+const CATEGORIA_PARRILLA = 'Parrilla';
+const LISTA_GUARNICIONES = 'Guarniciones';
+const STOCK_POR_PLATO = 20;
 
 /** Los precios se escriben en pesos y la base guarda centavos. */
-function pesosToStorage(value) {
-  return Math.round(Number(value || 0) * 100);
+function aCentavos(pesos) {
+  return Math.round(Number(pesos || 0) * 100);
 }
 
-const GUARNICIONES_GLOBALES = [
-  'Arroz blanco',
-  'Arroz a la provenzal',
-  'Arroz primavera',
-  'Puré',
-  'Papas',
-  'Papas al horno',
-  'Papas fritas',
-  'Fideo a la provenzal',
-  'Arroz',
-  'Fideo',
-  'Salsa roja',
-  'Salsa blanca',
-  'Salsa mixta',
+/*
+  El menú del día de hoy, tal como salió publicado.
+
+  `alias` son los nombres con los que el plato puede estar ya cargado en el
+  repertorio. Sirven para reusar la fila y no crear un duplicado; el nombre
+  guardado no se toca.
+*/
+const MENU_DEL_DIA = [
+  // ── $7.000 · incluye guarnición a elección ──
+  { nombre: 'Wok de verduras y pollo', precio: 7000, alias: ['Wok de Verduras y Pollo', 'Wok'] },
+  { nombre: 'Arroz chaufa', precio: 7000, alias: ['Arroz Chaufa'] },
+  { nombre: 'Costeleta a la riojana', precio: 7000, alias: ['Costeleta a la Riojana'] },
+  { nombre: 'Suprema napolitana', precio: 7000, alias: ['Suprema a la Napolitana'] },
+  { nombre: 'Suprema a la suiza', precio: 7000, alias: ['Suprema a la Suiza'] },
+  { nombre: 'Merluza a la romana', precio: 7000, alias: ['Merluza a la Romana'] },
+  { nombre: '1/4 de pollo a la parrilla', precio: 7000, alias: [] },
+  { nombre: 'Pollo al ajillo', precio: 7000, alias: ['Pollo al Ajillo'] },
+  { nombre: 'Pollo al horno', precio: 7000, alias: [] },
+  { nombre: 'Marinera', precio: 7000, alias: ['Marinera'] },
+
+  // ── $9.000 · incluye guarnición + bebida + postre ──
+  { nombre: 'Milanesa napolitana', precio: 9000, alias: ['Mila Napo', 'Milanesa a la Napolitana'] },
+  { nombre: 'Milanesa a caballo', precio: 9000, alias: ['Milanesa a Caballo'] },
+  { nombre: 'Costeleta de res a caballo', precio: 9000, alias: ['Costeleta de Res a Caballo'] },
+  {
+    nombre: 'Matambre de cerdo a la pizza',
+    precio: 9000,
+    alias: ['Matambre de Cerdo a la Pizza'],
+  },
+  { nombre: 'Matambre de vaca a la pizza', precio: 9000, alias: [] },
 ];
 
-/** El juego de guarniciones que llevan los platos de milanesa/suprema. */
-const GUARNICIONES_SUPREMA = [
-  'Arroz blanco',
-  'Arroz a la provenzal',
-  'Fideo a la provenzal',
-  'Papas',
-  'Puré',
-  'Arroz primavera',
-];
-
-const PLATOS = [
-  // ── Menú económico · $5.000 ──
+/*
+  La parrilla no es menú del día: son platos con su propio precio y su propio
+  gramaje, que se venden igual a la noche. Van en su categoría, sin
+  `menu_dia_base`, así no quedan atados a la regla de la mañana ni aparecen
+  como si fueran un menú de $7.000.
+*/
+const PARRILLA = [
   {
-    nombre: 'Canelón',
-    tipo: 'economico',
-    descripcion: 'Canelón casero. Elegí la salsa.',
-    guarniciones: ['Salsa roja', 'Salsa blanca', 'Salsa mixta'],
-    aliases: ['Canelones'],
-    tiempo_preparacion: 18,
+    nombre: 'Parrillada individual',
+    precio: 12000,
+    descripcion:
+      'Costilla de vaca, cerdo, pollo, chinchulín, riñón, chorizo y morcilla. Aprox. 350-400 g cocidos + guarnición.',
+    alias: ['Parrillada'],
   },
   {
-    nombre: 'Wok de verduras y pollo',
-    tipo: 'economico',
-    descripcion: 'Wok casero de verduras y pollo. Elegí acompañamiento.',
-    guarniciones: ['Arroz', 'Fideo'],
-    aliases: ['Wok de verduras con pollo', 'Wok'],
-    tiempo_preparacion: 18,
+    nombre: 'Vacío a la parrilla',
+    precio: 14000,
+    descripcion: 'Aprox. 300 g cocidos + guarnición.',
+    alias: [],
   },
   {
-    nombre: 'Fideo casero con salsa de pollo',
-    tipo: 'economico',
-    descripcion: 'Fideo casero con salsa de pollo.',
-    guarniciones: [],
-    tiempo_preparacion: 18,
+    nombre: 'Costillita de vaca a la parrilla',
+    precio: 14000,
+    descripcion: 'Aprox. 300-350 g cocidos + guarnición.',
+    alias: [],
   },
   {
-    nombre: 'Suprema a la napolitana',
-    tipo: 'economico',
-    descripcion: 'Suprema a la napolitana. Elegí guarnición.',
-    guarniciones: GUARNICIONES_SUPREMA,
-    // La fila de la suprema se reutiliza y se renombra según la del día.
-    // `pedido_items` guarda el nombre como snapshot propio, así que los
-    // pedidos viejos siguen mostrando el plato con el que se vendieron.
-    aliases: ['Suprema a la suiza', 'Suprema suiza', 'Suprema napolitana'],
-    tiempo_preparacion: 20,
-  },
-  {
-    nombre: 'Zapallitos rellenos',
-    tipo: 'economico',
-    descripcion: 'Zapallitos rellenos caseros.',
-    guarniciones: [],
-    tiempo_preparacion: 20,
-  },
-
-  // ── Menú ejecutivo · $7.000 ──
-  {
-    nombre: 'Costeleta a la riojana',
-    tipo: 'ejecutivo',
-    descripcion: 'Costeleta a la riojana.',
-    guarniciones: [],
-    aliases: ['Costeleta de res a caballo'],
-    tiempo_preparacion: 22,
-  },
-  {
-    nombre: 'Marinera',
-    tipo: 'ejecutivo',
-    // No es suprema ni milanesa: es un corte fino aparte, que según la zona
-    // se pide como escalope o como lampreado. Los tres nombres van en la
-    // descripción para que el cliente que busca cualquiera de ellos la
-    // reconozca en la carta online.
-    descripcion: 'Marinera (escalope o lampreado). Elegí guarnición.',
-    guarniciones: GUARNICIONES_SUPREMA,
-    aliases: ['Escalope', 'Lampreado'],
-    tiempo_preparacion: 22,
-  },
-  {
-    nombre: 'Bife de pollo al verdeo',
-    tipo: 'ejecutivo',
-    descripcion: 'Bife de pollo con salsa de verdeo.',
-    guarniciones: [],
-    tiempo_preparacion: 20,
+    nombre: 'Costillita de cerdo a la parrilla',
+    precio: 12000,
+    descripcion: 'Aprox. 300 g cocidos + guarnición.',
+    alias: [],
   },
 ];
 
-function buildVariantes(guarniciones) {
-  const opciones = (guarniciones || [])
-    .map((g) => String(g || '').trim())
-    .filter(Boolean)
-    .map((nombre) => ({ nombre, precio_extra: 0 }));
-  if (opciones.length === 0) return '[]';
-  return JSON.stringify([{ nombre: 'Guarnición', opciones }]);
-}
-
-/** Fecha local. Con `toISOString()` after de las 21:00 en UTC-3 daría mañana. */
-function today() {
+function hoy() {
   const d = new Date();
   const pad = (n) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-console.log('Cargando configuración global...');
-const upsertConfig = db.prepare(
-  `INSERT INTO configuracion (clave, valor) VALUES (?, ?)
-   ON CONFLICT(clave) DO UPDATE SET valor = excluded.valor`
-);
-upsertConfig.run('menu_dia_precio_economico', String(pesosToStorage(PRECIO_ECONOMICO)));
-upsertConfig.run('menu_dia_precio_ejecutivo', String(pesosToStorage(PRECIO_EJECUTIVO)));
-upsertConfig.run('menu_dia_guarniciones_lista', JSON.stringify(GUARNICIONES_GLOBALES));
-
-let categoria = db
-  .prepare('SELECT * FROM categorias WHERE lower(nombre) = lower(?) LIMIT 1')
-  .get(CATEGORY_NAME);
-if (!categoria) {
+function asegurarCategoria(nombre, icono, orden) {
+  const existente = db
+    .prepare('SELECT * FROM categorias WHERE lower(nombre) = lower(?) LIMIT 1')
+    .get(nombre);
+  if (existente) return existente;
   const res = db
     .prepare(
-      `INSERT INTO categorias (nombre, icono, color, orden, activo, imagen, subcategorias)
-       VALUES (?, '🍽️', '#16a34a', 0, 1, '', '[]')`
+      `INSERT INTO categorias (nombre, icono, color, orden, activo, imagen, subcategorias, turno_id)
+       VALUES (?, ?, '#16a34a', ?, 1, '', '[]', '')`
     )
-    .run(CATEGORY_NAME);
-  categoria = db.prepare('SELECT * FROM categorias WHERE id = ?').get(res.lastInsertRowid);
+    .run(nombre, icono, orden);
+  return db.prepare('SELECT * FROM categorias WHERE id = ?').get(res.lastInsertRowid);
 }
 
-const fecha = today();
-console.log(`Cargando ${PLATOS.length} platos para la fecha ${fecha}...`);
+/** Busca la fila del plato por su nombre o por cualquiera de sus alias. */
+function buscarProducto(nombres) {
+  const buscar = db.prepare(
+    'SELECT id, nombre FROM productos WHERE lower(nombre) = lower(?) LIMIT 1'
+  );
+  for (const nombre of nombres) {
+    const fila = buscar.get(nombre);
+    if (fila) return fila;
+  }
+  return null;
+}
 
-const findByName = db.prepare(
-  `SELECT id FROM productos WHERE lower(nombre) = lower(?) AND categoria_id = ? LIMIT 1`
-);
-const findAlias = db.prepare(
-  `SELECT id FROM productos WHERE categoria_id = ? AND lower(nombre) = lower(?) LIMIT 1`
-);
-const insertProduct = db.prepare(
-  `INSERT INTO productos (
-    nombre, descripcion, precio, costo, categoria_id, imagen, variantes, extras,
-    activo, destacado, tiempo_preparacion, stock_directo, stock_mode,
-    menu_dia_base, menu_dia_disponible_hoy, menu_dia_tipo
-  ) VALUES (?, ?, ?, 0, ?, '', ?, '[]', 1, 0, ?, ?, 'direct', 1, 1, ?)`
-);
-const updateProduct = db.prepare(
-  `UPDATE productos
-   SET nombre = ?, descripcion = ?, precio = ?, variantes = ?, extras = '[]',
-       tiempo_preparacion = ?, stock_directo = ?, stock_mode = 'direct',
-       activo = 1, menu_dia_base = 1, menu_dia_disponible_hoy = 1, menu_dia_tipo = ?
-   WHERE id = ?`
-);
-const deactivateMenuProduct = db.prepare(
-  `UPDATE productos
-   SET activo = 0, menu_dia_base = 0, menu_dia_disponible_hoy = 0
-   WHERE id = ?`
-);
-const upsertSnapshot = db.prepare(
-  `INSERT INTO menu_dia_historial (fecha, producto_id, disponible, precio, stock_directo, descripcion, destacado, orden, actualizado_en)
-   VALUES (?, ?, 1, ?, ?, ?, 0, ?, CURRENT_TIMESTAMP)
-   ON CONFLICT(fecha, producto_id) DO UPDATE SET
-     disponible = 1,
-     precio = excluded.precio,
-     stock_directo = excluded.stock_directo,
-     descripcion = excluded.descripcion,
-     orden = excluded.orden,
-     actualizado_en = CURRENT_TIMESTAMP`
-);
-
-const desiredNames = new Set(PLATOS.map((p) => p.nombre.toLocaleLowerCase('es')));
-const aliasNames = new Set(
-  PLATOS.flatMap((p) => p.aliases || []).map((name) => name.toLocaleLowerCase('es'))
-);
+const fecha = hoy();
+const resumen = { creados: [], actualizados: [], parrilla: [] };
 
 db.exec('BEGIN');
 try {
-  // Primero se baja todo el menú de ayer y después se levanta el de hoy.
+  const categoriaMenu = asegurarCategoria(CATEGORIA_MENU, '🍽️', 0);
+  const categoriaParrilla = asegurarCategoria(CATEGORIA_PARRILLA, '🥩', 12);
+
+  const lista = db
+    .prepare('SELECT id FROM opcion_listas WHERE lower(nombre) = lower(?) LIMIT 1')
+    .get(LISTA_GUARNICIONES);
+  const asignarLista = db.prepare(
+    `INSERT OR IGNORE INTO producto_opcion_listas (producto_id, lista_id, orden) VALUES (?, ?, 0)`
+  );
+
+  // Se baja el menú de ayer antes de levantar el de hoy.
   db.prepare(
-    `UPDATE productos SET menu_dia_disponible_hoy = 0
-       WHERE categoria_id = ? OR COALESCE(menu_dia_base, 0) = 1`
-  ).run(categoria.id);
+    'UPDATE productos SET menu_dia_disponible_hoy = 0 WHERE COALESCE(menu_dia_base,0) = 1'
+  ).run();
 
-  PLATOS.forEach((plato, index) => {
-    const precio = pesosToStorage(plato.tipo === 'ejecutivo' ? PRECIO_EJECUTIVO : PRECIO_ECONOMICO);
-    const variantes = buildVariantes(plato.guarniciones);
+  const crear = db.prepare(
+    `INSERT INTO productos (
+       nombre, descripcion, precio, costo, categoria_id, imagen, variantes, extras,
+       activo, destacado, tiempo_preparacion, stock_directo, stock_mode,
+       menu_dia_base, menu_dia_disponible_hoy, menu_dia_tipo
+     ) VALUES (?, ?, ?, 0, ?, '', '[]', '[]', 1, 0, 20, ?, 'direct', ?, ?, ?)`
+  );
+  // El nombre NO se toca: la fila que ya existe conserva el suyo.
+  const actualizar = db.prepare(
+    `UPDATE productos
+        SET precio = ?, activo = 1, categoria_id = ?, stock_directo = ?, stock_mode = 'direct',
+            menu_dia_base = ?, menu_dia_disponible_hoy = ?, menu_dia_tipo = ?
+      WHERE id = ?`
+  );
+  const snapshot = db.prepare(
+    `INSERT INTO menu_dia_historial (fecha, producto_id, disponible, precio, stock_directo, descripcion, destacado, orden, actualizado_en)
+     VALUES (?, ?, 1, ?, ?, '', 0, ?, CURRENT_TIMESTAMP)
+     ON CONFLICT(fecha, producto_id) DO UPDATE SET
+       disponible = 1, precio = excluded.precio, stock_directo = excluded.stock_directo,
+       orden = excluded.orden, actualizado_en = CURRENT_TIMESTAMP`
+  );
 
-    let existing = findByName.get(plato.nombre, categoria.id);
-    if (!existing) {
-      for (const alias of plato.aliases || []) {
-        existing = findAlias.get(categoria.id, alias);
-        if (existing) break;
-      }
-    }
-
-    let productId;
-    if (existing) {
-      updateProduct.run(
-        plato.nombre,
-        plato.descripcion,
-        precio,
-        variantes,
-        plato.tiempo_preparacion,
-        STOCK_MENU_DIA,
-        plato.tipo,
-        existing.id
+  MENU_DEL_DIA.forEach((plato, indice) => {
+    const encontrado = buscarProducto([plato.nombre, ...(plato.alias || [])]);
+    // El nivel se deriva del precio del día: el más barato es el primero.
+    const tipo = plato.precio >= 9000 ? 'ejecutivo' : 'economico';
+    let id;
+    if (encontrado) {
+      actualizar.run(
+        aCentavos(plato.precio),
+        categoriaMenu.id,
+        STOCK_POR_PLATO,
+        1,
+        1,
+        tipo,
+        encontrado.id
       );
-      productId = existing.id;
-      console.log(`  ✓ Actualizado: ${plato.nombre} (${plato.tipo}, $${precio / 100})`);
+      id = encontrado.id;
+      resumen.actualizados.push(`${encontrado.nombre} → $${plato.precio.toLocaleString('es-AR')}`);
     } else {
-      const res = insertProduct.run(
+      const res = crear.run(
         plato.nombre,
-        plato.descripcion,
-        precio,
-        categoria.id,
-        variantes,
-        plato.tiempo_preparacion,
-        STOCK_MENU_DIA,
-        plato.tipo
+        '',
+        aCentavos(plato.precio),
+        categoriaMenu.id,
+        STOCK_POR_PLATO,
+        1,
+        1,
+        tipo
       );
-      productId = res.lastInsertRowid;
-      console.log(`  + Creado: ${plato.nombre} (${plato.tipo}, $${precio / 100})`);
+      id = Number(res.lastInsertRowid);
+      resumen.creados.push(`${plato.nombre} → $${plato.precio.toLocaleString('es-AR')}`);
     }
-
-    for (const alias of plato.aliases || []) {
-      const duplicated = findAlias.get(categoria.id, alias);
-      if (duplicated && Number(duplicated.id) !== Number(productId)) {
-        deactivateMenuProduct.run(duplicated.id);
-      }
-    }
-
-    upsertSnapshot.run(fecha, productId, precio, STOCK_MENU_DIA, plato.descripcion, index);
+    if (lista) asignarLista.run(id, lista.id);
+    snapshot.run(fecha, id, aCentavos(plato.precio), STOCK_POR_PLATO, indice);
   });
 
-  const staleRows = db
-    .prepare(
-      `SELECT id, nombre FROM productos
-       WHERE categoria_id = ? AND (COALESCE(menu_dia_base, 0) = 1 OR COALESCE(menu_dia_disponible_hoy, 0) = 1)`
-    )
-    .all(categoria.id)
-    .filter((row) => {
-      const normalized = String(row.nombre || '').toLocaleLowerCase('es');
-      return !desiredNames.has(normalized) && !aliasNames.has(normalized);
-    });
-  staleRows.forEach((row) => deactivateMenuProduct.run(row.id));
+  PARRILLA.forEach((plato) => {
+    const encontrado = buscarProducto([plato.nombre, ...(plato.alias || [])]);
+    let id;
+    if (encontrado) {
+      // Si venía marcado como menú del día (la Parrillada lo estaba), se saca:
+      // no es un menú de mediodía, es un plato de carta.
+      actualizar.run(
+        aCentavos(plato.precio),
+        categoriaParrilla.id,
+        STOCK_POR_PLATO,
+        0,
+        0,
+        '',
+        encontrado.id
+      );
+      id = encontrado.id;
+      resumen.parrilla.push(
+        `${encontrado.nombre} → $${plato.precio.toLocaleString('es-AR')} (actualizado)`
+      );
+    } else {
+      const res = crear.run(
+        plato.nombre,
+        plato.descripcion,
+        aCentavos(plato.precio),
+        categoriaParrilla.id,
+        STOCK_POR_PLATO,
+        0,
+        0,
+        ''
+      );
+      id = Number(res.lastInsertRowid);
+      resumen.parrilla.push(`${plato.nombre} → $${plato.precio.toLocaleString('es-AR')} (creado)`);
+    }
+    if (lista) asignarLista.run(id, lista.id);
+  });
 
-  db.exec('COMMIT');
+  const guardarConfig = db.prepare(
+    `INSERT INTO configuracion (clave, valor) VALUES (?, ?)
+     ON CONFLICT(clave) DO UPDATE SET valor = excluded.valor`
+  );
+  guardarConfig.run('menu_dia_precio_economico', String(aCentavos(7000)));
+  guardarConfig.run('menu_dia_precio_ejecutivo', String(aCentavos(9000)));
+  guardarConfig.run('menu_dia_extra_bebida_postre_precio', String(aCentavos(1000)));
+
+  if (SOLO_SIMULAR) {
+    db.exec('ROLLBACK');
+    console.log('\n── SIMULACIÓN: no se guardó nada ──');
+  } else {
+    db.exec('COMMIT');
+  }
 } catch (error) {
   db.exec('ROLLBACK');
   console.error('Error:', error.message);
   process.exit(1);
 }
 
-const economicos = PLATOS.filter((p) => p.tipo === 'economico');
-const ejecutivos = PLATOS.filter((p) => p.tipo === 'ejecutivo');
-
-console.log('\nMenú del día cargado.');
-console.log(`   ${economicos.length} económicos a $${PRECIO_ECONOMICO.toLocaleString('es-AR')}`);
-console.log(`   ${ejecutivos.length} ejecutivos a $${PRECIO_EJECUTIVO.toLocaleString('es-AR')}`);
-console.log(`   Stock: ${STOCK_MENU_DIA} por plato`);
+console.log(`\nMenú del día · ${fecha}`);
+console.log(`\n  Creados (${resumen.creados.length}):`);
+resumen.creados.forEach((x) => console.log('   +', x));
+console.log(`\n  Reusados del repertorio (${resumen.actualizados.length}):`);
+resumen.actualizados.forEach((x) => console.log('   ·', x));
+console.log(`\n  Parrilla (${resumen.parrilla.length}):`);
+resumen.parrilla.forEach((x) => console.log('   ·', x));
+console.log('\n  Niveles: $7.000 y $9.000 · bebida + postre $1.000');
 console.log('\nAbrí Operación → Menú del día para verificar.\n');

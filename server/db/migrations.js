@@ -467,6 +467,8 @@ function runMigrations(db) {
   ensureColumn(db, 'whatsapp_pedidos_borrador', 'delivery_zona', "TEXT DEFAULT ''");
   ensureColumn(db, 'whatsapp_pedidos_borrador', 'tiempo_estimado_min', 'INTEGER DEFAULT 0');
   ensureColumn(db, 'whatsapp_pedidos_borrador', 'pedido_id', 'INTEGER');
+  // Retiro o entrega a una hora pedida por el cliente. Vacío es "cuanto antes".
+  ensureColumn(db, 'whatsapp_pedidos_borrador', 'hora_entrega', "TEXT DEFAULT ''");
   ensureColumn(db, 'whatsapp_pedidos_borrador', 'marketing_campana_id', 'INTEGER');
   ensureColumn(db, 'whatsapp_pedidos_borrador', 'marketing_promo_id', 'INTEGER');
   ensureColumn(db, 'whatsapp_pedidos_borrador', 'marketing_origen', "TEXT DEFAULT ''");
@@ -1346,6 +1348,8 @@ function runMigrations(db) {
     "INSERT OR IGNORE INTO configuracion (clave, valor) VALUES ('backup_max_total_mb', '64')"
   ).run();
   configurarMotorCanonicoWhatsapp(db);
+  moverGeminiAModeloDisponible(db);
+  liberarCategoriasDeTurno(db);
   encriptarClavesSensiblesExistentes(db);
   // WhatsApp actualiza compatibilidades de identidades sociales: la tabla
   // social_accounts debe existir antes de correr esas migraciones.
@@ -1777,7 +1781,139 @@ function configurarMotorCanonicoWhatsapp(db) {
     guardar.run('whatsapp_emergencia_activa', '1');
     guardar.run('whatsapp_emergencia_proveedor', 'Gemini');
     guardar.run('whatsapp_emergencia_base_url', 'https://generativelanguage.googleapis.com/v1beta');
-    guardar.run('whatsapp_emergencia_modelo', 'gemini-3.6-flash');
+    guardar.run('whatsapp_emergencia_modelo', 'gemini-3.5-flash-lite');
+    guardar.run(marca, '1');
+  })();
+}
+
+/**
+ * Suelta las categorías del turno, menos la del menú del día.
+ *
+ * ── Qué pasaba ─────────────────────────────────────────────────────────────
+ *
+ * `categorias.turno_id` nació para la web pública: servía para mostrar la carta
+ * de la noche de noche. El TPV lo ignoraba, así que marcar casi todo como
+ * "noche" no tenía consecuencias y así quedó cargado.
+ *
+ * Cuando el TPV y la validación del pedido empezaron a respetar ese campo, esa
+ * etiqueta vieja se volvió un candado: al mediodía la caja no podía vender
+ * hamburguesas, milanesas, pizzas, sándwiches, empanadas, papas **ni una
+ * bebida**. Lo único vendible eran el menú del día, pastas y promos.
+ *
+ * No fue un error de programación: fue un dato cargado para otra cosa al que
+ * de golpe se le dio poder de bloquear ventas.
+ *
+ * ── Por qué el menú del día se queda atado a la mañana ─────────────────────
+ *
+ * Porque no es una categoría más: sus precios económico y ejecutivo son los de
+ * ese servicio, y el backend ya rechaza cargarlo fuera de la mañana
+ * (`createRealOrder`). Soltarlo acá lo haría visible de noche pero igual
+ * irrechazable al confirmar, que es peor que no mostrarlo.
+ *
+ * Se lo reconoce por sus platos (`menu_dia_base`), no por el nombre: el nombre
+ * lo puede cambiar cualquiera desde Categorías.
+ */
+function liberarCategoriasDeTurno(db) {
+  const marca = 'migracion_categorias_sin_turno_v1';
+  const aplicada = db.prepare('SELECT valor FROM configuracion WHERE clave = ?').get(marca);
+  if (aplicada?.valor === '1') return;
+
+  const liberadas = db
+    .prepare(
+      `SELECT c.id, c.nombre, c.turno_id
+         FROM categorias c
+        WHERE TRIM(COALESCE(c.turno_id, '')) != ''
+          AND NOT EXISTS (
+            SELECT 1 FROM productos p
+             WHERE p.categoria_id = c.id AND COALESCE(p.menu_dia_base, 0) = 1
+          )`
+    )
+    .all();
+
+  db.transaction(() => {
+    const soltar = db.prepare("UPDATE categorias SET turno_id = '' WHERE id = ?");
+    liberadas.forEach((categoria) => soltar.run(categoria.id));
+    db.prepare(
+      `INSERT INTO configuracion (clave, valor) VALUES (?, '1')
+       ON CONFLICT(clave) DO UPDATE SET valor = '1'`
+    ).run(marca);
+  })();
+
+  if (liberadas.length) {
+    logger.info('Categorías liberadas del turno: ahora se venden en los dos', {
+      categorias: liberadas.map((c) => `${c.nombre} (era ${c.turno_id})`).join(', '),
+    });
+  }
+}
+
+/**
+ * Reparte a Gemini entre dos modelos: uno atiende, el otro transcribe.
+ *
+ * ── Qué pasaba ─────────────────────────────────────────────────────────────
+ *
+ * Atender WhatsApp y transcribir audios apuntaban los dos a
+ * `gemini-3.1-flash-lite`. Medido el 17/09/2026 contra la API real:
+ *
+ *     con el catálogo de 17 herramientas (atender)
+ *       gemini-3.1-flash-lite   23.787 ms   ← el corte son 30 s
+ *       gemini-3.5-flash-lite      573 ms
+ *
+ *     sin herramientas (transcribir)
+ *       gemini-3.1-flash-lite    2.245 ms
+ *       gemini-3.6-flash        10.505 ms
+ *
+ * O sea que 3.1 no era lento: era lento **cargando las herramientas**. Para
+ * atender perdía el turno casi siempre —contestaba el proveedor principal en
+ * vez de Gemini— y los audios se pasaban del corte de 20 s y caían al Whisper
+ * local, que es justo lo que se había sacado por no entrar en la memoria del
+ * contenedor. Ninguna de las dos fallas se veía: la del proveedor se descartaba
+ * en un catch sin registrar y la del audio parecía un respaldo que funcionó.
+ *
+ * ── Por qué dos modelos distintos y no el más rápido para todo ─────────────
+ *
+ * Porque el tope de la capa gratuita es **por modelo**:
+ *
+ *     GenerateRequestsPerDayPerProjectPerModel-FreeTier = 500
+ *
+ * Con los dos en el mismo modelo comparten un solo cupo de 500 pedidos diarios.
+ * Separados son 500 para atender y 500 para transcribir. Con el pico real del
+ * local —143 mensajes en un día— eso es la diferencia entre llegar al final de
+ * la noche o quedarse sin agente a mitad del servicio.
+ *
+ * ── Por qué sólo mueve valores conocidos ───────────────────────────────────
+ *
+ * Si el administrador eligió a mano otro modelo, esa decisión se respeta. La
+ * marca hace que esto corra una sola vez, así un cambio posterior desde
+ * Configuración no se vuelve a pisar en el próximo arranque.
+ */
+function moverGeminiAModeloDisponible(db) {
+  const marca = 'migracion_gemini_modelo_disponible_v1';
+  const aplicada = db.prepare('SELECT valor FROM configuracion WHERE clave = ?').get(marca);
+  if (aplicada?.valor === '1') return;
+
+  const CONOCIDOS = ['gemini-3.1-flash-lite', 'gemini-3.5-flash-lite', 'gemini-3.6-flash'];
+  // Cada tarea con su modelo, para no compartir el cupo diario.
+  const DESTINO = {
+    whatsapp_emergencia_modelo: 'gemini-3.5-flash-lite',
+    transcripcion_modelo: 'gemini-3.1-flash-lite',
+  };
+  const guardar = db.prepare(
+    `INSERT INTO configuracion (clave, valor) VALUES (?, ?)
+     ON CONFLICT(clave) DO UPDATE SET valor = excluded.valor`
+  );
+
+  db.transaction(() => {
+    Object.entries(DESTINO).forEach(([clave, destino]) => {
+      const actual = db.prepare('SELECT valor FROM configuracion WHERE clave = ?').get(clave);
+      const valor = String(actual?.valor || '').trim();
+      if (!actual || !CONOCIDOS.includes(valor) || valor === destino) return;
+      guardar.run(clave, destino);
+      logger.info('Gemini: modelos repartidos para no compartir el cupo diario', {
+        clave,
+        antes: valor,
+        ahora: destino,
+      });
+    });
     guardar.run(marca, '1');
   })();
 }

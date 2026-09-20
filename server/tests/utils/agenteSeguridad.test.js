@@ -3,8 +3,8 @@ const fs = require('fs');
 const path = require('path');
 
 const agente = fs.readFileSync(path.join(__dirname, '..', '..', 'routes', 'agente.js'), 'utf8');
-const gateway = fs.readFileSync(
-  path.join(__dirname, '..', '..', 'services', 'whatsappGateway.js'),
+const registro = fs.readFileSync(
+  path.join(__dirname, '..', '..', 'services', 'registroHerramientas.js'),
   'utf8'
 );
 const workflow = fs.readFileSync(
@@ -29,7 +29,14 @@ const agenteRouter = require('../../routes/agente');
 
 assert.match(agente, /req\.headers\['x-agent-telefono'\]/);
 assert.match(agente, /resolveConversationPhone\(req\)/);
-assert.match(gateway, /'x-agent-telefono': String\(payload\?\.telefono/);
+/*
+  El gateway ya no llama a n8n por webhook, así que no hay un encabezado que
+  revisar: el agente corre dentro de este proceso. El candado equivalente es
+  que toda herramienta del perfil cliente resuelva el teléfono contra el de la
+  conversación en curso, en vez de aceptar el que mande el modelo.
+*/
+assert.match(registro, /function telefonoSeguro\(args, contexto\)/);
+assert.match(registro, /No se puede consultar otro cliente/);
 assert.match(workflow, /name: 'x-agent-telefono'/);
 assert.match(workflow, /workflow-9-tools\.generated\.json/);
 const tool = (id) => workflowGenerado.nodes.find((node) => node.id === id);

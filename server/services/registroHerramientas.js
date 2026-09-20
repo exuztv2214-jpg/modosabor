@@ -26,6 +26,7 @@ const PERMISOS_CLIENTE = new Set([
   'READ_ORDER',
   'WRITE_CART',
   'CREATE_ORDER',
+  'CANCEL_ORDER',
   'HANDOFF',
 ]);
 
@@ -95,6 +96,33 @@ function pidioConfirmacionExplicita(texto) {
   return mencionaPedido && pideConfirmar;
 }
 
+/*
+  Igual que con el pedido, pero del otro lado: acá el "sí" deshace algo.
+
+  Se exige que Chispita haya preguntado por la cancelación en su último
+  mensaje. Sin esto, un cliente que escribe "dale" después de cualquier otra
+  pregunta podría quedarse sin la comida que estaba esperando.
+*/
+function pidioConfirmarCancelacion(texto) {
+  const normalizado = textoComparable(texto);
+  if (!normalizado) return false;
+  return (
+    /\bcancel(?:a|ar|o|amos|arlo|elo)\b/.test(normalizado) &&
+    /\b(?:confirm(?:a|as|ame|amos)?|segur[oa]|queres|querés|te lo cancelo|lo cancelo)\b/.test(
+      normalizado
+    )
+  );
+}
+
+function exigirConfirmacionCancelacion(contexto = {}) {
+  if (!esConfirmacionNatural(contexto.mensajeActual)) {
+    throw new Error('El cliente todavía no confirmó que quiere cancelar');
+  }
+  if (!pidioConfirmarCancelacion(contexto.ultimoMensajeAsistente)) {
+    throw new Error('Primero preguntá explícitamente si querés que cancele el pedido');
+  }
+}
+
 function exigirConfirmacionPedido(contexto = {}) {
   if (!esConfirmacionNatural(contexto.mensajeActual)) {
     throw new Error('El cliente todavía no confirmó el resumen del pedido');
@@ -160,7 +188,8 @@ const HERRAMIENTAS_BASE = [
   },
   {
     nombre: 'cotizar_item',
-    descripcion: 'Cotiza contra catálogo y stock reales; el modelo no fija el precio.',
+    descripcion:
+      'Sólo para responder cuánto sale algo cuando el cliente pregunta sin pedirlo todavía. Si lo quiere llevar, no cotices: usá agregar_item, que ya cotiza sola.',
     parametros: schemaTexto('query', 'Descripción exacta del producto solicitado.'),
     permiso: 'READ_STOCK',
     escribe: false,
@@ -223,7 +252,8 @@ const HERRAMIENTAS_BASE = [
   },
   {
     nombre: 'agregar_item',
-    descripcion: 'Agrega una unidad cotizada contra el catálogo real.',
+    descripcion:
+      'Carga un producto al pedido, cotizándolo contra el catálogo real. Usala apenas el cliente diga que quiere algo, aunque falten opciones o datos de entrega: después se ajusta con modificar_item.',
     parametros: {
       type: 'object',
       properties: {
@@ -296,7 +326,7 @@ const HERRAMIENTAS_BASE = [
   {
     nombre: 'actualizar_datos_pedido',
     descripcion:
-      'Guarda datos declarados por este cliente para el carrito actual: nombre, dirección, pago o notas. El nombre sólo se usa si el cliente lo dijo explícitamente.',
+      'Guarda datos declarados por este cliente para el carrito actual: nombre, dirección, pago, hora u otras notas. El nombre sólo se usa si el cliente lo dijo explícitamente.',
     parametros: {
       type: 'object',
       properties: {
@@ -304,6 +334,11 @@ const HERRAMIENTAS_BASE = [
         cliente_direccion: { type: 'string' },
         tipo_entrega: { type: 'string', enum: ['delivery', 'retiro'] },
         metodo_pago: { type: 'string', enum: ['efectivo', 'transferencia'] },
+        hora_entrega: {
+          type: 'string',
+          description:
+            'Sólo si el cliente pidió una hora concreta, en formato HH:MM (por ejemplo "21:30"). Si no la pidió, dejar vacío: se prepara cuanto antes.',
+        },
         notas: { type: 'string' },
       },
     },
@@ -337,6 +372,27 @@ const HERRAMIENTAS_BASE = [
         telefonoSeguro({}, contexto),
         { whatsappMessageId: contexto.mensajeId },
         contexto.dependenciasPedido || {}
+      );
+    },
+  },
+  {
+    nombre: 'cancelar_pedido',
+    descripcion:
+      'Cancela el pedido de este cliente, sólo si todavía no entró en preparación. Pedí confirmación explícita antes de usarla; si el pedido ya se está cocinando, derivá a una persona.',
+    parametros: schemaTexto('motivo', 'Lo que dijo el cliente, en pocas palabras.'),
+    permiso: 'CANCEL_ORDER',
+    escribe: true,
+    ejecutar: (args, contexto = {}) => {
+      /*
+        Mismo candado que crear: un "sí" suelto puede estar confirmando
+        cualquier cosa. Acá importa más todavía, porque lo que se deshace es un
+        pedido que el cliente ya confirmó una vez.
+      */
+      exigirConfirmacionCancelacion(contexto);
+      return require('./cancelacionWhatsapp').cancelarPedidoDeCliente(
+        contexto.db || defaultDb,
+        telefonoSeguro(args, contexto),
+        { motivo: args?.motivo, mensajeId: contexto.mensajeId }
       );
     },
   },
@@ -403,7 +459,9 @@ module.exports = {
   PERMISOS_CLIENTE,
   esConfirmacionNatural,
   pidioConfirmacionExplicita,
+  pidioConfirmarCancelacion,
   exigirConfirmacionPedido,
+  exigirConfirmacionCancelacion,
   telefonoSeguro,
   herramientasParaPerfil,
   catalogoParaPerfil,

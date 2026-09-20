@@ -377,6 +377,64 @@ function searchProducts(db, query, limit = 6, options = {}) {
   return filtered.slice(0, Number(limit || 6));
 }
 
+/*
+  La categoría que el cliente nombró, si nombró una sola.
+
+  "Napolitana" hay dos: una pizza y una milanesa, con puntajes casi iguales
+  (130 y 120), así que pedir "pizza napolitana" terminaba en "¿cuál?" — con la
+  respuesta escrita en la propia pregunta del cliente.
+
+  Devuelve null si no mencionó ninguna, o si mencionó dos: ahí no hay desempate
+  posible y preguntar es lo correcto.
+*/
+function categoriaMencionadaEnConsulta(db, query) {
+  const consulta = normalizeText(query);
+  if (!consulta) return null;
+
+  let elegida = null;
+  for (const categoria of getCategories(db)) {
+    const nombre = normalizeText(categoria.nombre);
+    if (!nombre) continue;
+    // "Pizzas" tiene que pescar "pizza", y "Milanesas" tiene que pescar "mila".
+    const terminos = new Set([
+      nombre,
+      nombre.replace(/s$/, ''),
+      ...expandAliasTerms(categoria.nombre),
+    ]);
+    for (const termino of terminos) {
+      // Términos muy cortos pescan cualquier cosa adentro de otra palabra.
+      if (!termino || termino.length < 4) continue;
+      if (!new RegExp(`\\b${termino}`).test(consulta)) continue;
+      if (elegida && Number(elegida.id) !== Number(categoria.id)) return null;
+      elegida = categoria;
+    }
+  }
+  return elegida;
+}
+
+/** Las reglas de siempre, aplicadas a una lista de candidatos. */
+function decidirEntreCandidatos(query, candidatos) {
+  if (candidatos.length === 1) {
+    return { status: 'single', product: candidatos[0], candidates: candidatos };
+  }
+
+  const [top, second] = candidatos;
+  const normalizedQuery = normalizeText(query);
+  const topIsExact =
+    normalizeText(top.nombre) === normalizedQuery ||
+    expandAliasTerms(top.nombre).includes(normalizedQuery);
+
+  if (topIsExact && top.score >= second.score + 10) {
+    return { status: 'single', product: top, candidates: candidatos };
+  }
+
+  if (top.score >= second.score + 20 && top.score >= 110) {
+    return { status: 'single', product: top, candidates: candidatos };
+  }
+
+  return { status: 'ambiguous', query, candidates: candidatos };
+}
+
 function findProductMatch(db, query) {
   const results = searchProducts(db, query, 5, { sellableOnly: false });
   if (!results.length) {
@@ -387,41 +445,23 @@ function findProductMatch(db, query) {
     };
   }
 
-  if (results.length === 1) {
-    return {
-      status: 'single',
-      product: results[0],
-      candidates: results,
-    };
+  /*
+    Primero se descartan los de otra categoría, después se decide.
+
+    Es un filtro, nunca un ensanche: sólo saca candidatos que el cliente ya
+    descartó al decir "pizza". Si después de filtrar sigue habiendo empate
+    —"milanesa al caballo" contra tres milanesas parecidas— se sigue
+    preguntando, que es lo que corresponde cuando hay plata de por medio.
+  */
+  const categoria = categoriaMencionadaEnConsulta(db, query);
+  if (categoria) {
+    const mismaCategoria = results.filter(
+      (producto) => Number(producto.categoria_id) === Number(categoria.id)
+    );
+    if (mismaCategoria.length) return decidirEntreCandidatos(query, mismaCategoria);
   }
 
-  const [top, second] = results;
-  const normalizedQuery = normalizeText(query);
-  const topIsExact =
-    normalizeText(top.nombre) === normalizedQuery ||
-    expandAliasTerms(top.nombre).includes(normalizedQuery);
-
-  if (topIsExact && top.score >= second.score + 10) {
-    return {
-      status: 'single',
-      product: top,
-      candidates: results,
-    };
-  }
-
-  if (top.score >= second.score + 20 && top.score >= 110) {
-    return {
-      status: 'single',
-      product: top,
-      candidates: results,
-    };
-  }
-
-  return {
-    status: 'ambiguous',
-    query,
-    candidates: results,
-  };
+  return decidirEntreCandidatos(query, results);
 }
 
 function lookupProductsByNames(db, categoryId, names = []) {

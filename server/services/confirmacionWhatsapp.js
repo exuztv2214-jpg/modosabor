@@ -7,8 +7,16 @@ function estado(db, telefono) {
   if (!carrito.abierto || !carrito.items.length) {
     throw new Error('No hay un pedido abierto para resumir');
   }
-  const { id, cliente_nombre, cliente_direccion, tipo_entrega, metodo_pago, notas, items } =
-    carrito;
+  const {
+    id,
+    cliente_nombre,
+    cliente_direccion,
+    tipo_entrega,
+    metodo_pago,
+    notas,
+    hora_entrega,
+    items,
+  } = carrito;
   const productos = items.map((item) => {
     const opciones = [
       ...Object.values(item.variantes || {}).map((v) => (typeof v === 'string' ? v : v.nombre)),
@@ -33,6 +41,7 @@ function estado(db, telefono) {
     tipo_entrega,
     metodo_pago,
     notas,
+    hora_entrega,
     items: items.map(
       ({ id, producto_id, nombre, cantidad, precio_unitario, descripcion, variantes, extras }) => ({
         id,
@@ -90,8 +99,8 @@ function preparar(db, telefono) {
     `Resumen del pedido para ${carrito.cliente_nombre}:`,
     ...lineas,
     carrito.tipo_entrega === 'retiro'
-      ? 'Retiro en el local.'
-      : `Entrega: ${carrito.cliente_direccion}. Envío: ${formatMoney(envio)}.`,
+      ? `Retiro en el local${carrito.hora_entrega ? ` a las ${carrito.hora_entrega}` : ''}.`
+      : `Entrega${carrito.hora_entrega ? ` a las ${carrito.hora_entrega}` : ''}: ${carrito.cliente_direccion}. Envío: ${formatMoney(envio)}.`,
     ...(carrito.notas ? [`Notas: ${carrito.notas}`] : []),
     `Total: ${formatMoney(subtotal + envio)}.`,
     '¿Confirmás el pedido?',

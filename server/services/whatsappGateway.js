@@ -15,7 +15,7 @@ const {
 const { emitAtencionHumana, emitNuevoPedido } = require('../utils/socketRooms');
 const { transcribeWhatsappAudio } = require('./whatsappAudioTranscription');
 const { buildAgentTraining } = require('./whatsappAgentTraining');
-const { atenderConMotorPropio, elegirMotorWhatsapp } = require('./agenteWhatsapp');
+const { atenderConMotorPropio } = require('./agenteWhatsapp');
 const { crearAgrupadorMensajes } = require('./agruparMensajes');
 const { crearControl } = require('./controlWhatsapp');
 const { marcarEnviada } = require('./confirmacionWhatsapp');
@@ -49,12 +49,6 @@ function pedirUnaPersona(conversation, telefono, motivo) {
   }
 }
 
-// Estos valores deben funcionar dentro de Railway aunque no exista ninguna PC
-// del local encendida. Las variables de entorno pueden reemplazarlos, pero el
-// servidor nunca debe caer silenciosamente a localhost en producción.
-const DEFAULT_WEBHOOK = 'https://n8n-production-f8ed.up.railway.app/webhook/modosabor-atencion-web';
-const DEFAULT_FALLBACK_WEBHOOK =
-  'https://n8n-production-f8ed.up.railway.app/webhook/modosabor-atencion-web-fallback';
 const seen = new Set();
 const processingByChat = new Map();
 let iniciado = false;
@@ -79,42 +73,22 @@ function enabled(key, fallback = false) {
   return configValue(key, fallback ? '1' : '0') === '1';
 }
 
-function safeWebhookUrl(value, fallback) {
-  const candidate = String(value || '').trim() || fallback;
-  if (
-    process.env.NODE_ENV === 'production' &&
-    /^(?:https?:\/\/)?(?:127\.0\.0\.1|localhost|host\.docker\.internal)(?::|\/|$)/i.test(candidate)
-  ) {
-    return fallback;
-  }
-  return candidate;
-}
-
+/*
+  El motor vive adentro de este backend y es el único: reglas, memoria,
+  herramientas e idempotencia están acá. Antes convivía con un flujo de n8n
+  detrás de un webhook, con su propia copia de todo, y podía confirmarle al
+  cliente algo distinto de lo que quedaba en la base. Ese camino se apagó y se
+  quitó; el respaldo hoy es de proveedor de IA, no de motor.
+*/
 function gatewayConfig() {
-  const emergencyEnabled = enabled('whatsapp_emergencia_activa', true);
   return {
     pausaTotal: enabled('whatsapp_gateway_pausa_total', false),
     atencionIa: enabled('whatsapp_atencion_ia_activa', false),
     masivos: enabled('whatsapp_masivos_activo', false),
-    // Un solo motor canónico: reglas, memoria, herramientas e idempotencia
-    // viven en el backend. Gemini es el respaldo del proveedor, no otro flujo.
-    motorPropio: true,
     agruparMs: Math.min(
       8000,
       Math.max(0, Number(configValue('whatsapp_agrupar_ms', '2000')) || 2000)
     ),
-    webhook: safeWebhookUrl(
-      String(process.env.WHATSAPP_AGENT_WEBHOOK_URL || '').trim() ||
-        configValue('whatsapp_agente_webhook_url', DEFAULT_WEBHOOK),
-      DEFAULT_WEBHOOK
-    ),
-    fallbackWebhook: emergencyEnabled
-      ? safeWebhookUrl(
-          String(process.env.WHATSAPP_AGENT_FALLBACK_WEBHOOK_URL || '').trim() ||
-            configValue('whatsapp_agente_fallback_webhook_url', DEFAULT_FALLBACK_WEBHOOK),
-          DEFAULT_FALLBACK_WEBHOOK
-        )
-      : '',
   };
 }
 
@@ -443,30 +417,6 @@ function historyFor(conversationId) {
     .join('\n');
 }
 
-async function callAgent(payload, webhook) {
-  // n8n y el SDK del modelo ya reintentan internamente. Repetir además desde
-  // el gateway convertía un límite de cuota en varios minutos sin respuesta.
-  // Ante cualquier falla, handleIncoming pasa de inmediato al proveedor real
-  // de respaldo.
-  const response = await fetch(webhook, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-agent-telefono': String(payload?.telefono || ''),
-    },
-    body: JSON.stringify(payload),
-    signal: AbortSignal.timeout(90000),
-  });
-  const raw = await response.text();
-  if (!response.ok) {
-    throw new Error(`n8n ${response.status}: ${raw.slice(0, 240)}`);
-  }
-  const data = JSON.parse(raw);
-  const output = String(data.output || data.text || '').trim();
-  if (!output) throw new Error('n8n no devolvio una respuesta');
-  return output;
-}
-
 function claimsOrderWasCreated(output) {
   const normalized = cleanText(output)
     .toLowerCase()
@@ -481,47 +431,6 @@ function claimsOrderWasCreated(output) {
           frase
         )
     );
-}
-
-function usesExternalAgentCatalog() {
-  const configuredApi = configValue(
-    'whatsapp_agente_catalogo_url',
-    String(process.env.WHATSAPP_AGENT_CATALOG_URL || '')
-  ).trim();
-  if (configuredApi) return !/127\.0\.0\.1|localhost|host\.docker\.internal/i.test(configuredApi);
-  return false;
-}
-
-function externalAgentBaseUrl() {
-  return configValue(
-    'whatsapp_agente_catalogo_url',
-    String(process.env.WHATSAPP_AGENT_CATALOG_URL || '')
-  )
-    .trim()
-    .replace(/\/+$/, '');
-}
-
-/**
- * La sesión de WhatsApp puede estar en una PC de prueba mientras que n8n usa
- * el catálogo publicado. En ese caso el pedido no aparecerá en la SQLite local
- * y validar sólo contra ella bloqueaba una venta real. Consultamos la misma API
- * que usa el agente, sin exponer su clave ni asumir que un texto del modelo es
- * suficiente evidencia.
- */
-async function getExternalLastOrderByPhone(telefono) {
-  const baseUrl = externalAgentBaseUrl();
-  const key = String(process.env.AGENT_API_KEY || '').trim();
-  if (!baseUrl || !key) return null;
-  const response = await fetch(
-    `${baseUrl}/api/agente/pedido-actual?telefono=${encodeURIComponent(telefono)}`,
-    {
-      headers: { 'x-agent-key': key },
-      signal: AbortSignal.timeout(8000),
-    }
-  );
-  if (!response.ok) throw new Error(`No se pudo verificar el pedido remoto (${response.status})`);
-  const body = await response.json();
-  return body?.encontrado && body?.pedido ? body.pedido : null;
 }
 
 function createdWhatsappOrderAfter(telefono, previousOrderId) {
@@ -688,21 +597,6 @@ async function handleIncoming(message) {
       ultimaActividad = `Menú del día informado a ${telefono}`;
       return;
     }
-    const externalCatalog = !config.motorPropio && usesExternalAgentCatalog();
-    // Es deliberadamente no bloqueante: si la consulta externa no está
-    // disponible, el flujo conserva las validaciones locales y n8n devolverá
-    // su propio error al intentar crear un pedido.
-    let previousExternalOrder = null;
-    if (externalCatalog) {
-      try {
-        previousExternalOrder = await getExternalLastOrderByPhone(telefono);
-      } catch (error) {
-        logger.warn('WhatsApp Gateway: no pudo leer pedido remoto previo', {
-          telefono,
-          message: error.message,
-        });
-      }
-    }
     const agentPayload = {
       // Versionar la memoria descarta las reglas viejas de conversaciones
       // abiertas antes de este cambio operativo.
@@ -745,93 +639,39 @@ async function handleIncoming(message) {
       turno_actual: currentShift.turno_actual,
       atencion: buildAgentTraining(businessConfig, currentShift.turno_actual),
     };
-    const llamarN8n = async (payload) => {
-      try {
-        return await callAgent(payload, config.webhook);
-      } catch (primaryError) {
-        if (!config.fallbackWebhook || config.fallbackWebhook === config.webhook) {
-          throw primaryError;
-        }
-        logger.warn('WhatsApp Gateway: usando proveedor alternativo', {
-          message: primaryError.message,
-        });
-        return callAgent(payload, config.fallbackWebhook);
-      }
-    };
-    let output = await elegirMotorWhatsapp({
-      usarMotorPropio: config.motorPropio,
-      payload: agentPayload,
-      llamarN8n,
-      llamarMotor: (payload) =>
-        atenderConMotorPropio(payload, {
-          assertControl: control.assertControl,
-          dependenciasPedido: { assertControl: control.assertControl },
-          onPedidoConsultado: (resultado) => {
-            if (resultado?.encontrado && resultado?.pedido) pedidoConsultado = resultado.pedido;
-          },
-          onHandoff: (motivo) => {
-            control.aceptarDerivacion();
-            pedirUnaPersona(conversation, telefono, motivo);
-          },
-          onPedidoCreado: (pedido) => {
-            if (socketDelPanel) emitNuevoPedido(socketDelPanel, pedido);
-          },
-        }),
+    let output = await atenderConMotorPropio(agentPayload, {
+      assertControl: control.assertControl,
+      dependenciasPedido: { assertControl: control.assertControl },
+      onPedidoConsultado: (resultado) => {
+        if (resultado?.encontrado && resultado?.pedido) pedidoConsultado = resultado.pedido;
+      },
+      onHandoff: (motivo) => {
+        control.aceptarDerivacion();
+        pedirUnaPersona(conversation, telefono, motivo);
+      },
+      onPedidoCreado: (pedido) => {
+        if (socketDelPanel) emitNuevoPedido(socketDelPanel, pedido);
+      },
     });
 
     const createdOrder = createdWhatsappOrderAfter(telefono, previousOrder?.id);
-    let createdExternalOrder = null;
-    if (externalCatalog && claimsOrderWasCreated(output)) {
-      try {
-        const externalOrder = await getExternalLastOrderByPhone(telefono);
-        if (
-          externalOrder &&
-          String(externalOrder.id || '') !== String(previousExternalOrder?.id || '')
-        ) {
-          createdExternalOrder = externalOrder;
-        }
-      } catch (error) {
-        logger.warn('WhatsApp Gateway: no pudo validar pedido remoto creado', {
-          telefono,
-          message: error.message,
-        });
-      }
-    }
     let integrityError = '';
     /*
-      ── Por qué se sacó el permiso por "trae un número" ─────────────────────
+      ── La frase del modelo no es evidencia ────────────────────────────────
 
-      Acá había una condición más:
-
-          (!externalCatalog || !includesOrderNumber(output))
-
-      Con el catálogo externo configurado —que es el caso, `whatsapp_agente_
-      catalogo_url` apunta al sitio— eso apagaba el control **cada vez que el
-      modelo escribía un número**. Le alcanzaba con decir "es el #243" para
-      pasar de largo.
-
-      O sea que el número inventado por el modelo se usaba como prueba de que
-      el pedido existía, tres líneas debajo de un comentario que dice que la
-      frase del modelo no es evidencia.
-
-      Se vio en una conversación real: "Pedido confirmado, es el #243. Va en
-      camino", dos veces seguidas, sin ninguna llamada a la herramienta de
-      crear pedido registrada.
+      Acá hubo una condición que apagaba este control cada vez que el modelo
+      escribía un número: le alcanzaba con decir "es el #243" para pasar de
+      largo. Se vio en una conversación real —"Pedido confirmado, es el #243.
+      Va en camino", dos veces seguidas— sin una sola llamada registrada a la
+      herramienta de crear pedido.
 
       La prueba de que el pedido existe es una sola: haberlo encontrado en la
-      base local (`createdOrder`) o en la remota (`createdExternalOrder`). Si
-      la verificación remota falla por red, se prefiere pecar de prudente:
-      decirle al cliente que todavía no quedó confirmado y pasarle el chat a
-      una persona. Molesta, pero no deja a nadie esperando una comida que
-      nadie está cocinando.
+      base. Si no está, no se le confirma nada al cliente y el chat pasa a una
+      persona. Molesta, pero no deja a nadie esperando una comida que nadie
+      está cocinando.
     */
     control.assertControl();
-    if (
-      claimsOrderWasCreated(output) &&
-      !createdOrder &&
-      !createdExternalOrder &&
-      !pedidoConsultado
-    ) {
+    if (claimsOrderWasCreated(output) && !createdOrder && !pedidoConsultado) {
       // La frase del modelo no es evidencia: el pedido debe existir realmente.
       // Si no existe, nunca se confirma al cliente y se entrega el chat a una
       // persona para evitar pérdida de ventas o preparación fantasma.
@@ -966,7 +806,6 @@ function enqueueIncoming(message) {
   }
   const config = gatewayConfig();
   const agrupar =
-    config.motorPropio &&
     !message?.key?.fromMe &&
     typeFromMessage(message) === 'texto' &&
     Boolean(textFromMessage(message));
@@ -1006,7 +845,6 @@ module.exports = {
   claimsOrderWasCreated,
   enqueueIncoming,
   serializeByKey,
-  safeWebhookUrl,
   closedBusinessMessage,
   combinarMensajes,
 };

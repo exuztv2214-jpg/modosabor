@@ -123,7 +123,30 @@ function evaluar(db, telefono, caso, respuestas, herramientas) {
         .prepare('SELECT * FROM whatsapp_pedidos_borrador_items WHERE borrador_id = ?')
         .all(borrador.id)
     : [];
-  const nombres = normalizar(items.map((item) => item.nombre).join(' '));
+  /*
+    Lo que se espera se compara contra el nombre del producto **y el de su
+    categoría**.
+
+    En la carta de Modo Sabor ningún producto se llama "hamburguesa": se llaman
+    Smash Simple, Bacon Cheese, Golpe Bajo. La palabra vive en la categoría. Con
+    la comparación vieja, un caso que esperaba `['hamburguesa']` no podía pasar
+    aunque el agente cargara la hamburguesa correcta, y esos fallos se leían
+    como errores del agente cuando eran de la prueba.
+
+    La intención de esperar "hamburguesa" es "que haya cargado alguna
+    hamburguesa", y eso es exactamente lo que dice la categoría.
+  */
+  const categoriaPorProducto = db.prepare(
+    'SELECT c.nombre FROM productos p LEFT JOIN categorias c ON c.id = p.categoria_id WHERE p.id = ?'
+  );
+  const nombres = normalizar(
+    items
+      .map((item) => {
+        const categoria = categoriaPorProducto.get(item.producto_id)?.nombre || '';
+        return `${item.nombre} ${categoria}`;
+      })
+      .join(' ')
+  );
   const faltantes = caso.esperado.items.filter((nombre) => !nombres.includes(normalizar(nombre)));
   const pedidos = db
     .prepare("SELECT * FROM pedidos WHERE cliente_telefono = ? AND origen = 'whatsapp'")
@@ -194,14 +217,47 @@ async function ejecutarCaso(db, caso, indice) {
   };
 }
 
+function dormir(ms) {
+  return new Promise((resolver) => setTimeout(resolver, ms));
+}
+
 async function run() {
   const temporal = path.join(os.tmpdir(), `modosabor-agente-${process.pid}-${Date.now()}.sqlite`);
   await mainDb.backup(temporal);
   const db = new Database(temporal);
   const resultados = [];
+  /*
+    Una pausa entre conversaciones.
+
+    Sin esto la tanda entera sale de corrido y el proveedor la corta por límite
+    de pedidos por minuto: a partir del caso diez empezaban a llegar 429 y lo
+    que se terminaba midiendo era la cuota, no al agente. Se puede ajustar con
+    PAUSA_ENTRE_CASOS_MS según el plan que tenga el negocio.
+  */
+  const pausaMs = Math.max(0, Number(process.env.PAUSA_ENTRE_CASOS_MS || 4000));
   try {
     for (let i = 0; i < CASOS.length; i += 1) {
-      resultados.push(await ejecutarCaso(db, CASOS[i], i + 1));
+      if (i > 0 && pausaMs) await dormir(pausaMs);
+      /*
+        Un caso que revienta no puede llevarse la tanda.
+
+        Antes el error salía de `run` y se perdían los resultados de todo lo que
+        ya había corrido: veinte conversaciones medidas tiradas porque la
+        veintiuna se quedó sin cuota. El fallo se anota como fallo y se sigue.
+      */
+      try {
+        resultados.push(await ejecutarCaso(db, CASOS[i], i + 1));
+      } catch (error) {
+        resultados.push({
+          id: CASOS[i].id,
+          origen: CASOS[i].origen,
+          ok: false,
+          errores: [`No se pudo completar: ${String(error?.message || error).slice(0, 200)}`],
+          items: [],
+          pedidos: 0,
+          herramientas: [],
+        });
+      }
       console.log(`${resultados.at(-1).ok ? 'OK' : 'FALLÓ'} ${CASOS[i].id}`);
     }
   } finally {

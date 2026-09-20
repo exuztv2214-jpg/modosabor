@@ -29,7 +29,14 @@ const { desencriptar } = require('../utils/encryptConfig');
  * de esto.
  */
 
-const MODELO_POR_DEFECTO = 'gemini-3.6-flash';
+/*
+  A propósito distinto del que atiende WhatsApp.
+
+  El tope de la capa gratuita es por modelo (500 pedidos por día), así que
+  compartir modelo entre atender y transcribir es compartir el cupo. Medido sin
+  catálogo de herramientas, que es la forma de este pedido, contesta en 2,2 s.
+*/
+const MODELO_POR_DEFECTO = 'gemini-3.1-flash-lite';
 const TIMEOUT_MS = 20000;
 
 /*

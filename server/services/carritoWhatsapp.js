@@ -9,6 +9,31 @@ function json(value, fallback) {
   }
 }
 
+/*
+  La hora que pidió el cliente, en formato "HH:MM".
+
+  Se normaliza en vez de guardar lo que mande el modelo porque este dato se
+  imprime en la comanda ("Entregar 21:30") y lo lee la cocina de un vistazo. Un
+  "a eso de las nueve y media" ahí no sirve, y un texto libre deja pasar
+  cualquier cosa.
+
+  Acepta las formas en que se escribe una hora acá —21:30, 21.30, 9:30— y
+  devuelve vacío si no es una hora, que significa "cuanto antes".
+*/
+function horaNormalizada(valor) {
+  const crudo = String(valor || '')
+    .trim()
+    .toLowerCase();
+  if (!crudo) return '';
+  const match = crudo.match(/(\d{1,2})\s*[:.]\s*(\d{2})/) || crudo.match(/^(\d{1,2})\s*(?:hs?)?$/);
+  if (!match) return '';
+  const horas = Number(match[1]);
+  const minutos = Number(match[2] ?? 0);
+  if (!Number.isInteger(horas) || horas < 0 || horas > 23) return '';
+  if (!Number.isInteger(minutos) || minutos < 0 || minutos > 59) return '';
+  return `${String(horas).padStart(2, '0')}:${String(minutos).padStart(2, '0')}`;
+}
+
 function textoOpciones(variantes = {}, extras = [], notas = '') {
   const variantesTexto = Object.values(variantes || {})
     .map((opcion) => (typeof opcion === 'string' ? opcion : opcion?.nombre))
@@ -238,6 +263,13 @@ function crearCarritoWhatsapp(db = defaultDb) {
       .toLowerCase();
     const tipoEntrega =
       entrega === 'retiro' ? 'retiro' : entrega === 'delivery' ? 'delivery' : null;
+    /*
+      Una hora ilegible se descarta en vez de guardarse tal cual. Si el cliente
+      pidió una hora y no se entendió, es mejor que el pedido salga "cuanto
+      antes" —y que el resumen no la muestre, así el cliente lo nota— que
+      mandar a la cocina un horario inventado.
+    */
+    const horaEntrega = horaNormalizada(datos.hora_entrega);
     const metodoPago = pago.includes('transfer')
       ? 'transferencia'
       : pago === 'efectivo'
@@ -251,9 +283,22 @@ function crearCarritoWhatsapp(db = defaultDb) {
               tipo_entrega = COALESCE(?, tipo_entrega),
               metodo_pago = COALESCE(?, metodo_pago),
               notas = CASE WHEN ? != '' THEN ? ELSE notas END,
+              hora_entrega = CASE WHEN ? != '' THEN ? ELSE hora_entrega END,
               actualizado_en = CURRENT_TIMESTAMP
         WHERE id = ?`
-    ).run(nombre, nombre, direccion, direccion, tipoEntrega, metodoPago, notas, notas, borrador.id);
+    ).run(
+      nombre,
+      nombre,
+      direccion,
+      direccion,
+      tipoEntrega,
+      metodoPago,
+      notas,
+      notas,
+      horaEntrega,
+      horaEntrega,
+      borrador.id
+    );
     const actualizado = db
       .prepare('SELECT * FROM whatsapp_pedidos_borrador WHERE id = ?')
       .get(borrador.id);
@@ -309,6 +354,7 @@ function crearCarritoWhatsapp(db = defaultDb) {
           tipo_entrega: borrador.tipo_entrega,
           metodo_pago: borrador.metodo_pago,
           notas: borrador.notas,
+          hora_entrega: borrador.hora_entrega || '',
           items,
           origen: 'whatsapp',
           idempotencyKey,

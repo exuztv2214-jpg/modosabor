@@ -1,7 +1,470 @@
 {
-  "fecha": null,
+  "fecha": "2026-09-17T22:17:38.987Z",
   "casos": 40,
-  "aprobados": 0,
-  "resultados": [],
-  "nota": "Se completa al ejecutar node server/tests/agente/correrConversaciones.js; no forma parte de tests/run.js."
+  "aprobados": 20,
+  "resultados": [
+    {
+      "id": "real-01",
+      "origen": "backup-anonimo",
+      "ok": true,
+      "errores": [],
+      "items": [],
+      "pedidos": 0,
+      "herramientas": ["consultar_estado", "consultar_menu"]
+    },
+    {
+      "id": "real-02",
+      "origen": "backup-anonimo",
+      "ok": true,
+      "errores": [],
+      "items": [],
+      "pedidos": 0,
+      "herramientas": ["consultar_menu"]
+    },
+    {
+      "id": "real-03",
+      "origen": "backup-anonimo",
+      "ok": true,
+      "errores": [],
+      "items": [
+        {
+          "id": 3,
+          "borrador_id": 2,
+          "producto_id": 41,
+          "nombre": "Bacon Cheese",
+          "cantidad": 2,
+          "descripcion": "",
+          "variantes": "{}",
+          "extras": "[]",
+          "creado_en": "2026-09-17 22:00:51",
+          "precio_unitario": 600000
+        }
+      ],
+      "pedidos": 0,
+      "herramientas": [
+        "consultar_menu",
+        "agregar_item",
+        "modificar_item",
+        "modificar_item",
+        "ver_carrito",
+        "consultar_menu",
+        "quitar_item",
+        "agregar_item"
+      ]
+    },
+    {
+      "id": "real-04",
+      "origen": "backup-anonimo",
+      "ok": false,
+      "errores": ["No se pudo completar: La IA agotó sus intentos sin responder"],
+      "items": [],
+      "pedidos": 0,
+      "herramientas": []
+    },
+    {
+      "id": "real-05",
+      "origen": "backup-anonimo",
+      "ok": false,
+      "errores": ["Faltan items: comun"],
+      "items": [],
+      "pedidos": 0,
+      "herramientas": ["consultar_menu", "consultar_menu", "cotizar_item"]
+    },
+    {
+      "id": "real-06",
+      "origen": "backup-anonimo",
+      "ok": false,
+      "errores": ["Faltan items: pizza"],
+      "items": [],
+      "pedidos": 0,
+      "herramientas": ["consultar_menu", "consultar_menu", "consultar_menu", "consultar_menu"]
+    },
+    {
+      "id": "real-07",
+      "origen": "backup-anonimo",
+      "ok": false,
+      "errores": ["Faltan items: hamburguesa"],
+      "items": [],
+      "pedidos": 0,
+      "herramientas": ["consultar_menu"]
+    },
+    {
+      "id": "real-08",
+      "origen": "backup-anonimo",
+      "ok": true,
+      "errores": [],
+      "items": [],
+      "pedidos": 0,
+      "herramientas": ["consultar_menu_dia", "consultar_menu"]
+    },
+    {
+      "id": "real-09",
+      "origen": "backup-anonimo",
+      "ok": false,
+      "errores": ["Faltan items: jugo"],
+      "items": [],
+      "pedidos": 0,
+      "herramientas": [
+        "consultar_menu_dia",
+        "consultar_menu",
+        "consultar_menu",
+        "consultar_menu",
+        "consultar_menu"
+      ]
+    },
+    {
+      "id": "real-10",
+      "origen": "backup-anonimo",
+      "ok": false,
+      "errores": ["Faltan items: suprema napolitana"],
+      "items": [],
+      "pedidos": 0,
+      "herramientas": ["consultar_menu", "consultar_menu"]
+    },
+    {
+      "id": "real-11",
+      "origen": "backup-anonimo",
+      "ok": false,
+      "errores": ["Faltan items: hamburguesa"],
+      "items": [],
+      "pedidos": 0,
+      "herramientas": ["consultar_menu"]
+    },
+    {
+      "id": "real-12",
+      "origen": "backup-anonimo",
+      "ok": true,
+      "errores": [],
+      "items": [],
+      "pedidos": 0,
+      "herramientas": ["consultar_menu"]
+    },
+    {
+      "id": "real-13",
+      "origen": "backup-anonimo",
+      "ok": false,
+      "errores": ["Faltan items: caballo"],
+      "items": [],
+      "pedidos": 0,
+      "herramientas": ["consultar_menu", "consultar_menu", "consultar_menu"]
+    },
+    {
+      "id": "real-14",
+      "origen": "backup-anonimo",
+      "ok": true,
+      "errores": [],
+      "items": [],
+      "pedidos": 0,
+      "herramientas": ["consultar_menu"]
+    },
+    {
+      "id": "real-15",
+      "origen": "backup-anonimo",
+      "ok": true,
+      "errores": [],
+      "items": [],
+      "pedidos": 0,
+      "herramientas": ["consultar_menu"]
+    },
+    {
+      "id": "real-16",
+      "origen": "backup-anonimo",
+      "ok": true,
+      "errores": [],
+      "items": [],
+      "pedidos": 0,
+      "herramientas": ["consultar_menu"]
+    },
+    {
+      "id": "real-17",
+      "origen": "backup-anonimo",
+      "ok": false,
+      "errores": ["Faltan items: empanada"],
+      "items": [],
+      "pedidos": 0,
+      "herramientas": ["consultar_menu", "consultar_menu"]
+    },
+    {
+      "id": "real-18",
+      "origen": "backup-anonimo",
+      "ok": false,
+      "errores": ["No se pudo completar: La IA agotó sus intentos sin responder"],
+      "items": [],
+      "pedidos": 0,
+      "herramientas": []
+    },
+    {
+      "id": "real-19",
+      "origen": "backup-anonimo",
+      "ok": true,
+      "errores": [],
+      "items": [],
+      "pedidos": 0,
+      "herramientas": ["consultar_pedido_actual"]
+    },
+    {
+      "id": "real-20",
+      "origen": "backup-anonimo",
+      "ok": true,
+      "errores": [],
+      "items": [],
+      "pedidos": 0,
+      "herramientas": ["consultar_menu"]
+    },
+    {
+      "id": "borde-01",
+      "origen": "borde-inventado",
+      "ok": false,
+      "errores": ["No se pudo completar: La IA agotó sus intentos sin responder"],
+      "items": [],
+      "pedidos": 0,
+      "herramientas": []
+    },
+    {
+      "id": "borde-02",
+      "origen": "borde-inventado",
+      "ok": false,
+      "errores": ["Faltan items: napolitana"],
+      "items": [],
+      "pedidos": 0,
+      "herramientas": [
+        "consultar_menu",
+        "agregar_item",
+        "agregar_item",
+        "agregar_item",
+        "derivar_a_persona",
+        "consultar_menu",
+        "agregar_item",
+        "agregar_item",
+        "derivar_a_persona"
+      ]
+    },
+    {
+      "id": "borde-03",
+      "origen": "borde-inventado",
+      "ok": false,
+      "errores": ["Faltan items: hamburguesa"],
+      "items": [],
+      "pedidos": 0,
+      "herramientas": ["consultar_menu"]
+    },
+    {
+      "id": "borde-04",
+      "origen": "borde-inventado",
+      "ok": false,
+      "errores": ["Faltan items: coca"],
+      "items": [
+        {
+          "id": 4,
+          "borrador_id": 6,
+          "producto_id": 60,
+          "nombre": "Pepsi 2 lt",
+          "cantidad": 1,
+          "descripcion": "",
+          "variantes": "{}",
+          "extras": "[]",
+          "creado_en": "2026-09-17 22:11:02",
+          "precio_unitario": 400000
+        }
+      ],
+      "pedidos": 0,
+      "herramientas": ["consultar_menu", "consultar_menu", "agregar_item"]
+    },
+    {
+      "id": "borde-05",
+      "origen": "borde-inventado",
+      "ok": true,
+      "errores": [],
+      "items": [],
+      "pedidos": 0,
+      "herramientas": []
+    },
+    {
+      "id": "borde-06",
+      "origen": "borde-inventado",
+      "ok": true,
+      "errores": [],
+      "items": [
+        {
+          "id": 6,
+          "borrador_id": 7,
+          "producto_id": 58,
+          "nombre": "Jugo Fresh 1.5 lt",
+          "cantidad": 2,
+          "descripcion": "",
+          "variantes": "{}",
+          "extras": "[]",
+          "creado_en": "2026-09-17 22:11:34",
+          "precio_unitario": 250000
+        }
+      ],
+      "pedidos": 0,
+      "herramientas": [
+        "consultar_menu",
+        "agregar_item",
+        "vaciar_carrito",
+        "consultar_menu",
+        "agregar_item"
+      ]
+    },
+    {
+      "id": "borde-07",
+      "origen": "borde-inventado",
+      "ok": false,
+      "errores": ["Precios sin respaldo: 2400000"],
+      "items": [],
+      "pedidos": 0,
+      "herramientas": ["consultar_menu"]
+    },
+    {
+      "id": "borde-08",
+      "origen": "borde-inventado",
+      "ok": true,
+      "errores": [],
+      "items": [],
+      "pedidos": 0,
+      "herramientas": ["consultar_pedido_actual"]
+    },
+    {
+      "id": "borde-09",
+      "origen": "borde-inventado",
+      "ok": true,
+      "errores": [],
+      "items": [],
+      "pedidos": 0,
+      "herramientas": ["consultar_cliente"]
+    },
+    {
+      "id": "borde-10",
+      "origen": "borde-inventado",
+      "ok": true,
+      "errores": [],
+      "items": [],
+      "pedidos": 0,
+      "herramientas": ["consultar_menu", "consultar_menu", "consultar_menu", "consultar_menu"]
+    },
+    {
+      "id": "borde-11",
+      "origen": "borde-inventado",
+      "ok": true,
+      "errores": [],
+      "items": [],
+      "pedidos": 0,
+      "herramientas": ["consultar_menu"]
+    },
+    {
+      "id": "borde-12",
+      "origen": "borde-inventado",
+      "ok": true,
+      "errores": [],
+      "items": [],
+      "pedidos": 0,
+      "herramientas": ["cotizar_envio"]
+    },
+    {
+      "id": "borde-13",
+      "origen": "borde-inventado",
+      "ok": true,
+      "errores": [],
+      "items": [
+        {
+          "id": 7,
+          "borrador_id": 8,
+          "producto_id": 40,
+          "nombre": "Smash Simple",
+          "cantidad": 1,
+          "descripcion": "",
+          "variantes": "{}",
+          "extras": "[]",
+          "creado_en": "2026-09-17 22:13:17",
+          "precio_unitario": 600000
+        }
+      ],
+      "pedidos": 0,
+      "herramientas": ["consultar_menu", "agregar_item"]
+    },
+    {
+      "id": "borde-14",
+      "origen": "borde-inventado",
+      "ok": false,
+      "errores": ["Creó 0 pedidos"],
+      "items": [
+        {
+          "id": 8,
+          "borrador_id": 9,
+          "producto_id": 40,
+          "nombre": "Smash Simple",
+          "cantidad": 1,
+          "descripcion": "",
+          "variantes": "{}",
+          "extras": "[]",
+          "creado_en": "2026-09-17 22:13:33",
+          "precio_unitario": 600000
+        }
+      ],
+      "pedidos": 0,
+      "herramientas": ["consultar_menu", "agregar_item", "cotizar_envio"]
+    },
+    {
+      "id": "borde-15",
+      "origen": "borde-inventado",
+      "ok": true,
+      "errores": [],
+      "items": [],
+      "pedidos": 0,
+      "herramientas": ["derivar_a_persona"]
+    },
+    {
+      "id": "borde-16",
+      "origen": "borde-inventado",
+      "ok": false,
+      "errores": ["No se pudo completar: La IA agotó sus intentos sin responder"],
+      "items": [],
+      "pedidos": 0,
+      "herramientas": []
+    },
+    {
+      "id": "borde-17",
+      "origen": "borde-inventado",
+      "ok": false,
+      "errores": ["No se pudo completar: La IA agotó sus intentos sin responder"],
+      "items": [],
+      "pedidos": 0,
+      "herramientas": []
+    },
+    {
+      "id": "borde-18",
+      "origen": "borde-inventado",
+      "ok": true,
+      "errores": [],
+      "items": [],
+      "pedidos": 0,
+      "herramientas": ["consultar_menu"]
+    },
+    {
+      "id": "borde-19",
+      "origen": "borde-inventado",
+      "ok": false,
+      "errores": ["Faltan items: hamburguesa"],
+      "items": [],
+      "pedidos": 0,
+      "herramientas": ["vaciar_carrito", "consultar_menu"]
+    },
+    {
+      "id": "borde-20",
+      "origen": "borde-inventado",
+      "ok": false,
+      "errores": ["Faltan items: napolitana"],
+      "items": [],
+      "pedidos": 0,
+      "herramientas": [
+        "consultar_menu",
+        "consultar_menu",
+        "consultar_menu",
+        "consultar_menu",
+        "consultar_menu",
+        "consultar_menu"
+      ]
+    }
+  ]
 }

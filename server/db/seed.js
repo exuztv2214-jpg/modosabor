@@ -102,7 +102,7 @@ function runSeed(db) {
     ['whatsapp_emergencia_activa', '1'],
     ['whatsapp_emergencia_proveedor', 'Gemini'],
     ['whatsapp_emergencia_base_url', 'https://generativelanguage.googleapis.com/v1beta'],
-    ['whatsapp_emergencia_modelo', 'gemini-3.6-flash'],
+    ['whatsapp_emergencia_modelo', 'gemini-3.5-flash-lite'],
     ['whatsapp_agente_nombre', 'Chispita'],
     [
       'whatsapp_agente_estilo',

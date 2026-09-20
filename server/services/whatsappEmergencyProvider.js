@@ -24,7 +24,9 @@ function emergencyConfig() {
         : 'https://generativelanguage.googleapis.com/v1beta'
       : baseConfigurada,
     modelo:
-      usaGemini && !/^gemini-/i.test(modeloConfigurado) ? 'gemini-3.6-flash' : modeloConfigurado,
+      usaGemini && !/^gemini-/i.test(modeloConfigurado)
+        ? 'gemini-3.5-flash-lite'
+        : modeloConfigurado,
     apiKey: usaGemini ? clavePropia || desencriptar(configValue('gemini_api_key')) : clavePropia,
   };
 }

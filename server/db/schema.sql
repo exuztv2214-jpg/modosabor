@@ -393,6 +393,9 @@ CREATE TABLE IF NOT EXISTS whatsapp_pedidos_borrador (
   tipo_entrega TEXT DEFAULT 'delivery',
   metodo_pago TEXT DEFAULT '',
   notas TEXT DEFAULT '',
+  -- Hora pedida por el cliente ("21:30"). Vacío significa cuanto antes, que es
+  -- el caso normal; sólo se llena si la pidió explícitamente.
+  hora_entrega TEXT DEFAULT '',
   estado TEXT DEFAULT 'abierto',
   pedido_id INTEGER REFERENCES pedidos(id) ON DELETE SET NULL,
   subtotal INTEGER DEFAULT 0,

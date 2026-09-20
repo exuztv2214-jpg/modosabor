@@ -14,6 +14,11 @@ const { desencriptar } = require('../utils/encryptConfig');
  *
  * Sólo Google y Anthropic tienen formato propio.
  *
+ * Ojo con el nombre: la familia `openai` es ese formato de mensajes, no la
+ * empresa. OpenAI como proveedor no está en la lista porque no se usa, pero la
+ * familia tiene que quedarse: es la que hablan NVIDIA, Groq, DeepSeek y la
+ * opción "personalizado", que es justamente la que atiende WhatsApp hoy.
+ *
  * Por eso acá hay tres adaptadores y una lista de direcciones, en vez de un
  * adaptador por proveedor. Agregar uno nuevo es agregar una línea a la lista
  * —o ni eso: con la opción "personalizado" se escribe la dirección desde
@@ -56,8 +61,14 @@ const PROVEEDORES = {
     nombre: 'Google Gemini',
     familia: 'gemini',
     baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
-    modeloPorDefecto: 'gemini-3.6-flash',
-    modelos: ['gemini-3.6-flash'],
+    /*
+      Medido el 17/09/2026 con el catálogo real de herramientas:
+      `gemini-3.5-flash-lite` contestó en 573 ms, `gemini-3.6-flash` devolvió
+      503 por demanda y `gemini-3.1-flash-lite` tardó 23,8 s —al filo del
+      timeout de 30 s, o sea que se caía sola en hora pico—.
+    */
+    modeloPorDefecto: 'gemini-3.5-flash-lite',
+    modelos: ['gemini-3.5-flash-lite', 'gemini-3.6-flash'],
     envKey: 'GEMINI_API_KEY',
     donde: 'aistudio.google.com/apikey',
     nota: 'Tiene nivel gratuito.',
@@ -70,16 +81,6 @@ const PROVEEDORES = {
     modelos: ['claude-sonnet-4-20250514', 'claude-opus-4-20250514', 'claude-3-5-haiku-20241022'],
     envKey: 'ANTHROPIC_API_KEY',
     donde: 'console.anthropic.com',
-    nota: 'Sin nivel gratuito.',
-  },
-  openai: {
-    nombre: 'OpenAI (GPT)',
-    familia: 'openai',
-    baseUrl: 'https://api.openai.com/v1',
-    modeloPorDefecto: 'gpt-4o-mini',
-    modelos: ['gpt-4o-mini', 'gpt-4o', 'o4-mini'],
-    envKey: 'OPENAI_API_KEY',
-    donde: 'platform.openai.com/api-keys',
     nota: 'Sin nivel gratuito.',
   },
   moonshot: {
@@ -119,7 +120,6 @@ const PROVEEDORES = {
     modeloPorDefecto: 'anthropic/claude-3.5-sonnet',
     modelos: [
       'anthropic/claude-3.5-sonnet',
-      'openai/gpt-4o-mini',
       'google/gemini-2.0-flash-001',
       'deepseek/deepseek-chat',
     ],
@@ -264,7 +264,31 @@ async function errorDeApi(respuesta, proveedor) {
   } catch {
     detalle = '';
   }
-  return new Error(`${proveedor} respondió ${respuesta.status}. ${detalle}`.trim());
+  const error = new Error(`${proveedor} respondió ${respuesta.status}. ${detalle}`.trim());
+  // El código va aparte del texto: decidir si conviene reintentar mirando una
+  // frase del mensaje es frágil, y cada proveedor la redacta distinto.
+  error.status = respuesta.status;
+  return error;
+}
+
+/*
+  Un fallo que probablemente se arregle solo en un segundo.
+
+  Importa distinguirlos porque la respuesta es opuesta: ante una clave mal
+  puesta o un modelo dado de baja, reintentar es perder tiempo; ante un 503
+  —"este modelo está con mucha demanda", que es lo que devuelve Gemini en
+  hora pico— reintentar es exactamente lo que hay que hacer.
+
+  Sin esta distinción el proveedor elegido para atender perdía su turno con el
+  primer pico de demanda y contestaba otro modelo.
+*/
+function esErrorTransitorio(error) {
+  const status = Number(error?.status || 0);
+  if ([408, 429, 500, 502, 503, 504].includes(status)) return true;
+  return (
+    error?.name === 'AbortError' ||
+    /timeout|ETIMEDOUT|ECONNRESET|ENOTFOUND|fetch failed/i.test(String(error?.message || ''))
+  );
 }
 
 function aFormatoGemini(mensajes) {
@@ -534,7 +558,6 @@ function proveedoresFallback() {
     'mistral',
     'xai',
     'together',
-    'openai',
     'anthropic',
   ];
   const resultado = [];
@@ -588,19 +611,40 @@ async function conversarConProveedor({ sistema, mensajes, herramientas = [], pro
     throw new Error('La dirección del proveedor de respaldo no es segura');
   }
 
-  const resultado = await intentarConProveedor({
-    id: String(proveedor?.id || 'respaldo'),
-    definicion: {
-      nombre: String(proveedor?.nombre || proveedor?.id || 'Proveedor de respaldo'),
-    },
-    familia: proveedor?.familia || 'openai',
-    clave: String(proveedor?.clave || ''),
-    baseUrl,
-    modelo: String(proveedor?.modelo || ''),
-    sistema,
-    mensajes,
-    herramientas,
-  });
+  /*
+    Reintenta igual que el proveedor global.
+
+    Antes esto llamaba una sola vez. Cuando este proveedor es el que el dueño
+    eligió para atender WhatsApp, un 503 de un segundo le sacaba el turno y
+    contestaba otro modelo, con otro tono y otro precio de tokens. Se veía en
+    la métrica como si el elegido no hubiera existido nunca.
+  */
+  let ultimoError = null;
+  let resultado = null;
+  for (let intento = 0; intento <= MAX_RETRIES; intento += 1) {
+    if (intento > 0) await dormir(RETRY_DELAY_MS);
+    try {
+      resultado = await intentarConProveedor({
+        id: String(proveedor?.id || 'respaldo'),
+        definicion: {
+          nombre: String(proveedor?.nombre || proveedor?.id || 'Proveedor de respaldo'),
+        },
+        familia: proveedor?.familia || 'openai',
+        clave: String(proveedor?.clave || ''),
+        baseUrl,
+        modelo: String(proveedor?.modelo || ''),
+        sistema,
+        mensajes,
+        herramientas,
+      });
+      ultimoError = null;
+      break;
+    } catch (error) {
+      ultimoError = error;
+      if (!esErrorTransitorio(error)) break;
+    }
+  }
+  if (ultimoError) throw ultimoError;
 
   return {
     ...resultado,
@@ -657,10 +701,8 @@ async function conversar({ sistema, mensajes, herramientas = [] }) {
       };
     } catch (error) {
       ultimoError = error;
-      const esRecuperable =
-        error.name === 'AbortError' ||
-        /timeout|ETIMEDOUT|ECONNRESET|ENOTFOUND|fetch failed/i.test(String(error.message));
-      if (!esRecuperable) break; // Error de auth/modelo: no tiene sentido reintentar.
+      // Error de auth o de modelo dado de baja: reintentar no lo va a arreglar.
+      if (!esErrorTransitorio(error)) break;
     }
   }
 

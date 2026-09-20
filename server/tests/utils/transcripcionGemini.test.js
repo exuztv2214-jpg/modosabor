@@ -66,8 +66,8 @@ function run() {
         );
         assert.match(
           pedido.url,
-          /models\/gemini-3\.6-flash:generateContent$/,
-          'usa el modelo de Gemini disponible actualmente'
+          /models\/gemini-3\.1-flash-lite:generateContent$/,
+          'transcribe con un modelo distinto del que atiende: el cupo diario es por modelo'
         );
         assert.strictEqual(
           cuerpo.generationConfig.temperature,

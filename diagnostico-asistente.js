@@ -64,13 +64,6 @@ const proveedores = {
     modeloPorDefecto: 'claude-sonnet-4-20250514',
     modelos: ['claude-sonnet-4-20250514', 'claude-opus-4-20250514', 'claude-3-5-haiku-20241022'],
   },
-  openai: {
-    nombre: 'OpenAI (GPT)',
-    familia: 'openai',
-    baseUrl: 'https://api.openai.com/v1',
-    modeloPorDefecto: 'gpt-4o-mini',
-    modelos: ['gpt-4o-mini', 'gpt-4o', 'o4-mini'],
-  },
   moonshot: {
     nombre: 'Kimi (Moonshot)',
     familia: 'openai',
@@ -99,7 +92,6 @@ const proveedores = {
     modeloPorDefecto: 'anthropic/claude-3.5-sonnet',
     modelos: [
       'anthropic/claude-3.5-sonnet',
-      'openai/gpt-4o-mini',
       'google/gemini-2.0-flash-001',
       'deepseek/deepseek-chat',
     ],
