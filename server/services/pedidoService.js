@@ -926,7 +926,15 @@ async function buildPedidoPayload(body, options = {}) {
     cargar precios a mano. Ver services/preciosServidor.js.
   */
   const itemsEscalados = scalePedidoItemsToStorage(body.items);
-  validarCatalogoPedido(db, itemsEscalados);
+  /*
+    El turno de la categoría se exige sólo en los canales del cliente.
+
+    Es la misma idea que el precio: la web y WhatsApp arman el pedido desde la
+    base porque del otro lado no hay nadie de confianza. El TPV y Mozo están
+    detrás de login, y ahí el turno no protege nada — sólo impide vender algo
+    que está hecho y en el mostrador.
+  */
+  if (isPublicFlow) validarCatalogoPedido(db, itemsEscalados);
   // Los pedidos de Mozo también se calculan desde catálogo. A diferencia del
   // TPV, el celular nunca puede fijar precios ni descuentos manuales.
   const forceServerPrices = options.forceServerPrices === true;

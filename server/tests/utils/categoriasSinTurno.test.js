@@ -75,6 +75,46 @@ function run() {
     );
     console.log('  ✓ corre una sola vez: no pisa una decisión posterior');
 
+    /*
+      El turno limita lo que ve el cliente, no lo que puede vender la caja.
+
+      Se verifica sobre el código porque son tres puntos distintos y el síntoma
+      —no poder vender una bebida al mediodía— aparece si cualquiera de ellos
+      vuelve a filtrar. Un test de comportamiento sobre uno solo dejaría pasar
+      los otros dos.
+    */
+    const pedidoService = fs.readFileSync(
+      path.join(__dirname, '../../services/pedidoService.js'),
+      'utf8'
+    );
+    assert.match(
+      pedidoService,
+      /if \(isPublicFlow\) validarCatalogoPedido\(/,
+      'el turno sólo se exige en los canales del cliente, no en TPV ni Mozo'
+    );
+
+    const rutaProductos = fs.readFileSync(
+      path.join(__dirname, '../../routes/productos.js'),
+      'utf8'
+    );
+    const catalogoTpv = rutaProductos.slice(rutaProductos.indexOf("router.get('/catalogo-tpv'"));
+    assert.ok(
+      !/filtrarCatalogo/.test(catalogoTpv.slice(0, catalogoTpv.indexOf('});'))),
+      'el catálogo del TPV no se filtra por turno: el cajero ve lo que hay en cocina'
+    );
+    assert.match(
+      rutaProductos,
+      /req\.user \? productos : paraElPublico\(filtrarCatalogo\(/,
+      'la carta pública sí se sigue limitando por turno'
+    );
+
+    const tpv = fs.readFileSync(path.join(__dirname, '../../../client/src/pages/TPV.jsx'), 'utf8');
+    assert.ok(
+      !/categoriaVisible\(/.test(tpv),
+      'la pantalla del TPV no esconde categorías por turno'
+    );
+    console.log('  ✓ el turno limita al cliente, no a la caja');
+
     console.log('✅ Categorías y turnos verificados');
   } finally {
     db.close();

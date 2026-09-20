@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 
 import api from '../lib/api.js';
-import { filtrarCatalogo, categoriaVisible, claveSubcategoria } from '../lib/catalogVisibility.js';
+import { claveSubcategoria } from '../lib/catalogVisibility.js';
 import SubcategoryFilter from '../components/SubcategoryFilter.jsx';
 import { resolveAssetUrl } from '../lib/assets.js';
 import { DEFAULT_BRAND_LOGO } from '../lib/webPublicaHelpers.js';
@@ -173,9 +173,17 @@ export default function TPV() {
   const [config, setConfig] = useState({});
   const [categorias, setCategorias] = useState([]);
   const [productosBase, setProductos] = useState([]);
+  /*
+    La caja ve toda la carta, sin filtrar por turno.
+
+    El turno de la categoría existe para que el cliente no pida de noche algo
+    que sólo se cocina al mediodía. Acá adentro no protege nada: con las
+    categorías marcadas "noche", al mediodía el cajero no podía vender ni una
+    bebida que tenía enfrente. Quien atiende el mostrador sabe qué hay.
+  */
   const productos = useMemo(
-    () => filtrarCatalogo(productosBase, categorias, config),
-    [productosBase, categorias, config]
+    () => productosBase.filter((producto) => Number(producto.activo) !== 0),
+    [productosBase]
   );
   const [subcategoriaFiltro, setSubcategoriaFiltro] = useState('');
   const [productosRapidos, setProductosRapidos] = useState([]);
@@ -2177,7 +2185,7 @@ export default function TPV() {
             cartQtyByProductId={cartQtyByProductId}
             cartLinesByProductId={cartLinesByProductId}
             catActiva={catActiva}
-            categorias={categorias.filter((c) => categoriaVisible(c, config))}
+            categorias={categorias}
             conteoPorCategoria={conteoPorCategoria}
             totalProductos={productos.length}
             cargando={cargandoCatalogo}

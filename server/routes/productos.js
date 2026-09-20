@@ -406,9 +406,21 @@ router.get('/catalogo-tpv', auth, requirePermission('tpv.use'), (req, res) => {
     applyMenuDiaPricingList(productosConListas)
   );
 
+  /*
+    Sin filtro de turno: el TPV lo usa quien está parado en el mostrador.
+
+    El turno de la categoría sirve para que el cliente no pida de noche algo que
+    sólo se cocina al mediodía. Aplicárselo también a la caja significaba que,
+    con las categorías marcadas "noche", al mediodía no se podía vender ni una
+    bebida: el cajero veía el producto en la heladera y el sistema le decía que
+    no existe.
+
+    Quien cobra en el mostrador sabe qué hay en cocina. Lo que sí se respeta
+    acá es el stock y que el producto esté activo.
+  */
   // `paraElPublico` es la lista explícita de campos seguros: precio y opciones
   // sí, costo y cantidades reales de stock no.
-  res.json(paraElPublico(decorateProductsWithInventory(db, filtrarCatalogo(db, productos))));
+  res.json(paraElPublico(decorateProductsWithInventory(db, productos)));
 });
 
 /**
