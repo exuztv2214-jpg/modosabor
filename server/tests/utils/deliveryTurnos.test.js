@@ -78,5 +78,25 @@ assert.match(
   /FROM repartidores\s+WHERE activo = 1\s+ORDER BY nombre COLLATE NOCASE ASC/,
   'el diagnóstico no debe volver a mostrar riders retirados'
 );
+assert.match(
+  ridersRouteSource,
+  /fcm_actualizado_en = NULL, codigo_acceso = \?/,
+  'retirar un rider debe invalidar también el PIN guardado en su dispositivo'
+);
+assert.match(
+  deliveryPage,
+  /Retirar y bloquear app/,
+  'el panel debe explicar que retirar al rider también bloquea la app'
+);
+
+const riderPanelSource = fs.readFileSync(
+  path.join(__dirname, '..', '..', '..', 'client', 'src', 'pages', 'RiderPanel.jsx'),
+  'utf8'
+);
+assert.match(
+  riderPanelSource,
+  /status === 401 \|\| status === 403[\s\S]*await wipeRiderDevice\(\)[\s\S]*await clearRiderQueue\(\)/,
+  'la app debe limpiar sesión y cola local cuando el panel revoca el dispositivo'
+);
 
 console.log('deliveryTurnos.test.js OK');

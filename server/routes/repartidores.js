@@ -449,6 +449,11 @@ router.put('/:id', auth, requirePermission('delivery.manage'), (req, res) => {
 router.delete('/:id', auth, requirePermission('delivery.manage'), (req, res) => {
   const repartidor = hydrateRepartidor(req.params.id);
   if (!repartidor) return res.status(404).json({ error: 'Repartidor no encontrado' });
+  // El sistema operativo no permite desinstalar a distancia una app de un
+  // celular personal. Al retirar al rider invalidamos igualmente la
+  // credencial anterior: aunque reactive una copia instalada o conserve el
+  // enlace viejo, ya no puede autenticarse ni enviar ubicaciones/acciones.
+  const codigoRevocado = generateAccessCode();
 
   const pedidosActivos = db
     .prepare(
@@ -471,9 +476,9 @@ router.delete('/:id', auth, requirePermission('delivery.manage'), (req, res) => 
        SET activo = 0, disponible = 0, latitud = NULL, longitud = NULL,
            ultima_ubicacion_en = NULL, fcm_token = '', fcm_platform = '',
            fcm_device_id = '', fcm_device_label = '', fcm_permission = '',
-           fcm_actualizado_en = NULL
+           fcm_actualizado_en = NULL, codigo_acceso = ?
        WHERE id = ?`
-    ).run(repartidor.id);
+    ).run(codigoRevocado, repartidor.id);
 
     let personalId = Number(repartidor.personal_id || 0);
     if (!personalId) {
@@ -511,6 +516,7 @@ router.delete('/:id', auth, requirePermission('delivery.manage'), (req, res) => 
       nombre: repartidor.nombre,
       pedidos_desasignados: pedidosActivos.map((pedido) => pedido.id),
       personal_id: repartidor.personal_id || null,
+      acceso_dispositivo_revocado: true,
     },
   });
   res.json({ success: true, pedidos_desasignados: pedidosActivos.length });

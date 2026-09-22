@@ -1062,9 +1062,23 @@ export default function RiderPanel() {
       } catch (err) {
         const status = err?._httpStatus || err?.status || err?.statusCode;
         if (status === 401 || status === 403) {
-          toast.error(
-            'No se pudo validar el acceso. Tus datos siguen guardados; probá nuevamente.'
-          );
+          // Un PIN rotado (401) o un rider retirado (403) es una revocación
+          // remota. Borramos también la sesión y los datos operativos locales
+          // para que un ex rider no conserve pedidos, historial ni una cola
+          // capaz de reintentarse cuando vuelva la conexión.
+          try {
+            await wipeRiderDevice();
+            await clearRiderQueue();
+          } catch {}
+          setRiderAuth(null);
+          setSavedRiderAuth(null);
+          setData(null);
+          setSelectedPedido(null);
+          setHistorialSesion([]);
+          setEntregaReciente(null);
+          setCierreTurno(null);
+          setOfflineCount(0);
+          toast.error('El acceso de este dispositivo fue retirado por el local.');
         } else if (status === 404) {
           toast.error('Rider no encontrado. Tus datos siguen guardados para volver a intentar.');
         } else if (!silent && err?.offline) {

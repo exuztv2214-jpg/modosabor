@@ -644,11 +644,11 @@ export default function Delivery() {
     if (!deleteDialog) return;
     try {
       await api.delete(`/repartidores/${deleteDialog.id}`);
-      toast.success('Rider eliminado');
+      toast.success('Rider retirado y acceso de la app bloqueado');
       setDeleteDialog(null);
       await cargar();
     } catch (error) {
-      toast.error(error?.error || 'No se pudo eliminar el rider');
+      toast.error(error?.error || 'No se pudo retirar el rider');
     }
   };
 
@@ -1117,7 +1117,7 @@ export default function Delivery() {
                             </button>
                             <button
                               type="button"
-                              title="Eliminar rider"
+                              title="Retirar rider y bloquear su app"
                               onClick={() => eliminarRider(repartidor)}
                               className="rounded-lg p-1.5 text-gray-400 transition hover:bg-rose-50 hover:text-rose-600"
                             >
@@ -1966,9 +1966,9 @@ export default function Delivery() {
 
       <ActionDialog
         open={Boolean(deleteDialog)}
-        title={deleteDialog ? `Eliminar a ${deleteDialog.nombre}` : ''}
-        description="Se quitará este rider del panel de delivery. Si estaba vinculado al personal, luego conviene revisar esa ficha."
-        confirmLabel="Eliminar rider"
+        title={deleteDialog ? `Retirar a ${deleteDialog.nombre}` : ''}
+        description="Se desactivará su ficha, se invalidará el PIN anterior, se cerrará la sesión del celular cuando vuelva a conectarse y se borrarán allí los datos del rider. Los pedidos activos quedarán sin asignar y el historial se conserva."
+        confirmLabel="Retirar y bloquear app"
         cancelLabel="Cancelar"
         tone="danger"
         onConfirm={confirmarEliminarRider}
