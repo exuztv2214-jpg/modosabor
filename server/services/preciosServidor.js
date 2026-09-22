@@ -181,7 +181,7 @@ function recalcularPreciosPublicos(items, canal = 'mostrador', opciones = {}, ba
     peor que ignorarlo.
   */
   const buscarProducto = baseDatos.prepare(
-    `SELECT p.id, p.nombre, p.precio, p.activo, p.categoria_id, p.variantes, p.extras,
+    `SELECT p.id, p.nombre, p.descripcion, p.precio, p.activo, p.categoria_id, p.variantes, p.extras,
             mdh.precio_economico AS menu_dia_precio_economico,
             mdh.precio_ejecutivo AS menu_dia_precio_ejecutivo
        FROM productos p
@@ -265,6 +265,14 @@ function recalcularPreciosPublicos(items, canal = 'mostrador', opciones = {}, ba
     const descuentoItem = permitirDescuentoItems
       ? Math.min(Math.max(0, Number(item.descuento_item || 0)), bruto)
       : 0;
+    const beneficioPremium =
+      Number(producto.precio || 0) === 900000 &&
+      /incluye postre y bebida/i.test(String(producto.descripcion || ''));
+    const descripcionActual = String(item.descripcion || '').trim();
+    const descripcion =
+      beneficioPremium && !/incluye bebida y postre/i.test(descripcionActual)
+        ? [descripcionActual, 'INCLUYE BEBIDA Y POSTRE'].filter(Boolean).join(' | ')
+        : descripcionActual;
 
     return {
       ...item,
@@ -274,6 +282,7 @@ function recalcularPreciosPublicos(items, canal = 'mostrador', opciones = {}, ba
       precio_unitario: precioUnitario,
       descuento_item: descuentoItem,
       subtotal: bruto - descuentoItem,
+      descripcion,
     };
   });
 }

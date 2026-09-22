@@ -158,8 +158,14 @@ export default function Caja() {
   const [closing, setClosing] = useState({ monto_final_declarado: '', notas: '' });
   const [movimiento, setMovimiento] = useState({ tipo: 'salida', monto: '', motivo: '' });
   const [showMovimientoModal, setShowMovimientoModal] = useState(false);
+  const [arqueoPendiente, setArqueoPendiente] = useState(null);
+  const arqueoInputRef = useRef(null);
   const [saving, setSaving] = useState(false);
   const [closeDialog, setCloseDialog] = useState(false);
+
+  useEffect(() => {
+    if (arqueoPendiente) arqueoInputRef.current?.focus();
+  }, [arqueoPendiente]);
 
   const cargar = useCallback(async ({ silent = false } = {}) => {
     if (!silent) setLoading(true);
@@ -282,6 +288,31 @@ export default function Caja() {
       openPrintWindow(response?.html);
     } catch (error) {
       toast.error(error?.error || 'Error al cerrar');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const completarArqueo = async (event) => {
+    event.preventDefault();
+    const monto = parseMoneyInput(arqueoPendiente?.monto);
+    if (Number.isNaN(monto) || monto < 0) {
+      toast.error('El efectivo contado debe ser 0 o mayor');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const response = await api.post(`/caja/cierre/${arqueoPendiente.id}/arqueo`, {
+        monto_final_declarado: monto,
+        notas: arqueoPendiente.notas || '',
+      });
+      toast.success('Arqueo guardado con la diferencia real');
+      setArqueoPendiente(null);
+      await cargar({ silent: true });
+      openPrintWindow(response?.html);
+    } catch (error) {
+      toast.error(error?.error || 'No se pudo guardar el arqueo');
     } finally {
       setSaving(false);
     }
@@ -892,7 +923,9 @@ export default function Caja() {
                   <div className="rounded-xl bg-gray-50 p-3">
                     <p className="text-[12px] text-gray-500">Contado</p>
                     <p className="mt-1 text-[18px] font-bold tabular-nums text-gray-900">
-                      {fmt(ultimoCierre.monto_final_declarado)}
+                      {ultimoCierre.monto_final_declarado === null
+                        ? 'Pendiente'
+                        : fmt(ultimoCierre.monto_final_declarado)}
                     </p>
                   </div>
                   <div className="rounded-xl bg-gray-50 p-3">
@@ -900,14 +933,37 @@ export default function Caja() {
                     <p
                       className="mt-1 text-[18px] font-bold tabular-nums"
                       style={{
-                        color: Number(ultimoCierre.diferencia) === 0 ? '#047857' : BRAND,
+                        color:
+                          ultimoCierre.diferencia === null
+                            ? '#D97706'
+                            : Number(ultimoCierre.diferencia) === 0
+                              ? '#047857'
+                              : BRAND,
                       }}
                     >
-                      {Number(ultimoCierre.diferencia) > 0 ? '+' : ''}
-                      {fmt(ultimoCierre.diferencia)}
+                      {ultimoCierre.diferencia === null
+                        ? 'Sin contar'
+                        : `${Number(ultimoCierre.diferencia) > 0 ? '+' : ''}${fmt(ultimoCierre.diferencia)}`}
                     </p>
                   </div>
                 </div>
+                {ultimoCierre.monto_final_declarado === null && canManage ? (
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 p-3">
+                    <p className="text-[12px] leading-5 text-amber-800">
+                      El sistema cerró el turno por horario. Falta contar el efectivo del cajón.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setArqueoPendiente({ id: ultimoCierre.id, monto: '', notas: '' })
+                      }
+                      className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-amber-700 px-3 text-[12px] font-semibold text-white transition hover:bg-amber-800"
+                    >
+                      <WalletCards size={14} strokeWidth={STROKE} />
+                      Completar arqueo
+                    </button>
+                  </div>
+                ) : null}
               </Card>
             ) : (
               <Card>
@@ -934,7 +990,8 @@ export default function Caja() {
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {historial.map((item) => {
-                    const dif = Number(item.diferencia || 0);
+                    const arqueado = item.monto_final_declarado !== null;
+                    const dif = arqueado ? Number(item.diferencia || 0) : null;
                     return (
                       <tr key={item.id} className="transition-colors hover:bg-gray-50">
                         <td className="px-4 py-3 text-gray-700">{fmtDateTime(item.abierta_en)}</td>
@@ -954,27 +1011,55 @@ export default function Caja() {
                           {fmt(item.monto_inicial)}
                         </td>
                         <td className="px-4 py-3 text-right font-bold tabular-nums text-gray-900">
-                          {item.estado === 'abierta' ? '—' : fmt(item.monto_final_declarado)}
+                          {item.estado === 'abierta'
+                            ? '—'
+                            : arqueado
+                              ? fmt(item.monto_final_declarado)
+                              : 'Pendiente'}
                         </td>
                         <td
                           className="px-4 py-3 text-right font-bold tabular-nums"
                           style={{
                             color:
-                              item.estado === 'abierta' ? '#9CA3AF' : dif === 0 ? '#047857' : BRAND,
+                              item.estado === 'abierta'
+                                ? '#9CA3AF'
+                                : !arqueado
+                                  ? '#D97706'
+                                  : dif === 0
+                                    ? '#047857'
+                                    : BRAND,
                           }}
                         >
-                          {item.estado === 'abierta' ? '—' : `${dif > 0 ? '+' : ''}${fmt(dif)}`}
+                          {item.estado === 'abierta'
+                            ? '—'
+                            : arqueado
+                              ? `${dif > 0 ? '+' : ''}${fmt(dif)}`
+                              : 'Sin contar'}
                         </td>
                         <td className="px-4 py-3 text-right">
                           {item.estado === 'cerrada' && (
-                            <button
-                              type="button"
-                              onClick={() => imprimirTicketCierre(item.id)}
-                              title="Reimprimir cierre"
-                              className="rounded-lg p-2 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
-                            >
-                              <Printer size={15} strokeWidth={STROKE} />
-                            </button>
+                            <div className="flex justify-end gap-1">
+                              {!arqueado && canManage ? (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setArqueoPendiente({ id: item.id, monto: '', notas: '' })
+                                  }
+                                  title="Completar arqueo"
+                                  className="rounded-lg p-2 text-amber-600 transition hover:bg-amber-50 hover:text-amber-800"
+                                >
+                                  <WalletCards size={15} strokeWidth={STROKE} />
+                                </button>
+                              ) : null}
+                              <button
+                                type="button"
+                                onClick={() => imprimirTicketCierre(item.id)}
+                                title="Reimprimir cierre"
+                                className="rounded-lg p-2 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
+                              >
+                                <Printer size={15} strokeWidth={STROKE} />
+                              </button>
+                            </div>
                           )}
                         </td>
                       </tr>
@@ -1173,6 +1258,100 @@ export default function Caja() {
           </div>
         </div>
       )}
+
+      {/* El turno ya está cerrado: este modal sólo registra el conteo físico posterior. */}
+      {arqueoPendiente && canManage ? (
+        <div
+          role="presentation"
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/35 p-4 backdrop-blur-sm"
+          onClick={(event) => {
+            if (event.target === event.currentTarget && !saving) setArqueoPendiente(null);
+          }}
+        >
+          <form
+            role="dialog"
+            aria-modal="true"
+            aria-label="Completar arqueo de caja"
+            onSubmit={completarArqueo}
+            className="w-full max-w-md rounded-2xl bg-white shadow-2xl"
+          >
+            <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
+              <div>
+                <h3 className="text-[17px] font-semibold text-gray-900">Completar arqueo</h3>
+                <p className="mt-0.5 text-[12px] text-gray-500">
+                  Cierre #{arqueoPendiente.id} · ingresá lo contado físicamente
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={saving}
+                onClick={() => setArqueoPendiente(null)}
+                className="rounded-lg p-2 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700 disabled:opacity-40"
+              >
+                <X size={18} strokeWidth={STROKE} />
+              </button>
+            </div>
+            <div className="space-y-4 px-6 py-5">
+              <div>
+                <label htmlFor="arqueo-efectivo" className="text-[12px] font-medium text-gray-600">
+                  Efectivo contado
+                </label>
+                <input
+                  id="arqueo-efectivo"
+                  ref={arqueoInputRef}
+                  type="text"
+                  inputMode="decimal"
+                  required
+                  value={arqueoPendiente.monto}
+                  onChange={(event) =>
+                    setArqueoPendiente((actual) => ({ ...actual, monto: event.target.value }))
+                  }
+                  className={CONTROL + ' mt-1 h-12 text-[18px] font-semibold tabular-nums'}
+                  placeholder="0,00"
+                />
+              </div>
+              <div>
+                <label htmlFor="arqueo-notas" className="text-[12px] font-medium text-gray-600">
+                  Nota (opcional)
+                </label>
+                <input
+                  id="arqueo-notas"
+                  type="text"
+                  maxLength={1000}
+                  value={arqueoPendiente.notas}
+                  onChange={(event) =>
+                    setArqueoPendiente((actual) => ({ ...actual, notas: event.target.value }))
+                  }
+                  className={CONTROL + ' mt-1 h-11'}
+                  placeholder="Ej: contado al finalizar limpieza"
+                />
+              </div>
+              <p className="rounded-xl bg-amber-50 px-3 py-2 text-[12px] leading-5 text-amber-800">
+                Al confirmar se calculará la diferencia contra el efectivo esperado y se generará el
+                ticket definitivo.
+              </p>
+              <div className="flex justify-end gap-2 border-t border-gray-100 pt-4">
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={() => setArqueoPendiente(null)}
+                  className="h-11 rounded-xl bg-gray-100 px-5 text-[13px] font-semibold text-gray-700 transition hover:bg-gray-200 disabled:opacity-40"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={saving || String(arqueoPendiente.monto).trim() === ''}
+                  style={{ background: BRAND }}
+                  className="h-11 rounded-xl px-6 text-[13px] font-semibold text-white transition hover:brightness-110 disabled:opacity-50"
+                >
+                  {saving ? 'Guardando…' : 'Guardar arqueo'}
+                </button>
+              </div>
+            </div>
+          </form>
+        </div>
+      ) : null}
 
       {/*
         El diálogo decía siempre lo mismo. Ahora el monto contado y la

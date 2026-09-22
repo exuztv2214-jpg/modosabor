@@ -68,10 +68,13 @@ export default function GlobalOrderAlerts() {
       if (!pedido?.id) return;
       const origen = String(pedido.origen || '').toLowerCase();
       const esWeb = origen === 'web' || origen === 'whatsapp';
-      const esTpv = origen === 'tpv' || origen === 'interno';
-      const permitida =
-        (esWeb && String(config?.impresion_auto_web) === '1') ||
-        (esTpv && String(config?.impresion_auto_tpv) === '1');
+      /*
+        Los pedidos del TPV ya se imprimen desde el propio cobro. Si esta
+        alarma global también los imprime, la pantalla Pedidos abre un segundo
+        diálogo al recibir el socket. La automatización global queda sólo para
+        pedidos remotos (web/WhatsApp), que no tienen un cajero confirmando.
+      */
+      const permitida = esWeb && String(config?.impresion_auto_web) === '1';
 
       if (!permitida) return;
       if (!claimAlertKey(`print:${pedido.id}`, 8000)) return;
@@ -79,12 +82,18 @@ export default function GlobalOrderAlerts() {
 
       printingPedidosRef.current.add(pedido.id);
       try {
-        const response = await api.post(`/pedidos/${pedido.id}/imprimir`, { tipo: 'tpv_pack' });
+        const response = await api.post(`/pedidos/${pedido.id}/imprimir`, {
+          tipo: 'tpv_pack',
+          automatica: true,
+        });
         if (response?.html) {
           imprimirEnIframe(response.html);
         }
       } catch (error) {
         console.warn('[GlobalOrderAlerts] no se pudo imprimir automaticamente', error);
+        toast.error(
+          `No se pudo despachar la impresión del pedido #${pedido.numero || pedido.id}. Revisá la impresora y reimprimí desde Pedidos si hace falta.`
+        );
       } finally {
         setTimeout(() => printingPedidosRef.current.delete(pedido.id), 6000);
       }

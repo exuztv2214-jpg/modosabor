@@ -48,6 +48,15 @@ const PRODUCTOS = {
     menu_dia_precio_economico: 500000,
     menu_dia_precio_ejecutivo: 700000,
   },
+  70: {
+    id: 70,
+    nombre: 'Menú premium',
+    descripcion: 'Plato casero. Incluye postre y bebida sin recargo.',
+    precio: 900000,
+    activo: 1,
+    variantes: '[]',
+    extras: '[]',
+  },
 };
 
 /**
@@ -332,6 +341,13 @@ test('el nombre también sale de la base', () => {
     { producto_id: 67, nombre: 'NOMBRE FALSO', cantidad: 1 },
   ]);
   assert.strictEqual(items[0].nombre, 'Suprema a la napolitana');
+});
+
+test('el menú premium avisa bebida y postre en la comanda', () => {
+  const items = recalcularPreciosPublicos([
+    { producto_id: 70, cantidad: 1, descripcion: 'Guarnición: Papas' },
+  ]);
+  assert.strictEqual(items[0].descripcion, 'Guarnición: Papas | INCLUYE BEBIDA Y POSTRE');
 });
 
 test('un pedido vacío no rompe', () => {

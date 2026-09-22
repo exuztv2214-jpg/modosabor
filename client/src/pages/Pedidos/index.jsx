@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import toast from 'react-hot-toast';
 import { format, parseISO } from 'date-fns';
 import { LayoutGrid, List, Package, RefreshCw, Wifi, WifiOff } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 
 import api from '../../lib/api.js';
 import { useAuth } from '../../context/AuthContext.jsx';
@@ -28,6 +29,7 @@ import {
 } from './constants.js';
 
 export default function Pedidos() {
+  const navigate = useNavigate();
   const { hasPermission, isAuth, token } = useAuth();
   const [pedidos, setPedidos] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -777,6 +779,7 @@ export default function Pedidos() {
           guardando={guardandoPedido}
           onCambiarTipoEntrega={cambiarTipoEntrega}
           onAsignarRider={asignarRider}
+          onEditar={(pedido) => navigate(`/admin/tpv?editar=${pedido.id}`)}
         />
       ) : null}
     </div>

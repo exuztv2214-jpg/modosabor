@@ -122,9 +122,9 @@ function closeCaja(db, caja, options = {}) {
         cerrada_en = CURRENT_TIMESTAMP,
         cerrada_por_id = ?,
         cerrada_por_nombre = ?,
-        monto_final_declarado = ?,
+        monto_final_declarado = NULL,
         efectivo_esperado = ?,
-        diferencia = 0,
+        diferencia = NULL,
         resumen_json = ?,
         notas_cierre = CASE
           WHEN TRIM(COALESCE(notas_cierre, '')) = '' THEN ?
@@ -137,7 +137,6 @@ function closeCaja(db, caja, options = {}) {
     .run(
       actorId,
       actorNombre,
-      efectivoEsperado,
       efectivoEsperado,
       JSON.stringify(resumen || {}),
       motivo,

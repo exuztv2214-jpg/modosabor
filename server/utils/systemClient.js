@@ -11,6 +11,7 @@ const { resolveInitialPagoEstado } = require('./paymentStatus');
 const { loadPedidoItems } = require('./pedidoItems');
 const { getCurrentShiftInfo } = require('./shifts');
 const { hoyArgentina } = require('./fechaLocal');
+const { categoriasVisibles, filtrarCatalogo } = require('./catalogVisibility');
 
 const TERM_ALIASES = [
   ['muzza', ['muzza', 'muzzarella', 'muzzarela', 'mozzarella', 'mozza', 'muzarela']],
@@ -199,7 +200,12 @@ function getCategories(db, options = {}) {
   const query = activeOnly
     ? 'SELECT * FROM categorias WHERE activo = 1 ORDER BY orden ASC, nombre ASC'
     : 'SELECT * FROM categorias ORDER BY orden ASC, nombre ASC';
-  return db.prepare(query).all().map(mapCategoryRow);
+  const visible = activeOnly ? categoriasVisibles(db) : null;
+  return db
+    .prepare(query)
+    .all()
+    .filter((row) => !visible || visible.has(Number(row.id)))
+    .map(mapCategoryRow);
 }
 
 function getProducts(db, options = {}) {
@@ -212,7 +218,7 @@ function getProducts(db, options = {}) {
   `;
 
   if (options.activeOnly !== false) {
-    query += ' AND p.activo = 1';
+    query += ' AND p.activo = 1 AND (p.categoria_id IS NULL OR c.activo = 1)';
   }
 
   if (options.categoryId) {
@@ -226,16 +232,15 @@ function getProducts(db, options = {}) {
 
   query += ' ORDER BY p.destacado DESC, c.orden ASC, p.nombre ASC';
 
-  if (options.limit) {
-    query += ' LIMIT ?';
-    params.push(Number(options.limit));
-  }
-
-  const rows = decorateProducts(db, db.prepare(query).all(...params));
+  const found = db.prepare(query).all(...params);
+  let rows = decorateProducts(
+    db,
+    options.activeOnly === false ? found : filtrarCatalogo(db, found)
+  );
   if (options.sellableOnly) {
-    return rows.filter((product) => product.disponible_para_venta);
+    rows = rows.filter((product) => product.disponible_para_venta);
   }
-  return rows;
+  return options.limit ? rows.slice(0, Number(options.limit)) : rows;
 }
 
 function getFeaturedProducts(db, limit = 5) {
@@ -253,12 +258,12 @@ function getProductById(db, productId) {
     SELECT p.*, c.nombre AS categoria_nombre
     FROM productos p
     LEFT JOIN categorias c ON c.id = p.categoria_id
-    WHERE p.id = ?
+    WHERE p.id = ? AND p.activo = 1 AND (p.categoria_id IS NULL OR c.activo = 1)
   `
     )
     .get(Number(productId));
 
-  if (!row) return null;
+  if (!row || !filtrarCatalogo(db, [row]).length) return null;
   return decorateProducts(db, [row])[0] || null;
 }
 
@@ -1395,11 +1400,11 @@ function findClienteByPhone(db, phone) {
       `
     SELECT *
     FROM clientes
-    WHERE REPLACE(REPLACE(REPLACE(telefono, ' ', ''), '+', ''), '-', '') LIKE ?
     ORDER BY id DESC
   `
     )
-    .all(`%${comparable}`);
+    .all()
+    .filter((row) => comparablePhone(row.telefono) === comparable);
   return pickBestPhoneRow(rows, 'telefono', phone);
 }
 

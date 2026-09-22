@@ -55,6 +55,7 @@ export default function ClienteDetailModal({
   getWhatsAppLink,
   getRecoveryMessage,
   handleEdit,
+  handleRefreshDetail,
   deleteCliente,
   canjearPremio,
   copyToClipboard,
@@ -317,7 +318,11 @@ export default function ClienteDetailModal({
                 )}
               </Card>
 
-              <DireccionesPanel direcciones={detalleDirecciones} />
+              <DireccionesPanel
+                clienteId={detalle.id}
+                direcciones={detalleDirecciones}
+                onChanged={() => handleRefreshDetail?.(detalle)}
+              />
             </div>
           </div>
         </div>

@@ -45,6 +45,8 @@ jobs:
           npm run verify:catalog
           node scripts/verify-isolated.js scripts/verify-option-images.js
           node scripts/verify-isolated.js scripts/verify-client-duplicates.js
+          node scripts/verify-isolated.js scripts/verify-public-orders.js
+          node scripts/verify-isolated.js scripts/verify-auto-print.js
           npm run verify:operacion
           npm run verify:mozo
           npm run verify:whatsapp

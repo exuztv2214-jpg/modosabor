@@ -52,6 +52,7 @@ export default function TpvPaymentModal({
   blockedReason,
   loading,
   onConfirm,
+  editandoPedido = null,
 }) {
   const [imprimir, setImprimir] = useState(false);
   const confirmarButtonRef = useRef(null);
@@ -129,7 +130,7 @@ export default function TpvPaymentModal({
         transition={{ duration: 0.16, ease: 'easeOut' }}
         role="dialog"
         aria-modal="true"
-        aria-label="Cobrar pedido"
+        aria-label={editandoPedido ? 'Guardar corrección del pedido' : 'Cobrar pedido'}
         className="flex max-h-full w-full max-w-[980px] flex-col overflow-hidden rounded-[28px] border border-white/70 bg-white shadow-[0_32px_90px_rgba(15,23,42,0.35)] lg:flex-row"
       >
         {/* ── Resumen ── */}
@@ -141,7 +142,7 @@ export default function TpvPaymentModal({
               <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/10 text-white">
                 <ReceiptText size={15} strokeWidth={STROKE} />
               </span>
-              Cobro actual
+              {editandoPedido ? `Pedido #${editandoPedido.numero}` : 'Cobro actual'}
             </div>
             <p className="relative mt-5 text-5xl font-bold leading-none tabular-nums tracking-tight text-white sm:text-[54px]">
               {fmt(total)}
@@ -240,9 +241,11 @@ export default function TpvPaymentModal({
           <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4 sm:px-7 sm:py-5">
             <div>
               <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-brand-600">
-                Finalizar venta
+                {editandoPedido ? 'Guardar corrección' : 'Finalizar venta'}
               </p>
-              <h2 className="mt-1 text-xl font-bold tracking-tight text-slate-900">¿Cómo paga?</h2>
+              <h2 className="mt-1 text-xl font-bold tracking-tight text-slate-900">
+                {editandoPedido ? 'Confirmá el pedido corregido' : '¿Cómo paga?'}
+              </h2>
             </div>
             <button
               type="button"
@@ -419,7 +422,9 @@ export default function TpvPaymentModal({
                 onChange={(event) => setImprimir(event.target.checked)}
                 className="h-4 w-4 rounded border-gray-300 text-brand-500 focus:ring-brand-200"
               />
-              Imprimir ticket al cobrar
+              {editandoPedido
+                ? 'Reimprimir comanda y ticket corregidos'
+                : 'Imprimir ticket al cobrar'}
             </label>
 
             <div className="flex gap-2">
@@ -443,12 +448,22 @@ export default function TpvPaymentModal({
                 }
                 className="h-14 flex-1 rounded-2xl text-lg font-bold tracking-tight shadow-[0_10px_22px_rgba(220,31,45,0.24)] transition-all hover:brightness-105 active:scale-[0.99] disabled:cursor-not-allowed disabled:shadow-none"
               >
-                {loading ? 'Cobrando…' : <span className="tabular-nums">Cobrar {fmt(total)}</span>}
+                {loading ? (
+                  editandoPedido ? (
+                    'Guardando…'
+                  ) : (
+                    'Cobrando…'
+                  )
+                ) : editandoPedido ? (
+                  <span className="tabular-nums">Guardar cambios · {fmt(total)}</span>
+                ) : (
+                  <span className="tabular-nums">Cobrar {fmt(total)}</span>
+                )}
               </button>
             </div>
             {!confirmDisabled && !loading ? (
               <p className="mt-2 text-right text-[11px] font-medium text-slate-400">
-                Enter confirma el cobro
+                Enter {editandoPedido ? 'guarda la corrección' : 'confirma el cobro'}
               </p>
             ) : null}
           </div>

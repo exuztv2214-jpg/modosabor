@@ -172,20 +172,7 @@ function ensureOperationalTestContext(actorId) {
 }
 
 function getTestProduct() {
-  return db
-    .prepare(
-      `
-    SELECT id, nombre, precio, categoria_id
-    FROM productos
-    WHERE activo = 1
-      AND disponible_para_venta = 1
-      AND precio > 0
-      AND stock_mode != 'recipe'
-    ORDER BY id ASC
-    LIMIT 1
-  `
-    )
-    .get();
+  return require('./verification-product')(db);
 }
 
 function assertMoneyRoundTrip(label, pedido, expectedTotal) {
@@ -242,7 +229,7 @@ async function run() {
     const created = await request('/pedidos', {
       method: 'POST',
       body: {
-        origen: 'sistema_check',
+        origen: 'web',
         tipo_entrega: 'delivery',
         cliente_nombre: 'Prueba Sistema',
         cliente_telefono: TEST_PHONE,

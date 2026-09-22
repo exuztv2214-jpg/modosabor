@@ -16,14 +16,12 @@ function run() {
 
   assert.match(
     globalAlerts,
-    /api\.post\(`\/pedidos\/\$\{pedido\.id\}\/imprimir`, \{ tipo: 'tpv_pack' \}\)/
+    /api\.post\(`\/pedidos\/\$\{pedido\.id\}\/imprimir`, \{\s*tipo: 'tpv_pack',\s*automatica: true,?\s*\}\)/
   );
   assert.doesNotMatch(pedidos, /imprimirDocumentosPedidoWeb/);
   assert.doesNotMatch(pedidos, /impresion_auto_web/);
-  assert.match(
-    tpv,
-    /const shouldManualPrint = !ventaSinConexion && imprimir && !autoPrintConfigured/
-  );
+  assert.match(tpv, /const shouldManualPrint = !ventaSinConexion && imprimir/);
+  assert.doesNotMatch(globalAlerts, /impresion_auto_tpv/);
   assert.match(tpv, /if \(shouldManualPrint\) \{\s*popup = window\.open/);
   assert.match(tpv, /if \(shouldManualPrint\) await abrirImpresion\(pedido\.id, popup\)/);
 

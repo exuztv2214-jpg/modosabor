@@ -1,0 +1,76 @@
+diff --git a/server/services/socialService.js b/server/services/socialService.js
+index da32d8e3..93a0cf56 100644
+--- a/server/services/socialService.js
++++ b/server/services/socialService.js
+@@ -148,6 +148,71 @@ function createDestination({
+     .get(normalizedProvider, normalizedType, externalId);
+ }
+ 
++function updateDestination(id, { nombre, url = '', habilitada, favorita }) {
++  const dest = db.prepare('SELECT * FROM social_destinations WHERE id = ?').get(Number(id));
++  if (!dest) throw new Error('Destino no encontrado');
++  const updates = [];
++  const params = [];
++  if (nombre !== undefined) {
++    updates.push('nombre = ?');
++    params.push(clean(nombre, 200));
++  }
++  if (url !== undefined) {
++    updates.push('url = ?');
++    params.push(clean(url, 1000));
++  }
++  if (habilitada !== undefined) {
++    updates.push('habilitada = ?');
++    params.push(habilitada ? 1 : 0);
++  }
++  if (favorita !== undefined) {
++    updates.push('favorita = ?');
++    params.push(favorita ? 1 : 0);
++  }
++  if (!updates.length) throw new Error('No hay campos para actualizar');
++  updates.push('actualizado_en = CURRENT_TIMESTAMP');
++  params.push(Number(id));
++  db.prepare(`UPDATE social_destinations SET ${updates.join(', ')} WHERE id = ?`).run(...params);
++  log({ destinoId: Number(id), mensaje: 'Destino actualizado', codigo: 'DESTINATION_UPDATED' });
++  return db.prepare('SELECT * FROM social_destinations WHERE id = ?').get(Number(id));
++}
++
++function deleteDestination(id) {
++  const destId = Number(id);
++  const inUse = db.prepare('SELECT COUNT(*) AS c FROM social_post_targets WHERE destino_id = ?').get(destId).c;
++  if (inUse > 0) throw new Error('No se puede eliminar: el destino tiene publicaciones asociadas');
++  db.prepare('DELETE FROM social_destination_set_items WHERE destino_id = ?').run(destId);
++  const result = db.prepare('DELETE FROM social_destinations WHERE id = ?').run(destId);
++  if (!result.changes) throw new Error('Destino no encontrado');
++  log({ destinoId: destId, mensaje: 'Destino eliminado', codigo: 'DESTINATION_DELETED', nivel: 'warn' });
++  return { ok: true };
++}
++  provider = 'facebook',
++  tipo,
++  nombre,
++  url = '',
++  identificadorExterno = '',
++}) {
++  const normalizedProvider = clean(provider, 40).toLowerCase();
++  const normalizedType = clean(tipo, 60).toLowerCase();
++  const normalizedName = clean(nombre, 200);
++  if (!DESTINATION_TYPES.has(normalizedType) || !normalizedName)
++    throw new Error('Destino inválido');
++  if (!url && !identificadorExterno) throw new Error('Indicá la URL pública del destino');
++  const externalId = clean(identificadorExterno || url, 500);
++  db.prepare(
++    `INSERT INTO social_destinations (provider, tipo, nombre, identificador_externo, url, habilitada, ultimo_estado)
++     VALUES (?, ?, ?, ?, ?, 1, 'pendiente')
++     ON CONFLICT(provider, tipo, identificador_externo) DO UPDATE SET nombre = excluded.nombre,
++       url = excluded.url, habilitada = 1, actualizado_en = CURRENT_TIMESTAMP`
++  ).run(normalizedProvider, normalizedType, normalizedName, externalId, clean(url, 1000));
++  return db
++    .prepare(
++      'SELECT * FROM social_destinations WHERE provider = ? AND tipo = ? AND identificador_externo = ?'
++    )
++    .get(normalizedProvider, normalizedType, externalId);
++}
++
+ function listSets() {
+   return db
+     .prepare(

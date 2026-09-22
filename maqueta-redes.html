@@ -1,0 +1,2299 @@
+<!doctype html>
+<html lang="es-AR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Modo Sabor · Redes (maqueta)</title>
+    <style>
+      /*
+        Maqueta del módulo de redes. No está conectada a nada.
+
+        La estructura sigue a Vista Social —barra de iconos, columna de cuentas,
+        contenido— porque ese reparto funciona: nunca perdés de vista sobre qué
+        cuenta estás trabajando.
+
+        Los colores salen de client/src/lib/theme.js. Tres y no más:
+
+          · rojo   #DC1F2D  la acción principal, publicar
+          · violeta          la IA, siempre y sólo la IA
+          · el color de cada red, para reconocerla sin leer
+
+        Todo lo demás es gris. Si el rojo apareciera en cinco lugares dejaría de
+        significar "esto publica".
+      */
+      :root {
+        --marca: #dc1f2d;
+        --marca-suave: #fdeced;
+        --ia: #7c3aed;
+        --ia-suave: #f5f0ff;
+        --tinta: #111827;
+        --tinta-media: #6b7280;
+        --tinta-suave: #9ca3af;
+        --linea: #e5e7eb;
+        --fondo: #f6f7f9;
+        --panel: #ffffff;
+        --verde: #047857;
+        --verde-suave: #ecfdf5;
+        --ambar: #b45309;
+        --ambar-suave: #fef3c7;
+        --rail: #0f1729;
+        --radio-control: 12px;
+        --radio-tarjeta: 16px;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+      }
+
+      body {
+        background: var(--fondo);
+        color: var(--tinta);
+        font-family:
+          'Inter',
+          -apple-system,
+          BlinkMacSystemFont,
+          'Segoe UI',
+          Roboto,
+          sans-serif;
+        font-size: 13px;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      button {
+        font: inherit;
+        color: inherit;
+        border: 0;
+        background: none;
+        cursor: pointer;
+      }
+
+      input,
+      select,
+      textarea {
+        font: inherit;
+        color: inherit;
+      }
+
+      .plata {
+        font-variant-numeric: tabular-nums;
+      }
+
+      /* ── Esqueleto ────────────────────────────────────────────────────── */
+      .marco {
+        display: grid;
+        grid-template-columns: 64px 248px 1fr;
+        height: 100vh;
+      }
+
+      /* ── Barra de iconos ──────────────────────────────────────────────── */
+      .rail {
+        background: var(--rail);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 14px 0;
+        gap: 6px;
+        position: relative;
+        z-index: 30;
+        transition: width 0.18s ease;
+      }
+
+      .logo {
+        width: 38px;
+        height: 38px;
+        border-radius: 11px;
+        background: var(--marca);
+        color: #fff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 700;
+        font-size: 12px;
+        margin-bottom: 10px;
+      }
+
+      .icono-rail {
+        position: relative;
+        width: 42px;
+        height: 42px;
+        border-radius: var(--radio-control);
+        color: rgba(255, 255, 255, 0.55);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: 0.15s;
+      }
+
+      .icono-rail:hover {
+        color: #fff;
+        background: rgba(255, 255, 255, 0.08);
+      }
+
+      .icono-rail.activo {
+        color: #fff;
+        background: rgba(255, 255, 255, 0.14);
+      }
+
+      /*
+        El nombre aparece al lado al pasar por encima. Con doce secciones,
+        adivinar por el dibujo cansa; con la etiqueta, se aprende en dos días
+        y después ya no se lee.
+      */
+      .icono-rail .nombre {
+        position: absolute;
+        left: 52px;
+        white-space: nowrap;
+        background: var(--rail);
+        color: #fff;
+        padding: 7px 12px;
+        border-radius: 9px;
+        opacity: 0;
+        pointer-events: none;
+        transform: translateX(-4px);
+        transition: 0.15s;
+        font-size: 12.5px;
+        box-shadow: 0 8px 22px rgba(0, 0, 0, 0.3);
+      }
+
+      .icono-rail:hover .nombre {
+        opacity: 1;
+        transform: translateX(0);
+      }
+
+      .icono-rail.ia {
+        color: #c4b5fd;
+      }
+
+      .icono-rail.ia:hover,
+      .icono-rail.ia.activo {
+        background: rgba(124, 58, 237, 0.28);
+        color: #fff;
+      }
+
+      .rail .abajo {
+        margin-top: auto;
+      }
+
+      .globo-rail {
+        position: absolute;
+        top: 6px;
+        right: 6px;
+        min-width: 16px;
+        height: 16px;
+        padding: 0 4px;
+        border-radius: 999px;
+        background: var(--marca);
+        color: #fff;
+        font-size: 10px;
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      /* ── Columna de cuentas ───────────────────────────────────────────── */
+      .cuentas {
+        background: var(--panel);
+        border-right: 1px solid var(--linea);
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+      }
+
+      .cuentas .cabeza {
+        padding: 16px 16px 12px;
+        border-bottom: 1px solid var(--linea);
+      }
+
+      .cuentas h2 {
+        font-size: 15px;
+        font-weight: 600;
+        margin: 0 0 3px;
+      }
+
+      .cuentas .sub {
+        color: var(--tinta-suave);
+        font-size: 11.5px;
+      }
+
+      .lista-cuentas {
+        padding: 10px;
+        overflow-y: auto;
+        flex: 1;
+      }
+
+      .cuenta {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        width: 100%;
+        padding: 9px 10px;
+        border-radius: var(--radio-control);
+        text-align: left;
+        transition: 0.14s;
+      }
+
+      .cuenta:hover {
+        background: var(--fondo);
+      }
+
+      .cuenta.elegida {
+        background: var(--fondo);
+      }
+
+      .avatar-red {
+        position: relative;
+        width: 34px;
+        height: 34px;
+        border-radius: 999px;
+        background: var(--fondo);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 16px;
+        flex-shrink: 0;
+      }
+
+      /* El puntito dice de qué red es sin ocupar una línea de texto. */
+      .sello-red {
+        position: absolute;
+        right: -2px;
+        bottom: -2px;
+        width: 15px;
+        height: 15px;
+        border-radius: 999px;
+        border: 2px solid var(--panel);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .cuenta .datos {
+        flex: 1;
+        min-width: 0;
+      }
+
+      .cuenta .nombre-cuenta {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .cuenta .estado-cuenta {
+        color: var(--tinta-suave);
+        font-size: 11px;
+        margin-top: 1px;
+      }
+
+      .tilde {
+        width: 18px;
+        height: 18px;
+        border-radius: 6px;
+        border: 1.9px solid var(--linea);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #fff;
+        flex-shrink: 0;
+      }
+
+      .cuenta.elegida .tilde {
+        background: var(--tinta);
+        border-color: var(--tinta);
+      }
+
+      .pie-cuentas {
+        padding: 12px;
+        border-top: 1px solid var(--linea);
+      }
+
+      .boton-conectar {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        width: 100%;
+        height: 42px;
+        border: 1px dashed var(--linea);
+        border-radius: var(--radio-control);
+        color: var(--tinta-media);
+        transition: 0.15s;
+      }
+
+      .boton-conectar:hover {
+        border-color: var(--tinta);
+        color: var(--tinta);
+      }
+
+      /* ── Contenido ────────────────────────────────────────────────────── */
+      .contenido {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+        min-height: 0;
+      }
+
+      .barra {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 14px 20px;
+        background: var(--panel);
+        border-bottom: 1px solid var(--linea);
+      }
+
+      .barra h1 {
+        font-size: 17px;
+        font-weight: 600;
+        margin: 0;
+      }
+
+      .barra .sub {
+        color: var(--tinta-suave);
+        font-size: 12px;
+        margin-top: 1px;
+      }
+
+      .cuerpo {
+        flex: 1;
+        overflow-y: auto;
+        padding: 18px 20px 28px;
+      }
+
+      .vista {
+        display: none;
+      }
+
+      .vista.activa {
+        display: block;
+        animation: subir 0.22s ease both;
+      }
+
+      @keyframes subir {
+        from {
+          opacity: 0;
+          transform: translateY(6px);
+        }
+      }
+
+      /* ── Piezas ───────────────────────────────────────────────────────── */
+      .tarjeta {
+        background: var(--panel);
+        border: 1px solid var(--linea);
+        border-radius: var(--radio-tarjeta);
+        padding: 16px;
+      }
+
+      .titulo-tarjeta {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 14px;
+        font-weight: 600;
+        margin: 0 0 12px;
+      }
+
+      .rejilla {
+        display: grid;
+        gap: 14px;
+      }
+
+      .rejilla.cuatro {
+        grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+      }
+
+      .rejilla.dos {
+        grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+      }
+
+      .numero-grande {
+        font-size: 26px;
+        font-weight: 700;
+        letter-spacing: -0.5px;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .etiqueta-chica {
+        color: var(--tinta-suave);
+        font-size: 11.5px;
+        margin-top: 2px;
+      }
+
+      .boton-principal {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        height: 42px;
+        padding: 0 18px;
+        border-radius: var(--radio-control);
+        background: linear-gradient(180deg, #e6323f, var(--marca));
+        color: #fff;
+        box-shadow: 0 4px 14px rgba(220, 31, 45, 0.26);
+        transition: 0.15s;
+      }
+
+      .boton-principal:hover {
+        filter: brightness(0.96);
+      }
+
+      .boton-principal:active {
+        transform: translateY(1px);
+      }
+
+      .boton-suave {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        height: 42px;
+        padding: 0 15px;
+        border: 1px solid var(--linea);
+        border-radius: var(--radio-control);
+        color: var(--tinta-media);
+        transition: 0.15s;
+      }
+
+      .boton-suave:hover {
+        border-color: var(--tinta);
+        color: var(--tinta);
+      }
+
+      .boton-ia {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 7px;
+        height: 38px;
+        padding: 0 14px;
+        border-radius: var(--radio-control);
+        background: var(--ia-suave);
+        color: var(--ia);
+        font-weight: 600;
+        transition: 0.15s;
+      }
+
+      .boton-ia:hover {
+        background: #ede4ff;
+      }
+
+      /* ── Alertas: lo que el sistema sabe y hay que contar ─────────────── */
+      .fila-alerta {
+        display: flex;
+        align-items: center;
+        gap: 11px;
+        padding: 11px 12px;
+        border-radius: var(--radio-control);
+        border: 1px solid var(--linea);
+        margin-bottom: 8px;
+        transition: 0.14s;
+        width: 100%;
+        text-align: left;
+      }
+
+      .fila-alerta:hover {
+        border-color: var(--tinta-suave);
+      }
+
+      .fila-alerta .cuenta-alerta {
+        margin-left: auto;
+        min-width: 26px;
+        height: 24px;
+        padding: 0 8px;
+        border-radius: 999px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 700;
+        font-size: 12px;
+        background: var(--fondo);
+        color: var(--tinta-media);
+      }
+
+      .fila-alerta.hay .cuenta-alerta {
+        background: var(--marca-suave);
+        color: var(--marca);
+      }
+
+      .fila-alerta.hay {
+        border-color: #f6c9cd;
+        background: #fffafa;
+      }
+
+      /* ── Publicaciones ────────────────────────────────────────────────── */
+      .pub {
+        display: flex;
+        gap: 12px;
+        padding: 12px;
+        border: 1px solid var(--linea);
+        border-radius: var(--radio-tarjeta);
+        margin-bottom: 10px;
+        background: var(--panel);
+      }
+
+      .pub .miniatura {
+        width: 66px;
+        height: 66px;
+        border-radius: var(--radio-control);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 28px;
+        flex-shrink: 0;
+      }
+
+      .pub .texto {
+        flex: 1;
+        min-width: 0;
+      }
+
+      .pub .cuando {
+        color: var(--tinta-suave);
+        font-size: 11.5px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .pub .copia {
+        margin: 4px 0 7px;
+        line-height: 1.45;
+      }
+
+      .chapa {
+        font-size: 11px;
+        padding: 3px 9px;
+        border-radius: 999px;
+        white-space: nowrap;
+      }
+
+      .chapa.publicada {
+        background: var(--verde-suave);
+        color: var(--verde);
+      }
+
+      .chapa.programada {
+        background: #e0f2fe;
+        color: #0369a1;
+      }
+
+      .chapa.espera {
+        background: var(--ambar-suave);
+        color: var(--ambar);
+      }
+
+      .chapa.fallo {
+        background: var(--marca-suave);
+        color: var(--marca);
+      }
+
+      .chapa.borrador {
+        background: var(--fondo);
+        color: var(--tinta-media);
+      }
+
+      .metricas {
+        display: flex;
+        gap: 14px;
+        color: var(--tinta-suave);
+        font-size: 11.5px;
+      }
+
+      .metricas b {
+        color: var(--tinta);
+        font-weight: 600;
+      }
+
+      /* ── Calendario ───────────────────────────────────────────────────── */
+      .grilla-mes {
+        display: grid;
+        grid-template-columns: repeat(7, minmax(0, 1fr));
+        gap: 1px;
+        background: var(--linea);
+        border: 1px solid var(--linea);
+        border-radius: var(--radio-tarjeta);
+        overflow: hidden;
+      }
+
+      .dia-nombre {
+        background: var(--panel);
+        padding: 9px;
+        text-align: center;
+        color: var(--tinta-suave);
+        font-size: 11.5px;
+      }
+
+      .dia {
+        background: var(--panel);
+        min-height: 96px;
+        padding: 7px;
+        transition: 0.14s;
+      }
+
+      .dia:hover {
+        background: var(--fondo);
+      }
+
+      .dia.fuera {
+        background: #fbfbfc;
+        color: var(--tinta-suave);
+      }
+
+      .dia .numero {
+        font-size: 12px;
+        color: var(--tinta-media);
+        margin-bottom: 5px;
+      }
+
+      .dia.hoy .numero {
+        background: var(--marca);
+        color: #fff;
+        width: 21px;
+        height: 21px;
+        border-radius: 999px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 700;
+      }
+
+      .pastilla {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        font-size: 11px;
+        padding: 3px 6px;
+        border-radius: 7px;
+        margin-bottom: 3px;
+        background: var(--fondo);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      /* ── Medios ───────────────────────────────────────────────────────── */
+      .grilla-medios {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+        gap: 12px;
+      }
+
+      .medio {
+        border: 1px solid var(--linea);
+        border-radius: var(--radio-tarjeta);
+        overflow: hidden;
+        background: var(--panel);
+        transition: 0.16s;
+      }
+
+      .medio:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 20px rgba(17, 24, 39, 0.08);
+      }
+
+      .medio .imagen {
+        aspect-ratio: 1 / 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 40px;
+      }
+
+      .medio .pie {
+        padding: 8px 10px 10px;
+      }
+
+      .medio .usos {
+        color: var(--tinta-suave);
+        font-size: 11px;
+        margin-top: 2px;
+      }
+
+      /* ── Automatizaciones ─────────────────────────────────────────────── */
+      .auto {
+        display: flex;
+        align-items: flex-start;
+        gap: 13px;
+        padding: 14px;
+        border: 1px solid var(--linea);
+        border-radius: var(--radio-tarjeta);
+        margin-bottom: 10px;
+        background: var(--panel);
+      }
+
+      .auto .icono {
+        width: 40px;
+        height: 40px;
+        border-radius: var(--radio-control);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+      }
+
+      .auto .cuerpo-auto {
+        flex: 1;
+        min-width: 0;
+      }
+
+      .auto .explica {
+        color: var(--tinta-media);
+        line-height: 1.5;
+        margin-top: 3px;
+      }
+
+      .llave {
+        width: 44px;
+        height: 25px;
+        border-radius: 999px;
+        background: var(--linea);
+        position: relative;
+        transition: 0.18s;
+        flex-shrink: 0;
+      }
+
+      .llave::after {
+        content: '';
+        position: absolute;
+        top: 3px;
+        left: 3px;
+        width: 19px;
+        height: 19px;
+        border-radius: 999px;
+        background: #fff;
+        transition: 0.18s;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+      }
+
+      .llave.prendida {
+        background: var(--verde);
+      }
+
+      .llave.prendida::after {
+        left: 22px;
+      }
+
+      /* ── Compositor ───────────────────────────────────────────────────── */
+      .fondo-oscuro {
+        position: fixed;
+        inset: 0;
+        background: rgba(15, 23, 41, 0.5);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        padding: 22px;
+        z-index: 60;
+      }
+
+      .fondo-oscuro.abierto {
+        display: flex;
+      }
+
+      .ventana {
+        background: var(--panel);
+        border-radius: 20px;
+        width: 100%;
+        max-width: 1120px;
+        max-height: 100%;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        box-shadow: 0 30px 70px rgba(15, 23, 41, 0.3);
+      }
+
+      .cabecera {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 16px 20px;
+        border-bottom: 1px solid var(--linea);
+      }
+
+      .cabecera h2 {
+        font-size: 16px;
+        font-weight: 600;
+        margin: 0;
+        flex: 1;
+      }
+
+      .cerrar {
+        width: 36px;
+        height: 36px;
+        border-radius: var(--radio-control);
+        background: var(--fondo);
+        color: var(--tinta-media);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .cerrar:hover {
+        background: var(--linea);
+        color: var(--tinta);
+      }
+
+      .cuerpo-compositor {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 350px;
+        gap: 0;
+        overflow: hidden;
+        flex: 1;
+      }
+
+      .col-escribir {
+        padding: 18px 20px;
+        overflow-y: auto;
+      }
+
+      .col-vista {
+        background: var(--fondo);
+        border-left: 1px solid var(--linea);
+        padding: 18px;
+        overflow-y: auto;
+      }
+
+      .caja-texto {
+        border: 1px solid var(--linea);
+        border-radius: var(--radio-tarjeta);
+        overflow: hidden;
+      }
+
+      .caja-texto textarea {
+        width: 100%;
+        border: 0;
+        outline: none;
+        resize: none;
+        padding: 14px;
+        height: 152px;
+        line-height: 1.55;
+        font-size: 14px;
+      }
+
+      .herramientas-texto {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        padding: 8px 10px;
+        border-top: 1px solid var(--linea);
+        background: #fcfcfd;
+        flex-wrap: wrap;
+      }
+
+      .htool {
+        width: 32px;
+        height: 32px;
+        border-radius: 9px;
+        color: var(--tinta-media);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: 0.14s;
+      }
+
+      .htool:hover {
+        background: var(--fondo);
+        color: var(--tinta);
+      }
+
+      .contador {
+        margin-left: auto;
+        color: var(--tinta-suave);
+        font-size: 11.5px;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .contador.pasado {
+        color: var(--marca);
+        font-weight: 600;
+      }
+
+      /* La vista previa imita el marco de cada red. */
+      .previa {
+        background: var(--panel);
+        border: 1px solid var(--linea);
+        border-radius: var(--radio-tarjeta);
+        overflow: hidden;
+        margin-bottom: 12px;
+      }
+
+      .previa .cabeza-previa {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        padding: 11px 12px;
+      }
+
+      .previa .quien {
+        font-weight: 600;
+        font-size: 12.5px;
+      }
+
+      .previa .cuando-previa {
+        color: var(--tinta-suave);
+        font-size: 11px;
+      }
+
+      .previa .cuerpo-previa {
+        padding: 0 12px 11px;
+        line-height: 1.5;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+
+      .previa .foto-previa {
+        aspect-ratio: 4 / 3;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 56px;
+      }
+
+      .previa .acciones-previa {
+        display: flex;
+        gap: 18px;
+        padding: 10px 12px;
+        border-top: 1px solid var(--linea);
+        color: var(--tinta-suave);
+        font-size: 11.5px;
+      }
+
+      .pie-compositor {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 14px 20px;
+        border-top: 1px solid var(--linea);
+        flex-wrap: wrap;
+      }
+
+      .cuando-elige {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+      }
+
+      .opcion-cuando {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        height: 40px;
+        padding: 0 14px;
+        border: 1px solid var(--linea);
+        border-radius: var(--radio-control);
+        color: var(--tinta-media);
+        transition: 0.14s;
+      }
+
+      .opcion-cuando.elegida {
+        border-color: var(--tinta);
+        background: var(--tinta);
+        color: #fff;
+      }
+
+      /* ── Aviso ────────────────────────────────────────────────────────── */
+      .aviso {
+        position: fixed;
+        left: 50%;
+        bottom: 20px;
+        transform: translateX(-50%);
+        background: var(--rail);
+        color: #fff;
+        padding: 10px 18px;
+        border-radius: 999px;
+        opacity: 0;
+        pointer-events: none;
+        transition: 0.2s;
+        z-index: 90;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+      }
+
+      .aviso.visible {
+        opacity: 1;
+      }
+
+      @media (max-width: 1180px) {
+        .marco {
+          grid-template-columns: 64px 210px 1fr;
+        }
+        .rejilla.dos {
+          grid-template-columns: 1fr;
+        }
+        .cuerpo-compositor {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="marco">
+      <!-- ══ Barra de iconos ═══════════════════════════════════════════ -->
+      <nav class="rail">
+        <div class="logo">MS</div>
+
+        <button class="icono-rail ia" data-vista="ia" title="Chispita">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 4.6L18.5 9l-4.6 1.9L12 15.5l-1.9-4.6L5.5 9l4.6-1.4L12 3ZM19 15l.9 2.1 2.1.9-2.1.9L19 21l-.9-2.1-2.1-.9 2.1-.9L19 15Z"/></svg>
+          <span class="nombre">Chispita · escribe por vos</span>
+        </button>
+
+        <button class="icono-rail activo" data-vista="inicio" title="Inicio">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5M5 9.5V20h14V9.5"/></svg>
+          <span class="nombre">Inicio</span>
+        </button>
+
+        <button class="icono-rail" data-vista="publicaciones" title="Publicaciones">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7Z"/></svg>
+          <span class="nombre">Publicaciones</span>
+        </button>
+
+        <button class="icono-rail" data-vista="calendario" title="Calendario">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>
+          <span class="nombre">Calendario</span>
+        </button>
+
+        <button class="icono-rail" data-vista="medios" title="Fotos">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m4 18 5-4 4 3 3-2 4 3"/></svg>
+          <span class="nombre">Fotos y videos</span>
+        </button>
+
+        <button class="icono-rail" data-vista="grupos" title="Grupos">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/></svg>
+          <span class="nombre">Grupos de Facebook</span>
+        </button>
+
+        <button class="icono-rail" data-vista="mensajes" title="Mensajes">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M21 15a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2Z"/></svg>
+          <span class="globo-rail">4</span>
+          <span class="nombre">Comentarios y mensajes</span>
+        </button>
+
+        <button class="icono-rail" data-vista="masivo" title="Cargar muchas">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+          <span class="nombre">Cargar muchas de una vez</span>
+        </button>
+
+        <button class="icono-rail" data-vista="automatico" title="Automático">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/><circle cx="12" cy="12" r="3.5"/></svg>
+          <span class="nombre">Publicar solo</span>
+        </button>
+
+        <button class="icono-rail" data-vista="resultados" title="Resultados">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M3 3v18h18M7 15l4-5 3 3 5-7"/></svg>
+          <span class="nombre">Resultados</span>
+        </button>
+
+        <div class="abajo"></div>
+
+        <button class="icono-rail" data-vista="alertas" title="Alertas">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+          <span class="globo-rail" id="globo-alertas">3</span>
+          <span class="nombre">Avisos</span>
+        </button>
+
+        <button class="icono-rail" title="Ajustes">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 9 19.4a1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0-1.1-2.7H3a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4.6 9a1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 2.7-1.1V3a2 2 0 1 1 4 0v.1A1.6 1.6 0 0 0 15 4.6a1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0 1.1 2.7H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1.1Z"/></svg>
+          <span class="nombre">Ajustes</span>
+        </button>
+      </nav>
+
+      <!-- ══ Cuentas ═══════════════════════════════════════════════════ -->
+      <aside class="cuentas">
+        <div class="cabeza">
+          <h2>Modo Sabor</h2>
+          <div class="sub" id="resumen-cuentas">3 cuentas conectadas</div>
+        </div>
+
+        <div class="lista-cuentas" id="lista-cuentas"></div>
+
+        <div class="pie-cuentas">
+          <button class="boton-conectar" onclick="avisar('Se abriría la conexión con la red')">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+            Conectar otra cuenta
+          </button>
+        </div>
+      </aside>
+
+      <!-- ══ Contenido ═════════════════════════════════════════════════ -->
+      <main class="contenido">
+        <header class="barra">
+          <div style="flex: 1">
+            <h1 id="titulo-vista">Inicio</h1>
+            <div class="sub" id="sub-vista">Lo que pasa hoy en tus redes</div>
+          </div>
+          <button class="boton-ia" onclick="abrirCompositor(true)">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 4.6L18.5 9l-4.6 1.9L12 15.5l-1.9-4.6L5.5 9l4.6-1.4L12 3Z"/></svg>
+            Que escriba Chispita
+          </button>
+          <button class="boton-principal" onclick="abrirCompositor(false)">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+            Nueva publicación
+          </button>
+        </header>
+
+        <div class="cuerpo">
+          <!-- ── Inicio ──────────────────────────────────────────────── -->
+          <section class="vista activa" id="vista-inicio">
+            <div class="rejilla cuatro" style="margin-bottom: 16px">
+              <div class="tarjeta">
+                <div class="numero-grande">7</div>
+                <div class="etiqueta-chica">Publicadas esta semana</div>
+              </div>
+              <div class="tarjeta">
+                <div class="numero-grande">3</div>
+                <div class="etiqueta-chica">Programadas</div>
+              </div>
+              <div class="tarjeta">
+                <div class="numero-grande" style="color: var(--ambar)">2</div>
+                <div class="etiqueta-chica">Esperando que las apruebes</div>
+              </div>
+              <div class="tarjeta">
+                <div class="numero-grande" style="color: var(--marca)">1</div>
+                <div class="etiqueta-chica">Falló al publicarse</div>
+              </div>
+            </div>
+
+            <div class="rejilla dos">
+              <div>
+                <div class="tarjeta" style="margin-bottom: 14px">
+                  <p class="titulo-tarjeta">
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+                    Lo que sale hoy
+                  </p>
+                  <div id="proximas"></div>
+                </div>
+
+                <div class="tarjeta">
+                  <p class="titulo-tarjeta">
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7Z"/></svg>
+                    Últimas publicadas
+                  </p>
+                  <div id="ultimas"></div>
+                </div>
+              </div>
+
+              <div>
+                <!--
+                  Los avisos van arriba y con su número. Es lo que copié de
+                  Vista Social y lo que más falta hace acá: hoy el sistema sabe
+                  cuándo algo falla y no lo cuenta en ninguna pantalla.
+                -->
+                <div class="tarjeta" style="margin-bottom: 14px">
+                  <p class="titulo-tarjeta">
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+                    Avisos
+                  </p>
+                  <div id="alertas-inicio"></div>
+                </div>
+
+                <div class="tarjeta">
+                  <p class="titulo-tarjeta">
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/><circle cx="12" cy="12" r="3.5"/></svg>
+                    Publicando solo
+                  </p>
+                  <div id="autos-inicio"></div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- ── Publicaciones ───────────────────────────────────────── -->
+          <section class="vista" id="vista-publicaciones">
+            <div class="rubros" id="filtros-pub" style="display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap"></div>
+            <div id="lista-publicaciones"></div>
+          </section>
+
+          <!-- ── Calendario ──────────────────────────────────────────── -->
+          <section class="vista" id="vista-calendario">
+            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px">
+              <button class="boton-suave" style="width: 40px; padding: 0">‹</button>
+              <b style="font-size: 15px">Agosto de 2026</b>
+              <button class="boton-suave" style="width: 40px; padding: 0">›</button>
+              <span style="margin-left: auto; color: var(--tinta-suave)">
+                Tocá un día para programar algo
+              </span>
+            </div>
+            <div class="grilla-mes" id="grilla-mes"></div>
+          </section>
+
+          <!-- ── Medios ──────────────────────────────────────────────── -->
+          <section class="vista" id="vista-medios">
+            <p style="color: var(--tinta-media); margin: 0 0 14px; line-height: 1.5">
+              Las fotos de tus platos, sacadas de la carta del sistema. No hace
+              falta volver a subirlas.
+            </p>
+            <div class="grilla-medios" id="grilla-medios"></div>
+          </section>
+
+          <!-- ── Grupos ──────────────────────────────────────────────── -->
+          <section class="vista" id="vista-grupos">
+            <div class="tarjeta" style="border-color:#f6c9cd;background:#fffafa;margin-bottom:16px">
+              <div style="display:flex;gap:11px">
+                <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" style="color:var(--marca);flex-shrink:0;margin-top:2px"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>
+                <div style="line-height:1.55">
+                  <b>Esto se hace con tu cuenta, no con permiso de Facebook.</b>
+                  Publicar en grupos que no son tuyos sólo se puede automatizando
+                  el navegador. Si Facebook lo detecta, la sanción cae sobre tu
+                  cuenta y la página del local. Por eso acá va con freno:
+                  espaciado entre grupos, tope diario y aviso cuando un grupo se
+                  pone en rojo.
+                </div>
+              </div>
+            </div>
+
+            <div class="rejilla dos">
+              <div class="tarjeta">
+                <p class="titulo-tarjeta">Dónde publicar</p>
+                <div id="lista-grupos"></div>
+              </div>
+
+              <div>
+                <div class="tarjeta" style="margin-bottom:14px">
+                  <p class="titulo-tarjeta">Con qué ritmo</p>
+
+                  <label style="display:block;margin-bottom:14px">
+                    <div style="color:var(--tinta-media);margin-bottom:6px">
+                      Esperar entre un grupo y el siguiente
+                    </div>
+                    <select class="boton-suave" style="width:100%;height:42px;padding:0 12px">
+                      <option>4 a 8 minutos (recomendado)</option>
+                      <option>2 a 4 minutos</option>
+                      <option>10 a 15 minutos</option>
+                      <option>Sin espera</option>
+                    </select>
+                  </label>
+
+                  <label style="display:block;margin-bottom:14px">
+                    <div style="color:var(--tinta-media);margin-bottom:6px">
+                      Máximo por día
+                    </div>
+                    <select class="boton-suave" style="width:100%;height:42px;padding:0 12px">
+                      <option>6 grupos</option>
+                      <option>9 grupos</option>
+                      <option>Todos</option>
+                    </select>
+                  </label>
+
+                  <div class="auto" style="margin:0">
+                    <span class="icono" style="background:var(--verde-suave)">✍️</span>
+                    <span class="cuerpo-auto">
+                      <b>Cambiar un poco el texto en cada grupo</b>
+                      <div class="explica">
+                        Chispita reescribe la misma promo distinta en cada uno.
+                        El texto repetido palabra por palabra es lo que más
+                        levanta sospechas.
+                      </div>
+                    </span>
+                    <button class="llave prendida"></button>
+                  </div>
+                </div>
+
+                <div class="tarjeta">
+                  <p class="titulo-tarjeta">Cómo viene saliendo</p>
+                  <div style="display:flex;gap:20px">
+                    <div><div class="numero-grande" style="color:var(--verde)">7</div>
+                      <div class="etiqueta-chica">Publicaron bien</div></div>
+                    <div><div class="numero-grande" style="color:var(--marca)">2</div>
+                      <div class="etiqueta-chica">Con problema</div></div>
+                  </div>
+                  <button class="boton-principal" style="width:100%;margin-top:14px" onclick="abrirCompositor(false); elegirTipo('grupos')">
+                    Publicar en los elegidos
+                  </button>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- ── Mensajes ────────────────────────────────────────────── -->
+          <section class="vista" id="vista-mensajes">
+            <div style="display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap" id="filtros-mensajes"></div>
+            <div id="lista-mensajes"></div>
+          </section>
+
+          <!-- ── Cargar muchas ───────────────────────────────────────── -->
+          <!--
+            Copiado de la "Programación masiva" de Vista Social. Lo importante
+            no es el botón: es la idea. Cargar muchas publicaciones no se hace
+            escribiendo cincuenta veces, se hace eligiendo de dónde salen.
+          -->
+          <section class="vista" id="vista-masivo">
+            <p style="color: var(--tinta-media); margin: 0 0 14px; line-height: 1.5">
+              Llenás dos semanas de publicaciones de una sentada. Elegís de
+              dónde salen y después revisás todo junto antes de que se programe.
+            </p>
+            <div class="rejilla cuatro" id="fuentes-masivo"></div>
+          </section>
+
+          <!-- ── Automático ──────────────────────────────────────────── -->
+          <section class="vista" id="vista-automatico">
+            <p style="color: var(--tinta-media); margin: 0 0 14px; line-height: 1.5">
+              Esto es lo que ninguna herramienta de afuera puede hacer: el
+              sistema ya sabe qué hay de menú, qué platos tenés y a qué precio.
+              Puede publicarlo solo.
+            </p>
+
+            <p class="titulo-tarjeta">Empezar con una receta</p>
+            <div class="rejilla cuatro" id="plantillas-auto" style="margin-bottom: 22px"></div>
+
+            <p class="titulo-tarjeta">Las tuyas</p>
+            <div id="lista-autos"></div>
+          </section>
+
+          <!-- ── Resultados ──────────────────────────────────────────── -->
+          <section class="vista" id="vista-resultados">
+            <div class="rejilla cuatro" style="margin-bottom: 16px">
+              <div class="tarjeta">
+                <div class="numero-grande plata">12.480</div>
+                <div class="etiqueta-chica">Personas alcanzadas · 30 días</div>
+              </div>
+              <div class="tarjeta">
+                <div class="numero-grande plata">834</div>
+                <div class="etiqueta-chica">Interacciones</div>
+              </div>
+              <div class="tarjeta">
+                <div class="numero-grande plata">61</div>
+                <div class="etiqueta-chica">Clics al WhatsApp</div>
+              </div>
+              <div class="tarjeta">
+                <div class="numero-grande plata" style="color: var(--verde)">19</div>
+                <div class="etiqueta-chica">Pedidos que empezaron acá</div>
+              </div>
+            </div>
+
+            <div class="tarjeta">
+              <p class="titulo-tarjeta">Qué funcionó mejor</p>
+              <div id="ranking"></div>
+            </div>
+          </section>
+
+          <!-- ── Alertas ─────────────────────────────────────────────── -->
+          <section class="vista" id="vista-alertas">
+            <div class="tarjeta">
+              <p class="titulo-tarjeta">Todo lo que el sistema sabe y hay que contarte</p>
+              <div id="alertas-todas"></div>
+            </div>
+          </section>
+
+          <!-- ── Chispita ────────────────────────────────────────────── -->
+          <section class="vista" id="vista-ia">
+            <div class="tarjeta" style="max-width: 760px">
+              <p class="titulo-tarjeta" style="color: var(--ia)">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 4.6L18.5 9l-4.6 1.9L12 15.5l-1.9-4.6L5.5 9l4.6-1.4L12 3Z"/></svg>
+                Chispita escribe por vos
+              </p>
+              <p style="color: var(--tinta-media); line-height: 1.55; margin: 0 0 14px">
+                Es la misma Chispita que atiende WhatsApp, así que conoce la
+                carta, los precios y el menú de hoy. No hay que explicarle nada.
+              </p>
+
+              <div class="caja-texto" style="margin-bottom: 12px">
+                <textarea id="pedido-ia" style="height: 84px" placeholder="Contale qué querés publicar. Por ejemplo: una promo de milanesas para el finde"></textarea>
+              </div>
+
+              <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px" id="atajos-ia"></div>
+
+              <button class="boton-ia" style="height: 42px" onclick="generarConIa()">
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 4.6L18.5 9l-4.6 1.9L12 15.5l-1.9-4.6L5.5 9l4.6-1.4L12 3Z"/></svg>
+                Escribir
+              </button>
+
+              <div id="salida-ia" style="margin-top: 16px"></div>
+            </div>
+          </section>
+        </div>
+      </main>
+    </div>
+
+    <!-- ══ Compositor ══════════════════════════════════════════════════ -->
+    <div class="fondo-oscuro" id="ventana-compositor">
+      <div class="ventana">
+        <div class="cabecera">
+          <h2>Nueva publicación</h2>
+          <button class="cerrar" onclick="cerrarCompositor()">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+          </button>
+        </div>
+
+        <div class="cuerpo-compositor">
+          <div class="col-escribir">
+            <p style="color: var(--tinta-suave); margin: 0 0 8px">¿Qué querés publicar?</p>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px" id="elegir-tipo"></div>
+
+            <p style="color: var(--tinta-suave); margin: 0 0 8px">¿Dónde se publica?</p>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px" id="elegir-redes"></div>
+
+            <div class="caja-texto">
+              <textarea id="texto-pub" placeholder="Escribí acá, o pedile a Chispita que lo haga."></textarea>
+              <div class="herramientas-texto">
+                <button class="htool" title="Emoji" onclick="insertar('🔥')">😀</button>
+                <button class="htool" title="Etiquetas" onclick="insertar(' #ModoSabor')">#</button>
+                <button class="htool" title="Precio del sistema" onclick="insertar('{precio}')">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M12 2v20M17 6H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+                </button>
+                <button class="htool" title="Foto" onclick="verVista('medios'); cerrarCompositor()">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m4 18 5-4 4 3 3-2 4 3"/></svg>
+                </button>
+                <button class="boton-ia" style="height: 32px; padding: 0 11px; font-size: 12px" onclick="generarEnCompositor()">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 4.6L18.5 9l-4.6 1.9L12 15.5l-1.9-4.6L5.5 9l4.6-1.4L12 3Z"/></svg>
+                  Chispita
+                </button>
+                <span class="contador" id="contador">0</span>
+              </div>
+            </div>
+
+            <p style="color: var(--tinta-suave); margin: 16px 0 8px">Foto</p>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap" id="fotos-compositor"></div>
+
+            <!--
+              El mejor horario sale de los datos del propio local: a qué hora la
+              gente pide de verdad. Una herramienta de afuera sólo sabe cuándo
+              hay gente en la red; ésta sabe cuándo hay gente con hambre.
+            -->
+            <div class="tarjeta" style="margin-top: 16px; background: var(--fondo); border-style: dashed">
+              <div style="display: flex; align-items: center; gap: 10px">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" style="color: var(--ia); flex-shrink: 0"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+                <div>
+                  <b>Conviene a las 20:15</b>
+                  <div style="color: var(--tinta-media); margin-top: 2px">
+                    Es cuando más pedidos entran por WhatsApp los viernes, según
+                    tus últimos tres meses.
+                  </div>
+                </div>
+                <button class="boton-suave" style="margin-left: auto; height: 36px" onclick="elegirCuando('programar'); avisar('Programada para las 20:15')">
+                  Usar
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="col-vista">
+            <p style="color: var(--tinta-suave); margin: 0 0 10px">Cómo se va a ver</p>
+            <div id="previas"></div>
+          </div>
+        </div>
+
+        <div class="pie-compositor">
+          <div class="cuando-elige" id="cuando-elige"></div>
+          <div style="margin-left: auto; display: flex; gap: 10px">
+            <button class="boton-suave" onclick="cerrarCompositor()">Cancelar</button>
+            <button class="boton-principal" id="btn-publicar" onclick="publicar()">
+              Publicar ahora
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="aviso" id="aviso"></div>
+
+    <script>
+      /* ── Datos de la maqueta ────────────────────────────────────────── */
+      const REDES = {
+        facebook: { nombre: 'Facebook', color: '#1877F2', icono: 'f' },
+        instagram: { nombre: 'Instagram', color: '#E1306C', icono: '◉' },
+        whatsapp: { nombre: 'Estado de WhatsApp', color: '#25D366', icono: '✆' },
+        tiktok: { nombre: 'TikTok', color: '#111827', icono: '♪' },
+        google: { nombre: 'Google Negocio', color: '#EA4335', icono: 'G' },
+        grupos: { nombre: 'Grupos de Facebook', color: '#4267B2', icono: '⛶' },
+      };
+
+      const CUENTAS = [
+        { id: 'fb', red: 'facebook', nombre: 'Modo Sabor Delivery', estado: 'Conectada', emoji: '🍔', elegida: true },
+        { id: 'ig', red: 'instagram', nombre: '@modosabor', estado: 'Conectada', emoji: '📸', elegida: true },
+        { id: 'wa', red: 'whatsapp', nombre: 'Estado · 381 598-8735', estado: 'Conectada', emoji: '💬', elegida: false },
+        { id: 'tk', red: 'tiktok', nombre: '@modosabor.mtr', estado: 'Conectada', emoji: '🎬', elegida: false },
+        { id: 'gg', red: 'google', nombre: 'Modo Sabor · Monteros', estado: 'Conectada', emoji: '📍', elegida: false },
+        { id: 'gr', red: 'grupos', nombre: '9 grupos de Monteros', estado: '38.400 personas', emoji: '👥', elegida: false },
+      ];
+
+      /* Grupos de Facebook: los de compra-venta y "Monteros" donde publica hoy. */
+      const GRUPOS = [
+        { nombre: 'Compra y Venta Monteros', gente: 12400, ultima: 'hace 2 días', ok: true, elegido: true },
+        { nombre: 'Monteros Delivery', gente: 8100, ultima: 'hace 2 días', ok: true, elegido: true },
+        { nombre: 'Clasificados Tucumán Sur', gente: 6800, ultima: 'hace 5 días', ok: true, elegido: true },
+        { nombre: 'Monteros Avisos', gente: 3900, ultima: 'hace 2 días', ok: true, elegido: false },
+        { nombre: 'Gastronomía Tucumán', gente: 2600, ultima: 'nunca', ok: true, elegido: false },
+        { nombre: 'Vecinos de Monteros', gente: 2100, ultima: 'hace 1 semana', ok: false, motivo: 'Un admin aprueba cada posteo', elegido: false },
+        { nombre: 'Ofertas Monteros', gente: 1400, ultima: 'hace 3 días', ok: true, elegido: false },
+        { nombre: 'Delivery Tucumán', gente: 780, ultima: 'hace 4 días', ok: false, motivo: 'Te bloquearon por publicar seguido', elegido: false },
+        { nombre: 'Monteros Comercios', gente: 320, ultima: 'hace 2 días', ok: true, elegido: false },
+      ];
+
+      /* Publicación, historia, reel o grupos: cada uno se comporta distinto. */
+      const TIPOS = [
+        { id: 'post', nombre: 'Publicación', icono: '📄' },
+        { id: 'historia', nombre: 'Historia', icono: '⭕' },
+        { id: 'reel', nombre: 'Reel / video', icono: '🎬' },
+        { id: 'grupos', nombre: 'Grupos', icono: '👥' },
+      ];
+      let tipoElegido = 'post';
+
+      const PUBLICACIONES = [
+        { estado: 'programada', red: 'facebook', emoji: '🍕', cuando: 'Hoy 20:15', texto: 'Viernes de pizza 🍕 Común entera $8.000, muzza entera $9.000. Pedí por WhatsApp y te la mandamos calentita.', alcance: null },
+        { estado: 'espera', red: 'instagram', emoji: '🍔', cuando: 'Hoy 21:00', texto: 'La Demencial volvió 🔥 Doble medallón, cheddar y panceta. $13.000.', alcance: null },
+        { estado: 'espera', red: 'facebook', emoji: '🥟', cuando: 'Mañana 12:00', texto: 'Menú del día: ñoquis con fileto. Económico $5.000 · Ejecutivo $7.000.', alcance: null },
+        { estado: 'publicada', red: 'facebook', emoji: '🍝', cuando: 'Ayer 20:30', texto: 'Pastas caseras todos los días 🍝 Canelones, lasaña, ravioles y fideos.', alcance: 3120, likes: 84, comentarios: 12 },
+        { estado: 'publicada', red: 'instagram', emoji: '🍟', cuando: 'Ayer 13:10', texto: 'Papas full cheddar, la que nunca falla 🧀', alcance: 2740, likes: 129, comentarios: 7 },
+        { estado: 'fallo', red: 'instagram', emoji: '🥤', cuando: 'Anteayer 19:00', texto: 'Promo bebida + papas.', alcance: null, motivo: 'La sesión de Instagram venció' },
+        { estado: 'borrador', red: 'facebook', emoji: '🎉', cuando: 'Sin fecha', texto: 'Idea: sorteo por el aniversario del local.', alcance: null },
+      ];
+
+      const ALERTAS = [
+        { texto: 'La sesión de Instagram venció', detalle: 'Hay que volver a conectarla para publicar', cuantos: 1, hay: true },
+        { texto: 'Publicaciones que fallaron', detalle: 'Se pueden reintentar', cuantos: 1, hay: true },
+        { texto: 'Esperando que las apruebes', detalle: 'Chispita las escribió, faltás vos', cuantos: 2, hay: true },
+        { texto: 'Comentarios sin responder', detalle: 'Hace más de un día', cuantos: 4, hay: true },
+        { texto: 'Cuentas con problemas', detalle: '', cuantos: 0, hay: false },
+      ];
+
+      const AUTOS = [
+        { nombre: 'Publicar el menú del día', explica: 'Cada mañana a las 10:30, con los platos que cargaste y el precio de hoy. Si no hay menú cargado, no publica nada.', prendida: true, icono: '🍽️', color: '#fef3c7' },
+        { nombre: 'Avisar cuando abrimos', explica: 'Un estado de WhatsApp al abrir cada turno, con el horario de hoy.', prendida: true, icono: '🕐', color: '#e0f2fe' },
+        { nombre: 'Repetir lo que funcionó', explica: 'Vuelve a publicar, un mes después, las que tuvieron más alcance. Nunca la misma dos veces seguidas.', prendida: false, icono: '♻️', color: '#ecfdf5' },
+        { nombre: 'Plato que sobra', explica: 'Si al cierre queda mucho stock de algo, propone una promo para mañana. La aprobás vos.', prendida: false, icono: '📦', color: '#f5f0ff' },
+        { nombre: 'Responder comentarios', explica: 'Chispita contesta preguntas de precio y horario. Lo demás te lo deja a vos.', prendida: false, icono: '💬', color: '#fdeced' },
+      ];
+
+      const MEDIOS = [
+        { emoji: '🍕', nombre: 'Pizza napolitana', usos: 12 },
+        { emoji: '🍔', nombre: 'Demencial', usos: 8 },
+        { emoji: '🍝', nombre: 'Canelones', usos: 6 },
+        { emoji: '🥟', nombre: 'Empanadas', usos: 5 },
+        { emoji: '🍟', nombre: 'Papas cheddar', usos: 11 },
+        { emoji: '🥪', nombre: 'Lomito completo', usos: 9 },
+        { emoji: '🍗', nombre: 'Suprema napo', usos: 4 },
+        { emoji: '🥤', nombre: 'Bebidas', usos: 3 },
+      ];
+
+      /*
+        Una sola bandeja: comentarios, mensajes y reseñas de todas las redes.
+        Y cada uno se cierra, como un ticket. Es lo que hace que no quede
+        nadie sin respuesta: lo que no está cerrado, se ve.
+      */
+      const MENSAJES = [
+        { red: 'facebook', quien: 'Luciana F.', texto: '¿Hacen envío a Villa Nueva?', cuando: 'hace 20 min', tipo: 'comentario', resuelto: false },
+        { red: 'instagram', quien: 'ramiro.pz', texto: '¿Cuánto sale la Demencial?', cuando: 'hace 1 h', tipo: 'mensaje', resuelto: false },
+        { red: 'google', quien: 'Marcela S.', texto: 'Riquísimo todo, muy rápido el envío. 5 estrellas ⭐', cuando: 'hace 3 h', tipo: 'reseña', resuelto: false },
+        { red: 'instagram', quien: 'cocinerodel8', texto: '¿A qué hora abren hoy?', cuando: 'hace 5 h', tipo: 'comentario', resuelto: false },
+        { red: 'google', quien: 'Jorge P.', texto: 'Tardó una hora y media el pedido. 2 estrellas.', cuando: 'ayer', tipo: 'reseña', resuelto: true },
+      ];
+
+      /* De dónde pueden salir muchas publicaciones de una vez. */
+      const FUENTES = [
+        { icono: '🍽️', nombre: 'Del menú de la semana', explica: 'Una publicación por día con el menú que ya cargaste. Se arma sola.', color: '#fef3c7' },
+        { icono: '📸', nombre: 'De las fotos de la carta', explica: 'Elegís varios platos y sale una publicación por cada uno, con su precio de hoy.', color: '#e0f2fe' },
+        { icono: '♻️', nombre: 'Repetir las que anduvieron', explica: 'Las de más alcance, reescritas para que no se noten repetidas.', color: '#ecfdf5' },
+        { icono: '✨', nombre: 'Que las escriba Chispita', explica: 'Le decís el tema y la cantidad, y te deja todo en borrador para revisar.', color: '#f5f0ff' },
+        { icono: '📅', nombre: 'De las fechas del año', explica: 'Día del padre, del amigo, aniversario del local. Con aviso una semana antes.', color: '#fdeced' },
+        { icono: '📄', nombre: 'De una planilla', explica: 'Si preferís escribirlas en Excel, se suben todas juntas.', color: '#f3f4f6' },
+      ];
+
+      /* Recetas de automatización, como las plantillas de Vista Social. */
+      const PLANTILLAS = [
+        { icono: '💬', nombre: 'Contestar precios', explica: 'Si alguien pregunta cuánto sale algo, Chispita responde con el precio real.' },
+        { icono: '🕐', nombre: 'Contestar horarios', explica: 'Si preguntan si están abiertos, responde según el turno de hoy.' },
+        { icono: '🛵', nombre: 'Pasar al WhatsApp', explica: 'Si alguien quiere pedir, le manda el link del WhatsApp del local.' },
+        { icono: '⭐', nombre: 'Agradecer reseñas', explica: 'Las de 4 y 5 estrellas se agradecen solas. Las malas te las deja a vos.' },
+      ];
+
+      const ATAJOS_IA = [
+        'El menú de hoy',
+        'Promo para el finde',
+        'Presentar un plato nuevo',
+        'Avisar que abrimos',
+        'Agradecer a los clientes',
+      ];
+
+      /* ── Utilidades ─────────────────────────────────────────────────── */
+      const $ = (id) => document.getElementById(id);
+      const pesos = (n) => '$' + Number(n || 0).toLocaleString('es-AR');
+
+      let reloj;
+      function avisar(texto) {
+        const a = $('aviso');
+        a.textContent = texto;
+        a.classList.add('visible');
+        clearTimeout(reloj);
+        reloj = setTimeout(() => a.classList.remove('visible'), 1900);
+      }
+
+      const puntoRed = (red, tam = 15) => {
+        const r = REDES[red];
+        return (
+          '<span class="sello-red" style="background:' + r.color +
+          ';width:' + tam + 'px;height:' + tam + 'px;color:#fff;font-size:9px;font-weight:700">' +
+          r.icono + '</span>'
+        );
+      };
+
+      const chapaDe = (estado) => {
+        const textos = {
+          publicada: ['publicada', 'Publicada'],
+          programada: ['programada', 'Programada'],
+          espera: ['espera', 'Esperando tu OK'],
+          fallo: ['fallo', 'Falló'],
+          borrador: ['borrador', 'Borrador'],
+        };
+        const [clase, texto] = textos[estado] || ['borrador', estado];
+        return '<span class="chapa ' + clase + '">' + texto + '</span>';
+      };
+
+      /* ── Cuentas ────────────────────────────────────────────────────── */
+      function pintarCuentas() {
+        $('lista-cuentas').innerHTML = CUENTAS.map(
+          (c, i) =>
+            '<button class="cuenta' + (c.elegida ? ' elegida' : '') + '" data-cuenta="' + i + '">' +
+            '<span class="avatar-red">' + c.emoji + puntoRed(c.red) + '</span>' +
+            '<span class="datos"><div class="nombre-cuenta">' + c.nombre + '</div>' +
+            '<div class="estado-cuenta">' + c.estado + '</div></span>' +
+            '<span class="tilde">' +
+            (c.elegida
+              ? '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"><path d="m4 12 6 6L20 6"/></svg>'
+              : '') +
+            '</span></button>'
+        ).join('');
+
+        $('lista-cuentas').querySelectorAll('[data-cuenta]').forEach((b) => {
+          b.onclick = () => {
+            const c = CUENTAS[Number(b.dataset.cuenta)];
+            c.elegida = !c.elegida;
+            pintarCuentas();
+            pintarRedesCompositor();
+          };
+        });
+
+        const n = CUENTAS.filter((c) => c.elegida).length;
+        $('resumen-cuentas').textContent =
+          CUENTAS.length + ' conectadas · ' + n + ' elegida' + (n === 1 ? '' : 's');
+      }
+
+      /* ── Publicaciones ──────────────────────────────────────────────── */
+      function filaPub(p) {
+        const r = REDES[p.red];
+        return (
+          '<div class="pub">' +
+          '<div class="miniatura" style="background:' + r.color + '18">' + p.emoji + '</div>' +
+          '<div class="texto">' +
+          '<div class="cuando"><span style="color:' + r.color + ';font-weight:700">' + r.icono + '</span>' +
+          r.nombre + ' · ' + p.cuando + '</div>' +
+          '<div class="copia">' + p.texto + '</div>' +
+          '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">' +
+          chapaDe(p.estado) +
+          (p.motivo ? '<span style="color:var(--marca);font-size:11.5px">' + p.motivo + '</span>' : '') +
+          (p.alcance
+            ? '<span class="metricas"><span><b>' + p.alcance.toLocaleString('es-AR') + '</b> personas</span>' +
+              '<span><b>' + p.likes + '</b> me gusta</span>' +
+              '<span><b>' + p.comentarios + '</b> comentarios</span></span>'
+            : '') +
+          '</div></div></div>'
+        );
+      }
+
+      function pintarInicio() {
+        $('proximas').innerHTML = PUBLICACIONES.filter((p) =>
+          ['programada', 'espera'].includes(p.estado)
+        ).map(filaPub).join('');
+
+        $('ultimas').innerHTML = PUBLICACIONES.filter((p) => p.estado === 'publicada')
+          .map(filaPub)
+          .join('');
+
+        $('alertas-inicio').innerHTML = ALERTAS.map(filaAlerta).join('');
+
+        $('autos-inicio').innerHTML = AUTOS.filter((a) => a.prendida)
+          .map(
+            (a) =>
+              '<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--linea)">' +
+              '<span style="width:32px;height:32px;border-radius:9px;background:' + a.color +
+              ';display:flex;align-items:center;justify-content:center">' + a.icono + '</span>' +
+              '<span style="flex:1">' + a.nombre + '</span>' +
+              '<span class="chapa publicada">activa</span></div>'
+          )
+          .join('') +
+          '<button class="boton-suave" style="width:100%;margin-top:12px" onclick="verVista(\'automatico\')">Ver todas</button>';
+      }
+
+      const filaAlerta = (a) =>
+        '<button class="fila-alerta' + (a.hay ? ' hay' : '') + '" onclick="verVista(\'alertas\')">' +
+        '<span style="flex:1"><div>' + a.texto + '</div>' +
+        (a.detalle ? '<div style="color:var(--tinta-suave);font-size:11.5px;margin-top:2px">' + a.detalle + '</div>' : '') +
+        '</span><span class="cuenta-alerta">' + a.cuantos + '</span></button>';
+
+      /* ── Vistas ─────────────────────────────────────────────────────── */
+      const TITULOS = {
+        inicio: ['Inicio', 'Lo que pasa hoy en tus redes'],
+        publicaciones: ['Publicaciones', 'Todo lo que se publicó y lo que viene'],
+        calendario: ['Calendario', 'Cuándo sale cada cosa'],
+        medios: ['Fotos y videos', 'Las fotos de tus platos'],
+        grupos: ['Grupos de Facebook', 'La misma promo en todos, con freno'],
+        mensajes: ['Bandeja', 'Comentarios, mensajes y reseñas de todas las redes'],
+        masivo: ['Cargar muchas de una vez', 'Dos semanas de publicaciones en una sentada'],
+        automatico: ['Publicar solo', 'Lo que sale sin que hagas nada'],
+        resultados: ['Resultados', 'Qué trajo gente de verdad'],
+        alertas: ['Avisos', 'Lo que necesita tu atención'],
+        ia: ['Chispita', 'Que escriba por vos'],
+      };
+
+      function verVista(cual) {
+        document.querySelectorAll('.vista').forEach((v) => v.classList.remove('activa'));
+        $('vista-' + cual)?.classList.add('activa');
+        document.querySelectorAll('[data-vista]').forEach((b) =>
+          b.classList.toggle('activo', b.dataset.vista === cual)
+        );
+        const [t, s] = TITULOS[cual] || ['', ''];
+        $('titulo-vista').textContent = t;
+        $('sub-vista').textContent = s;
+      }
+
+      document.querySelectorAll('[data-vista]').forEach((b) => {
+        b.onclick = () => verVista(b.dataset.vista);
+      });
+
+      /* ── Listas de cada vista ───────────────────────────────────────── */
+      const FILTROS = ['Todas', 'Programadas', 'Esperando tu OK', 'Publicadas', 'Fallaron', 'Borradores'];
+      let filtroPub = 'Todas';
+
+      function pintarPublicaciones() {
+        $('filtros-pub').innerHTML = FILTROS.map(
+          (f) =>
+            '<button class="' + (f === filtroPub ? 'boton-principal' : 'boton-suave') +
+            '" style="height:36px;font-size:12.5px" data-filtro="' + f + '">' + f + '</button>'
+        ).join('');
+
+        $('filtros-pub').querySelectorAll('[data-filtro]').forEach((b) => {
+          b.onclick = () => {
+            filtroPub = b.dataset.filtro;
+            pintarPublicaciones();
+          };
+        });
+
+        const mapa = {
+          Programadas: 'programada',
+          'Esperando tu OK': 'espera',
+          Publicadas: 'publicada',
+          Fallaron: 'fallo',
+          Borradores: 'borrador',
+        };
+        const visibles = PUBLICACIONES.filter(
+          (p) => filtroPub === 'Todas' || p.estado === mapa[filtroPub]
+        );
+
+        $('lista-publicaciones').innerHTML = visibles.length
+          ? visibles.map(filaPub).join('')
+          : '<p style="text-align:center;color:var(--tinta-suave);padding:40px 0">No hay ninguna así.</p>';
+      }
+
+      function pintarCalendario() {
+        const nombres = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
+        let html = nombres.map((n) => '<div class="dia-nombre">' + n + '</div>').join('');
+
+        // Agosto 2026 arranca sábado; 31 días.
+        const enDia = {
+          14: [{ emoji: '🍕', t: 'Pizza', red: 'facebook' }],
+          15: [{ emoji: '🍔', t: 'Demencial', red: 'instagram' }],
+          17: [{ emoji: '🍝', t: 'Pastas', red: 'facebook' }],
+          18: [
+            { emoji: '🍕', t: 'Viernes de pizza', red: 'facebook' },
+            { emoji: '🍔', t: 'La Demencial', red: 'instagram' },
+          ],
+          19: [{ emoji: '🥟', t: 'Menú del día', red: 'facebook' }],
+          22: [{ emoji: '♻️', t: 'Repetir la mejor', red: 'instagram' }],
+          25: [{ emoji: '🍽️', t: 'Menú', red: 'facebook' }],
+        };
+
+        for (let i = 0; i < 6; i += 1) html += '<div class="dia fuera"><div class="numero">' + (26 + i) + '</div></div>';
+        for (let d = 1; d <= 31; d += 1) {
+          const pubs = enDia[d] || [];
+          html +=
+            '<div class="dia' + (d === 18 ? ' hoy' : '') + '"><div class="numero">' + d + '</div>' +
+            pubs
+              .map(
+                (p) =>
+                  '<div class="pastilla" style="background:' + REDES[p.red].color + '14">' +
+                  p.emoji + ' ' + p.t + '</div>'
+              )
+              .join('') +
+            '</div>';
+        }
+        for (let i = 1; i <= 5; i += 1) html += '<div class="dia fuera"><div class="numero">' + i + '</div></div>';
+
+        $('grilla-mes').innerHTML = html;
+      }
+
+      function pintarMedios() {
+        $('grilla-medios').innerHTML = MEDIOS.map(
+          (m) =>
+            '<div class="medio"><div class="imagen" style="background:var(--fondo)">' + m.emoji + '</div>' +
+            '<div class="pie"><div>' + m.nombre + '</div>' +
+            '<div class="usos">usada ' + m.usos + ' veces</div></div></div>'
+        ).join('');
+      }
+
+      function pintarGrupos() {
+        $('lista-grupos').innerHTML = GRUPOS.map(
+          (g, i) =>
+            '<button class="fila-alerta' + (g.ok ? '' : ' hay') + '" data-grupo="' + i + '">' +
+            '<span class="tilde"' + (g.elegido ? ' style="background:var(--tinta);border-color:var(--tinta)"' : '') + '>' +
+            (g.elegido
+              ? '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"><path d="m4 12 6 6L20 6"/></svg>'
+              : '') +
+            '</span>' +
+            '<span style="flex:1"><div>' + g.nombre + '</div>' +
+            '<div style="color:var(--tinta-suave);font-size:11.5px;margin-top:2px">' +
+            g.gente.toLocaleString('es-AR') + ' personas · última vez ' + g.ultima +
+            (g.motivo ? ' · <span style="color:var(--marca)">' + g.motivo + '</span>' : '') +
+            '</div></span></button>'
+        ).join('');
+
+        $('lista-grupos').querySelectorAll('[data-grupo]').forEach((b) => {
+          b.onclick = () => {
+            const g = GRUPOS[Number(b.dataset.grupo)];
+            if (!g.ok && !g.elegido) return avisar(g.motivo);
+            g.elegido = !g.elegido;
+            pintarGrupos();
+          };
+        });
+      }
+
+      let filtroMsj = 'Sin resolver';
+
+      function pintarMensajes() {
+        const opciones = ['Sin resolver', 'Comentarios', 'Mensajes', 'Reseñas', 'Resueltos'];
+        $('filtros-mensajes').innerHTML = opciones
+          .map((f) => {
+            const n =
+              f === 'Sin resolver'
+                ? MENSAJES.filter((m) => !m.resuelto).length
+                : f === 'Resueltos'
+                  ? MENSAJES.filter((m) => m.resuelto).length
+                  : MENSAJES.filter((m) => m.tipo === f.toLowerCase().slice(0, -1)).length;
+            return (
+              '<button class="' + (f === filtroMsj ? 'boton-principal' : 'boton-suave') +
+              '" style="height:36px;font-size:12.5px" data-fm="' + f + '">' + f +
+              ' <span style="opacity:.7">' + n + '</span></button>'
+            );
+          })
+          .join('');
+
+        $('filtros-mensajes').querySelectorAll('[data-fm]').forEach((b) => {
+          b.onclick = () => {
+            filtroMsj = b.dataset.fm;
+            pintarMensajes();
+          };
+        });
+
+        const visibles = MENSAJES.filter((m) => {
+          if (filtroMsj === 'Sin resolver') return !m.resuelto;
+          if (filtroMsj === 'Resueltos') return m.resuelto;
+          return m.tipo === filtroMsj.toLowerCase().slice(0, -1);
+        });
+
+        const dibujo = { comentario: '💬', mensaje: '✉️', reseña: '⭐' };
+
+        $('lista-mensajes').innerHTML = visibles.length
+          ? visibles
+              .map(
+                (m, i) =>
+                  '<div class="pub"' + (m.resuelto ? ' style="opacity:.55"' : '') + '>' +
+                  '<div class="miniatura" style="background:' + REDES[m.red].color + '18;font-size:20px">' +
+                  dibujo[m.tipo] + '</div>' +
+                  '<div class="texto"><div class="cuando"><b style="color:var(--tinta)">' + m.quien +
+                  '</b> · ' + REDES[m.red].nombre + ' · ' + m.cuando + '</div>' +
+                  '<div class="copia">' + m.texto + '</div>' +
+                  '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
+                  '<button class="boton-suave" style="height:34px" onclick="avisar(\'Se abriría la respuesta\')">Responder</button>' +
+                  '<button class="boton-ia" style="height:34px" onclick="avisar(\'Chispita propone una respuesta con el precio real\')">Que responda Chispita</button>' +
+                  '<button class="boton-suave" style="height:34px" onclick="avisar(\'Nota interna: sólo la ve tu equipo\')">Nota interna</button>' +
+                  '<button class="boton-suave" style="height:34px" data-resolver="' +
+                  MENSAJES.indexOf(m) + '">' + (m.resuelto ? 'Reabrir' : 'Marcar resuelto') +
+                  '</button></div></div></div>'
+              )
+              .join('')
+          : '<p style="text-align:center;color:var(--tinta-suave);padding:40px 0">Nada pendiente acá. 👌</p>';
+
+        $('lista-mensajes').querySelectorAll('[data-resolver]').forEach((b) => {
+          b.onclick = () => {
+            const m = MENSAJES[Number(b.dataset.resolver)];
+            m.resuelto = !m.resuelto;
+            pintarMensajes();
+          };
+        });
+      }
+
+      function pintarMasivo() {
+        $('fuentes-masivo').innerHTML = FUENTES.map(
+          (f) =>
+            '<button class="tarjeta" style="text-align:left" onclick="avisar(\'' + f.nombre +
+            ' · se armarían los borradores para revisar\')">' +
+            '<span style="width:42px;height:42px;border-radius:12px;background:' + f.color +
+            ';display:flex;align-items:center;justify-content:center;font-size:20px;margin-bottom:10px">' +
+            f.icono + '</span>' +
+            '<div style="font-weight:600;margin-bottom:4px">' + f.nombre + '</div>' +
+            '<div style="color:var(--tinta-media);line-height:1.5">' + f.explica + '</div></button>'
+        ).join('');
+      }
+
+      function pintarPlantillas() {
+        $('plantillas-auto').innerHTML = PLANTILLAS.map(
+          (p) =>
+            '<button class="tarjeta" style="text-align:left" onclick="avisar(\'' + p.nombre +
+            ' · se abriría lista para ajustar\')">' +
+            '<div style="font-size:22px;margin-bottom:8px">' + p.icono + '</div>' +
+            '<div style="font-weight:600;margin-bottom:4px">' + p.nombre + '</div>' +
+            '<div style="color:var(--tinta-media);line-height:1.5">' + p.explica + '</div></button>'
+        ).join('');
+      }
+
+      function pintarAutos() {
+        $('lista-autos').innerHTML = AUTOS.map(
+          (a, i) =>
+            '<div class="auto"><span class="icono" style="background:' + a.color + '">' + a.icono + '</span>' +
+            '<span class="cuerpo-auto"><b>' + a.nombre + '</b>' +
+            '<div class="explica">' + a.explica + '</div></span>' +
+            '<button class="llave' + (a.prendida ? ' prendida' : '') + '" data-auto="' + i + '"></button></div>'
+        ).join('');
+
+        $('lista-autos').querySelectorAll('[data-auto]').forEach((b) => {
+          b.onclick = () => {
+            const a = AUTOS[Number(b.dataset.auto)];
+            a.prendida = !a.prendida;
+            pintarAutos();
+            pintarInicio();
+            avisar(a.nombre + (a.prendida ? ' · activada' : ' · desactivada'));
+          };
+        });
+      }
+
+      function pintarResultados() {
+        const mejores = PUBLICACIONES.filter((p) => p.alcance).sort((a, b) => b.alcance - a.alcance);
+        $('ranking').innerHTML = mejores
+          .map(
+            (p, i) =>
+              '<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--linea)">' +
+              '<b style="width:20px;color:var(--tinta-suave)">' + (i + 1) + '</b>' +
+              '<span style="font-size:22px">' + p.emoji + '</span>' +
+              '<span style="flex:1;min-width:0"><div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' +
+              p.texto + '</div>' +
+              '<div style="color:var(--tinta-suave);font-size:11.5px">' + REDES[p.red].nombre + ' · ' + p.cuando + '</div></span>' +
+              '<b class="plata">' + p.alcance.toLocaleString('es-AR') + '</b></div>'
+          )
+          .join('') +
+          '<button class="boton-suave" style="width:100%;margin-top:14px" onclick="avisar(\'Se repetiría la mejor dentro de un mes\')">Volver a publicar la mejor</button>';
+      }
+
+      function pintarAlertas() {
+        $('alertas-todas').innerHTML = ALERTAS.map(filaAlerta).join('');
+        const total = ALERTAS.reduce((a, x) => a + x.cuantos, 0);
+        $('globo-alertas').textContent = total;
+        $('globo-alertas').style.display = total ? '' : 'none';
+      }
+
+      /* ── Chispita ───────────────────────────────────────────────────── */
+      const EJEMPLOS = {
+        'El menú de hoy':
+          '🍽️ MENÚ DE HOY\n\nÑoquis caseros con fileto, a elección con pollo o carne.\n\nEconómico $5.000 · Ejecutivo $7.000\n\nPedí por WhatsApp que te lo mandamos calentito 🛵',
+        'Promo para el finde':
+          '🔥 FINDE EN MODO SABOR\n\nPizza común entera + Pepsi 2 lt = $10.000\n\nSólo viernes y sábado. Pedila antes de que se acabe 🍕',
+        'Presentar un plato nuevo':
+          '👀 Se viene algo nuevo...\n\nLa Demencial: doble medallón smash, cheddar y panceta crocante. $13.000.\n\n¿La probás este finde? 🍔',
+        'Avisar que abrimos':
+          '¡Abrimos! 🔥\n\nDe 20:30 a 02:00, con toda la carta.\n\nEscribinos y te lo llevamos.',
+        'Agradecer a los clientes':
+          '🙏 Gracias\n\nOtra semana llena gracias a ustedes. Nos vemos hoy desde las 20:30.',
+      };
+
+      function pintarAtajosIa() {
+        $('atajos-ia').innerHTML = ATAJOS_IA.map(
+          (a) => '<button class="boton-suave" style="height:34px;font-size:12.5px" data-atajo="' + a + '">' + a + '</button>'
+        ).join('');
+        $('atajos-ia').querySelectorAll('[data-atajo]').forEach((b) => {
+          b.onclick = () => {
+            $('pedido-ia').value = b.dataset.atajo;
+            generarConIa();
+          };
+        });
+      }
+
+      function generarConIa() {
+        const pedido = $('pedido-ia').value.trim();
+        if (!pedido) return avisar('Contale qué querés publicar');
+        const texto = EJEMPLOS[pedido] || EJEMPLOS['Promo para el finde'];
+
+        $('salida-ia').innerHTML =
+          '<div class="tarjeta" style="border-color:#ddd0ff;background:var(--ia-suave)">' +
+          '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;color:var(--ia);font-weight:600">' +
+          '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 4.6L18.5 9l-4.6 1.9L12 15.5l-1.9-4.6L5.5 9l4.6-1.4L12 3Z"/></svg>' +
+          'Escrito con los datos de tu carta</div>' +
+          '<div style="white-space:pre-wrap;line-height:1.55;background:var(--panel);padding:13px;border-radius:12px">' +
+          texto + '</div>' +
+          '<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">' +
+          '<button class="boton-principal" style="height:38px" onclick="usarTexto()">Usar esto</button>' +
+          '<button class="boton-suave" style="height:38px" onclick="generarConIa()">Otra versión</button>' +
+          '</div></div>';
+
+        window.__ultimoTextoIa = texto;
+      }
+
+      function usarTexto() {
+        abrirCompositor(false);
+        $('texto-pub').value = window.__ultimoTextoIa || '';
+        actualizarPrevias();
+      }
+
+      function generarEnCompositor() {
+        $('texto-pub').value = EJEMPLOS['El menú de hoy'];
+        actualizarPrevias();
+        avisar('Chispita escribió con el menú de hoy');
+      }
+
+      /* ── Compositor ─────────────────────────────────────────────────── */
+      const fondo = $('ventana-compositor');
+      let cuandoElegido = 'ahora';
+
+      function pintarTipos() {
+        $('elegir-tipo').innerHTML = TIPOS.map(
+          (t) =>
+            '<button class="opcion-cuando' + (t.id === tipoElegido ? ' elegida' : '') +
+            '" data-tipo="' + t.id + '">' + t.icono + ' ' + t.nombre + '</button>'
+        ).join('');
+        $('elegir-tipo').querySelectorAll('[data-tipo]').forEach((b) => {
+          b.onclick = () => elegirTipo(b.dataset.tipo);
+        });
+      }
+
+      /*
+        Cambiar el tipo cambia lo que se ve, no sólo una etiqueta. Una historia
+        dura 24 horas y es vertical; en los grupos se publica de a uno con
+        espera en el medio. Si la pantalla no lo dice, el error se descubre
+        cuando ya salió.
+      */
+      function elegirTipo(cual) {
+        tipoElegido = cual;
+        pintarTipos();
+        if (cual === 'grupos') {
+          CUENTAS.forEach((c) => {
+            c.elegida = c.red === 'grupos';
+          });
+        } else if (cual === 'historia' || cual === 'reel') {
+          CUENTAS.forEach((c) => {
+            c.elegida = ['facebook', 'instagram', 'whatsapp', 'tiktok'].includes(c.red) && c.elegida;
+          });
+        }
+        pintarCuentas();
+        pintarRedesCompositor();
+        actualizarPrevias();
+      }
+
+      function abrirCompositor(conIa) {
+        pintarTipos();
+        pintarRedesCompositor();
+        pintarCuando();
+        pintarFotos();
+        if (conIa) generarEnCompositor();
+        actualizarPrevias();
+        fondo.classList.add('abierto');
+      }
+
+      const cerrarCompositor = () => fondo.classList.remove('abierto');
+
+      fondo.onclick = (e) => {
+        if (e.target === fondo) cerrarCompositor();
+      };
+
+      function pintarRedesCompositor() {
+        $('elegir-redes').innerHTML = CUENTAS.map(
+          (c, i) =>
+            '<button class="opcion-cuando' + (c.elegida ? ' elegida' : '') + '" data-red="' + i + '">' +
+            '<span style="color:' + (c.elegida ? '#fff' : REDES[c.red].color) + ';font-weight:700">' +
+            REDES[c.red].icono + '</span>' + c.nombre + '</button>'
+        ).join('');
+
+        $('elegir-redes').querySelectorAll('[data-red]').forEach((b) => {
+          b.onclick = () => {
+            CUENTAS[Number(b.dataset.red)].elegida = !CUENTAS[Number(b.dataset.red)].elegida;
+            pintarCuentas();
+            pintarRedesCompositor();
+            actualizarPrevias();
+          };
+        });
+      }
+
+      const CUANDO = [
+        ['ahora', 'Publicar ahora'],
+        ['programar', 'Programar'],
+        ['cola', 'A la cola'],
+        ['borrador', 'Guardar borrador'],
+      ];
+
+      function pintarCuando() {
+        $('cuando-elige').innerHTML = CUANDO.map(
+          ([id, texto]) =>
+            '<button class="opcion-cuando' + (id === cuandoElegido ? ' elegida' : '') +
+            '" data-cuando="' + id + '">' + texto + '</button>'
+        ).join('');
+
+        $('cuando-elige').querySelectorAll('[data-cuando]').forEach((b) => {
+          b.onclick = () => elegirCuando(b.dataset.cuando);
+        });
+
+        const etiquetas = {
+          ahora: 'Publicar ahora',
+          programar: 'Programar',
+          cola: 'Agregar a la cola',
+          borrador: 'Guardar',
+        };
+        $('btn-publicar').textContent = etiquetas[cuandoElegido];
+      }
+
+      function elegirCuando(cual) {
+        cuandoElegido = cual;
+        pintarCuando();
+      }
+
+      function pintarFotos() {
+        $('fotos-compositor').innerHTML = MEDIOS.slice(0, 6)
+          .map(
+            (m, i) =>
+              '<button class="medio" style="width:70px" data-foto="' + i + '">' +
+              '<div class="imagen" style="background:var(--fondo);font-size:26px">' + m.emoji + '</div></button>'
+          )
+          .join('');
+
+        $('fotos-compositor').querySelectorAll('[data-foto]').forEach((b) => {
+          b.onclick = () => {
+            window.__foto = MEDIOS[Number(b.dataset.foto)].emoji;
+            actualizarPrevias();
+          };
+        });
+      }
+
+      /*
+        La vista previa se arma con el marco de cada red. Es lo que evita el
+        error más común: escribir pensando en Facebook y que en Instagram
+        quede cortado o sin el enlace, que ahí no se puede poner.
+      */
+      function actualizarPrevias() {
+        const texto = $('texto-pub').value;
+        const elegidas = CUENTAS.filter((c) => c.elegida);
+
+        $('contador').textContent = texto.length;
+        $('contador').classList.toggle('pasado', texto.length > 2200);
+
+        if (tipoElegido === 'grupos') {
+          const elegidos = GRUPOS.filter((g) => g.elegido);
+          const espera = 6;
+          $('previas').innerHTML =
+            '<div class="tarjeta" style="margin-bottom:12px"><b>' + elegidos.length +
+            ' grupos</b><div style="color:var(--tinta-media);margin-top:4px">' +
+            elegidos.reduce((a, g) => a + g.gente, 0).toLocaleString('es-AR') +
+            ' personas · termina en ' + elegidos.length * espera + ' minutos</div></div>' +
+            elegidos
+              .map(
+                (g, i) =>
+                  '<div class="pastilla" style="padding:8px 10px;margin-bottom:6px;background:var(--panel);border:1px solid var(--linea)">' +
+                  '<b style="color:var(--tinta-suave);width:34px">+' + i * espera + "'</b>" +
+                  g.nombre + '</div>'
+              )
+              .join('') ||
+            '<p style="color:var(--tinta-suave);text-align:center;padding:30px 0">Elegí grupos en la pantalla de Grupos.</p>';
+          return;
+        }
+
+        if (!elegidas.length) {
+          $('previas').innerHTML =
+            '<p style="color:var(--tinta-suave);text-align:center;padding:30px 0">' +
+            'Elegí al menos una cuenta.</p>';
+          return;
+        }
+
+        if (tipoElegido === 'historia' || tipoElegido === 'reel') {
+          // Vertical y con reloj: una historia se va sola a las 24 horas.
+          $('previas').innerHTML = elegidas
+            .map(
+              (c) =>
+                '<div class="previa" style="max-width:190px;margin:0 auto 12px">' +
+                '<div style="aspect-ratio:9/16;background:linear-gradient(160deg,' +
+                REDES[c.red].color + '22,' + REDES[c.red].color + '05);display:flex;' +
+                'flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:14px;text-align:center">' +
+                '<div style="font-size:52px">' + (window.__foto || '🍔') + '</div>' +
+                '<div style="line-height:1.4;font-size:12px">' +
+                (texto || 'Lo que escribas va acá.') + '</div></div>' +
+                '<div class="acciones-previa" style="justify-content:center">' +
+                REDES[c.red].nombre + ' · se borra en 24 h</div></div>'
+            )
+            .join('');
+          return;
+        }
+
+        $('previas').innerHTML = elegidas
+          .map((c) => {
+            const r = REDES[c.red];
+            const cuerpo = texto || 'Acá va a aparecer lo que escribas.';
+            return (
+              '<div class="previa">' +
+              '<div class="cabeza-previa"><span class="avatar-red">' + c.emoji + puntoRed(c.red, 13) + '</span>' +
+              '<span><div class="quien">' + c.nombre + '</div>' +
+              '<div class="cuando-previa">' + r.nombre + ' · ahora</div></span></div>' +
+              '<div class="cuerpo-previa"' + (texto ? '' : ' style="color:var(--tinta-suave)"') + '>' +
+              cuerpo + '</div>' +
+              (window.__foto
+                ? '<div class="foto-previa" style="background:' + r.color + '10">' + window.__foto + '</div>'
+                : '') +
+              '<div class="acciones-previa"><span>♡ Me gusta</span><span>💬 Comentar</span><span>↗ Compartir</span></div>' +
+              '</div>'
+            );
+          })
+          .join('');
+      }
+
+      $('texto-pub').addEventListener('input', actualizarPrevias);
+
+      function insertar(txt) {
+        const caja = $('texto-pub');
+        caja.value += txt;
+        caja.focus();
+        actualizarPrevias();
+      }
+
+      function publicar() {
+        const elegidas = CUENTAS.filter((c) => c.elegida);
+        if (!elegidas.length) return avisar('Elegí al menos una cuenta');
+        if (!$('texto-pub').value.trim()) return avisar('Falta escribir algo');
+        cerrarCompositor();
+        const donde = elegidas.map((c) => REDES[c.red].nombre).join(' y ');
+        const acciones = {
+          ahora: 'Publicado en ' + donde,
+          programar: 'Programado para ' + donde,
+          cola: 'Agregado a la cola',
+          borrador: 'Guardado como borrador',
+        };
+        avisar(acciones[cuandoElegido]);
+      }
+
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') cerrarCompositor();
+      });
+
+      /* ── Arranque ───────────────────────────────────────────────────── */
+      pintarCuentas();
+      pintarInicio();
+      pintarPublicaciones();
+      pintarCalendario();
+      pintarMedios();
+      pintarGrupos();
+      pintarMensajes();
+      pintarMasivo();
+      pintarPlantillas();
+      pintarAutos();
+      pintarResultados();
+      pintarAlertas();
+      pintarAtajosIa();
+    </script>
+  </body>
+</html>

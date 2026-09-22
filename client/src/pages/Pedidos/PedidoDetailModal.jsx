@@ -9,6 +9,7 @@ import {
   MapPin,
   MessageSquare,
   Phone,
+  Pencil,
   Printer,
   Store,
   User,
@@ -75,6 +76,7 @@ export default function PedidoDetailModal({
   guardando = false,
   onCambiarTipoEntrega,
   onAsignarRider,
+  onEditar,
 }) {
   useCerrarConEscape(true, onClose);
   const [impresiones, setImpresiones] = useState([]);
@@ -376,33 +378,49 @@ export default function PedidoDetailModal({
         </div>
 
         {/* ── Pie ── */}
-        {canPrint ? (
+        {canPrint || canEdit ? (
           <div className="flex shrink-0 gap-2 border-t border-gray-100 px-6 py-4">
-            <button
-              type="button"
-              onClick={() => onPrint(pedido.id, 'comanda_cocina')}
-              className="flex h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-gray-100 text-[12px] font-semibold text-gray-700 transition hover:bg-gray-200"
-            >
-              <Printer size={15} strokeWidth={STROKE} />
-              Comanda
-            </button>
-            <button
-              type="button"
-              onClick={() => onPrint(pedido.id, 'ticket_cliente')}
-              className="flex h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-gray-100 text-[12px] font-semibold text-gray-700 transition hover:bg-gray-200"
-            >
-              <Printer size={15} strokeWidth={STROKE} />
-              Ticket
-            </button>
-            {pedido.tipo_entrega === 'delivery' ? (
+            {canEdit && ['nuevo', 'confirmado', 'preparando'].includes(pedido.estado) ? (
               <button
                 type="button"
-                onClick={() => onPrint(pedido.id, 'delivery_ticket')}
-                className="flex h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-gray-100 text-[12px] font-semibold text-gray-700 transition hover:bg-gray-200"
+                disabled={guardando}
+                onClick={() => onEditar?.(pedido)}
+                className="flex h-11 flex-1 items-center justify-center gap-2 rounded-xl text-[12px] font-semibold text-white transition hover:brightness-110 disabled:opacity-50"
+                style={{ background: BRAND }}
               >
-                <Printer size={15} strokeWidth={STROKE} />
-                Hoja delivery
+                <Pencil size={15} strokeWidth={STROKE} />
+                Corregir pedido
               </button>
+            ) : null}
+            {canPrint ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => onPrint(pedido.id, 'comanda_cocina')}
+                  className="flex h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-gray-100 text-[12px] font-semibold text-gray-700 transition hover:bg-gray-200"
+                >
+                  <Printer size={15} strokeWidth={STROKE} />
+                  Comanda
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onPrint(pedido.id, 'ticket_cliente')}
+                  className="flex h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-gray-100 text-[12px] font-semibold text-gray-700 transition hover:bg-gray-200"
+                >
+                  <Printer size={15} strokeWidth={STROKE} />
+                  Ticket
+                </button>
+                {pedido.tipo_entrega === 'delivery' ? (
+                  <button
+                    type="button"
+                    onClick={() => onPrint(pedido.id, 'delivery_ticket')}
+                    className="flex h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-gray-100 text-[12px] font-semibold text-gray-700 transition hover:bg-gray-200"
+                  >
+                    <Printer size={15} strokeWidth={STROKE} />
+                    Hoja delivery
+                  </button>
+                ) : null}
+              </>
             ) : null}
           </div>
         ) : null}

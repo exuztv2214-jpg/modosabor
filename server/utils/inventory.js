@@ -556,7 +556,7 @@ function restoreInventoryForPedido(db, pedido, options = {}) {
     return { ok: true, skipped: true };
   }
 
-  const movements = db
+  const saleMovements = db
     .prepare(
       `
     SELECT *
@@ -566,6 +566,29 @@ function restoreInventoryForPedido(db, pedido, options = {}) {
   `
     )
     .all(pedido.id);
+
+  /*
+    Un pedido puede corregirse más de una vez. Cada corrección deja sus
+    movimientos de venta y una reversión que apunta al movimiento original.
+    Restaurar todas las ventas históricas duplicaría stock en la segunda
+    corrección; sólo se revierten las que todavía no tienen contramovimiento.
+  */
+  const revertedMovementIds = new Set(
+    db
+      .prepare(
+        `
+        SELECT detalle
+        FROM inventario_movimientos
+        WHERE pedido_id = ? AND tipo = 'reversion'
+      `
+      )
+      .all(pedido.id)
+      .map((row) => Number(parseJson(row.detalle, {})?.movimiento_origen_id || 0))
+      .filter((id) => id > 0)
+  );
+  const movements = saleMovements.filter(
+    (movement) => !revertedMovementIds.has(Number(movement.id))
+  );
 
   movements.forEach((movement) => {
     const delta = roundStock(-Number(movement.cantidad || 0));

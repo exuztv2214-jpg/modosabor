@@ -14,6 +14,7 @@ const {
 const { generateTrackingToken } = require('../utils/socketRooms');
 const { PedidoState } = require('../utils/pedidoStateMachine');
 const { ensureClienteDireccion } = require('../utils/clienteAddresses');
+const { findClienteDuplicate } = require('../utils/clienteDuplicates');
 const {
   normalizeMetodoPago,
   normalizePagoEstado,
@@ -433,7 +434,8 @@ function createPedidoRecord(payload) {
 
   const numero = getNextNumero();
   let cliente_id = null;
-  const clienteIdExplicit = optionalNumber(cliente_id_input);
+  const fichaSoloLectura = ['web', 'kiosco', 'canal_publico'].includes(origen);
+  const clienteIdExplicit = fichaSoloLectura ? null : optionalNumber(cliente_id_input);
 
   if (clienteIdExplicit) {
     const existing = db
@@ -474,9 +476,7 @@ function createPedidoRecord(payload) {
   }
 
   if (!cliente_id && cliente_telefono) {
-    const existing = db
-      .prepare('SELECT id, nombre FROM clientes WHERE telefono = ?')
-      .get(cliente_telefono);
+    const existing = findClienteDuplicate(db, { telefono: cliente_telefono });
     if (existing) {
       cliente_id = existing.id;
       /*
@@ -489,21 +489,25 @@ function createPedidoRecord(payload) {
         no se ve en el momento, y se descubre semanas después cuando alguien lo
         busca y no lo encuentra.
       */
-      db.prepare('UPDATE clientes SET nombre = ? WHERE id = ?').run(
-        cliente_nombre || existing.nombre || '',
-        existing.id
-      );
-      ensureClienteDireccion(
-        db,
-        existing.id,
-        {
-          etiqueta: 'Delivery',
-          direccion: cliente_direccion || '',
-          latitud: cliente_latitud,
-          longitud: cliente_longitud,
-        },
-        { makePrimaryIfEmpty: true }
-      );
+      // Un teléfono declarado públicamente no autoriza a editar la ficha.
+      // Nombre y domicilio recibidos sí se conservan en el pedido.
+      if (!fichaSoloLectura) {
+        db.prepare('UPDATE clientes SET nombre = ? WHERE id = ?').run(
+          cliente_nombre || existing.nombre || '',
+          existing.id
+        );
+        ensureClienteDireccion(
+          db,
+          existing.id,
+          {
+            etiqueta: 'Delivery',
+            direccion: cliente_direccion || '',
+            latitud: cliente_latitud,
+            longitud: cliente_longitud,
+          },
+          { makePrimaryIfEmpty: true }
+        );
+      }
       asegurarCodigoTarjeta(existing.id);
     }
   }

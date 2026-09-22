@@ -429,6 +429,7 @@ router.get('/metricas-atencion', (_req, res) => {
       `SELECT m.*, c.nombre
          FROM agente_metricas m
          LEFT JOIN whatsapp_conversaciones c ON c.id = m.conversacion_id
+        WHERE datetime(m.creado_en) >= datetime('now', '-7 days')
         ORDER BY m.id DESC LIMIT 20`
     )
     .all()
@@ -443,8 +444,20 @@ router.get('/metricas-atencion', (_req, res) => {
       })(),
     }));
   const usoHerramientas = {};
-  trazas.forEach((traza) => {
-    traza.herramientas.forEach((nombre) => {
+  const actividadPeriodo = db
+    .prepare(
+      `SELECT herramientas FROM agente_metricas WHERE datetime(creado_en) >= datetime('now', '-7 days')`
+    )
+    .all();
+  actividadPeriodo.forEach((traza) => {
+    let herramientas;
+    try {
+      herramientas = JSON.parse(traza.herramientas || '[]');
+    } catch {
+      herramientas = [];
+    }
+    if (!Array.isArray(herramientas)) return;
+    herramientas.forEach((nombre) => {
       usoHerramientas[nombre] = (usoHerramientas[nombre] || 0) + 1;
     });
   });

@@ -181,6 +181,7 @@ export default function Clientes() {
         getWhatsAppLink={hook.getWhatsAppLink}
         getRecoveryMessage={hook.getRecoveryMessage}
         handleEdit={hook.handleEdit}
+        handleRefreshDetail={hook.abrirDetalle}
         deleteCliente={hook.deleteCliente}
         canjearPremio={hook.canjearPremio}
         copyToClipboard={hook.copyToClipboard}

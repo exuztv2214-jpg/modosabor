@@ -140,11 +140,34 @@ const updateProductoSchema = z.object({
   stock: coerceNum(z.number().nonnegative().optional()),
 });
 
+// El canal público no hereda privilegios del contrato del TPV.
+const createPublicPedidoSchema = createPedidoSchema
+  .omit({ cliente_id: true, repartidor_id: true, pago_detalle: true, mesa: true })
+  .extend({
+    origen: z.string().max(50).default('web'),
+    tipo_entrega: z.enum(['delivery', 'retiro']).default('delivery'),
+    metodo_pago: z
+      .enum(['efectivo', 'transferencia', 'mercadopago', 'modo', 'uala'])
+      .default('efectivo'),
+    puntos_a_canjear: z
+      .number()
+      .int()
+      .min(0)
+      .max(0, 'El canje de puntos requiere atención del local.')
+      .optional(),
+  })
+  .transform((body) => ({
+    ...body,
+    origen: body.origen === 'kiosco' ? 'kiosco' : 'web',
+    descuento: 0, // Sólo el servidor puede calcular cupones públicos.
+  }));
+
 module.exports = {
   loginSchema,
   createUserSchema,
   updateUserSchema,
   createPedidoSchema,
+  createPublicPedidoSchema,
   updatePedidoSchema,
   createProductoSchema,
   updateProductoSchema,

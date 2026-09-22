@@ -67,7 +67,8 @@ function run() {
   assert.strictEqual(cierre.auto_cierre_motivo, 'Cierre automatico fuera de turno');
   assert.deepStrictEqual(reporteGuardado, detailedReport);
   assert.strictEqual(cierre.efectivo_esperado, 23000);
-  assert.strictEqual(cierre.monto_final_declarado, 23000);
+  assert.strictEqual(cierre.monto_final_declarado, null);
+  assert.strictEqual(cierre.diferencia, null);
 
   db.close();
   console.log('cajaAutomatica.test.js OK');

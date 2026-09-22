@@ -14,11 +14,12 @@ const {
   procesarFidelidadPedido,
   getConfig: getFidelizacionConfig,
 } = require('../services/fidelizacionService');
-const { restoreInventoryForPedido } = require('../utils/inventory');
+const { applyInventoryToItems, restoreInventoryForPedido } = require('../utils/inventory');
+const { replacePedidoItems, serializePedidoItems } = require('../utils/pedidoItems');
 const { createRateLimiter, createSqliteRateLimitStore } = require('../utils/rateLimit');
 const logger = require('../utils/logger');
 const { validateBody } = require('../middleware/validate');
-const { createPedidoSchema } = require('../schemas');
+const { createPedidoSchema, createPublicPedidoSchema } = require('../schemas');
 const { centsToPesos } = require('../utils/moneyConversion');
 const { fechaLocal } = require('../utils/fechaLocal');
 const { quoteDelivery } = require('../utils/deliveryZones');
@@ -1186,86 +1187,90 @@ router.post(
   }
 );
 
-router.post('/checkout/mercadopago', publicOrderRateLimit, async (req, res) => {
-  const config = getConfigMap(db);
-  if (!config.mercadopago_token) {
-    return res.status(400).json({ error: 'MercadoPago no configurado' });
-  }
-  if (!req.body?.items) return res.status(400).json({ error: 'Items requeridos' });
+router.post(
+  '/checkout/mercadopago',
+  publicOrderRateLimit,
+  validateBody(createPublicPedidoSchema),
+  async (req, res) => {
+    const config = getConfigMap(db);
+    if (!config.mercadopago_token) {
+      return res.status(400).json({ error: 'MercadoPago no configurado' });
+    }
+    if (!req.body?.items) return res.status(400).json({ error: 'Items requeridos' });
 
-  let pedido = null;
-  try {
-    const normalized = await buildPedidoPayload(
-      { ...req.body, metodo_pago: 'mercadopago' },
-      { config }
-    );
-    pedido = createPedidoWithInventory({
-      ...normalized,
-      pago_estado: resolveInitialPagoEstado({
-        metodoPago: normalized.metodo_pago,
-        origen: normalized.origen,
-        tipoEntrega: normalized.tipo_entrega,
-      }),
-    });
-
-    const appUrl = String(config.public_app_url || req.headers.origin || '').replace(/\/$/, '');
-    const apiUrl = String(config.public_api_url || `${req.protocol}://${req.get('host')}`).replace(
-      /\/$/,
-      ''
-    );
-
-    const mpItems = normalized.items.map((item) => ({
-      id: String(item.producto_id || item.id),
-      title: item.nombre,
-      quantity: Number(item.cantidad || 1),
-      currency_id: 'ARS',
-      unit_price: Number(item.precio_unitario || 0),
-    }));
-    if (normalized.costo_envio > 0) {
-      mpItems.push({
-        title: 'Envio',
-        quantity: 1,
-        currency_id: 'ARS',
-        unit_price: normalized.costo_envio,
+    let pedido = null;
+    try {
+      const normalized = await buildPedidoPayload(
+        { ...req.body, metodo_pago: 'mercadopago' },
+        { config }
+      );
+      pedido = createPedidoWithInventory({
+        ...normalized,
+        pago_estado: resolveInitialPagoEstado({
+          metodoPago: normalized.metodo_pago,
+          origen: normalized.origen,
+          tipoEntrega: normalized.tipo_entrega,
+        }),
       });
-    }
 
-    const preference = await createPreference({
-      token: config.mercadopago_token,
-      body: {
-        items: mpItems,
-        external_reference: String(pedido.id),
-        back_urls: {
-          success: `${appUrl}/?pedido_id=${pedido.id}&mp=success`,
-          failure: `${appUrl}/?pedido_id=${pedido.id}&mp=failure`,
-          pending: `${appUrl}/?pedido_id=${pedido.id}&mp=pending`,
+      const appUrl = String(config.public_app_url || req.headers.origin || '').replace(/\/$/, '');
+      const apiUrl = String(
+        config.public_api_url || `${req.protocol}://${req.get('host')}`
+      ).replace(/\/$/, '');
+
+      const mpItems = normalized.items.map((item) => ({
+        id: String(item.producto_id || item.id),
+        title: item.nombre,
+        quantity: Number(item.cantidad || 1),
+        currency_id: 'ARS',
+        unit_price: Number(item.precio_unitario || 0),
+      }));
+      if (normalized.costo_envio > 0) {
+        mpItems.push({
+          title: 'Envio',
+          quantity: 1,
+          currency_id: 'ARS',
+          unit_price: normalized.costo_envio,
+        });
+      }
+
+      const preference = await createPreference({
+        token: config.mercadopago_token,
+        body: {
+          items: mpItems,
+          external_reference: String(pedido.id),
+          back_urls: {
+            success: `${appUrl}/?pedido_id=${pedido.id}&mp=success`,
+            failure: `${appUrl}/?pedido_id=${pedido.id}&mp=failure`,
+            pending: `${appUrl}/?pedido_id=${pedido.id}&mp=pending`,
+          },
+          auto_return: 'approved',
+          notification_url: `${apiUrl}/api/pedidos/webhook/mercadopago`,
         },
-        auto_return: 'approved',
-        notification_url: `${apiUrl}/api/pedidos/webhook/mercadopago`,
-      },
-    });
+      });
 
-    logMercadoPagoEvent({ pedidoId: pedido.id, tipo: 'preference_created', payload: preference });
-    db.prepare('UPDATE pedidos SET mp_preference_id = ? WHERE id = ?').run(
-      preference.id,
-      pedido.id
-    );
+      logMercadoPagoEvent({ pedidoId: pedido.id, tipo: 'preference_created', payload: preference });
+      db.prepare('UPDATE pedidos SET mp_preference_id = ? WHERE id = ?').run(
+        preference.id,
+        pedido.id
+      );
 
-    const hydrated = getPedidoHydratedById(pedido.id);
-    const io = req.app.get('io');
-    if (io) emitNuevoPedido(io, hydrated);
+      const hydrated = getPedidoHydratedById(pedido.id);
+      const io = req.app.get('io');
+      if (io) emitNuevoPedido(io, hydrated);
 
-    res.json({ pedido: hydrated, init_point: preference.init_point });
-  } catch (error) {
-    if (pedido?.id) {
-      db.exec('BEGIN');
-      restoreInventoryForPedido(db, pedido, { motivo: 'Error checkout MP' });
-      db.prepare('DELETE FROM pedidos WHERE id = ?').run(pedido.id);
-      db.exec('COMMIT');
+      res.json({ pedido: hydrated, init_point: preference.init_point });
+    } catch (error) {
+      if (pedido?.id) {
+        db.exec('BEGIN');
+        restoreInventoryForPedido(db, pedido, { motivo: 'Error checkout MP' });
+        db.prepare('DELETE FROM pedidos WHERE id = ?').run(pedido.id);
+        db.exec('COMMIT');
+      }
+      res.status(500).json({ error: error.message });
     }
-    res.status(500).json({ error: error.message });
   }
-});
+);
 
 router.post(
   '/interno',
@@ -1337,11 +1342,11 @@ router.post(
   }
 );
 
-router.post('/', publicOrderRateLimit, validateBody(createPedidoSchema), async (req, res) => {
+router.post('/', publicOrderRateLimit, validateBody(createPublicPedidoSchema), async (req, res) => {
   if (!req.body?.items) return res.status(400).json({ error: 'Items requeridos' });
 
   try {
-    // Respetar el origen que viene en el body para flujos publicos compatibles.
+    // El esquema público fija web/kiosco; nunca acepta privilegios de TPV.
     const origen = req.body.origen || 'web';
     const normalized = await buildPedidoPayload({ ...req.body, origen });
     const pedido = createPedidoWithInventory({
@@ -1421,20 +1426,35 @@ router.post('/:id/imprimir', auth, requirePermission('pedidos.print'), (req, res
   if (!pedido) return res.status(404).json({ error: 'Pedido no encontrado' });
 
   const tipo = req.body.tipo || 'ticket_cliente';
+  const automatica = req.body.automatica === true;
+  if (automatica && tipo !== 'tpv_pack') {
+    return res.status(400).json({ error: 'La impresión automática requiere el pack de pedido.' });
+  }
   const copias = Math.max(1, Number(req.body.copias || configuredCopies(tipo)));
   // Convertir pedido de centavos a pesos antes de renderizar el HTML.
   // El middleware global centsToPesos solo actua sobre respuestas JSON —
   // el HTML del ticket se construye aca directamente y por eso no lo alcanza.
   const pedidoEnPesos = centsToPesos(pedido);
   const document = buildPrintDocument(db, pedidoEnPesos, tipo);
-  const impresion = registerPrintJob(
-    pedido.id,
-    document.tipo,
-    document.area,
-    copias,
-    document.payload,
-    true
-  );
+  const impresion = db
+    .transaction(() => {
+      if (automatica) {
+        const claim = db
+          .prepare('INSERT OR IGNORE INTO impresiones_automaticas (pedido_id) VALUES (?)')
+          .run(pedido.id);
+        if (!claim.changes) return null;
+      }
+      return registerPrintJob(
+        pedido.id,
+        document.tipo,
+        document.area,
+        copias,
+        document.payload,
+        true
+      );
+    })
+    .immediate();
+  if (!impresion) return res.json({ omitida: true, motivo: 'Impresión automática ya despachada' });
 
   const actor = actorFromRequest(req);
   logAudit(db, {
@@ -1444,7 +1464,7 @@ router.post('/:id/imprimir', auth, requirePermission('pedidos.print'), (req, res
     entidad_id: pedido.id,
     actor_id: actor.actor_id,
     actor_nombre: actor.actor_nombre,
-    detalle: { tipo, copias, impresion_id: impresion.id },
+    detalle: { tipo, copias, impresion_id: impresion.id, automatica },
   });
   res.json({ impresion, html: document.html });
 });
@@ -1802,5 +1822,171 @@ router.put('/:id', auth, requirePermission('pedidos.edit'), (req, res) => {
   if (io) emitPedidoActualizado(io, updated);
   res.json(updated);
 });
+
+/*
+  Corrección integral desde el TPV.
+
+  El PUT histórico sólo cambia datos de cabecera. Esta ruta también reemplaza
+  productos, variantes, extras y cantidades; recalcula precios en el servidor
+  y revierte/aplica inventario dentro de una única transacción. Si falta stock
+  o falla cualquier paso, el pedido original queda intacto.
+*/
+router.put(
+  '/:id/contenido',
+  auth,
+  requirePermission('pedidos.edit'),
+  requirePermission('tpv.use'),
+  validateBody(createPedidoSchema),
+  async (req, res) => {
+    const existing = getPedidoOr404(req.params.id, res);
+    if (!existing) return;
+
+    const estadosEditables = new Set([
+      PedidoState.NUEVO,
+      PedidoState.CONFIRMADO,
+      PedidoState.PREPARANDO,
+    ]);
+    if (!estadosEditables.has(existing.estado)) {
+      return res.status(409).json({
+        error: `El pedido ya está ${String(existing.estado || '').replace(/_/g, ' ')} y no se puede modificar desde el TPV.`,
+      });
+    }
+    if (!getActiveCaja()) {
+      return res.status(400).json({ error: 'La caja debe estar abierta para modificar el pedido' });
+    }
+
+    try {
+      // Una edición no vuelve a canjear puntos ni reutiliza cupones. El monto
+      // de descuento que llega es el descuento final visible en el TPV.
+      const normalized = await buildPedidoPayload({
+        ...req.body,
+        origen: 'tpv',
+        puntos_a_canjear: 0,
+        cupon_codigo: '',
+      });
+      if (!Array.isArray(normalized.items) || normalized.items.length === 0) {
+        return res.status(400).json({ error: 'El pedido debe conservar al menos un producto' });
+      }
+
+      const actor = actorFromRequest(req, 'Caja');
+      const anterior = hydratePedido(existing);
+      const updateTransaction = db.transaction(() => {
+        restoreInventoryForPedido(db, existing, {
+          motivo: `Corrección del pedido #${existing.numero}`,
+        });
+
+        const nextRepartidorId =
+          normalized.tipo_entrega === 'delivery' ? existing.repartidor_id || null : null;
+        if (existing.repartidor_id && !nextRepartidorId) {
+          db.prepare('UPDATE repartidores SET disponible = 1 WHERE id = ?').run(
+            existing.repartidor_id
+          );
+        }
+
+        const nextPagoDetalle =
+          normalizeMetodoPago(normalized.metodo_pago) === normalizeMetodoPago(existing.metodo_pago)
+            ? existing.pago_detalle || ''
+            : '';
+
+        db.prepare(
+          `
+          UPDATE pedidos
+          SET cliente_id = ?,
+              cliente_nombre = ?,
+              cliente_telefono = ?,
+              cliente_direccion = ?,
+              cliente_latitud = ?,
+              cliente_longitud = ?,
+              cliente_ubicacion_exacta = ?,
+              items = ?,
+              subtotal = ?,
+              costo_envio = ?,
+              descuento = ?,
+              total = ?,
+              tipo_entrega = ?,
+              mesa = ?,
+              hora_entrega = ?,
+              metodo_pago = ?,
+              pago_detalle = ?,
+              notas = ?,
+              delivery_zona = ?,
+              tiempo_estimado_min = ?,
+              repartidor_id = ?,
+              inventario_aplicado = 0,
+              inventario_revertido = 0,
+              actualizado_en = CURRENT_TIMESTAMP
+          WHERE id = ?
+        `
+        ).run(
+          normalized.cliente_id || existing.cliente_id || null,
+          normalized.cliente_nombre,
+          normalized.cliente_telefono,
+          normalized.cliente_direccion,
+          normalized.cliente_latitud,
+          normalized.cliente_longitud,
+          normalized.cliente_ubicacion_exacta ? 1 : 0,
+          serializePedidoItems(normalized.items),
+          normalized.subtotal,
+          normalized.costo_envio,
+          normalized.descuento,
+          normalized.total,
+          normalized.tipo_entrega,
+          normalized.tipo_entrega === 'mesa' ? normalized.mesa : '',
+          normalized.hora_entrega || '',
+          normalizeMetodoPago(normalized.metodo_pago),
+          nextPagoDetalle,
+          normalized.notas || '',
+          normalized.delivery_zona || '',
+          Number(normalized.tiempo_estimado_min || 0),
+          nextRepartidorId,
+          existing.id
+        );
+
+        replacePedidoItems(db, existing.id, normalized.items);
+        applyInventoryToItems(db, normalized.items, {
+          pedido_id: existing.id,
+          tipo: 'venta',
+          motivo: `Salida por corrección pedido #${existing.numero}`,
+          detalle_extra: {
+            pedido_id: existing.id,
+            pedido_numero: existing.numero,
+            correccion: true,
+          },
+        });
+        db.prepare(
+          'UPDATE pedidos SET inventario_aplicado = 1, inventario_revertido = 0 WHERE id = ?'
+        ).run(existing.id);
+      });
+
+      updateTransaction();
+      const updated = getPedidoHydratedById(existing.id);
+      logAudit(db, {
+        modulo: 'pedidos',
+        accion: 'corregir_contenido',
+        entidad: 'pedido',
+        entidad_id: updated.id,
+        actor_id: actor.actor_id,
+        actor_nombre: actor.actor_nombre,
+        detalle: {
+          numero: updated.numero,
+          total_anterior: anterior.total,
+          total_nuevo: updated.total,
+          items_anteriores: anterior.items,
+          items_nuevos: updated.items,
+        },
+      });
+
+      const io = req.app.get('io');
+      if (io) emitPedidoActualizado(io, updated);
+      return res.json(updated);
+    } catch (error) {
+      logger.error('[pedidos] Error al corregir pedido', {
+        pedido_id: existing.id,
+        message: error.message || String(error),
+      });
+      return res.status(400).json({ error: normalizePedidoCreationError(error) });
+    }
+  }
+);
 
 module.exports = router;

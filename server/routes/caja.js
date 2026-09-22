@@ -446,6 +446,9 @@ router.post('/cierre', auth, requirePermission('caja.manage'), (req, res) => {
         monto_final_declarado = ?,
         efectivo_esperado = ?,
         diferencia = ?,
+        arqueada_en = CURRENT_TIMESTAMP,
+        arqueada_por_id = ?,
+        arqueada_por_nombre = ?,
         resumen_json = ?,
         notas_cierre = ?
     WHERE id = ?
@@ -456,6 +459,8 @@ router.post('/cierre', auth, requirePermission('caja.manage'), (req, res) => {
     declarado,
     efectivoEsperado,
     diferencia,
+    actor.actor_id,
+    actor.actor_nombre,
     JSON.stringify(resumen),
     notas || '',
     activa.id
@@ -481,6 +486,89 @@ router.post('/cierre', auth, requirePermission('caja.manage'), (req, res) => {
   const document = buildCajaCierreDocument(db, centsToPesos(caja), centsToPesos(resumen));
 
   res.json({ ...caja, resumen, html: document.html });
+});
+
+/*
+  El cierre horario de las 15:00 congela ventas y genera el reporte, pero no
+  puede inventar cuánto efectivo había físicamente en el cajón. Este endpoint
+  completa ese arqueo más tarde, una sola vez, sin reabrir ni recalcular el
+  turno ya cerrado.
+*/
+router.post('/cierre/:id/arqueo', auth, requirePermission('caja.manage'), (req, res) => {
+  const cierreId = Number(req.params.id);
+  if (!Number.isInteger(cierreId) || cierreId <= 0) {
+    return res.status(400).json({ error: 'Cierre inválido' });
+  }
+  if (!Object.prototype.hasOwnProperty.call(req.body || {}, 'monto_final_declarado')) {
+    return res.status(400).json({ error: 'Indicá el efectivo contado' });
+  }
+
+  const declarado = parseMoneyInput(req.body.monto_final_declarado);
+  if (Number.isNaN(declarado) || declarado < 0) {
+    return res.status(400).json({ error: 'El efectivo contado debe ser 0 o mayor' });
+  }
+
+  const cierre = db.prepare('SELECT * FROM cierres_caja WHERE id = ?').get(cierreId);
+  if (!cierre) return res.status(404).json({ error: 'Cierre no encontrado' });
+  if (cierre.estado !== 'cerrada') {
+    return res.status(409).json({ error: 'La caja todavía no está cerrada' });
+  }
+  if (!String(cierre.auto_cierre_motivo || '').trim()) {
+    return res.status(409).json({ error: 'Este cierre no requiere un arqueo posterior' });
+  }
+  if (cierre.monto_final_declarado !== null) {
+    return res.status(409).json({ error: 'Este cierre ya fue arqueado' });
+  }
+
+  const actor = actorFromRequest(req);
+  const efectivoEsperado = Number(cierre.efectivo_esperado || 0);
+  const diferencia = declarado - efectivoEsperado;
+  const notas = String(req.body.notas || '')
+    .trim()
+    .slice(0, 1000);
+  const result = db
+    .prepare(
+      `
+        UPDATE cierres_caja
+        SET monto_final_declarado = ?,
+            diferencia = ?,
+            arqueada_en = CURRENT_TIMESTAMP,
+            arqueada_por_id = ?,
+            arqueada_por_nombre = ?,
+            notas_cierre = CASE
+              WHEN ? = '' THEN notas_cierre
+              WHEN TRIM(COALESCE(notas_cierre, '')) = '' THEN ?
+              ELSE notas_cierre || char(10) || ?
+            END
+        WHERE id = ? AND estado = 'cerrada' AND monto_final_declarado IS NULL
+      `
+    )
+    .run(declarado, diferencia, actor.actor_id, actor.actor_nombre, notas, notas, notas, cierreId);
+
+  if (result.changes !== 1) {
+    return res.status(409).json({ error: 'Este cierre ya fue arqueado' });
+  }
+
+  logAudit(db, {
+    modulo: 'caja',
+    accion: 'arqueo_posterior',
+    entidad: 'cierre_caja',
+    entidad_id: cierreId,
+    actor_id: actor.actor_id,
+    actor_nombre: actor.actor_nombre,
+    detalle: {
+      monto_final_declarado: declarado,
+      efectivo_esperado: efectivoEsperado,
+      diferencia,
+      notas,
+    },
+  });
+
+  const actualizado = db.prepare('SELECT * FROM cierres_caja WHERE id = ?').get(cierreId);
+  const resumen = safeJsonParse(actualizado.resumen_json, {});
+  const { buildCajaCierreDocument } = require('../utils/printTemplates');
+  const document = buildCajaCierreDocument(db, centsToPesos(actualizado), centsToPesos(resumen));
+  return res.json({ ...actualizado, resumen, html: document.html });
 });
 
 router.get('/cierre/:id/ticket', auth, requirePermission('caja.view'), (req, res) => {

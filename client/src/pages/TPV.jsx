@@ -3,7 +3,11 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 
 import api from '../lib/api.js';
-import { claveSubcategoria } from '../lib/catalogVisibility.js';
+import {
+  filtrarCatalogoTpv,
+  categoriaVisibleEnTpv,
+  claveSubcategoria,
+} from '../lib/catalogVisibility.js';
 import SubcategoryFilter from '../components/SubcategoryFilter.jsx';
 import { resolveAssetUrl } from '../lib/assets.js';
 import { DEFAULT_BRAND_LOGO } from '../lib/webPublicaHelpers.js';
@@ -165,6 +169,8 @@ function isEditableTarget(target) {
 export default function TPV() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const pedidoEditarId = Number(searchParams.get('editar') || 0) || null;
+  const pedidoEditarCargadoRef = useRef(null);
   const searchInputRef = useRef(null);
   const cartItemsRef = useRef(null);
   const customerLocationRequestRef = useRef(0);
@@ -174,16 +180,13 @@ export default function TPV() {
   const [categorias, setCategorias] = useState([]);
   const [productosBase, setProductos] = useState([]);
   /*
-    La caja ve toda la carta, sin filtrar por turno.
-
-    El turno de la categoría existe para que el cliente no pida de noche algo
-    que sólo se cocina al mediodía. Acá adentro no protege nada: con las
-    categorías marcadas "noche", al mediodía el cajero no podía vender ni una
-    bebida que tenía enfrente. Quien atiende el mostrador sabe qué hay.
+    De mañana la caja ve toda la carta, incluidos los productos nocturnos. De
+    noche se oculta únicamente lo marcado para la mañana (Menú del Día), que
+    es el comportamiento operativo pedido para el mostrador.
   */
   const productos = useMemo(
-    () => productosBase.filter((producto) => Number(producto.activo) !== 0),
-    [productosBase]
+    () => filtrarCatalogoTpv(productosBase, categorias, config),
+    [productosBase, categorias, config]
   );
   const [subcategoriaFiltro, setSubcategoriaFiltro] = useState('');
   const [productosRapidos, setProductosRapidos] = useState([]);
@@ -248,6 +251,7 @@ export default function TPV() {
   const [loyaltyConfig, setLoyaltyConfig] = useState(null);
   const [parkedOrders, setParkedOrders] = useState(() => readParkedOrders());
   const [lastSale, setLastSale] = useState(null);
+  const [pedidoEditando, setPedidoEditando] = useState(null);
   const [clienteResumen, setClienteResumen] = useState(null);
   const [clientesDelDia, setClientesDelDia] = useState([]);
   const [barriosConocidos, setBarriosConocidos] = useState([]);
@@ -890,6 +894,10 @@ export default function TPV() {
   const preflightChecklist = useMemo(() => {
     const currentItemsInStock = items.every((item) => {
       const product = productos.find((entry) => Number(entry.id) === Number(item.producto_id));
+      // Al corregir un pedido el catálogo del turno puede no mostrar un ítem
+      // que ya fue vendido. Se deja quitarlo o cambiarle cantidad; el servidor
+      // valida el stock real después de devolver el consumo original.
+      if (pedidoEditando && !product) return true;
       return product ? product.disponible_para_venta !== false : false;
     });
     const checks = [
@@ -965,7 +973,14 @@ export default function TPV() {
       });
     }
 
-    if (metodoPago === 'mixto') {
+    if (pedidoEditando) {
+      checks.push({
+        key: 'pago',
+        label: 'Pago',
+        status: 'ok',
+        detail: 'Se conserva el estado de cobro',
+      });
+    } else if (metodoPago === 'mixto') {
       checks.push({
         key: 'pago',
         label: 'Pago',
@@ -1002,6 +1017,7 @@ export default function TPV() {
     cajaAbierta,
     items,
     productos,
+    pedidoEditando,
     totalItems,
     tipoEntrega,
     cliente,
@@ -1498,7 +1514,10 @@ export default function TPV() {
       producto_id: item.producto_id || item.id || null,
       nombre: item.nombre || 'Producto',
       precio_unitario: Number(item.precio_unitario || item.precio || 0),
+      precio_fijo: Boolean(item.precio_fijo),
       cantidad: Number(item.cantidad || 1),
+      descuento_item: Number(item.descuento_item || 0),
+      descuento_motivo: item.descuento_motivo || '',
       variantes: item.variantes || {},
       extras: Array.isArray(item.extras) ? item.extras : [],
       cartKey: `${buildCartKey(
@@ -1514,7 +1533,7 @@ export default function TPV() {
     setProgramarHora(Boolean(pedido.hora_entrega));
     setHoraEntrega(pedido.hora_entrega || '');
     setMetodoPago(pedido.metodo_pago || 'efectivo');
-    setDescuento(0);
+    setDescuento(Number(pedido.descuento || 0));
     setDescuentoTipo('monto');
     setEfectivoRecibido('');
     setSplitPayments({
@@ -1525,6 +1544,7 @@ export default function TPV() {
       uala: '',
     });
     setNotas(pedido.notas || '');
+    setSelectedRiderId(String(pedido.repartidor_id || ''));
     if (keepCustomer) {
       setCliente((previous) => ({
         ...previous,
@@ -1532,10 +1552,35 @@ export default function TPV() {
         nombre: pedido.cliente_nombre || previous.nombre || '',
         telefono: pedido.cliente_telefono || previous.telefono || '',
         direccion: pedido.cliente_direccion || previous.direccion || '',
+        latitud: pedido.cliente_latitud ?? previous.latitud ?? null,
+        longitud: pedido.cliente_longitud ?? previous.longitud ?? null,
+        ubicacionExacta: Boolean(pedido.cliente_ubicacion_exacta),
       }));
     }
     toast.success(`Pedido #${pedido.numero} cargado en el TPV`);
   };
+
+  useEffect(() => {
+    if (!pedidoEditarId || pedidoEditarCargadoRef.current === pedidoEditarId) return;
+    pedidoEditarCargadoRef.current = pedidoEditarId;
+    api
+      .get(`/pedidos/${pedidoEditarId}`)
+      .then((pedido) => {
+        if (!pedido?.items || !Array.isArray(pedido.items)) {
+          throw new Error('No se pudo leer el contenido del pedido');
+        }
+        if (!['nuevo', 'confirmado', 'preparando'].includes(pedido.estado)) {
+          throw new Error(`El pedido ya está ${pedido.estado} y no se puede modificar`);
+        }
+        setPedidoEditando(pedido);
+        loadPedidoIntoCart(pedido);
+      })
+      .catch((error) => {
+        pedidoEditarCargadoRef.current = null;
+        toast.error(error?.error || error?.message || 'No se pudo abrir el pedido para corregir');
+        navigate('/admin/pedidos', { replace: true });
+      });
+  }, [navigate, pedidoEditarId]);
 
   const agregarItem = (producto, { forceOptions = false } = {}) => {
     if (producto.disponible_para_venta === false) {
@@ -1771,6 +1816,10 @@ export default function TPV() {
     setLoading(true);
 
     const ventaSinConexion = typeof navigator !== 'undefined' && navigator.onLine === false;
+    if (pedidoEditando && ventaSinConexion) {
+      setLoading(false);
+      return toast.error('Para corregir un pedido ya guardado necesitás conexión');
+    }
     const cajaActual = ventaSinConexion ? cajaAbierta : await refreshCajaState({ silent: true });
     if (!cajaActual) {
       setLoading(false);
@@ -1786,11 +1835,11 @@ export default function TPV() {
       deliveryQuote,
       mesa,
       metodoPago: metodoPago === 'mixto' ? primaryMixedMethod : metodoPago,
-      efectivoRecibido,
-      efectivoRecibidoNumero,
+      efectivoRecibido: pedidoEditando ? String(total) : efectivoRecibido,
+      efectivoRecibidoNumero: pedidoEditando ? total : efectivoRecibidoNumero,
       total,
-      cashTarget: metodoPago === 'mixto' ? splitCashTarget : null,
-      splitPayments: metodoPago === 'mixto' ? splitPaymentEntries : [],
+      cashTarget: pedidoEditando ? 0 : metodoPago === 'mixto' ? splitCashTarget : null,
+      splitPayments: pedidoEditando ? [] : metodoPago === 'mixto' ? splitPaymentEntries : [],
     });
     if (submitError) {
       setLoading(false);
@@ -1803,14 +1852,9 @@ export default function TPV() {
       return toast.error('Sin internet no se puede cobrar con tarjeta ni billetera digital');
     }
 
-    const autoPrintConfigured = config.impresion_auto_tpv === '1';
-    /*
-      GlobalOrderAlerts es el único dueño de la impresión automática. Si TPV
-      también imprimiera cuando este flag está activo, el mismo socket abría
-      una segunda ventana y salían dos comandas. El botón explícito conserva
-      su impresión manual cuando la automatización está apagada.
-    */
-    const shouldManualPrint = !ventaSinConexion && imprimir && !autoPrintConfigured;
+    // El TPV imprime únicamente cuando el cajero lo pide en el cobro. El
+    // listener global ya no vuelve a imprimir este mismo pedido en Pedidos.
+    const shouldManualPrint = !ventaSinConexion && imprimir;
     let popup = null;
 
     if (shouldManualPrint) {
@@ -1871,7 +1915,27 @@ export default function TPV() {
         return;
       }
 
-      const pedido = await api.post('/pedidos/interno', payload);
+      const pedido = pedidoEditando
+        ? await api.put(`/pedidos/${pedidoEditando.id}/contenido`, payload)
+        : await api.post('/pedidos/interno', payload);
+
+      if (pedidoEditando) {
+        if (shouldManualPrint) await abrirImpresion(pedido.id, popup);
+        toast.success(
+          `Pedido #${pedido.numero} corregido · ${Number(pedido.total || total).toLocaleString(
+            'es-AR',
+            {
+              style: 'currency',
+              currency: 'ARS',
+              maximumFractionDigits: 0,
+            }
+          )}${shouldManualPrint ? ' · reimpreso' : ''}`,
+          { duration: 4500 }
+        );
+        setCobroAbierto(false);
+        navigate('/admin/pedidos', { replace: true });
+        return;
+      }
 
       setLastSale({
         id: pedido.id,
@@ -1880,7 +1944,7 @@ export default function TPV() {
         tipoEntrega,
         cliente: cliente.nombre || cliente.telefono || '',
         metodoPago: metodoPago === 'mixto' ? 'mixto' : primaryMixedMethod,
-        printed: shouldManualPrint || autoPrintConfigured,
+        printed: shouldManualPrint,
         pedido,
       });
       if (shouldManualPrint) await abrirImpresion(pedido.id, popup);
@@ -1893,7 +1957,7 @@ export default function TPV() {
           style: 'currency',
           currency: 'ARS',
           maximumFractionDigits: 0,
-        })}${shouldManualPrint ? ' · impreso' : autoPrintConfigured ? ' · impresión automática' : ''}`,
+        })}${shouldManualPrint ? ' · impreso' : ''}`,
         { duration: 4000 }
       );
       cargarClientesDelDia();
@@ -1908,7 +1972,9 @@ export default function TPV() {
       ) {
         setCajaAbierta(false);
       }
-      toast.error(error?.error || 'Error al crear pedido');
+      toast.error(
+        error?.error || (pedidoEditando ? 'Error al corregir pedido' : 'Error al crear pedido')
+      );
     } finally {
       setLoading(false);
     }
@@ -2137,6 +2203,26 @@ export default function TPV() {
           turnoLabel={formatTurnoLabel(cajaEstado?.turno_operativo?.shiftName)}
         />
 
+        {pedidoEditando ? (
+          <div className="mx-5 mb-1 flex shrink-0 items-center justify-between gap-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5">
+            <div>
+              <p className="text-[13px] font-semibold text-amber-900">
+                Corrigiendo pedido #{pedidoEditando.numero}
+              </p>
+              <p className="text-[11px] text-amber-700">
+                Los cambios actualizarán cocina, total e inventario. No se crea otro pedido.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => navigate('/admin/pedidos')}
+              className="shrink-0 rounded-lg bg-white px-3 py-1.5 text-[12px] font-semibold text-amber-800 shadow-sm transition hover:bg-amber-100"
+            >
+              Cancelar edición
+            </button>
+          </div>
+        ) : null}
+
         {sinConexion || pedidosOfflinePendientes > 0 ? (
           <div
             role="status"
@@ -2185,7 +2271,7 @@ export default function TPV() {
             cartQtyByProductId={cartQtyByProductId}
             cartLinesByProductId={cartLinesByProductId}
             catActiva={catActiva}
-            categorias={categorias}
+            categorias={categorias.filter((c) => categoriaVisibleEnTpv(c, config))}
             conteoPorCategoria={conteoPorCategoria}
             totalProductos={productos.length}
             cargando={cargandoCatalogo}
@@ -2317,6 +2403,7 @@ export default function TPV() {
         blockedReason={blockedReason}
         loading={loading}
         onConfirm={(imprimir) => confirmar(Boolean(imprimir))}
+        editandoPedido={pedidoEditando}
       />
 
       {clientePickerOpen ? (

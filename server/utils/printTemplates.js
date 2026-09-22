@@ -1074,8 +1074,10 @@ function buildPrintTestDocument(db, tipo = 'ticket') {
 // ── Cierre de caja ───────────────────────────────────────────────────
 function renderCajaCierreHtml(data) {
   const { activa, resumen, moneda, config } = data;
-  const diferencia =
-    Number(activa.monto_final_declarado || 0) - Number(activa.efectivo_esperado || 0);
+  const tieneArqueo = activa.monto_final_declarado !== null;
+  const diferencia = tieneArqueo
+    ? Number(activa.monto_final_declarado) - Number(activa.efectivo_esperado || 0)
+    : null;
   const showDate = isEnabled(config, 'impresion_mostrar_fecha', true);
 
   const fila = (label, value, extra = '') =>
@@ -1113,8 +1115,12 @@ function renderCajaCierreHtml(data) {
           ${fila('Ingresos manuales', money(resumen.totalIngresosManuales, moneda))}
           ${fila('Gastos y egresos', `-${money(resumen.totalEgresosManuales, moneda)}`)}
           <div class="totals-grand"><span>Efectivo esperado</span><span>${escapeHtml(money(activa.efectivo_esperado, moneda))}</span></div>
-          ${fila('Efectivo contado', money(activa.monto_final_declarado, moneda))}
-          <div class="totals-grand"><span>Diferencia</span><span>${diferencia > 0 ? '+' : ''}${escapeHtml(money(diferencia, moneda))}</span></div>
+          ${
+            tieneArqueo
+              ? `${fila('Efectivo contado', money(activa.monto_final_declarado, moneda))}
+                 <div class="totals-grand"><span>Diferencia</span><span>${diferencia > 0 ? '+' : ''}${escapeHtml(money(diferencia, moneda))}</span></div>`
+              : '<div class="totals-grand"><span>Arqueo físico</span><span>PENDIENTE</span></div>'
+          }
         </div>
 
         <div style="margin-top: 8mm;">
@@ -1130,6 +1136,9 @@ function renderCajaCierreHtml(data) {
           { label: 'Pedidos', value: String(resumen.pedidos) },
           { label: 'Venta bruta', value: money(resumen.totalVentas, moneda) },
           activa.cerrada_por_nombre ? { label: 'Cerró', value: activa.cerrada_por_nombre } : null,
+          activa.arqueada_por_nombre
+            ? { label: 'Arqueó', value: activa.arqueada_por_nombre }
+            : null,
         ])}
 
         <div class="signature">

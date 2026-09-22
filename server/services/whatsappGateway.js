@@ -466,12 +466,23 @@ async function handleIncoming(message) {
   const requiereRevision = ['imagen', 'video', 'documento'].includes(type);
   let usableText = text || (requiereRevision ? `[${type} recibido: requiere revisión humana]` : '');
   let transcriptionError = null;
+  let transcripto = false;
   if (!usableText && type === 'audio') {
-    try {
-      usableText = await transcribeWhatsappAudio(message, conexion);
-    } catch (error) {
-      transcriptionError = error;
-      usableText = '[audio recibido sin transcripción]';
+    const audioConfig = gatewayConfig();
+    const audioConversation = upsertConversation(telefono);
+    usableText = '[audio recibido sin transcripción]';
+    if (
+      !message?.key?.fromMe &&
+      !audioConfig.pausaTotal &&
+      audioConfig.atencionIa &&
+      !audioConversation.pausa_humana
+    ) {
+      try {
+        usableText = await transcribeWhatsappAudio(message, conexion);
+        transcripto = true;
+      } catch (error) {
+        transcriptionError = error;
+      }
     }
   }
   if (!usableText) return;
@@ -491,7 +502,7 @@ async function handleIncoming(message) {
       message.mensajesOriginales ? textFromMessage(original) : usableText,
       {
         whatsapp_id: String(original.key.id),
-        transcripto: type === 'audio' && !transcriptionError,
+        transcripto,
       }
     );
   }
@@ -515,6 +526,8 @@ async function handleIncoming(message) {
   registrarRespuesta({ telefono, texto: usableText, mensajeId: id });
   const config = gatewayConfig();
   if (config.pausaTotal || !config.atencionIa || conversation.pausa_humana) return;
+  // Una pausa puede haberse liberado mientras se registraba el mensaje.
+  if (type === 'audio' && !transcripto && !transcriptionError) return;
 
   if (requiereRevision) {
     db.prepare(

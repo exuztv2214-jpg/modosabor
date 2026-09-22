@@ -19,6 +19,65 @@ function ensureColumn(db, table, column, definition) {
   }
 }
 
+const IMAGENES_CATALOGO_FALTANTES = [
+  [36, 'Sfijas', '/uploads/catalog-sfija-cc-by.jpg'],
+  [40, 'Smash Simple', '/uploads/catalog-smash-burger-cc0.jpg'],
+  [41, 'Bacon Cheese', '/uploads/catalog-bacon-cheeseburger-cc0.jpg'],
+  [42, 'Fast Love', '/uploads/catalog-blue-cheese-burger-cc0.jpg'],
+  [43, 'Golpe Bajo', '/uploads/catalog-smash-burger-cc0.jpg'],
+  [44, 'Street', '/uploads/catalog-smash-burger-cc0.jpg'],
+  [45, 'Clasica', '/uploads/catalog-blue-cheese-burger-cc0.jpg'],
+  [46, 'Bacon Cheese Doble', '/uploads/catalog-bacon-cheeseburger-cc0.jpg'],
+  [47, 'Onion Crispy', '/uploads/catalog-crispy-onion-burger-cc-by-sa.jpg'],
+  [48, 'Bajon Extremo', '/uploads/catalog-crispy-onion-burger-cc-by-sa.jpg'],
+  [49, 'Tentación', '/uploads/catalog-bacon-cheeseburger-cc0.jpg'],
+  [50, 'Blue Nuts', '/uploads/catalog-blue-cheese-burger-cc0.jpg'],
+  [51, 'Route 66', '/uploads/catalog-blue-cheese-burger-cc0.jpg'],
+  [52, 'Sin Culpa', '/uploads/catalog-bacon-cheeseburger-cc0.jpg'],
+  [53, 'Demencial', '/uploads/catalog-crispy-onion-burger-cc-by-sa.jpg'],
+  [54, 'Overdose', '/uploads/catalog-bacon-cheeseburger-cc0.jpg'],
+  [55, 'Apocalipsis', '/uploads/catalog-crispy-onion-burger-cc-by-sa.jpg'],
+  [56, 'Papas Criollas', '/uploads/catalog-papas-criollas-cc0.jpg'],
+  [69, 'Lomito Común', '/uploads/catalog-lomito-argentino-cc0.jpg'],
+  [70, 'Lomito Especial', '/uploads/catalog-lomito-cc-by-sa.jpg'],
+  [71, 'Lomito Modo Sabor', '/uploads/catalog-lomito-argentino-cc0.jpg'],
+  [72, 'Lomito Super Modo', '/uploads/catalog-lomito-cc-by-sa.jpg'],
+  [77, 'Milanesa Común', '/uploads/catalog-sandwich-milanesa-cc-by.jpg'],
+  [78, 'Milanesa Especial', '/uploads/catalog-sandwich-milanesa-cc-by.jpg'],
+  [79, 'Milanesa Modo Sabor', '/uploads/catalog-sandwich-milanesa-cc-by.jpg'],
+  [80, 'Milanesa Super Modo', '/uploads/catalog-sandwich-milanesa-cc-by.jpg'],
+  [82, 'Tarta de Pollo y Puerro', '/uploads/catalog-tarta-pollo-puerro-cc-by-sa.jpg'],
+  [100, 'Fugazzeta', '/uploads/catalog-fugazzeta-cc0.jpg'],
+  [110, 'Ñoquis', '/uploads/catalog-noquis-cc0.jpg'],
+  [116, 'Criollas XL', '/uploads/catalog-papas-criollas-cc0.jpg'],
+  [122, 'Quepi Rellenos', '/uploads/catalog-kibbeh-cc-by.jpg'],
+  [127, 'Salpicon de Ave', '/uploads/catalog-salpicon-pollo-cc-by.jpg'],
+  [140, 'arrolladito de pollo', '/uploads/catalog-arrolladito-pollo-pdm.jpg'],
+  [141, 'kepi', '/uploads/catalog-kibbeh-cc-by.jpg'],
+  [142, 'Tarta de Verduras', '/uploads/catalog-tarta-verduras-cc0.jpg'],
+];
+
+function completarImagenesFaltantesDelCatalogo(db) {
+  const update = db.prepare(`
+    UPDATE productos
+       SET imagen = ?
+     WHERE id = ?
+       AND nombre = ?
+       AND length(trim(COALESCE(imagen, ''))) = 0
+  `);
+  const transaction = db.transaction(() => {
+    for (const [id, nombre, imagen] of IMAGENES_CATALOGO_FALTANTES) {
+      update.run(imagen, id, nombre);
+    }
+
+    // Estas dos fotos ya existían en el catálogo y representan exactamente
+    // el mismo plato. Reutilizarlas evita duplicar archivos innecesariamente.
+    update.run('/uploads/producto-1789705904751.jpg', 39, 'Modo Suiza');
+    update.run('/uploads/producto-1789705116839.webp', 131, 'Milanesa Napolitana para 2');
+  });
+  transaction();
+}
+
 /**
  * Las dos identidades con las que Modo Sabor publica en Facebook.
  *
@@ -176,6 +235,7 @@ function runMigrations(db) {
   ensureColumn(db, 'productos', 'menu_dia_base', 'INTEGER DEFAULT 0');
   ensureColumn(db, 'productos', 'menu_dia_disponible_hoy', 'INTEGER DEFAULT 0');
   ensureColumn(db, 'productos', 'menu_dia_tipo', "TEXT DEFAULT 'economico'");
+  completarImagenesFaltantesDelCatalogo(db);
   ensureColumn(db, 'categorias', 'turno_id', "TEXT DEFAULT ''");
   ensureColumn(db, 'marketing_publicador_destinos', 'preview_path', "TEXT DEFAULT ''");
   ensureColumn(db, 'marketing_publicador_destinos', 'preview_actualizado_en', 'DATETIME');
@@ -238,6 +298,9 @@ function runMigrations(db) {
   ensureColumn(db, 'cierres_caja', 'fecha_operativa', "TEXT DEFAULT ''");
   ensureColumn(db, 'cierres_caja', 'auto_abierta', 'INTEGER DEFAULT 0');
   ensureColumn(db, 'cierres_caja', 'auto_cierre_motivo', "TEXT DEFAULT ''");
+  ensureColumn(db, 'cierres_caja', 'arqueada_en', 'TEXT');
+  ensureColumn(db, 'cierres_caja', 'arqueada_por_id', 'INTEGER');
+  ensureColumn(db, 'cierres_caja', 'arqueada_por_nombre', "TEXT DEFAULT ''");
   ensureColumn(db, 'pedidos', 'pago_estado', "TEXT DEFAULT 'pendiente'");
   ensureColumn(db, 'pedidos', 'pago_id', "TEXT DEFAULT ''");
   ensureColumn(db, 'pedidos', 'mp_preference_id', "TEXT DEFAULT ''");

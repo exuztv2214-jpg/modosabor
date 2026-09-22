@@ -442,6 +442,9 @@ CREATE TABLE IF NOT EXISTS cierres_caja (
   monto_final_declarado INTEGER DEFAULT 0,
   efectivo_esperado INTEGER DEFAULT 0,
   diferencia INTEGER DEFAULT 0,
+  arqueada_en DATETIME,
+  arqueada_por_id INTEGER REFERENCES usuarios(id) ON DELETE SET NULL,
+  arqueada_por_nombre TEXT DEFAULT '',
   resumen_json TEXT DEFAULT '{}',
   notas_cierre TEXT DEFAULT ''
 );
@@ -936,3 +939,10 @@ CREATE INDEX IF NOT EXISTS idx_producto_opcion_listas_lista ON producto_opcion_l
 CREATE INDEX IF NOT EXISTS idx_productos_categoria ON productos(categoria_id);
 CREATE INDEX IF NOT EXISTS idx_productos_activo ON productos(activo);
 CREATE INDEX IF NOT EXISTS idx_pedidos_cliente ON pedidos(cliente_id);
+
+-- Reclamo durable de despacho automático; no certifica impresión física.
+-- La reimpresión manual no utiliza esta exclusión.
+CREATE TABLE IF NOT EXISTS impresiones_automaticas (
+  pedido_id INTEGER PRIMARY KEY REFERENCES pedidos(id) ON DELETE CASCADE,
+  reclamado_en DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
