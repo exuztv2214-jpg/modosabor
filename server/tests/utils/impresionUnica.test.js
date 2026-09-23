@@ -22,6 +22,12 @@ function run() {
   assert.doesNotMatch(pedidos, /imprimirDocumentosPedidoWeb/);
   assert.doesNotMatch(pedidos, /impresion_auto_web/);
   assert.match(
+    globalAlerts,
+    /window\.location\.pathname\.startsWith\('\/admin\/pedidos'\)/,
+    'la pantalla Pedidos no debe abrir impresiones automáticas'
+  );
+  assert.match(globalAlerts, /esWeb && !estaEnPedidos/);
+  assert.match(
     tpv,
     /const shouldManualPrint =\s*!ventaSinConexion && \(pedidoEditando \? imprimir : true\)/
   );

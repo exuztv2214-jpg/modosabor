@@ -68,13 +68,16 @@ export default function GlobalOrderAlerts() {
       if (!pedido?.id) return;
       const origen = String(pedido.origen || '').toLowerCase();
       const esWeb = origen === 'web' || origen === 'whatsapp';
+      const estaEnPedidos = window.location.pathname.startsWith('/admin/pedidos');
       /*
         Los pedidos del TPV ya se imprimen desde el propio cobro. Si esta
         alarma global también los imprime, la pantalla Pedidos abre un segundo
         diálogo al recibir el socket. La automatización global queda sólo para
         pedidos remotos (web/WhatsApp), que no tienen un cajero confirmando.
+        Aun para esos pedidos se bloquea el diálogo mientras el operador está
+        en Pedidos: esa pantalla nunca debe abrir una impresión por sí sola.
       */
-      const permitida = esWeb && String(config?.impresion_auto_web) === '1';
+      const permitida = esWeb && !estaEnPedidos && String(config?.impresion_auto_web) === '1';
 
       if (!permitida) return;
       if (!claimAlertKey(`print:${pedido.id}`, 8000)) return;
