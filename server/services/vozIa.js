@@ -56,10 +56,55 @@ const CARPETA_VOZ = path.join(uploadsDir, 'voz');
 const MODELO_POR_DEFECTO = 'gemini-2.5-flash-preview-tts';
 const TIMEOUT_MS = 15000;
 const COOLDOWN_429_MS = 15 * 60 * 1000;
+const CACHE_MAX_ARCHIVOS = 160;
+const CACHE_MAX_BYTES = 48 * 1024 * 1024;
 let proveedorBloqueadoHasta = 0;
 
 function asegurarCarpeta() {
   if (!fs.existsSync(CARPETA_VOZ)) fs.mkdirSync(CARPETA_VOZ, { recursive: true });
+}
+
+/**
+ * La voz es un caché regenerable, no un archivo operativo.
+ *
+ * El nombre del cliente vuelve casi todas las frases únicas y el directorio
+ * crecía sin límite: en Railway llegó a ocupar más de 140 MB y dejó al volumen
+ * sin lugar hasta para crear un backup. Se conservan los audios más recientes
+ * dentro de dos límites; si uno falta, el navegador habla normalmente y el
+ * servidor lo vuelve a generar en segundo plano.
+ */
+function limpiarCacheVoz({
+  carpeta = CARPETA_VOZ,
+  maxArchivos = CACHE_MAX_ARCHIVOS,
+  maxBytes = CACHE_MAX_BYTES,
+} = {}) {
+  if (!fs.existsSync(carpeta)) return { retained: 0, removed: 0, retainedBytes: 0 };
+  const archivos = fs
+    .readdirSync(carpeta)
+    .filter((archivo) => archivo.toLowerCase().endsWith('.wav'))
+    .map((archivo) => {
+      const ruta = path.join(carpeta, archivo);
+      const stats = fs.statSync(ruta);
+      return { archivo, ruta, size: stats.size, mtimeMs: stats.mtimeMs };
+    })
+    .sort((a, b) => b.mtimeMs - a.mtimeMs);
+
+  let retained = 0;
+  let retainedBytes = 0;
+  let removed = 0;
+  for (const entry of archivos) {
+    const entra =
+      retained < Math.max(1, Number(maxArchivos) || 1) &&
+      retainedBytes + entry.size <= Math.max(1, Number(maxBytes) || 1);
+    if (entra) {
+      retained += 1;
+      retainedBytes += entry.size;
+    } else {
+      fs.unlinkSync(entry.ruta);
+      removed += 1;
+    }
+  }
+  return { retained, removed, retainedBytes };
 }
 
 function leerConfig() {
@@ -215,4 +260,4 @@ async function generarAudio(limpio, config) {
   }
 }
 
-module.exports = { obtenerAudio, generarAudio, vozIaHabilitada };
+module.exports = { obtenerAudio, generarAudio, vozIaHabilitada, limpiarCacheVoz };

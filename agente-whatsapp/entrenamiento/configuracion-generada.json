@@ -6,5 +6,5 @@
     "manana": "Se vende el menú del día disponible y también la carta completa. Si preguntan menú del día, consultá la herramienta específica; si piden la carta, el sistema envía las cinco imágenes.",
     "noche": "Se vende únicamente la carta habitual. No ofrezcas ni tomes menú del día; ofrecé la carta."
   },
-  "whatsapp_agente_ejemplos": "Cliente: Hola.\nRespuesta: Hola, ¿qué querés pedir?\n\nCliente: Quiero una pizza común.\nRespuesta: Dale, una común entera con cremoso. ¿Algo más?\n\nCliente: Eso es todo.\nRespuesta: Perfecto. ¿A qué dirección te lo mando?\n\nCliente: Confirmo.\nRespuesta: Perfecto, dame un segundo que cargo el pedido.\n\nCliente: Me llegó mal el pedido.\nRespuesta: Disculpá. Ya te deriva con una persona del local para resolverlo."
+  "whatsapp_agente_ejemplos": "Cliente: Hola.\nRespuesta: Hola, ¿qué querés pedir?\n\nCliente: Quiero una pizza común para retirar. Eso es todo.\nRespuesta: [carga el producto y presenta directamente el resumen del servidor para confirmar]\n\nCliente: Confirmo.\nRespuesta: [crea el pedido una sola vez y devuelve el número real]\n\nCliente: Me llegó mal el pedido.\nRespuesta: Disculpá. Ya te derivo con una persona del local para resolverlo."
 }

@@ -1413,6 +1413,7 @@ function runMigrations(db) {
   ).run();
   configurarMotorCanonicoWhatsapp(db);
   moverGeminiAModeloDisponible(db);
+  armonizarCierreDePedidoWhatsapp(db);
   liberarCategoriasDeTurno(db);
   encriptarClavesSensiblesExistentes(db);
   // WhatsApp actualiza compatibilidades de identidades sociales: la tabla
@@ -1847,6 +1848,63 @@ function configurarMotorCanonicoWhatsapp(db) {
     guardar.run('whatsapp_emergencia_proveedor', 'Gemini');
     guardar.run('whatsapp_emergencia_base_url', 'https://generativelanguage.googleapis.com/v1beta');
     guardar.run('whatsapp_emergencia_modelo', 'gemini-3.5-flash-lite');
+    guardar.run(marca, '1');
+  })();
+}
+
+/**
+ * Quita la contradicción que hacía que Chispita siguiera vendiendo después de
+ * que el cliente ya había dicho "nada más" o pedido el resumen.
+ *
+ * Sólo se reemplazan las frases históricas conocidas. Si el administrador
+ * escribió reglas propias, se conservan y se agrega el límite operativo sin
+ * borrar el resto del entrenamiento.
+ */
+function armonizarCierreDePedidoWhatsapp(db) {
+  const marca = 'migracion_chispita_cierre_pedido_v1';
+  if (db.prepare('SELECT valor FROM configuracion WHERE clave = ?').get(marca)?.valor === '1') {
+    return;
+  }
+
+  const leer = db.prepare('SELECT valor FROM configuracion WHERE clave = ?');
+  const guardar = db.prepare(
+    `INSERT INTO configuracion (clave, valor) VALUES (?, ?)
+     ON CONFLICT(clave) DO UPDATE SET valor = excluded.valor`
+  );
+  const limite =
+    'Si el cliente dice “nada más”, “eso es todo”, “sólo eso” o pide el resumen, ' +
+    'no ofrezcas bebida, postre ni otro agregado: presentá el resumen inmediatamente. ' +
+    'Si responde que sí a una oferta sin decir cuál producto quiere, preguntá cuál; ' +
+    'nunca agregues un producto genérico ni elijas por el cliente.';
+
+  db.transaction(() => {
+    let reglas = String(leer.get('whatsapp_agente_reglas_generales')?.valor || '').trim();
+    if (!reglas) {
+      reglas =
+        'No inventes productos, precios, promociones ni tiempos. El pedido es delivery salvo retiro explícito; ' +
+        'reutilizá o pedí la dirección. No preguntes forma de pago: se abona al recibir. ' +
+        'Las pizzas son enteras con cremoso por defecto. Antes de crear el pedido, enviá el resumen completo y esperá confirmación explícita.';
+    }
+    reglas = reglas.replace(
+      /Antes de cerrar, si no pidió bebida, ofrecé una sola vez y sin insistir:[\s\S]*?Si dice que no, no vuelvas a ofrecer nada en toda la conversación\.?/i,
+      'Podés ofrecer una bebida una sola vez únicamente si el cliente todavía no cerró la elección ni pidió el resumen.'
+    );
+    if (!/nada más[”"']?,?\s*[“"']?eso es todo/i.test(reglas)) {
+      reglas = `${reglas}${reglas ? '\n\n' : ''}${limite}`;
+    }
+    guardar.run('whatsapp_agente_reglas_generales', reglas);
+
+    let ejemplos = String(leer.get('whatsapp_agente_ejemplos')?.valor || '').trim();
+    if (!ejemplos || /¿Algo más\?/i.test(ejemplos)) {
+      ejemplos =
+        'Cliente: Hola. Respuesta: Hola, ¿qué querés pedir?\n' +
+        'Cliente: Quiero una pizza común para retirar. Eso es todo. ' +
+        'Respuesta: [carga la pizza y presenta directamente el resumen exacto del servidor]\n' +
+        'Cliente: Confirmo. Respuesta: [crea el pedido una sola vez y devuelve el número real]\n' +
+        'Cliente: Me llegó mal el pedido. ' +
+        'Respuesta: Disculpá. Ya te derivo con una persona del local para resolverlo.';
+      guardar.run('whatsapp_agente_ejemplos', ejemplos);
+    }
     guardar.run(marca, '1');
   })();
 }

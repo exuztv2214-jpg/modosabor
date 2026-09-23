@@ -471,6 +471,16 @@ app.use((error, _req, res, next) => {
 
 io.on('connection', () => {});
 
+try {
+  const cacheVoz = require('./services/vozIa').limpiarCacheVoz();
+  if (cacheVoz.removed > 0) {
+    logger.info('[vozIa] Caché antiguo liberado', cacheVoz);
+  }
+} catch (error) {
+  // La limpieza de un caché nunca puede impedir que abra la caja.
+  logger.warn('[vozIa] No se pudo limitar el caché', { message: error.message });
+}
+
 startAutomaticBackups(db);
 /*
   El cierre no puede depender de que alguien abra Caja. Cada 30 segundos se

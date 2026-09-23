@@ -58,6 +58,17 @@ async function run() {
       'el agente recibe los datos de transferencia configurados'
     );
     assert.match(instrucciones, /“sí”, “si”, “confirmo”, “dale”, “ok”/i);
+    assert.match(instrucciones, /“Nada más”, “eso es todo”, “sólo eso”/i);
+    assert.match(instrucciones, /“Común con Huevo” no se divide/i);
+
+    const reglasMigradas = db
+      .prepare("SELECT valor FROM configuracion WHERE clave = 'whatsapp_agente_reglas_generales'")
+      .get()?.valor;
+    const ejemplosMigrados = db
+      .prepare("SELECT valor FROM configuracion WHERE clave = 'whatsapp_agente_ejemplos'")
+      .get()?.valor;
+    assert.match(reglasMigradas, /nada más/i);
+    assert.doesNotMatch(ejemplosMigrados, /¿Algo más\?/i);
 
     let fichaConsultada = null;
     const respuesta = await atenderConMotorPropio(

@@ -18,6 +18,49 @@ function normalizePathForSql(filePath) {
 
 const DEFAULT_MAX_BACKUP_BYTES = 64 * 1024 * 1024;
 
+function esBackupVisible(fullPath, stats = null) {
+  try {
+    const info = stats || fs.statSync(fullPath);
+    // VACUUM INTO puede alcanzar a crear el archivo antes de quedarse sin
+    // espacio. Un archivo vacío no es un respaldo y no debe aparecer como el
+    // "último backup" en el panel.
+    if (!info.isFile() || info.size < 100) return false;
+    const descriptor = fs.openSync(fullPath, 'r');
+    try {
+      const header = Buffer.alloc(16);
+      if (fs.readSync(descriptor, header, 0, header.length, 0) !== header.length) return false;
+      return header.toString('utf8') === 'SQLite format 3\u0000';
+    } finally {
+      fs.closeSync(descriptor);
+    }
+  } catch {
+    return false;
+  }
+}
+
+function validarBackupCreado(fullPath) {
+  if (!esBackupVisible(fullPath)) {
+    throw new Error('El backup generado no es una base SQLite válida');
+  }
+  const backup = new Database(fullPath, { readonly: true, fileMustExist: true });
+  try {
+    const check = backup.prepare('PRAGMA quick_check').pluck().get();
+    const tables = Number(
+      backup
+        .prepare(
+          "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
+        )
+        .pluck()
+        .get() || 0
+    );
+    if (check !== 'ok' || tables === 0) {
+      throw new Error('El backup generado no pasó la verificación de integridad');
+    }
+  } finally {
+    backup.close();
+  }
+}
+
 function normalizeRetention(options = {}) {
   if (typeof options === 'number') {
     return {
@@ -43,14 +86,18 @@ function normalizeRetention(options = {}) {
 function cleanupOldBackups(options = {}) {
   ensureBackupsDir();
   const retention = normalizeRetention(options);
-  const files = fs
+  const encontrados = fs
     .readdirSync(backupsDir)
     .filter((file) => file.endsWith('.sqlite'))
     .map((file) => {
       const fullPath = path.join(backupsDir, file);
       const stats = fs.statSync(fullPath);
       return { file, fullPath, mtimeMs: stats.mtimeMs, size: stats.size };
-    })
+    });
+  const invalidos = encontrados.filter((entry) => !esBackupVisible(entry.fullPath));
+  invalidos.forEach((entry) => fs.unlinkSync(entry.fullPath));
+  const files = encontrados
+    .filter((entry) => esBackupVisible(entry.fullPath))
     .sort((a, b) => b.mtimeMs - a.mtimeMs);
 
   const retained = [];
@@ -73,7 +120,8 @@ function cleanupOldBackups(options = {}) {
   return {
     retained: retained.length,
     retainedBytes,
-    removed: removed.map((entry) => entry.file),
+    removed: [...invalidos, ...removed].map((entry) => entry.file),
+    removedInvalid: invalidos.map((entry) => entry.file),
     maxFiles: retention.maxFiles,
     maxTotalBytes: retention.maxTotalBytes,
   };
@@ -87,12 +135,15 @@ function listBackups() {
     .map((file) => {
       const fullPath = path.join(backupsDir, file);
       const stats = fs.statSync(fullPath);
-      return {
-        file,
-        size: stats.size,
-        created_at: stats.mtime.toISOString(),
-      };
+      return esBackupVisible(fullPath, stats)
+        ? {
+            file,
+            size: stats.size,
+            created_at: stats.mtime.toISOString(),
+          }
+        : null;
     })
+    .filter(Boolean)
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 }
 
@@ -117,24 +168,38 @@ function createDatabaseBackup(db, options = {}) {
   const outputPath = path.join(backupsDir, file);
   const escapedPath = normalizePathForSql(outputPath);
 
-  db.exec(`VACUUM INTO '${escapedPath}'`);
-  const retention = cleanupOldBackups(options);
+  try {
+    db.exec(`VACUUM INTO '${escapedPath}'`);
+    validarBackupCreado(outputPath);
+    const retention = cleanupOldBackups(options);
 
-  const stats = fs.statSync(outputPath);
-  return {
-    file,
-    fullPath: outputPath,
-    size: stats.size,
-    created_at: stats.mtime.toISOString(),
-    retention,
-  };
+    const stats = fs.statSync(outputPath);
+    return {
+      file,
+      fullPath: outputPath,
+      size: stats.size,
+      created_at: stats.mtime.toISOString(),
+      retention,
+    };
+  } catch (error) {
+    // No dejar un .sqlite vacío que el panel pueda confundir con un backup
+    // reciente y restaurable.
+    try {
+      if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
+    } catch {}
+    throw error;
+  }
 }
 
 function getBackupPath(file) {
   ensureBackupsDir();
   const safeFile = path.basename(String(file || ''));
   const fullPath = path.join(backupsDir, safeFile);
-  if (!fs.existsSync(fullPath) || path.extname(fullPath) !== '.sqlite') {
+  if (
+    !fs.existsSync(fullPath) ||
+    path.extname(fullPath) !== '.sqlite' ||
+    !esBackupVisible(fullPath)
+  ) {
     throw new Error('Backup no encontrado');
   }
   return fullPath;

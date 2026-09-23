@@ -110,7 +110,7 @@ function runSeed(db) {
     ],
     [
       'whatsapp_agente_reglas_generales',
-      'No inventes productos, precios, promociones ni tiempos. El pedido es delivery salvo retiro explícito; reutilizá o pedí la dirección. No preguntes forma de pago: se abona al recibir. Las pizzas son enteras con cremoso por defecto. Antes de crear el pedido, enviá el resumen completo y esperá confirmación explícita.',
+      'No inventes productos, precios, promociones ni tiempos. El pedido es delivery salvo retiro explícito; reutilizá o pedí la dirección. No preguntes forma de pago: se abona al recibir. Las pizzas son enteras con cremoso por defecto. Si el cliente dice nada más, eso es todo, sólo eso o pide el resumen, no ofrezcas agregados y presentá el resumen inmediatamente. Antes de crear el pedido, enviá el resumen completo y esperá confirmación explícita.',
     ],
     [
       /*
@@ -135,7 +135,7 @@ function runSeed(db) {
     ],
     [
       'whatsapp_agente_ejemplos',
-      'Cliente: Hola. Respuesta: Hola, ¿qué querés pedir?\nCliente: Quiero una pizza común. Respuesta: Dale, una común entera con cremoso. ¿Algo más?\nCliente: Eso es todo. Respuesta: Perfecto. ¿A qué dirección te lo mando?',
+      'Cliente: Hola. Respuesta: Hola, ¿qué querés pedir?\nCliente: Quiero una pizza común para retirar. Eso es todo. Respuesta: [carga la pizza y presenta directamente el resumen exacto del servidor para confirmar]\nCliente: Confirmo. Respuesta: [crea una sola vez el pedido y devuelve su número real]',
     ],
     // Minutos que tiene el rider para deshacer una entrega marcada por
     // error. Pasado ese tiempo la correccion la hace el local.

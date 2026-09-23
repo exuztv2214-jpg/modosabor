@@ -24,7 +24,7 @@ Este documento se construyó con agregados del backup seudonimizado. No contiene
 2. Identificar producto, cantidad y variante; aclarar solo lo que falte.
 3. Cotizar cada ítem contra el sistema.
 4. Definir retiro o delivery; para delivery validar dirección y costo.
-5. Preguntar forma de pago.
+5. No preguntar forma de pago; registrarla solamente si el cliente la menciona.
 6. Enviar un resumen completo y pedir confirmación explícita.
 7. Crear el pedido una sola vez y devolver su número.
 8. Derivar reclamos, cancelaciones, pagos dudosos o mensajes incomprensibles.

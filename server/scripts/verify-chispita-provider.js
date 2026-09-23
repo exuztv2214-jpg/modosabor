@@ -22,6 +22,12 @@ async function run() {
     'whatsapp_emergencia_modelo',
     'whatsapp_emergencia_api_key',
     'whatsapp_ia_priorizar_respaldo',
+    'whatsapp_agente_nombre',
+    'whatsapp_agente_estilo',
+    'whatsapp_agente_reglas_generales',
+    'whatsapp_agente_reglas_turnos',
+    'whatsapp_agente_ejemplos',
+    'whatsapp_datos_transferencia',
   ];
   const config = keys.map((clave) => ({
     clave,
@@ -107,9 +113,16 @@ async function run() {
       guardar.run('whatsapp_atencion_ia_activa', '1');
       guardar.run('whatsapp_gateway_pausa_total', '0');
       require('../utils/operationalCaja').ensureOperationalCaja(db);
+      const categoriaId = Number(
+        db
+          .prepare(
+            "INSERT INTO categorias (nombre, activo, turno_id) VALUES ('Hamburguesas de prueba', 1, '')"
+          )
+          .run().lastInsertRowid
+      );
       db.prepare(
-        "INSERT INTO productos (nombre, precio, variantes, extras, activo, stock_directo, disponible_para_venta) VALUES ('Hamburguesa de prueba', 500000, '[]', '[]', 1, 20, 1)"
-      ).run();
+        "INSERT INTO productos (nombre, precio, categoria_id, variantes, extras, activo, stock_mode, stock_directo, disponible_para_venta) VALUES ('Hamburguesa de prueba', 500000, ?, '[]', '[]', 1, 'direct', 20, 1)"
+      ).run(categoriaId);
       const { conexion } = require('../services/whatsappMasivo/conexion');
       const { enqueueIncoming } = require('../services/whatsappGateway');
       const respuestasVenta = [];
