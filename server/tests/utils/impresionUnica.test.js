@@ -13,6 +13,7 @@ function run() {
   const globalAlerts = readClient('components/GlobalOrderAlerts.jsx');
   const pedidos = readClient('pages/Pedidos/index.jsx');
   const tpv = readClient('pages/TPV.jsx');
+  const paymentModal = readClient('components/TPV/TpvPaymentModal.jsx');
 
   assert.match(
     globalAlerts,
@@ -20,10 +21,15 @@ function run() {
   );
   assert.doesNotMatch(pedidos, /imprimirDocumentosPedidoWeb/);
   assert.doesNotMatch(pedidos, /impresion_auto_web/);
-  assert.match(tpv, /const shouldManualPrint = !ventaSinConexion && imprimir/);
+  assert.match(
+    tpv,
+    /const shouldManualPrint =\s*!ventaSinConexion && \(pedidoEditando \? imprimir : true\)/
+  );
   assert.doesNotMatch(globalAlerts, /impresion_auto_tpv/);
-  assert.match(tpv, /if \(shouldManualPrint\) \{\s*popup = window\.open/);
-  assert.match(tpv, /if \(shouldManualPrint\) await abrirImpresion\(pedido\.id, popup\)/);
+  assert.doesNotMatch(tpv, /window\.open\('', '_blank', 'width=900,height=700'\)/);
+  assert.match(tpv, /if \(shouldManualPrint\) await abrirImpresion\(pedido\.id\)/);
+  assert.match(paymentModal, /useState\(true\)/);
+  assert.match(paymentModal, /Al cobrar se imprimen la comanda y el ticket/);
 
   console.log('impresionUnica.test.js OK');
 }

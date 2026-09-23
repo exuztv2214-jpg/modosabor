@@ -54,13 +54,14 @@ export default function TpvPaymentModal({
   onConfirm,
   editandoPedido = null,
 }) {
-  const [imprimir, setImprimir] = useState(false);
+  const [imprimir, setImprimir] = useState(true);
   const confirmarButtonRef = useRef(null);
 
-  // Al abrir el modal arrancamos siempre sin importe cargado: si quedara
-  // el de la venta anterior, un Enter distraído cobraría cualquier cosa.
+  // Toda venta nueva sale con comanda y ticket. En una corrección se permite
+  // destildarlo, pero el valor inicial también es imprimir para que el local
+  // no pierda la comanda por un Enter rápido.
   useEffect(() => {
-    if (open) setImprimir(false);
+    if (open) setImprimir(true);
   }, [open]);
 
   useEffect(() => {
@@ -415,17 +416,22 @@ export default function TpvPaymentModal({
               </p>
             ) : null}
 
-            <label className="mb-4 flex cursor-pointer items-center gap-2 text-[12px] font-semibold text-slate-600">
-              <input
-                type="checkbox"
-                checked={imprimir}
-                onChange={(event) => setImprimir(event.target.checked)}
-                className="h-4 w-4 rounded border-gray-300 text-brand-500 focus:ring-brand-200"
-              />
-              {editandoPedido
-                ? 'Reimprimir comanda y ticket corregidos'
-                : 'Imprimir ticket al cobrar'}
-            </label>
+            {editandoPedido ? (
+              <label className="mb-4 flex cursor-pointer items-center gap-2 text-[12px] font-semibold text-slate-600">
+                <input
+                  type="checkbox"
+                  checked={imprimir}
+                  onChange={(event) => setImprimir(event.target.checked)}
+                  className="h-4 w-4 rounded border-gray-300 text-brand-500 focus:ring-brand-200"
+                />
+                Reimprimir comanda y ticket corregidos
+              </label>
+            ) : (
+              <p className="mb-4 flex items-center gap-2 text-[12px] font-semibold text-emerald-700">
+                <ReceiptText size={16} strokeWidth={STROKE} />
+                Al cobrar se imprimen la comanda y el ticket
+              </p>
+            )}
 
             <div className="flex gap-2">
               <button

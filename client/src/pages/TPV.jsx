@@ -1736,23 +1736,16 @@ export default function TPV() {
     }, 250);
   };
 
-  const abrirImpresion = async (pedidoId, popup) => {
+  const abrirImpresion = async (pedidoId) => {
     try {
       const response = await api.post(`/pedidos/${pedidoId}/imprimir`, { tipo: 'tpv_pack' });
-      if (popup) {
-        popup.document.open();
-        popup.document.write(response.html);
-        popup.document.close();
-      } else {
-        imprimirEnIframe(response.html);
-      }
+      imprimirEnIframe(response.html);
       toast.success(
         tipoEntrega === 'delivery'
           ? 'Comanda, ticket y hoja de reparto listos'
           : 'Comanda y ticket listos para imprimir'
       );
     } catch (error) {
-      if (popup) popup.close();
       toast.error(error?.error || 'No se pudieron generar los documentos');
     }
   };
@@ -1852,22 +1845,11 @@ export default function TPV() {
       return toast.error('Sin internet no se puede cobrar con tarjeta ni billetera digital');
     }
 
-    // El TPV imprime únicamente cuando el cajero lo pide en el cobro. El
-    // listener global ya no vuelve a imprimir este mismo pedido en Pedidos.
-    const shouldManualPrint = !ventaSinConexion && imprimir;
-    let popup = null;
-
-    if (shouldManualPrint) {
-      popup = window.open('', '_blank', 'width=900,height=700');
-      if (!popup) {
-        setLoading(false);
-        return toast.error('Permiti las ventanas emergentes para imprimir');
-      }
-      popup.document.write(
-        '<p style="font-family: Arial, sans-serif; padding: 24px;">Preparando impresion...</p>'
-      );
-      popup.document.close();
-    }
+    // Toda venta nueva del TPV imprime un único pack (comanda + ticket y,
+    // cuando corresponde, hoja de reparto). Pedidos no vuelve a imprimir los
+    // pedidos originados en TPV. Las correcciones sí permiten decidir si se
+    // reimprime, para no sacar papel al editar un dato administrativo.
+    const shouldManualPrint = !ventaSinConexion && (pedidoEditando ? imprimir : true);
 
     try {
       const payload = buildPedidoPayload({
@@ -1920,7 +1902,7 @@ export default function TPV() {
         : await api.post('/pedidos/interno', payload);
 
       if (pedidoEditando) {
-        if (shouldManualPrint) await abrirImpresion(pedido.id, popup);
+        if (shouldManualPrint) await abrirImpresion(pedido.id);
         toast.success(
           `Pedido #${pedido.numero} corregido · ${Number(pedido.total || total).toLocaleString(
             'es-AR',
@@ -1947,7 +1929,7 @@ export default function TPV() {
         printed: shouldManualPrint,
         pedido,
       });
-      if (shouldManualPrint) await abrirImpresion(pedido.id, popup);
+      if (shouldManualPrint) await abrirImpresion(pedido.id);
       // Confirmación con el número y el total: son los dos datos que el
       // operador necesita si el cliente pregunta o si hay que reimprimir.
       // La tarjeta verde de "última venta" ya no ocupa lugar en la columna,
@@ -1964,7 +1946,6 @@ export default function TPV() {
       limpiar();
       setCobroAbierto(false);
     } catch (error) {
-      if (popup) popup.close();
       if (
         String(error?.error || '')
           .toLowerCase()
@@ -2118,7 +2099,7 @@ export default function TPV() {
 
       if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
         event.preventDefault();
-        keyboardActionsRef.current.confirmar(Boolean(event.shiftKey));
+        keyboardActionsRef.current.confirmar(true);
         return;
       }
 
@@ -2402,7 +2383,7 @@ export default function TPV() {
         confirmDisabled={confirmDisabled}
         blockedReason={blockedReason}
         loading={loading}
-        onConfirm={(imprimir) => confirmar(Boolean(imprimir))}
+        onConfirm={(imprimir) => confirmar(pedidoEditando ? Boolean(imprimir) : true)}
         editandoPedido={pedidoEditando}
       />
 
