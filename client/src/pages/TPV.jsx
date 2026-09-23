@@ -1712,34 +1712,81 @@ export default function TPV() {
     toast.success(monto > 0 ? `Descontados ${fmt(monto)}` : 'Descuento sacado');
   };
 
-  const imprimirEnIframe = (html) => {
+  const imprimirEnIframe = async (html) => {
     const iframe = document.createElement('iframe');
     iframe.style.position = 'fixed';
-    iframe.style.right = '0';
-    iframe.style.bottom = '0';
-    iframe.style.width = '0';
-    iframe.style.height = '0';
+    iframe.style.left = '-10000px';
+    iframe.style.top = '0';
+    // Chrome/Edge pueden omitir la maquetación de un frame de 0x0. Un pixel
+    // fuera de pantalla sigue siendo invisible para el operador, pero conserva
+    // un contexto renderizable para la cola de impresión.
+    iframe.style.width = '1px';
+    iframe.style.height = '1px';
     iframe.style.border = '0';
+    iframe.style.opacity = '0.01';
+    iframe.style.pointerEvents = 'none';
+    iframe.setAttribute('aria-hidden', 'true');
+    iframe.setAttribute('title', 'Documento de impresión del TPV');
     document.body.appendChild(iframe);
 
-    const doc = iframe.contentWindow?.document;
-    if (!doc) return;
+    const printWindow = iframe.contentWindow;
+    const doc = printWindow?.document;
+    if (!doc || !printWindow) {
+      iframe.remove();
+      throw new Error('El navegador no pudo preparar la impresión');
+    }
 
     doc.open();
     doc.write(html);
     doc.close();
 
-    setTimeout(() => {
-      iframe.contentWindow?.focus();
-      iframe.contentWindow?.print();
-      setTimeout(() => iframe.remove(), 1200);
-    }, 250);
+    // No alcanza con esperar una cantidad fija de milisegundos: el logo, el
+    // QR y las fuentes pueden seguir cargando. Imprimir antes da hojas vacías
+    // o hace que algunos navegadores ignoren el trabajo.
+    const esperarImagenes = Promise.all(
+      Array.from(doc.images || []).map((imagen) => {
+        if (imagen.complete) return Promise.resolve();
+        return new Promise((resolve) => {
+          imagen.addEventListener('load', resolve, { once: true });
+          imagen.addEventListener('error', resolve, { once: true });
+        });
+      })
+    );
+    const esperarFuentes = doc.fonts?.ready?.catch?.(() => undefined) || Promise.resolve();
+    const limiteCarga = new Promise((resolve) => setTimeout(resolve, 4000));
+    await Promise.race([Promise.all([esperarImagenes, esperarFuentes]), limiteCarga]);
+    await new Promise((resolve) =>
+      window.requestAnimationFrame(() => window.requestAnimationFrame(resolve))
+    );
+
+    let eliminado = false;
+    const limpiarIframe = () => {
+      if (eliminado) return;
+      eliminado = true;
+      iframe.remove();
+    };
+
+    // El frame debe vivir hasta que el navegador termine el diálogo o el
+    // envío directo a la impresora. El código anterior lo borraba a los 1,2 s
+    // y Chrome/Edge cancelaban la cola en equipos más lentos.
+    printWindow.addEventListener('afterprint', () => setTimeout(limpiarIframe, 250), {
+      once: true,
+    });
+    setTimeout(limpiarIframe, 120000);
+
+    try {
+      printWindow.focus();
+      printWindow.print();
+    } catch (error) {
+      limpiarIframe();
+      throw error;
+    }
   };
 
   const abrirImpresion = async (pedidoId) => {
     try {
       const response = await api.post(`/pedidos/${pedidoId}/imprimir`, { tipo: 'tpv_pack' });
-      imprimirEnIframe(response.html);
+      await imprimirEnIframe(response.html);
       toast.success(
         tipoEntrega === 'delivery'
           ? 'Comanda, ticket y hoja de reparto listos'
@@ -1795,7 +1842,7 @@ export default function TPV() {
         `/pedidos/mesa/${encodeURIComponent(String(mesa).trim())}/precuenta`,
         {}
       );
-      imprimirEnIframe(response.html);
+      await imprimirEnIframe(response.html);
       toast.success(`Precuenta lista para mesa ${mesa}`);
     } catch (error) {
       toast.error(error?.error || 'No se pudo generar la precuenta');

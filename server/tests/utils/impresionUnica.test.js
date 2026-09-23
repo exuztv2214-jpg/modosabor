@@ -34,6 +34,13 @@ function run() {
   assert.doesNotMatch(globalAlerts, /impresion_auto_tpv/);
   assert.doesNotMatch(tpv, /window\.open\('', '_blank', 'width=900,height=700'\)/);
   assert.match(tpv, /if \(shouldManualPrint\) await abrirImpresion\(pedido\.id\)/);
+  assert.match(tpv, /printWindow\.addEventListener\('afterprint'/);
+  assert.doesNotMatch(
+    tpv,
+    /setTimeout\(\(\) => iframe\.remove\(\), 1200\)/,
+    'el TPV no debe destruir el documento mientras Chrome o Edge todavía lo imprimen'
+  );
+  assert.match(tpv, /await imprimirEnIframe\(response\.html\)/);
   assert.match(paymentModal, /useState\(true\)/);
   assert.match(paymentModal, /Al cobrar se imprimen la comanda y el ticket/);
 
