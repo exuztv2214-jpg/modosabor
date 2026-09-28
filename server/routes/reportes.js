@@ -926,10 +926,33 @@ router.get('/dashboard', auth, requirePermission('dashboard.finanzas'), (req, re
     : 100;
   const margenBrutoPeriodo = totalPeriodo - costoPeriodo;
 
-  // Estado de caja actual
+  // Estado de caja actual. El turno puede seguir abierto después de vender:
+  // el dashboard debe mostrar su acumulado sin esperar al cierre automático.
   const cajaActiva = db
-    .prepare("SELECT id, abierta_en, abierta_por_nombre FROM cierres_caja WHERE estado = 'abierta'")
+    .prepare(
+      `SELECT id, abierta_en, abierta_por_nombre, turno_id, turno_nombre, fecha_operativa
+       FROM cierres_caja WHERE estado = 'abierta' ORDER BY id DESC LIMIT 1`
+    )
     .get();
+  let cajaEstado = { abierta: false };
+  if (cajaActiva) {
+    const ventasTurno = db
+      .prepare(
+        `SELECT COUNT(*) AS pedidos, COALESCE(SUM(total), 0) AS totalVentas
+         FROM pedidos
+         WHERE datetime(creado_en) >= datetime(?) AND estado != 'cancelado'`
+      )
+      .get(cajaActiva.abierta_en);
+    cajaEstado = {
+      abierta: true,
+      ...cajaActiva,
+      totalVentas: Number(ventasTurno?.totalVentas || 0),
+      pedidos: Number(ventasTurno?.pedidos || 0),
+      ticketPromedio: ventasTurno?.pedidos
+        ? Math.round(Number(ventasTurno.totalVentas || 0) / Number(ventasTurno.pedidos))
+        : 0,
+    };
+  }
 
   res.json({
     ventasHoy,
@@ -947,7 +970,7 @@ router.get('/dashboard', auth, requirePermission('dashboard.finanzas'), (req, re
     clientesVIP,
     clientesMasCompran,
     stockCritico,
-    cajaEstado: cajaActiva ? { abierta: true, ...cajaActiva } : { abierta: false },
+    cajaEstado,
     margenBrutoHoy,
     margenPctHoy,
     coberturaCostosHoy,

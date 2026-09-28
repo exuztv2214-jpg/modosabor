@@ -505,6 +505,8 @@ export default function DashboardModern() {
     hasPermission('caja.view') &&
     !data?.cajaEstado?.abierta &&
     isModuleEnabled('caja');
+  const cajaAbierta =
+    financialVisible && hasPermission('caja.view') && data?.cajaEstado?.abierta === true;
   const stockCritico =
     financialVisible && hasPermission('productos.edit') && isModuleEnabled('inventario')
       ? data?.stockCritico || []
@@ -669,8 +671,46 @@ export default function DashboardModern() {
           ninguno ganaba. Ahora es una sola franja con el acento en el borde:
           se lee primero por posición, no por saturación.
         */}
-        {cajaCerrada || stockCritico.length > 0 ? (
+        {cajaCerrada || cajaAbierta || stockCritico.length > 0 ? (
           <div className="grid gap-3 lg:grid-cols-2">
+            {cajaAbierta ? (
+              <div className="relative overflow-hidden rounded-2xl bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.06)]">
+                <span className="absolute inset-y-0 left-0 w-1 bg-emerald-500" />
+                <div className="pl-2">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="text-[14px] font-semibold text-gray-900">
+                        Turno actual ·{' '}
+                        {data.cajaEstado.turno_nombre || data.cajaEstado.turno_id || 'Sin turno'}
+                      </p>
+                      <p className="mt-0.5 text-[12px] text-gray-500">
+                        Caja abierta · fecha operativa {data.cajaEstado.fecha_operativa || '—'}
+                      </p>
+                    </div>
+                    <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700">
+                      En curso
+                    </span>
+                  </div>
+                  <div className="mt-3 flex flex-wrap items-end gap-x-6 gap-y-2">
+                    <div>
+                      <p className="text-[11px] text-gray-400">Ventas acumuladas</p>
+                      <p className="text-xl font-bold tabular-nums text-gray-900">
+                        {fmtMoney(data.cajaEstado.totalVentas || 0)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] text-gray-400">Pedidos</p>
+                      <p className="text-xl font-bold tabular-nums text-gray-900">
+                        {fmtNumber(data.cajaEstado.pedidos || 0)}
+                      </p>
+                    </div>
+                    <div className="text-[11px] text-gray-500">
+                      Ticket promedio {fmtMoney(data.cajaEstado.ticketPromedio || 0)}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : null}
             {cajaCerrada ? (
               <div className="relative flex items-center justify-between gap-4 overflow-hidden rounded-2xl bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.06)]">
                 <span className="absolute inset-y-0 left-0 w-1" style={{ background: BRAND }} />
