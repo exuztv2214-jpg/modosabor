@@ -11,6 +11,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(RiderSecureStorePlugin.class);
         registerPlugin(RiderAlertPlugin.class);
         registerPlugin(RiderBiometricPlugin.class);
+        registerPlugin(RiderUpdaterPlugin.class);
     }
 
     @Override

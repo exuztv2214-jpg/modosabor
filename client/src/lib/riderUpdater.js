@@ -149,11 +149,24 @@ export async function downloadAndInstall(downloadUrl) {
 
   if (await isNative()) {
     try {
-      // Intento con el AppLauncher si está disponible (más limpio, respeta
-      // el browser default del usuario). Fallback a Browser plugin.
+      // DownloadManager nativo: la descarga continúa aunque el rider cierre
+      // la app y Android muestra el APK terminado en sus notificaciones.
+      // Browser.open quedaba pendiente mientras el Custom Tab seguía abierto,
+      // dejando el botón permanentemente en “Descargando…”.
+      try {
+        const { registerPlugin } = await import('@capacitor/core');
+        const RiderUpdater = registerPlugin('RiderUpdater');
+        await RiderUpdater.download({
+          url: downloadUrl,
+          fileName: `modosabor-rider-${Date.now()}.apk`,
+        });
+        return true;
+      } catch {}
+
+      // Fallback para APKs antiguos que todavía no tienen el plugin nativo.
       try {
         const { Browser } = await import('@capacitor/browser');
-        await Browser.open({ url: downloadUrl, presentationStyle: 'popover' });
+        void Browser.open({ url: downloadUrl, presentationStyle: 'popover' });
         return true;
       } catch {}
       // Último recurso: window.open que en Capacitor abre en el browser

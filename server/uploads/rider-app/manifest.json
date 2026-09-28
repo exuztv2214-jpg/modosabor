@@ -1,9 +1,9 @@
 {
-  "versionCode": 10307,
-  "versionName": "1.3.7",
-  "apkFile": "modosabor-rider-1.3.7.apk",
-  "changelog": "• Mayor estabilidad al iniciar el seguimiento GPS\n• Controles Rider mejorados para teclado y accesibilidad\n• Compatibilidad con los turnos y riders activos del sistema actualizado",
+  "versionCode": 10308,
+  "versionName": "1.3.8",
+  "apkFile": "modosabor-rider-1.3.8.apk",
+  "changelog": "• Descarga de actualizaciones corregida\n• La descarga continúa aunque la app pase a segundo plano\n• Mejor compatibilidad con Android antiguos",
   "forceUpdate": false,
   "minVersionCode": 10000,
-  "releasedAt": "2026-09-01T16:51:14Z"
+  "releasedAt": "2026-09-27T22:02:27Z"
 }

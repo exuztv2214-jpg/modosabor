@@ -55,4 +55,6 @@
          La primera vez el rider tiene que aceptar "instalar apps de esta
          fuente" en el dialogo del sistema; despues queda persistido. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- DownloadManager necesita este permiso sólo en Android 9 y anteriores. -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
 </manifest>
