@@ -981,7 +981,10 @@ export default function Caja() {
                 <thead className="bg-gray-50 text-[11px] text-gray-500">
                   <tr>
                     <th className="px-4 py-2.5 font-medium">Apertura</th>
+                    <th className="px-4 py-2.5 font-medium">Turno</th>
                     <th className="px-4 py-2.5 font-medium">Estado</th>
+                    <th className="px-4 py-2.5 text-right font-medium">Ventas</th>
+                    <th className="px-4 py-2.5 text-right font-medium">Pedidos</th>
                     <th className="px-4 py-2.5 text-right font-medium">Fondo</th>
                     <th className="px-4 py-2.5 text-right font-medium">Contado</th>
                     <th className="px-4 py-2.5 text-right font-medium">Diferencia</th>
@@ -992,9 +995,21 @@ export default function Caja() {
                   {historial.map((item) => {
                     const arqueado = item.monto_final_declarado !== null;
                     const dif = arqueado ? Number(item.diferencia || 0) : null;
+                    const resumenCierre =
+                      item.resumen && typeof item.resumen === 'object' ? item.resumen : {};
                     return (
                       <tr key={item.id} className="transition-colors hover:bg-gray-50">
                         <td className="px-4 py-3 text-gray-700">{fmtDateTime(item.abierta_en)}</td>
+                        <td className="px-4 py-3 text-gray-700">
+                          <div className="font-medium">
+                            {item.turno_nombre || item.turno_id || 'Sin turno'}
+                          </div>
+                          {item.fecha_operativa ? (
+                            <div className="text-[11px] text-gray-400">
+                              Fecha operativa {item.fecha_operativa}
+                            </div>
+                          ) : null}
+                        </td>
                         <td className="px-4 py-3">
                           <span
                             className="rounded-full px-2 py-0.5 text-[11px] font-medium"
@@ -1006,6 +1021,12 @@ export default function Caja() {
                           >
                             {item.estado === 'abierta' ? 'Abierta' : 'Cerrada'}
                           </span>
+                        </td>
+                        <td className="px-4 py-3 text-right font-bold tabular-nums text-gray-900">
+                          {resumenCierre.totalVentas != null ? fmt(resumenCierre.totalVentas) : '—'}
+                        </td>
+                        <td className="px-4 py-3 text-right tabular-nums text-gray-700">
+                          {resumenCierre.pedidos != null ? resumenCierre.pedidos : '—'}
                         </td>
                         <td className="px-4 py-3 text-right tabular-nums text-gray-700">
                           {fmt(item.monto_inicial)}
