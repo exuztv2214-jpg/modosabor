@@ -719,7 +719,7 @@ CREATE TABLE IF NOT EXISTS fidelizacion_config (
   dias_expiracion INTEGER DEFAULT 180,
   minimo_canje INTEGER DEFAULT 50,
   monto_minimo_sello INTEGER DEFAULT 10000,
-  sellos_para_premio INTEGER DEFAULT 6,
+  sellos_para_premio INTEGER DEFAULT 8,
   premio_descripcion TEXT DEFAULT '1 Pizza Muzzarella',
   premio_producto_id INTEGER,
   activo BOOLEAN DEFAULT 1,

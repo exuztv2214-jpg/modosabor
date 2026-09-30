@@ -12,6 +12,16 @@ function run() {
 
   assert.match(route, /clubLookupRateLimit/);
   assert.match(route, /includePrivate: Boolean\(byCode\)/);
+  assert.match(
+    route,
+    /getClubPayload\(cliente, \{ includePrivate: false \}\)/,
+    'la ficha pública por código no debe devolver datos privados'
+  );
+  assert.match(
+    route,
+    /codigo_tarjeta: cliente\.codigo_tarjeta \|\| ''/,
+    'la ficha pública debe conservar el código necesario para mostrar la tarjeta'
+  );
   assert.match(route, /TRIM\(COALESCE\(email, ''\)\) = ''/);
   assert.match(service, /for \(let i = 0; i < 12; i\+\+\)/);
   assert.match(service, /crypto\.randomInt/);

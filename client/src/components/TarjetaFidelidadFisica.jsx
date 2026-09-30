@@ -12,7 +12,7 @@ const TarjetaFidelidadFisica = ({
   config = {},
   colorPrimario = '#FF6B00',
   clubUrl = '',
-  sellosParaPremio = 7,
+  sellosParaPremio = 8,
 }) => {
   const printRef = useRef(null);
 
@@ -36,7 +36,8 @@ const TarjetaFidelidadFisica = ({
   // Cantidad de sellos que muestra el frente. Se recibe por prop desde el
   // padre (viene del config real del negocio) para que siempre coincida
   // con lo que ve el cliente en la tarjeta virtual.
-  const totalSellos = Math.max(1, Number(sellosParaPremio) || 7);
+  const totalSellos = Math.max(1, Number(sellosParaPremio) || 8);
+  const columnasSellos = Math.min(5, Math.max(3, Math.ceil(totalSellos / 2)));
 
   const handlePrint = () => {
     const printWindow = window.open('', '_blank');
@@ -452,23 +453,20 @@ const TarjetaFidelidadFisica = ({
         {/* Encabezado */}
         <div style={headerStyle}>
           <div style={titleStyle}>Tarjeta de Fidelización</div>
-          <div style={subtitleStyle}>
-            Completá {Math.max(1, totalSellos - 1)} y el {totalSellos}° es gratis
-          </div>
+          <div style={subtitleStyle}>Completá {totalSellos} sellos y desbloqueá tu premio</div>
         </div>
 
         {/* Sellos */}
         <div style={stampsAreaStyle}>
-          <div style={stampsRowStyle}>
-            {[0, 1, 2].map((i) => (
-              <div key={i} style={{ position: 'relative' }}>
-                <div style={stampStyle(i < sellos_actuales)}>{i < sellos_actuales ? '✓' : ''}</div>
-                <span style={stampNumberStyle}>{i + 1}</span>
-              </div>
-            ))}
-          </div>
-          <div style={stampsRowStyle}>
-            {[3, 4, 5].map((i) => (
+          <div
+            style={{
+              ...stampsRowStyle,
+              display: 'grid',
+              gridTemplateColumns: `repeat(${columnasSellos}, 8.5mm)`,
+              gap: '2.5mm 4mm',
+            }}
+          >
+            {Array.from({ length: totalSellos }, (_, i) => (
               <div key={i} style={{ position: 'relative' }}>
                 <div style={stampStyle(i < sellos_actuales)}>{i < sellos_actuales ? '✓' : ''}</div>
                 <span style={stampNumberStyle}>{i + 1}</span>

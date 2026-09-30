@@ -197,6 +197,38 @@ function testLaUnidadDeLosPuntos() {
   console.log('  OK los puntos se calculan con la unidad correcta');
 }
 
+function testLaMigracionConservaYReconciliaElLibro() {
+  const fuente = fs.readFileSync(path.resolve(__dirname, '../../db/migrations.js'), 'utf8');
+
+  assert.match(
+    fuente,
+    /migracion_libro_puntos_historico_v1/,
+    'la reconciliación histórica necesita una marca idempotente'
+  );
+  assert.match(
+    fuente,
+    /UPDATE puntos_transacciones SET puntos_disponibles = puntos/,
+    'la migración debe corregir los disponibles inflados'
+  );
+  assert.match(
+    fuente,
+    /Saldo histórico preservado durante la reconciliación del Club/,
+    'la diferencia histórica debe quedar auditada como bonus'
+  );
+  assert.match(
+    fuente,
+    /migracion_libro_puntos_historico_v2/,
+    'la corrección de la primera reconciliación debe ser idempotente'
+  );
+  assert.match(
+    fuente,
+    /Corrección de doble descuento de la reconciliación histórica del Club/,
+    'la corrección debe quedar registrada como movimiento compensatorio'
+  );
+
+  console.log('  OK la migración de puntos conserva y reconcilia saldos históricos');
+}
+
 function testElCanjeLoDecideElServidor() {
   const fuente = fs.readFileSync(
     path.resolve(__dirname, '../../services/pedidoService.js'),
@@ -243,6 +275,7 @@ function run() {
   testUmbralesEnCentavos();
   testElNivelSeRecalculaAlEntregar();
   testLaUnidadDeLosPuntos();
+  testLaMigracionConservaYReconciliaElLibro();
   testElCanjeLoDecideElServidor();
   console.log('Todos los tests de fidelidad pasaron\n');
 }

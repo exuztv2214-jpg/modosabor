@@ -34,6 +34,17 @@ function isPrivateHostname(hostname) {
   return false;
 }
 
+// Railway es útil como URL técnica del backend, pero no debería terminar en
+// QR o links que reciben clientes cuando la app ya está abierta desde el
+// dominio público. Se reconoce sólo el patrón de hosting, sin bloquear otros
+// dominios válidos que el negocio pueda configurar.
+function isRailwayHostname(hostname) {
+  const host = String(hostname || '')
+    .trim()
+    .toLowerCase();
+  return host.endsWith('.up.railway.app') || host.endsWith('.railway.app');
+}
+
 export function getPublicAppUrlDiagnostics(config = {}) {
   const configuredBase = trimTrailingSlash(config?.public_app_url || DEFAULT_PUBLIC_APP_URL);
   const browserBase = getBrowserOrigin();
@@ -44,6 +55,7 @@ export function getPublicAppUrlDiagnostics(config = {}) {
   const configuredIsPublicHttps = Boolean(
     configuredUrl && configuredUrl.protocol === 'https:' && !configuredIsPrivate
   );
+  const configuredIsRailway = Boolean(configuredUrl && isRailwayHostname(configuredUrl.hostname));
   const configuredIsInsecurePublic = Boolean(
     configuredUrl && configuredUrl.protocol !== 'https:' && !configuredIsPrivate
   );
@@ -67,6 +79,14 @@ export function getPublicAppUrlDiagnostics(config = {}) {
         warning =
           'La URL pública configurada no es válida. Corregila antes de compartir links o imprimir QR.';
       }
+    } else if (browserIsPublicHttps && configuredIsRailway && browserBase !== configuredBase) {
+      // Si el usuario está viendo el panel desde el dominio público, ese es el
+      // origen correcto para compartir. Railway queda disponible como
+      // fallback cuando se accede directamente por su URL técnica.
+      base = browserBase;
+      reason = 'configured-hosting-fallback';
+      warning =
+        'La URL configurada apunta al dominio técnico de Railway. Para compartir se usa el dominio público actual.';
     } else if (browserIsPublicHttps && !configuredIsPublicHttps) {
       base = browserBase;
       reason = configuredIsPrivate ? 'configured-private' : 'configured-insecure';
@@ -95,6 +115,7 @@ export function getPublicAppUrlDiagnostics(config = {}) {
     configuredBase,
     configuredIsPrivate,
     configuredIsPublicHttps,
+    configuredIsRailway,
     reason,
     usesFallback: Boolean(base && configuredBase && base !== configuredBase),
     warning,

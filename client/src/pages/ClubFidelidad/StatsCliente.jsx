@@ -13,12 +13,12 @@ export default function StatsCliente({
   const puntos = Number(cliente?.puntos || 0);
   const premios = Number(cliente?.recompensas_pendientes || 0);
   const nivel = cliente?.nivel || 'Bronce';
-  const compras = Number(cliente?.total_compras || 0);
+  const compras = Number(cliente?.total_pedidos ?? cliente?.total_compras ?? 0);
   const valorPunto = Number(config?.valor_punto_real || 0);
   const valorPuntos = puntos * valorPunto;
-  const stampGoal = Math.max(1, Number(config?.sellos_para_premio || 7));
+  const stampGoal = Math.max(1, Number(config?.sellos_para_premio || 8));
   const stampCount = Math.max(0, Number(cliente?.sellos_actuales || 0));
-  const rewardReady = stampCount >= stampGoal;
+  const rewardReady = Number(cliente?.recompensas_pendientes || 0) > 0 || stampCount >= stampGoal;
 
   const stats = [
     {

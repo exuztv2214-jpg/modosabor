@@ -9,14 +9,14 @@ const logger = require('../utils/logger');
 function getConfig() {
   return (
     db.prepare('SELECT * FROM fidelizacion_config WHERE id = 1').get() || {
-      // 1 punto cada $100 y cada punto vale $5 → el cliente recupera el 5% de
-      // lo que gasta. `valor_punto_real` va en centavos, como toda la plata.
+      // 1 punto cada $100 y cada punto vale $0,10. `valor_punto_real` va en
+      // centavos, como toda la plata.
       pesos_por_punto: 100,
-      valor_punto_real: 500,
+      valor_punto_real: 10,
       dias_expiracion: 180,
       minimo_canje: 50,
       monto_minimo_sello: 10000,
-      sellos_para_premio: 7,
+      sellos_para_premio: 8,
       premio_descripcion: '1 Pizza Muzzarella',
       premio_producto_id: null,
       activo: 1,
@@ -25,6 +25,11 @@ function getConfig() {
 }
 
 function updateConfig(config) {
+  const entero = (value, fallback, minimo = 0) => {
+    if (value === undefined || value === null || value === '') return fallback;
+    const parsed = Math.trunc(Number(value));
+    return Number.isFinite(parsed) && parsed >= minimo ? parsed : fallback;
+  };
   const stmt = db.prepare(`
     UPDATE fidelizacion_config 
     SET pesos_por_punto = ?, 
@@ -40,12 +45,12 @@ function updateConfig(config) {
     WHERE id = 1
   `);
   stmt.run(
-    config.pesos_por_punto || 100,
-    config.valor_punto_real || 500,
-    config.dias_expiracion || 180,
-    config.minimo_canje || 50,
-    config.monto_minimo_sello || 10000,
-    config.sellos_para_premio || 7,
+    entero(config.pesos_por_punto, 100, 1),
+    entero(config.valor_punto_real, 10, 0),
+    entero(config.dias_expiracion, 180, 1),
+    entero(config.minimo_canje, 50, 0),
+    entero(config.monto_minimo_sello, 10000, 0),
+    entero(config.sellos_para_premio, 8, 1),
     config.premio_descripcion || '1 Pizza Muzzarella',
     config.premio_producto_id ? Number(config.premio_producto_id) : null,
     config.activo !== undefined ? config.activo : 1
@@ -583,9 +588,9 @@ function getEstadisticas() {
   const totalClientes = db.prepare('SELECT COUNT(*) as count FROM clientes WHERE puntos > 0').get();
   const puntosEnCirculacion = db
     .prepare(
-      'SELECT COALESCE(SUM(puntos_disponibles), 0) as total FROM puntos_transacciones WHERE tipo = ? AND puntos_disponibles > 0'
+      "SELECT COALESCE(SUM(puntos_disponibles), 0) as total FROM puntos_transacciones WHERE tipo IN ('ganancia', 'bonus') AND puntos_disponibles > 0"
     )
-    .get('ganancia');
+    .get();
   const canjesMes = db
     .prepare(
       `

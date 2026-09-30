@@ -54,19 +54,19 @@ function BurgerMini({ size = 12 }) {
   );
 }
 
-// Demo mini de la tarjeta: se llena sola en un ciclo de ~9 segundos
-// (7 sellos van cayendo uno por uno, el 8vo destraba el premio, y despues
-// arranca de cero).
-function TarjetaDemo({ colorPrimario }) {
+// Demo mini de la tarjeta: se llena sola y respeta la cantidad real de sellos
+// configurada en el Club. No debe enseñar una promoción distinta a la que
+// aplica el servidor.
+function TarjetaDemo({ colorPrimario, sellosParaPremio = 8 }) {
   const [filled, setFilled] = useState(0);
-  const totalSlots = 8;
+  const totalSlots = Math.max(1, Number(sellosParaPremio) || 8);
 
   useEffect(() => {
     const id = setInterval(() => {
       setFilled((prev) => (prev >= totalSlots ? 0 : prev + 1));
     }, 900);
     return () => clearInterval(id);
-  }, []);
+  }, [totalSlots]);
 
   const rewardReady = filled >= totalSlots;
 
@@ -140,7 +140,9 @@ function TarjetaDemo({ colorPrimario }) {
           })}
         </div>
         <p className="mt-3 text-center text-[10px] font-black uppercase tracking-wider text-white/70">
-          {rewardReady ? '★ ¡Premio listo!' : `${filled}/7 sellos · el 8vo es gratis`}
+          {rewardReady
+            ? '★ ¡Premio listo!'
+            : `${filled}/${totalSlots} sellos · premio al completar la tarjeta`}
         </p>
       </div>
       <style>{`
@@ -158,7 +160,7 @@ function TarjetaDemo({ colorPrimario }) {
   );
 }
 
-export default function ComoFunciona({ colorPrimario }) {
+export default function ComoFunciona({ colorPrimario, sellosParaPremio = 8 }) {
   const steps = [
     {
       icon: Phone,
@@ -173,7 +175,7 @@ export default function ComoFunciona({ colorPrimario }) {
     {
       icon: Gift,
       title: 'Acumulá sellos',
-      desc: 'Cada compra suma un sello. Cuando completes la tarjeta, ¡tu premio es gratis!',
+      desc: `Cada compra que cumpla la condición del programa suma un sello. Al completar ${Math.max(1, Number(sellosParaPremio) || 8)} sellos, desbloqueás tu premio.`,
     },
   ];
 
@@ -199,7 +201,7 @@ export default function ComoFunciona({ colorPrimario }) {
           En mobile se apilan (demo arriba, pasos abajo). */}
       <div className="grid gap-6 md:grid-cols-2 md:items-start">
         <div className="md:sticky md:top-24">
-          <TarjetaDemo colorPrimario={colorPrimario} />
+          <TarjetaDemo colorPrimario={colorPrimario} sellosParaPremio={sellosParaPremio} />
         </div>
         <div className="space-y-3">
           {steps.map((step, index) => {

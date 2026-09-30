@@ -517,7 +517,7 @@ function runMigrations(db) {
   ensureColumn(db, 'pedidos', 'marketing_content', "TEXT DEFAULT ''");
   ensureColumn(db, 'pedido_items', 'descripcion', "TEXT DEFAULT ''");
   ensureColumn(db, 'fidelizacion_config', 'monto_minimo_sello', 'REAL DEFAULT 10000');
-  ensureColumn(db, 'fidelizacion_config', 'sellos_para_premio', 'INTEGER DEFAULT 6');
+  ensureColumn(db, 'fidelizacion_config', 'sellos_para_premio', 'INTEGER DEFAULT 8');
   ensureColumn(
     db,
     'fidelizacion_config',
@@ -1130,7 +1130,7 @@ function runMigrations(db) {
         `
         INSERT INTO fidelizacion_config 
         (id, pesos_por_punto, valor_punto_real, dias_expiracion, minimo_canje, monto_minimo_sello, sellos_para_premio, premio_descripcion, activo)
-        VALUES (1, 100, 10, 180, 50, 10000, 6, '1 Pizza Muzzarella', 1)
+        VALUES (1, 100, 10, 180, 50, 10000, 8, '1 Pizza Muzzarella', 1)
       `
       ).run();
     }
@@ -1440,6 +1440,8 @@ function runMigrations(db) {
   corregirPorcentajesDeCupones(db);
   migrarUmbralesDeNivel(db);
   migrarPuntosInflados(db);
+  migrarLibroDePuntosHistorico(db);
+  migrarCorreccionLibroHistoricoV1(db);
   // Va después de `db.exec(tableStatements)` en db/index.js, así que
   // `opcion_listas` ya existe cuando esto corre.
   migrarGuarnicionesAListaCompartida(db);
@@ -1553,6 +1555,252 @@ function migrarPuntosInflados(db) {
     );
   } catch (error) {
     logger.error('Error reescalando los puntos de fidelidad', { message: error.message });
+  }
+}
+
+/**
+ * Reconcilia el libro de puntos después de la migración 100x.
+ *
+ * La migración anterior reescaló `clientes.puntos` y
+ * `puntos_transacciones.puntos`, pero no `puntos_disponibles`. Eso dejó
+ * movimientos históricos cuyo saldo disponible era cien veces mayor que los
+ * puntos otorgados. Además, algunos clientes viejos tenían un saldo guardado
+ * sin una transacción equivalente porque el libro recién empezó a registrar
+ * movimientos después de la carga inicial.
+ *
+ * Se conserva el saldo visible que ya tenía cada cliente y se transforma la
+ * diferencia histórica en un movimiento `bonus` auditable. Así no se borran
+ * puntos, el saldo público y el saldo usado por el TPV vuelven a coincidir y
+ * la migración queda protegida por una marca idempotente.
+ */
+function migrarLibroDePuntosHistorico(db) {
+  const MARCA = 'migracion_libro_puntos_historico_v1';
+
+  try {
+    const yaCorrio = db.prepare('SELECT valor FROM configuracion WHERE clave = ?').get(MARCA);
+    if (yaCorrio) return;
+
+    const reconcile = db.transaction(() => {
+      const inflados = db
+        .prepare(
+          `
+          SELECT id, puntos, puntos_disponibles
+          FROM puntos_transacciones
+          WHERE tipo IN ('ganancia', 'bonus')
+            AND puntos > 0
+            AND puntos_disponibles = puntos * 100
+          ORDER BY id ASC
+        `
+        )
+        .all();
+
+      const corregirDisponibles = db.prepare(
+        'UPDATE puntos_transacciones SET puntos_disponibles = puntos WHERE id = ?'
+      );
+      for (const movimiento of inflados) {
+        corregirDisponibles.run(movimiento.id);
+      }
+
+      const clientes = db
+        .prepare(
+          `
+          SELECT id, COALESCE(puntos, 0) AS puntos
+          FROM clientes
+          WHERE COALESCE(puntos, 0) <> 0
+             OR EXISTS (
+               SELECT 1
+               FROM puntos_transacciones pt
+               WHERE pt.cliente_id = clientes.id
+             )
+          ORDER BY id ASC
+        `
+        )
+        .all();
+      const saldoLibro = db.prepare(
+        `
+        SELECT COALESCE(SUM(
+          CASE
+            WHEN tipo IN ('ganancia', 'bonus') THEN puntos_disponibles
+            ELSE -puntos
+          END
+        ), 0) AS saldo
+        FROM puntos_transacciones
+        WHERE cliente_id = ?
+      `
+      );
+      const insertarBonus = db.prepare(
+        `
+        INSERT INTO puntos_transacciones
+          (cliente_id, tipo, puntos, puntos_disponibles, descripcion)
+        VALUES (?, 'bonus', ?, ?, ?)
+      `
+      );
+      const insertarAjuste = db.prepare(
+        `
+        INSERT INTO puntos_transacciones
+          (cliente_id, tipo, puntos, puntos_disponibles, descripcion)
+        VALUES (?, 'ajuste', ?, 0, ?)
+      `
+      );
+      const actualizarCliente = db.prepare('UPDATE clientes SET puntos = ? WHERE id = ?');
+
+      let clientesReconciliados = 0;
+      let puntosPreservados = 0;
+      let ajustesAplicados = 0;
+
+      for (const cliente of clientes) {
+        const saldoVisible = Math.max(0, Math.trunc(Number(cliente.puntos || 0)));
+        let saldoLibroActual = Math.trunc(Number(saldoLibro.get(cliente.id)?.saldo || 0));
+        const diferencia = saldoVisible - saldoLibroActual;
+
+        if (diferencia > 0) {
+          insertarBonus.run(
+            cliente.id,
+            diferencia,
+            diferencia,
+            'Saldo histórico preservado durante la reconciliación del Club'
+          );
+          puntosPreservados += diferencia;
+          clientesReconciliados += 1;
+          saldoLibroActual += diferencia;
+        } else if (diferencia < 0) {
+          // Este caso no aparece en la base actual, pero evita dejar saldos
+          // disponibles por encima del saldo final si una instalación vieja
+          // vuelve a ejecutar la migración con datos distintos.
+          const puntosARestar = Math.abs(diferencia);
+          const disponibles = db
+            .prepare(
+              `
+              SELECT id, puntos_disponibles
+              FROM puntos_transacciones
+              WHERE cliente_id = ?
+                AND tipo IN ('ganancia', 'bonus')
+                AND puntos_disponibles > 0
+              ORDER BY fecha ASC, id ASC
+            `
+            )
+            .all(cliente.id);
+          let restantes = puntosARestar;
+          for (const movimiento of disponibles) {
+            if (restantes <= 0) break;
+            const descontar = Math.min(Number(movimiento.puntos_disponibles || 0), restantes);
+            db.prepare(
+              'UPDATE puntos_transacciones SET puntos_disponibles = puntos_disponibles - ? WHERE id = ?'
+            ).run(descontar, movimiento.id);
+            restantes -= descontar;
+          }
+          if (restantes > 0) {
+            throw new Error(
+              `No se pudo reconciliar el saldo histórico del cliente ${cliente.id}: faltan ${restantes} puntos disponibles`
+            );
+          }
+          insertarAjuste.run(
+            cliente.id,
+            puntosARestar,
+            'Ajuste histórico aplicado durante la reconciliación del Club'
+          );
+          ajustesAplicados += puntosARestar;
+          clientesReconciliados += 1;
+          saldoLibroActual -= puntosARestar;
+        }
+
+        if (saldoLibroActual !== saldoVisible) {
+          throw new Error(
+            `El saldo reconciliado del cliente ${cliente.id} no coincide (${saldoLibroActual} vs ${saldoVisible})`
+          );
+        }
+        actualizarCliente.run(saldoVisible, cliente.id);
+      }
+
+      db.prepare('INSERT OR REPLACE INTO configuracion (clave, valor) VALUES (?, ?)').run(
+        MARCA,
+        JSON.stringify({
+          version: 1,
+          fecha: new Date().toISOString(),
+          movimientosDisponiblesCorregidos: inflados.length,
+          clientesReconciliados,
+          puntosPreservados,
+          puntosAjustados: ajustesAplicados,
+        })
+      );
+
+      return {
+        movimientosDisponiblesCorregidos: inflados.length,
+        clientesReconciliados,
+        puntosPreservados,
+        puntosAjustados: ajustesAplicados,
+      };
+    });
+
+    const resultado = reconcile();
+    if (resultado.movimientosDisponiblesCorregidos || resultado.clientesReconciliados) {
+      logger.warn('[Fidelizacion] Libro histórico reconciliado', resultado);
+    }
+  } catch (error) {
+    logger.error('Error reconciliando el libro histórico de puntos', { message: error.message });
+  }
+}
+
+/**
+ * Corrige la primera versión de la reconciliación histórica.
+ *
+ * La rama de saldos donde el libro tenía más puntos que `clientes.puntos`
+ * descontaba los disponibles y además registraba un ajuste, dejando ese
+ * importe dos veces por debajo del saldo visible. No se borra el ajuste (es
+ * auditoría); se agrega un bonus compensatorio una sola vez.
+ */
+function migrarCorreccionLibroHistoricoV1(db) {
+  const MARCA = 'migracion_libro_puntos_historico_v2';
+  const DESCRIPCION_AJUSTE = 'Ajuste histórico aplicado durante la reconciliación del Club';
+  const DESCRIPCION_CORRECCION =
+    'Corrección de doble descuento de la reconciliación histórica del Club';
+
+  try {
+    if (db.prepare('SELECT valor FROM configuracion WHERE clave = ?').get(MARCA)) return;
+
+    const resultado = db.transaction(() => {
+      const ajustes = db
+        .prepare(
+          `
+          SELECT cliente_id, COALESCE(SUM(puntos), 0) AS puntos
+          FROM puntos_transacciones
+          WHERE tipo = 'ajuste' AND descripcion = ? AND puntos > 0
+          GROUP BY cliente_id
+        `
+        )
+        .all(DESCRIPCION_AJUSTE);
+      const insertarCorreccion = db.prepare(
+        `
+        INSERT INTO puntos_transacciones
+          (cliente_id, tipo, puntos, puntos_disponibles, descripcion)
+        VALUES (?, 'bonus', ?, ?, ?)
+      `
+      );
+      let puntosCompensados = 0;
+      for (const ajuste of ajustes) {
+        const puntos = Math.trunc(Number(ajuste.puntos || 0));
+        if (puntos <= 0) continue;
+        insertarCorreccion.run(ajuste.cliente_id, puntos, puntos, DESCRIPCION_CORRECCION);
+        puntosCompensados += puntos;
+      }
+
+      db.prepare('INSERT OR REPLACE INTO configuracion (clave, valor) VALUES (?, ?)').run(
+        MARCA,
+        JSON.stringify({
+          version: 2,
+          fecha: new Date().toISOString(),
+          clientesCompensados: ajustes.length,
+          puntosCompensados,
+        })
+      );
+      return { clientesCompensados: ajustes.length, puntosCompensados };
+    })();
+
+    if (resultado.puntosCompensados) {
+      logger.warn('[Fidelizacion] Corrección del libro histórico aplicada', resultado);
+    }
+  } catch (error) {
+    logger.error('Error corrigiendo el libro histórico de puntos', { message: error.message });
   }
 }
 

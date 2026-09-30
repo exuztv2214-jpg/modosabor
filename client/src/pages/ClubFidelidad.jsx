@@ -355,7 +355,7 @@ export default function ClubFidelidad() {
                   {payload?.config?.premio_descripcion || '1 Pizza Muzzarella gratis'}
                 </p>
                 <p className="mt-1 text-sm font-bold text-white/90">
-                  Después de {payload?.config?.sellos_para_premio || 7} compras. Sin trampa.
+                  Después de {payload?.config?.sellos_para_premio || 8} compras. Sin trampa.
                 </p>
               </div>
             </div>
@@ -431,7 +431,10 @@ export default function ClubFidelidad() {
         {/* "Como funciona" ocupa todo el ancho (fuera del grid de 2 columnas)
             asi la mini tarjeta y los 3 pasos entran comodos al lado. */}
         <div className="mt-12">
-          <ComoFunciona colorPrimario={colorPrimario} />
+          <ComoFunciona
+            colorPrimario={colorPrimario}
+            sellosParaPremio={payload?.config?.sellos_para_premio}
+          />
         </div>
 
         {/* Compartir con amigos + contacto WhatsApp */}
@@ -505,7 +508,7 @@ export default function ClubFidelidad() {
               Lo que la gente más nos pregunta del club.
             </p>
           </div>
-          <FAQ colorPrimario={colorPrimario} sellos={payload?.config?.sellos_para_premio || 7} />
+          <FAQ colorPrimario={colorPrimario} sellos={payload?.config?.sellos_para_premio || 8} />
         </div>
 
         {/* T&C simplificados con link a la pagina completa */}
@@ -533,11 +536,11 @@ function FAQ({ colorPrimario, sellos }) {
   const items = [
     {
       q: `¿Cómo sumo sellos?`,
-      a: `Cada compra que hagas en el local, por WhatsApp o por la web pública suma un sello. Solo tenés que dar tu teléfono al pagar.`,
+      a: `Cada compra que cumpla la condición del programa en el local, por WhatsApp o por la web pública suma un sello. Solo tenés que dar tu teléfono al pagar.`,
     },
     {
       q: `¿Cuántos sellos necesito para el premio?`,
-      a: `Con ${sellos} sellos ya destrabás el premio. El ${sellos + 1}° es tu recompensa gratis.`,
+      a: `Con ${sellos} sellos ya destrabás el premio y podés canjearlo presentando tu tarjeta o tu teléfono.`,
     },
     {
       q: `¿Los sellos vencen?`,

@@ -38,7 +38,7 @@ export default function TerminosCondiciones() {
 
   const theme = getPublicBrandTheme(config || {});
   const colorPrimario = theme.primary;
-  const sellosParaPremio = Number(config?.sellos_para_premio || 7);
+  const sellosParaPremio = Number(config?.sellos_para_premio || 8);
   const premio = config?.premio_descripcion || '1 Pizza Muzzarella';
   const diasExpiracion = Number(config?.dias_expiracion || 180);
   const montoMinimoSello = Number(config?.monto_minimo_sello || 0);

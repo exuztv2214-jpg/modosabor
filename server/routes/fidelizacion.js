@@ -94,6 +94,9 @@ function serializeClubCliente(cliente, { includePrivate = true } = {}) {
   });
   const publico = {
     id: cliente.id,
+    // El código ya forma parte del enlace/QR público y permite que la ficha
+    // muestre qué tarjeta está vinculada sin revelar datos personales.
+    codigo_tarjeta: cliente.codigo_tarjeta || '',
     nombre: cliente.nombre || '',
     puntos: Number(cliente.puntos || 0),
     nivel: cliente.nivel || 'Bronce',
@@ -232,7 +235,10 @@ router.get('/club/:codigo', clubLookupRateLimit, (req, res) => {
     res.json({
       found: true,
       linked: true,
-      ...getClubPayload(cliente),
+      // El código de tarjeta es público/compartible. La ficha por URL sólo
+      // necesita puntos, sellos y nivel; no debe exponer teléfono, email,
+      // dirección, fecha de nacimiento ni totales del cliente.
+      ...getClubPayload(cliente, { includePrivate: false }),
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -596,28 +602,35 @@ router.post('/puntos/ajuste-manual', auth, requirePermission('clientes.edit'), (
       .get(cliente_id);
     if (!cliente) return res.status(404).json({ error: 'Cliente no encontrado' });
 
-    const config = getConfig();
-    const nuevosPuntos = Math.max(0, (cliente.puntos || 0) + (Number(delta_puntos) || 0));
-    const sellosBase = (cliente.sellos_actuales || 0) + (Number(delta_sellos) || 0);
-    const sellosMax = config.sellos_para_premio || 10;
-    const premiosExtra = sellosBase >= sellosMax ? Math.floor(sellosBase / sellosMax) : 0;
-    const nuevosSellos = sellosBase >= sellosMax ? sellosBase % sellosMax : Math.max(0, sellosBase);
-    const nuevosRecompensas = Math.max(0, (cliente.recompensas_pendientes || 0) + premiosExtra);
+    const resultado = db.transaction(() => {
+      const config = getConfig();
+      const deltaPuntos = Number(delta_puntos) || 0;
+      const deltaSellos = Number(delta_sellos) || 0;
+      const ajustePuntos = deltaPuntos
+        ? registrarAjusteManualPuntos(cliente_id, deltaPuntos, motivo || 'Ajuste manual')
+        : null;
+      const sellosBase = (cliente.sellos_actuales || 0) + deltaSellos;
+      const sellosMax = Math.max(1, Number(config.sellos_para_premio) || 8);
+      const premiosExtra = sellosBase >= sellosMax ? Math.floor(sellosBase / sellosMax) : 0;
+      const nuevosSellos =
+        sellosBase >= sellosMax ? sellosBase % sellosMax : Math.max(0, sellosBase);
+      const nuevosRecompensas = Math.max(0, (cliente.recompensas_pendientes || 0) + premiosExtra);
 
-    db.prepare(
-      'UPDATE clientes SET puntos = ?, sellos_actuales = ?, recompensas_pendientes = ? WHERE id = ?'
-    ).run(nuevosPuntos, nuevosSellos, nuevosRecompensas, cliente_id);
+      db.prepare(
+        'UPDATE clientes SET sellos_actuales = ?, recompensas_pendientes = ? WHERE id = ?'
+      ).run(nuevosSellos, nuevosRecompensas, cliente_id);
 
-    const ajustePuntos = Number(delta_puntos)
-      ? registrarAjusteManualPuntos(cliente_id, Number(delta_puntos), motivo || 'Ajuste manual')
-      : null;
+      return {
+        puntos: ajustePuntos?.saldo_actual ?? cliente.puntos ?? 0,
+        sellos_actuales: nuevosSellos,
+        recompensas_pendientes: nuevosRecompensas,
+        ajuste_puntos: ajustePuntos,
+      };
+    })();
 
     res.json({
       success: true,
-      puntos: ajustePuntos?.saldo_actual ?? nuevosPuntos,
-      sellos_actuales: nuevosSellos,
-      recompensas_pendientes: nuevosRecompensas,
-      ajuste_puntos: ajustePuntos,
+      ...resultado,
     });
   } catch (error) {
     res.status(500).json({ error: error.message });

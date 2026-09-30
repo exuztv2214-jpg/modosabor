@@ -97,9 +97,9 @@ function TarjetaDorsoSellos({
   rewardReady,
   puntos,
 }) {
-  // Grid fijo 4x2 = 8 sellos. Los primeros 7 suman, el ultimo (posicion 8)
-  // es el "premio gratis" que se destraba cuando se completa el ciclo.
-  const visibleStampGoal = 8;
+  // La tarjeta pública debe respetar la cantidad configurada en el servidor.
+  // Se mantiene un mínimo para que una configuración vacía no rompa el diseño.
+  const visibleStampGoal = Math.max(1, Number(stampGoal) || 1);
   const stampProgress = Math.min(stampCount, stampGoal);
 
   return (
@@ -177,7 +177,7 @@ function TarjetaDorsoSellos({
         >
           {rewardReady
             ? '★ Premio listo para canjear'
-            : `Completá ${visibleStampGoal - 1} y el 8vo es gratis`}
+            : `Completá ${visibleStampGoal} sellos y desbloqueá tu premio`}
         </p>
       </div>
 
@@ -187,7 +187,7 @@ function TarjetaDorsoSellos({
           {Array.from({ length: visibleStampGoal }).map((_, index) => {
             const filled = index < stampCount;
             const isRewardSlot = index === visibleStampGoal - 1;
-            const rewardWon = isRewardSlot && stampCount >= stampGoal;
+            const rewardWon = isRewardSlot && rewardReady;
             return (
               <div
                 key={index}
@@ -256,10 +256,11 @@ export default function TarjetaFidelidad({
   clubUrl,
   customFrontImage,
 }) {
-  const stampGoal = Math.max(1, Number(config?.sellos_para_premio || 7));
+  const stampGoal = Math.max(1, Number(config?.sellos_para_premio || 8));
   const stampCount = Math.max(0, Number(cliente?.sellos_actuales || 0));
   const stampsRemaining = Math.max(stampGoal - stampCount, 0);
-  const rewardReady = stampsRemaining === 0 && Boolean(cliente);
+  const rewardReady =
+    Boolean(cliente) && (Number(cliente?.recompensas_pendientes || 0) > 0 || stampsRemaining === 0);
   const cardHolder = cliente?.nombre || 'Tu nombre';
   const cardNumber = getMaskedCardNumber(cliente?.telefono || '');
   const nivel = cliente?.nivel || 'Bronce';
@@ -362,7 +363,7 @@ export default function TarjetaFidelidad({
               <Crown size={18} className="text-white/80" />
             </div>
             <p className="mt-2 text-xs font-bold text-white/70">
-              ACUMULA {stampGoal} SELLOS Y CONSIGUE UN PREMIO GRATIS
+              ACUMULA {stampGoal} SELLOS Y DESBLOQUEA TU PREMIO
             </p>
           </div>
 
