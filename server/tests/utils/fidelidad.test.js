@@ -225,6 +225,21 @@ function testLaMigracionConservaYReconciliaElLibro() {
     /Corrección de doble descuento de la reconciliación histórica del Club/,
     'la corrección debe quedar registrada como movimiento compensatorio'
   );
+  assert.match(
+    fuente,
+    /migracion_config_club_canonica_v1/,
+    'la configuración heredada del Club necesita una marca idempotente'
+  );
+  assert.match(
+    fuente,
+    /pesos_por_punto:\s*10000[\s\S]*valor_punto_real:\s*1000[\s\S]*monto_minimo_sello:\s*1000000[\s\S]*sellos_para_premio:\s*6/,
+    'la migración debe reconocer sólo la firma heredada inflada'
+  );
+  assert.match(
+    fuente,
+    /pesos_por_punto:\s*100[\s\S]*valor_punto_real:\s*10[\s\S]*monto_minimo_sello:\s*10000[\s\S]*sellos_para_premio:\s*8/,
+    'la migración debe alinear la configuración con la regla vigente'
+  );
 
   console.log('  OK la migración de puntos conserva y reconcilia saldos históricos');
 }

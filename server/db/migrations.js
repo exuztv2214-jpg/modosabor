@@ -1442,6 +1442,7 @@ function runMigrations(db) {
   migrarPuntosInflados(db);
   migrarLibroDePuntosHistorico(db);
   migrarCorreccionLibroHistoricoV1(db);
+  migrarConfiguracionClubCanonica(db);
   // Va después de `db.exec(tableStatements)` en db/index.js, así que
   // `opcion_listas` ya existe cuando esto corre.
   migrarGuarnicionesAListaCompartida(db);
@@ -1801,6 +1802,89 @@ function migrarCorreccionLibroHistoricoV1(db) {
     }
   } catch (error) {
     logger.error('Error corrigiendo el libro histórico de puntos', { message: error.message });
+  }
+}
+
+/**
+ * Alinea una configuración local heredada que quedó guardada en unidades
+ * infladas con la configuración vigente del Club.
+ *
+ * No se toca cualquier valor distinto: sólo se reconoce la combinación que
+ * usaba la instalación vieja (100x en importes y 6 sellos). Así una decisión
+ * comercial personalizada no se sobreescribe al actualizar el servidor.
+ */
+function migrarConfiguracionClubCanonica(db) {
+  const MARCA = 'migracion_config_club_canonica_v1';
+  const LEGACY = {
+    pesos_por_punto: 10000,
+    valor_punto_real: 1000,
+    monto_minimo_sello: 1000000,
+    sellos_para_premio: 6,
+  };
+  const CANONICA = {
+    pesos_por_punto: 100,
+    valor_punto_real: 10,
+    monto_minimo_sello: 10000,
+    sellos_para_premio: 8,
+  };
+
+  try {
+    if (db.prepare('SELECT valor FROM configuracion WHERE clave = ?').get(MARCA)) return;
+
+    const resultado = db.transaction(() => {
+      const actual = db
+        .prepare(
+          `
+          SELECT pesos_por_punto, valor_punto_real, monto_minimo_sello, sellos_para_premio
+          FROM fidelizacion_config
+          WHERE id = 1
+        `
+        )
+        .get();
+      const esLegacy =
+        actual &&
+        Object.entries(LEGACY).every(
+          ([columna, valor]) => Number(actual[columna]) === Number(valor)
+        );
+
+      if (esLegacy) {
+        db.prepare(
+          `
+          UPDATE fidelizacion_config
+          SET pesos_por_punto = ?,
+              valor_punto_real = ?,
+              monto_minimo_sello = ?,
+              sellos_para_premio = ?,
+              actualizado_en = CURRENT_TIMESTAMP
+          WHERE id = 1
+        `
+        ).run(
+          CANONICA.pesos_por_punto,
+          CANONICA.valor_punto_real,
+          CANONICA.monto_minimo_sello,
+          CANONICA.sellos_para_premio
+        );
+      }
+
+      db.prepare('INSERT OR REPLACE INTO configuracion (clave, valor) VALUES (?, ?)').run(
+        MARCA,
+        JSON.stringify({
+          version: 1,
+          fecha: new Date().toISOString(),
+          aplicada: Boolean(esLegacy),
+          anterior: esLegacy ? LEGACY : actual || null,
+          nueva: esLegacy ? CANONICA : actual || null,
+        })
+      );
+
+      return { aplicada: Boolean(esLegacy) };
+    })();
+
+    if (resultado.aplicada) {
+      logger.warn('[Fidelizacion] Configuración heredada del Club alineada', resultado);
+    }
+  } catch (error) {
+    logger.error('Error alineando la configuración heredada del Club', { message: error.message });
   }
 }
 
