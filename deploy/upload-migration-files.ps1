@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
   [Parameter(Mandatory = $true)][string]$StageDirectory,
-  [Parameter(Mandatory = $true)][string]$BaseUrl
+  [Parameter(Mandatory = $true)][string]$BaseUrl,
+  [int]$SkipFiles = 0
 )
 
 $ErrorActionPreference = 'Stop'
@@ -63,6 +64,16 @@ try {
     $top = $relative.Split([IO.Path]::DirectorySeparatorChar)[0]
     $top -in $allowed
   } | Sort-Object FullName)
+  if ($SkipFiles -lt 0 -or $SkipFiles -gt $files.Count) { throw 'SkipFiles fuera de rango' }
+  if ($SkipFiles -gt 0) {
+    $files = @($files | Select-Object -Skip $SkipFiles)
+  }
+  $files = @($files | Where-Object {
+    $relative = $_.FullName.Substring($root.Length + 1)
+    $segments = $relative.Split([IO.Path]::DirectorySeparatorChar)
+    $segments[0] -notlike 'facebook-automation-profile*' -or
+      -not @($segments | Where-Object { $_ -match '(?i)cache|metrics|crashpad' }).Count
+  })
   $batch = [System.Collections.Generic.List[System.IO.FileInfo]]::new()
   $batchBytes = [long]0
   foreach ($file in $files) {

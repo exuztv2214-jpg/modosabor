@@ -4,7 +4,7 @@ const os = require('os');
 const path = require('path');
 const express = require('express');
 const multer = require('multer');
-const { dataDir } = require('../utils/storagePaths');
+const { dataDir, getStorageUsage } = require('../utils/storagePaths');
 
 const router = express.Router();
 const allowedRoots = new Set([
@@ -60,6 +60,29 @@ function targetFor(segments) {
   }
   return target;
 }
+
+router.get('/inventory', (req, res) => {
+  if (!process.env.BOOTSTRAP_IMPORT_KEY) return res.sendStatus(404);
+  if (!authorized(req)) return res.sendStatus(401);
+
+  const entries = [];
+  function walk(directory, relative) {
+    if (!fs.existsSync(directory)) return;
+    for (const item of fs.readdirSync(directory, { withFileTypes: true })) {
+      if (item.isSymbolicLink()) continue;
+      const child = path.join(directory, item.name);
+      const childRelative = `${relative}/${item.name}`;
+      if (item.isDirectory()) walk(child, childRelative);
+      else if (item.isFile()) entries.push({ path: childRelative, bytes: fs.statSync(child).size });
+    }
+  }
+  try {
+    for (const root of allowedRoots) walk(path.join(dataDir, root), root);
+    return res.json({ ok: true, storage: getStorageUsage(), entries });
+  } catch (error) {
+    return res.status(500).json({ error: error.message || 'No se pudo leer el inventario' });
+  }
+});
 
 router.post(
   '/files',
