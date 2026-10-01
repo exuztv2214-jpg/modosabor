@@ -177,6 +177,7 @@ Usar `render.yaml` como blueprint. Crea el servicio web `modosabor-api` y el sit
 ## 📚 Documentación adicional
 
 - `docs/RAILWAY-DEPLOY.md` — Deploy en Railway.
+- `docs/RAILWAY-MIGRACION-CUENTA.md` — Preparación, transferencia y rollback de Railway.
 - `docs/BITACORA-TURNOS-Y-PERSONAL-2026-06-23.md` — Cambios en módulo de personal.
 
 ---

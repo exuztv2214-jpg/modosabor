@@ -41,6 +41,7 @@ deploy/catalog-export.json
 deploy/base-data-export.json
 deploy/railway-cookies.txt
 deploy/railway-vars.bat
+deploy/railway-migration-output/
 server/scripts/reset-admin-password.*
 test-tracking-result.json
 agente-whatsapp/n8n/*.generated.json
