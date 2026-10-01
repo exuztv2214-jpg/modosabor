@@ -331,7 +331,6 @@ app.use('/api/direcciones', require('./routes/direcciones'));
 app.use('/api/clientes', require('./routes/clientes'));
 app.use('/api/cotizaciones', require('./routes/cotizaciones'));
 app.use('/api/configuracion', require('./routes/configuracion'));
-app.use('/api/migration-transfer', require('./routes/migrationTransfer').router);
 app.use('/api/reportes', require('./routes/reportes'));
 app.use('/api/repartidores', require('./routes/repartidores'));
 app.use('/api/rider-app', require('./routes/riderApp'));
