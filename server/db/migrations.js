@@ -1443,6 +1443,7 @@ function runMigrations(db) {
   migrarLibroDePuntosHistorico(db);
   migrarCorreccionLibroHistoricoV1(db);
   migrarConfiguracionClubCanonica(db);
+  migrarPreciosMenuOctubre2026(db);
   // Va después de `db.exec(tableStatements)` en db/index.js, así que
   // `opcion_listas` ya existe cuando esto corre.
   migrarGuarnicionesAListaCompartida(db);
@@ -1885,6 +1886,61 @@ function migrarConfiguracionClubCanonica(db) {
     }
   } catch (error) {
     logger.error('Error alineando la configuración heredada del Club', { message: error.message });
+  }
+}
+
+/**
+ * Actualiza la escala comercial vigente del Menú del Día.
+ *
+ * El campo `menu_dia_tipo` quedó inconsistente en datos históricos: algunos
+ * platos premium todavía dicen "economico". Por eso esta migración clasifica
+ * por el precio anterior, no por ese texto, y sólo toca productos que siguen
+ * siendo parte de la base del Menú del Día. El historial y los pedidos ya
+ * vendidos conservan sus importes originales.
+ */
+function migrarPreciosMenuOctubre2026(db) {
+  const MARCA = 'migracion_precios_menu_20261001_v1';
+  const ESCALA = [
+    { anterior: 500000, nuevo: 600000 },
+    { anterior: 700000, nuevo: 800000 },
+    { anterior: 900000, nuevo: 1000000 },
+  ];
+
+  try {
+    if (db.prepare('SELECT valor FROM configuracion WHERE clave = ?').get(MARCA)) return;
+
+    const resultado = db.transaction(() => {
+      const detalle = ESCALA.map(({ anterior, nuevo }) => {
+        const result = db
+          .prepare(
+            `
+            UPDATE productos
+            SET precio = ?
+            WHERE menu_dia_base = 1 AND precio = ?
+          `
+          )
+          .run(nuevo, anterior);
+        return { anterior, nuevo, actualizados: result.changes };
+      });
+      const actualizados = detalle.reduce((total, item) => total + item.actualizados, 0);
+
+      db.prepare('INSERT OR REPLACE INTO configuracion (clave, valor) VALUES (?, ?)').run(
+        MARCA,
+        JSON.stringify({
+          version: 1,
+          fecha: new Date().toISOString(),
+          detalle,
+          actualizados,
+        })
+      );
+      return { detalle, actualizados };
+    })();
+
+    if (resultado.actualizados) {
+      logger.warn('[MenuDia] Precios actualizados a la escala octubre 2026', resultado);
+    }
+  } catch (error) {
+    logger.error('Error actualizando los precios del Menú del Día', { message: error.message });
   }
 }
 

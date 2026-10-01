@@ -5,6 +5,31 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 
 function run() {
+  const migraciones = fs.readFileSync(
+    path.join(__dirname, '..', '..', 'db', 'migrations.js'),
+    'utf8'
+  );
+  assert.match(
+    migraciones,
+    /migracion_precios_menu_20261001_v1/,
+    'la suba de precios del menú necesita una marca idempotente'
+  );
+  assert.match(
+    migraciones,
+    /anterior:\s*500000,\s*nuevo:\s*600000/,
+    'el menú económico debe pasar de $5.000 a $6.000'
+  );
+  assert.match(
+    migraciones,
+    /anterior:\s*700000,\s*nuevo:\s*800000/,
+    'el menú ejecutivo debe pasar de $7.000 a $8.000'
+  );
+  assert.match(
+    migraciones,
+    /anterior:\s*900000,\s*nuevo:\s*1000000/,
+    'el menú premium debe pasar de $9.000 a $10.000'
+  );
+
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'modosabor-menu-dia-'));
   const script = `
     process.env.DATA_DIR = ${JSON.stringify(tempDir)};
