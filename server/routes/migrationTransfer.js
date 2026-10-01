@@ -84,6 +84,41 @@ router.get('/inventory', (req, res) => {
   }
 });
 
+router.post('/prune-cache', (req, res) => {
+  if (!process.env.BOOTSTRAP_IMPORT_KEY) return res.sendStatus(404);
+  if (!authorized(req)) return res.sendStatus(401);
+
+  let files = 0;
+  let bytes = 0;
+  function prune(directory, segments) {
+    if (!fs.existsSync(directory)) return;
+    for (const item of fs.readdirSync(directory, { withFileTypes: true })) {
+      if (item.isSymbolicLink()) continue;
+      const child = path.join(directory, item.name);
+      const childSegments = [...segments, item.name];
+      if (item.isDirectory()) {
+        prune(child, childSegments);
+        continue;
+      }
+      if (!item.isFile() || !childSegments.some((part) => /cache|metrics|crashpad/i.test(part))) {
+        continue;
+      }
+      const size = fs.statSync(child).size;
+      fs.unlinkSync(child);
+      files += 1;
+      bytes += size;
+    }
+  }
+  try {
+    for (const root of ['facebook-automation-profile', 'facebook-automation-profile-v2']) {
+      prune(path.join(dataDir, root), []);
+    }
+    return res.json({ ok: true, files, bytes });
+  } catch (error) {
+    return res.status(500).json({ error: error.message || 'No se pudo limpiar la caché' });
+  }
+});
+
 router.post(
   '/files',
   (req, res, next) => {
