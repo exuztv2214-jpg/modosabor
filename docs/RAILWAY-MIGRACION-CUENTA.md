@@ -4,6 +4,36 @@ Este procedimiento prepara una migración conservadora. No copia secretos al
 repositorio, no borra el proyecto actual y no crea un segundo entorno con los
 mismos servicios de WhatsApp mientras el origen siga atendiendo.
 
+## Preparar GitHub CLI para la cuenta nueva
+
+Git ya tiene configurado Git Credential Manager. La cuenta de GitHub y el
+remoto son decisiones separadas: cambiar la identidad de un commit no cambia
+las credenciales de `push`.
+
+El script seguro muestra las cuentas autenticadas y, por defecto, sólo simula:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\deploy\conectar-github.ps1
+```
+
+Cuando se conozcan el usuario y el repositorio nuevos, cambiar la cuenta y
+agregar un remoto separado:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\deploy\conectar-github.ps1 `
+  -GithubUser USUARIO_NUEVO -Repository modosabor -Apply
+```
+
+Esto conserva `origin` viejo y crea `nuevo-origin`. Sólo después de verificar
+que la URL existe se hace el push explícito:
+
+```powershell
+git push --set-upstream nuevo-origin main
+```
+
+Para reemplazar `origin` hay que indicarlo de forma consciente con
+`-ReplaceOrigin`; el script nunca fuerza pushes ni elimina remotos.
+
 ## Estado observado en la preparación
 
 La auditoría se ejecuta desde el proyecto local con:
