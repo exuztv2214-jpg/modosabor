@@ -21,7 +21,7 @@ const VIA_STATES = {
   comprobando: { etiqueta: 'Comprobando', tono: 'espera', accion: 'Comprobar' },
   lista: { etiqueta: 'Lista', tono: 'lista', accion: null },
   requiere_atencion: { etiqueta: 'Requiere atención', tono: 'alerta', accion: 'Revisar' },
-  en_pausa: { etiqueta: 'En pausa', tono: 'espera', accion: 'Reanudar' },
+  en_pausa: { etiqueta: 'En pausa', tono: 'espera', accion: 'Ver pausa' },
 };
 
 export const estadoVisualDeVia = (via = {}) => VIA_STATES[via.estado] || VIA_STATES.sin_configurar;

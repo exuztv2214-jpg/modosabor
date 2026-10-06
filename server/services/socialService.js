@@ -1510,8 +1510,14 @@ function getMetrics(days = 30) {
       totalPublicaciones,
       tasaExito: totalPublicaciones ? Math.round((exitosos / totalPublicaciones) * 100) : null,
       destinosActivos: Number(
-        db.prepare('SELECT COUNT(*) AS total FROM social_destinations WHERE habilitada = 1').get()
-          .total
+        db
+          .prepare(
+            `SELECT COUNT(*) AS total FROM social_destinations d
+             LEFT JOIN social_accounts a ON a.id = d.cuenta_id
+             WHERE d.habilitada = 1
+               AND COALESCE(a.identificador_externo, '') NOT LIKE 'test-social-%'`
+          )
+          .get().total
       ),
       /*
         ── Si alguna vez salió algo de verdad ────────────────────────────────

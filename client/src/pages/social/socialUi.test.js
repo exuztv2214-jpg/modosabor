@@ -21,7 +21,7 @@ test('cada estado ofrece una acción de recuperación concreta', () => {
   assert.equal(estadoVisualDeVia({ estado: 'sin_configurar' }).accion, 'Configurar');
   assert.equal(estadoVisualDeVia({ estado: 'comprobando' }).accion, 'Comprobar');
   assert.equal(estadoVisualDeVia({ estado: 'requiere_atencion' }).accion, 'Revisar');
-  assert.equal(estadoVisualDeVia({ estado: 'en_pausa' }).accion, 'Reanudar');
+  assert.equal(estadoVisualDeVia({ estado: 'en_pausa' }).accion, 'Ver pausa');
   assert.equal(estadoVisualDeVia({ estado: 'lista' }).accion, null);
 });
 

@@ -361,6 +361,7 @@ async function run() {
 
   db.exec('SAVEPOINT social_operativo_sin_relleno');
   try {
+    const destinosActivosAntes = social.getMetrics(30).resumen.destinosActivos;
     const accountId = Number(
       db
         .prepare(
@@ -378,6 +379,11 @@ async function run() {
     assert.ok(
       !social.listDestinations().some((item) => item.cuenta_id === accountId),
       'Los destinos técnicos no aparecen en el panel'
+    );
+    assert.strictEqual(
+      social.getMetrics(30).resumen.destinosActivos,
+      destinosActivosAntes,
+      'Los destinos técnicos tampoco inflan las métricas'
     );
   } finally {
     db.exec('ROLLBACK TO social_operativo_sin_relleno; RELEASE social_operativo_sin_relleno');

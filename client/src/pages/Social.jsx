@@ -1356,6 +1356,17 @@ export default function Social() {
         </header>
 
         <div className="social-content p-6 md:p-8">
+          {loadError && (
+            <div
+              className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700"
+              role="alert"
+            >
+              <span>No se pudieron actualizar los datos: {loadError}</span>
+              <button type="button" onClick={reload} className="font-bold">
+                Reintentar
+              </button>
+            </div>
+          )}
           {/* ==================== DASHBOARD ==================== */}
           {activeSection === 'dashboard' && (
             <div className="space-y-6">
@@ -3133,7 +3144,21 @@ function EstadoDeVias({ vias = {}, onIr, onVincular }) {
               {visual.accion && (
                 <button
                   type="button"
-                  onClick={() => (clave === 'perfilGrupos' ? onVincular() : onIr('destinos'))}
+                  onClick={() => {
+                    if (via.estado === 'en_pausa') {
+                      onIr('dashboard');
+                      setTimeout(
+                        () =>
+                          document
+                            .getElementById('social-freno')
+                            ?.scrollIntoView({ behavior: 'smooth', block: 'center' }),
+                        0
+                      );
+                      return;
+                    }
+                    if (clave === 'perfilGrupos') onVincular();
+                    else onIr('destinos');
+                  }}
                   className="social-via-accion"
                 >
                   {visual.accion}
@@ -6289,7 +6314,7 @@ function FrenoDeMano({ pausado, motivo, identidades, onPausaGeneral, onPausaIden
   const frenadasSolas = identidades.filter((i) => i.frenadaAutomaticamente);
 
   return (
-    <div className={`social-freno ${pausado ? 'social-freno--activo' : ''}`}>
+    <div id="social-freno" className={`social-freno ${pausado ? 'social-freno--activo' : ''}`}>
       <div className="social-freno-principal">
         <div>
           <div className="social-freno-titulo">
