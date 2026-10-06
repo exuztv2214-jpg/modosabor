@@ -464,6 +464,7 @@ function conectarPagina({ usuarioId, pageId, cuentaId }) {
   metadata.token = pagina.token; // ya viene cifrado
   metadata.pageId = pagina.id;
   metadata.pageNombre = pagina.nombre;
+  delete metadata.verificaciones;
   if (pagina.instagram) {
     metadata.igId = pagina.instagram.id;
     metadata.igUsuario = pagina.instagram.usuario;

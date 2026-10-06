@@ -181,6 +181,167 @@ function listDestinations({ type = '', enabledOnly = false, cuentaId = null } = 
     .map(mapDestination);
 }
 
+const PRUEBA_API_MAX_MS = 24 * 60 * 60 * 1000;
+
+function estadoWorkerSocial(now = Date.now()) {
+  const marker = db
+    .prepare(
+      "SELECT valor FROM configuracion WHERE clave = 'social_worker_linked_after_command_id'"
+    )
+    .get();
+  if (!marker) {
+    return {
+      estado: 'sin_conectar',
+      motivo: 'Vinculá esta PC para publicar desde el perfil o grupos.',
+      comprobadoEn: null,
+      accion: 'vincular',
+    };
+  }
+  const worker = estadoRealDelWorker(
+    db.prepare('SELECT * FROM social_workers ORDER BY ultimo_heartbeat_en DESC LIMIT 1').get(),
+    now
+  );
+  if (!worker?.vivo || worker.estado !== 'online') {
+    return {
+      estado: 'sin_conectar',
+      motivo: 'La extensión no está comunicándose con el servidor.',
+      comprobadoEn: null,
+      accion: 'vincular',
+    };
+  }
+  const health = db
+    .prepare(
+      "SELECT id, estado, resultado, finalizado_en FROM social_worker_commands WHERE tipo = 'health_check' AND id > ? AND estado IN ('done','failed') ORDER BY id DESC LIMIT 1"
+    )
+    .get(Number(marker.valor) || 0);
+  if (!health) {
+    return {
+      estado: 'comprobando',
+      motivo: 'Falta comprobar la sesión de Facebook después de vincular esta PC.',
+      comprobadoEn: null,
+      accion: 'probar_worker',
+    };
+  }
+  const comprobadoEn = health.finalizado_en || null;
+  if (health.estado !== 'done' || parse(health.resultado)?.facebook_session !== 'ACTIVE') {
+    return {
+      estado: 'requiere_atencion',
+      motivo: 'La sesión de Facebook necesita revisión.',
+      comprobadoEn,
+      accion: 'probar_worker',
+    };
+  }
+  return { estado: 'lista', motivo: 'Extensión y sesión comprobadas.', comprobadoEn, accion: null };
+}
+
+function estadoDeDestinoSocial(destino, { now = Date.now() } = {}) {
+  const row = destino?.id
+    ? db.prepare('SELECT * FROM social_destinations WHERE id = ?').get(Number(destino.id))
+    : destino;
+  if (!row)
+    return {
+      estado: 'sin_configurar',
+      motivo: 'El destino ya no existe.',
+      comprobadoEn: null,
+      accion: 'destinos',
+    };
+  if (!Number(row.habilitada))
+    return {
+      estado: 'en_pausa',
+      motivo: 'El destino está deshabilitado.',
+      comprobadoEn: null,
+      accion: 'destinos',
+    };
+  const cuenta = db.prepare('SELECT * FROM social_accounts WHERE id = ?').get(row.cuenta_id);
+  if (!cuenta)
+    return {
+      estado: 'sin_configurar',
+      motivo: 'Falta la cuenta de este destino.',
+      comprobadoEn: null,
+      accion: 'destinos',
+    };
+  if (Number(cuenta.pausada) || !Number(cuenta.habilitada)) {
+    return {
+      estado: 'en_pausa',
+      motivo: 'La cuenta está pausada.',
+      comprobadoEn: null,
+      accion: 'identidades',
+    };
+  }
+  if (
+    ['facebook_profile', 'facebook_group'].includes(row.tipo) ||
+    row.execution_class === 'browser'
+  ) {
+    return estadoWorkerSocial(now);
+  }
+  const canal = String(row.tipo).startsWith('instagram') ? 'instagram' : 'pagina';
+  const meta = parse(cuenta.metadata);
+  if (!meta.token || !(canal === 'instagram' ? meta.igId : meta.pageId)) {
+    return {
+      estado: 'sin_conectar',
+      motivo: `Falta conectar ${canal === 'instagram' ? 'Instagram' : 'la Página de Facebook'}.`,
+      comprobadoEn: null,
+      accion: 'conectar',
+    };
+  }
+  const check = meta.verificaciones?.[canal];
+  const fecha = desdeSql(check?.en);
+  const edad = fecha ? now - fecha.getTime() : Infinity;
+  if (
+    check?.estado !== 'ACTIVE' ||
+    !Number.isFinite(edad) ||
+    edad < 0 ||
+    edad > PRUEBA_API_MAX_MS
+  ) {
+    return {
+      estado: 'requiere_atencion',
+      motivo: 'Comprobá las credenciales antes de publicar.',
+      comprobadoEn: check?.en || null,
+      accion: 'probar',
+    };
+  }
+  return {
+    estado: 'lista',
+    motivo: 'Credenciales comprobadas.',
+    comprobadoEn: check.en,
+    accion: null,
+  };
+}
+
+function estadoViasSocial({ now = Date.now() } = {}) {
+  const destinos = db
+    .prepare('SELECT id, tipo FROM social_destinations WHERE habilitada = 1')
+    .all();
+  const estadoCanal = (tipos, sinConfigurar) => {
+    const encontrados = destinos.filter((d) => tipos.includes(d.tipo));
+    if (!encontrados.length) return sinConfigurar;
+    const estados = encontrados.map((d) => estadoDeDestinoSocial(d, { now }));
+    return estados.find((e) => e.estado === 'lista') || estados[0];
+  };
+  const falta = (nombre) => ({
+    estado: 'sin_configurar',
+    motivo: `Todavía no hay destino de ${nombre}.`,
+    comprobadoEn: null,
+    accion: 'conectar',
+  });
+  const perfil = estadoWorkerSocial(now);
+  const pausa = db
+    .prepare("SELECT pausada FROM social_accounts WHERE identificador_externo = 'fb_perfil'")
+    .get();
+  return {
+    pagina: estadoCanal(['facebook_page'], falta('Página de Facebook')),
+    instagram: estadoCanal(['instagram_feed'], falta('Instagram')),
+    perfilGrupos: Number(pausa?.pausada)
+      ? {
+          estado: 'en_pausa',
+          motivo: 'La cuenta de perfil está pausada.',
+          comprobadoEn: null,
+          accion: 'identidades',
+        }
+      : perfil,
+  };
+}
+
 /** Las identidades de publicación disponibles, ordenadas. */
 function listIdentities(provider = null) {
   const where = provider ? 'WHERE provider = ?' : '';
@@ -261,6 +422,8 @@ function guardarCredenciales(cuentaId, { token, pageId, igId, borrarToken = fals
   if (!cuenta) throw new Error('No existe esa identidad');
 
   const metadata = parse(cuenta.metadata);
+  if (borrarToken || token || pageId !== undefined || igId !== undefined)
+    delete metadata.verificaciones;
 
   if (borrarToken) {
     delete metadata.token;
@@ -328,7 +491,21 @@ async function probarCredenciales(cuentaId, tipo = 'pagina') {
     tipo: tipo === 'instagram' ? 'instagram_feed' : 'facebook_page',
   });
 
-  const resultado = await provider.salud({ identidad });
+  let resultado;
+  try {
+    resultado = await provider.salud({ identidad });
+  } catch (error) {
+    resultado = { estado: 'ERROR', detalle: error.message };
+  }
+  const canal = tipo === 'instagram' ? 'instagram' : 'pagina';
+  const metadata = { ...identidad.metadata };
+  metadata.verificaciones = {
+    ...metadata.verificaciones,
+    [canal]: { estado: resultado.estado, en: new Date().toISOString(), detalle: resultado.detalle },
+  };
+  db.prepare(
+    'UPDATE social_accounts SET metadata = ?, ultimo_check_en = CURRENT_TIMESTAMP WHERE id = ?'
+  ).run(json(metadata), cuenta.id);
   log({
     nivel: resultado.estado === 'ACTIVE' ? 'info' : 'warn',
     codigo: `PRUEBA_${resultado.estado}`,
@@ -2245,6 +2422,34 @@ function reportCommand({ commandId, lockToken, estado, resultado = {}, error = '
   db.prepare(
     `UPDATE social_worker_commands SET estado = ?, resultado = ?, error = ?, lock_token = '', lock_hasta = NULL, finalizado_en = CURRENT_TIMESTAMP WHERE id = ?`
   ).run(estado, json(resultado), clean(error, 1200), commandId);
+  if (
+    command.tipo === 'health_check' &&
+    estado === 'done' &&
+    resultado.facebook_session === 'ACTIVE'
+  ) {
+    const marker = db
+      .prepare(
+        "SELECT valor FROM configuracion WHERE clave = 'social_worker_linked_after_command_id'"
+      )
+      .get();
+    if (marker && Number(command.id) > Number(marker.valor)) {
+      const cuenta = db
+        .prepare(
+          "SELECT id, nombre, metadata FROM social_accounts WHERE identificador_externo = 'fb_perfil'"
+        )
+        .get();
+      if (cuenta) {
+        const nombre = parse(cuenta.metadata).profileNombre || 'Perfil de Facebook';
+        db.prepare(
+          `INSERT INTO social_destinations
+          (provider, cuenta_id, tipo, identificador_externo, nombre, url, habilitada, execution_class, provider_clave)
+          VALUES ('facebook', ?, 'facebook_profile', 'me', ?, 'https://www.facebook.com/me/', 1, 'browser', 'facebook_profile_browser')
+          ON CONFLICT(provider, cuenta_id, tipo, identificador_externo) DO UPDATE SET
+            nombre = excluded.nombre, execution_class = 'browser', provider_clave = excluded.provider_clave`
+        ).run(cuenta.id, nombre);
+      }
+    }
+  }
   log({
     nivel: estado === 'done' ? 'info' : 'error',
     codigo: command.tipo,
@@ -2280,6 +2485,7 @@ function dashboard() {
     failed,
     groups,
     worker: estadoRealDelWorker(worker),
+    vias: estadoViasSocial(),
     health: health ? { ...health, resultado: parse(health.resultado) } : null,
     campaigns: listCampaigns(8),
     logs: db
@@ -2354,11 +2560,11 @@ function formatoParaLaRed(item) {
   return elegidos[claveCuenta] || elegidos[red] || item?.formato || 'post';
 }
 
-function estadoRealDelWorker(fila) {
+function estadoRealDelWorker(fila, now = Date.now()) {
   if (!fila) return null;
 
   const ultimo = desdeSql(fila.ultimo_heartbeat_en);
-  const silencio = ultimo ? Date.now() - ultimo.getTime() : Infinity;
+  const silencio = ultimo ? now - ultimo.getTime() : Infinity;
   const vivo = silencio <= SILENCIO_MAXIMO_MS;
 
   return {
@@ -2400,6 +2606,8 @@ function heartbeatWorker({
 
 module.exports = {
   DESTINATION_TYPES,
+  estadoDeDestinoSocial,
+  estadoViasSocial,
   listIdentities,
   guardarCredenciales,
   estadoDeCredenciales,

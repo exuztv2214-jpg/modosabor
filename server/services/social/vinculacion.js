@@ -100,6 +100,15 @@ function canjearCodigo(codigo) {
     );
   }
 
+  const ultimoComando = db
+    .prepare('SELECT COALESCE(MAX(id), 0) AS id FROM social_worker_commands')
+    .get();
+  db.prepare(
+    `INSERT INTO configuracion (clave, valor)
+    VALUES ('social_worker_linked_after_command_id', ?)
+    ON CONFLICT(clave) DO UPDATE SET valor = excluded.valor`
+  ).run(String(ultimoComando.id));
+
   return { clave, usuarioId: datos.usuarioId ?? null };
 }
 

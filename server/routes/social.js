@@ -168,15 +168,18 @@ router.get('/oauth/facebook/paginas', (req, res) =>
   res.json({ items: oauthFacebook.paginasEncontradas(req.user?.id || 0) })
 );
 
-router.post('/oauth/facebook/elegir', (req, res) => {
+router.post('/oauth/facebook/elegir', async (req, res) => {
   try {
-    return res.json(
-      oauthFacebook.conectarPagina({
-        usuarioId: req.user?.id || 0,
-        pageId: req.body?.pageId,
-        cuentaId: req.body?.cuentaId,
-      })
-    );
+    const conexion = oauthFacebook.conectarPagina({
+      usuarioId: req.user?.id || 0,
+      pageId: req.body?.pageId,
+      cuentaId: req.body?.cuentaId,
+    });
+    const pagina = await social.probarCredenciales(req.body?.cuentaId, 'pagina');
+    const instagram = conexion.instagram
+      ? await social.probarCredenciales(req.body?.cuentaId, 'instagram')
+      : null;
+    return res.json({ ...conexion, verificaciones: { pagina, instagram } });
   } catch (error) {
     return res.status(400).json({ error: error.message });
   }
