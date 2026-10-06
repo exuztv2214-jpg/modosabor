@@ -1498,7 +1498,7 @@ function getMetrics(days = 30) {
     resumen: {
       totalCampanas: Number(summary.totalCampanas || 0),
       totalPublicaciones,
-      tasaExito: totalPublicaciones ? Math.round((exitosos / totalPublicaciones) * 100) : 0,
+      tasaExito: totalPublicaciones ? Math.round((exitosos / totalPublicaciones) * 100) : null,
       destinosActivos: Number(
         db.prepare('SELECT COUNT(*) AS total FROM social_destinations WHERE habilitada = 1').get()
           .total
@@ -2521,6 +2521,14 @@ function dashboard() {
     queued,
     failed,
     groups,
+    resumen: {
+      yaPublicoAlgunaVez:
+        Number(
+          db
+            .prepare("SELECT COUNT(*) AS total FROM social_post_targets WHERE estado = 'published'")
+            .get().total
+        ) > 0,
+    },
     worker: estadoRealDelWorker(worker),
     vias: estadoViasSocial(),
     health: health ? { ...health, resultado: parse(health.resultado) } : null,

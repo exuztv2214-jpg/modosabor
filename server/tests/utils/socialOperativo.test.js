@@ -351,6 +351,60 @@ async function run() {
   } finally {
     db.exec('ROLLBACK TO social_operativo_campanas; RELEASE social_operativo_campanas');
   }
+
+  db.exec('SAVEPOINT social_operativo_metricas');
+  try {
+    db.prepare('DELETE FROM social_post_targets').run();
+    db.prepare('DELETE FROM social_campaigns').run();
+    const empty = social.getMetrics(30);
+    assert.strictEqual(empty.resumen.tasaExito, null);
+    assert.strictEqual(empty.alcance.disponible, false);
+    assert.deepStrictEqual(empty.porHora, []);
+    assert.strictEqual(social.dashboard().resumen.yaPublicoAlgunaVez, false);
+
+    const accountId = db
+      .prepare("SELECT id FROM social_accounts WHERE identificador_externo = 'fb_perfil'")
+      .get().id;
+    const destinationId = Number(
+      db
+        .prepare(
+          "INSERT INTO social_destinations (cuenta_id, provider, tipo, nombre, identificador_externo, habilitada) VALUES (?, 'facebook', 'facebook_group', 'Grupo métricas', 'metrics-test', 1)"
+        )
+        .run(accountId).lastInsertRowid
+    );
+    const secondDestinationId = Number(
+      db
+        .prepare(
+          "INSERT INTO social_destinations (cuenta_id, provider, tipo, nombre, identificador_externo, habilitada) VALUES (?, 'facebook', 'facebook_group', 'Grupo métricas 2', 'metrics-test-2', 1)"
+        )
+        .run(accountId).lastInsertRowid
+    );
+    const campaignId = Number(
+      db
+        .prepare(
+          "INSERT INTO social_campaigns (nombre, texto, estado) VALUES ('Métricas reales', 'Contenido', 'failed')"
+        )
+        .run().lastInsertRowid
+    );
+    db.prepare(
+      'INSERT INTO social_post_targets (campana_id, destino_id, estado) VALUES (?, ?, ?)'
+    ).run(campaignId, destinationId, 'published');
+    db.prepare(
+      'INSERT INTO social_post_targets (campana_id, destino_id, estado) VALUES (?, ?, ?)'
+    ).run(campaignId, secondDestinationId, 'failed');
+    assert.strictEqual(social.getMetrics(30).resumen.tasaExito, 50);
+
+    db.prepare(
+      "UPDATE social_campaigns SET creado_en = datetime('now', '-40 days') WHERE id = ?"
+    ).run(campaignId);
+    db.prepare(
+      "UPDATE social_post_targets SET creado_en = datetime('now', '-40 days') WHERE campana_id = ?"
+    ).run(campaignId);
+    assert.strictEqual(social.getMetrics(30).resumen.tasaExito, null);
+    assert.strictEqual(social.dashboard().resumen.yaPublicoAlgunaVez, true);
+  } finally {
+    db.exec('ROLLBACK TO social_operativo_metricas; RELEASE social_operativo_metricas');
+  }
 }
 
 module.exports = { run };
