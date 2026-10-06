@@ -24,6 +24,8 @@ BASE_DIR = Path(__file__).resolve().parent
 SERVER_DIR = BASE_DIR / "server"
 CLIENT_DIR = BASE_DIR / "client"
 CLIENT_VITE = CLIENT_DIR / "node_modules" / "vite" / "bin" / "vite.js"
+PROMO_ROOT = Path(r"D:\ModoSaborPromoStitch")
+PROMO_SERVER = PROMO_ROOT / "server.js"
 BRANDING_DIR = BASE_DIR / "assets" / "branding"
 LAUNCHER_DIR = BASE_DIR / ".launcher"
 PIDS_DIR = LAUNCHER_DIR / "pids"
@@ -34,6 +36,8 @@ ICON_PATH = BASE_DIR / "modsabor.ico"
 
 CLIENT_URL = "http://localhost:5173"
 SERVER_URL = "http://localhost:3001/api/health"
+STITCH_URL = "http://127.0.0.1:3867"
+STITCH_STATUS_URL = f"{STITCH_URL}/api/status"
 
 POLL_INTERVAL_MS = 5000
 STATUS_TIMEOUT = 0.6
@@ -76,6 +80,12 @@ SERVICES = {
         "hint": "Interfaz principal",
         "port": 5173,
         "path": str(CLIENT_DIR),
+    },
+    "stitch": {
+        "label": "Masivos Stitch",
+        "hint": "Campañas y WhatsApp",
+        "port": 3867,
+        "path": str(PROMO_ROOT),
     },
 }
 
@@ -203,7 +213,7 @@ class ModoSaborLauncher:
         chips.pack(fill=tk.X, padx=28, pady=(6, 20))
 
         self.status_summary["online"] = self._make_stat_chip(chips, "Servicios activos", "0/2", COLORS["soft_blue"], COLORS["primary"])
-        self.status_summary["panel"] = self._make_stat_chip(chips, "Panel", "localhost:5173", COLORS["soft_green"], COLORS["success"])
+        self.status_summary["panel"] = self._make_stat_chip(chips, "Panel", "masivos:3867", COLORS["soft_green"], COLORS["success"])
 
         actions = tk.Frame(parent, bg=COLORS["navy"])
         actions.pack(fill=tk.X, padx=28, pady=(0, 22))
@@ -229,7 +239,7 @@ class ModoSaborLauncher:
         ).pack(anchor="w")
         tk.Label(
             footer,
-            text="API 3001  |  WEB 5173",
+            text="API 3001  |  WEB 5173  |  MASIVOS 3867",
             font=("Consolas", 9),
             bg=COLORS["navy"],
             fg="#E0E8F4",
@@ -508,11 +518,11 @@ class ModoSaborLauncher:
             messagebox.showerror("Modo Sabor", f"No pude abrir la carpeta de logs.\n\n{exc}")
 
     def open_dashboard(self):
-        if not self.url_available(CLIENT_URL):
-            self.log("El panel web todavía no está listo (no responde en el puerto 5173).")
-            messagebox.showinfo("Modo Sabor", "El panel web todavía no está levantado.")
+        if not self.url_available(STITCH_STATUS_URL):
+            self.log("El panel de campañas todavía no está listo (no responde en el puerto 3867).")
+            messagebox.showinfo("Modo Sabor", "El panel de campañas todavía no está levantado.")
             return
-        webbrowser.open(CLIENT_URL)
+        webbrowser.open(STITCH_URL)
 
     def on_close(self):
         self.auto_refresh = False
@@ -586,7 +596,7 @@ class ModoSaborLauncher:
             time.sleep(interval)
         return False
 
-    def launch_process(self, service, args, cwd, extra_env=None):
+    def launch_process(self, service, args, cwd, extra_env=None, metadata=None):
         log_path = LOGS_DIR / f"{service}.log"
         env = os.environ.copy()
         env["FORCE_COLOR"] = "0"
@@ -612,6 +622,8 @@ class ModoSaborLauncher:
             "started_at": time.strftime("%Y-%m-%d %H:%M:%S"),
             "log": str(log_path),
         }
+        if metadata:
+            self.launch_state[service].update(metadata)
         write_json(STATE_FILE, self.launch_state)
         return process.pid
 
@@ -702,10 +714,26 @@ class ModoSaborLauncher:
 
     def service_is_running(self, service):
         if service == "server":
-            return self.url_available(SERVER_URL)
+            return (
+                self.url_available(SERVER_URL)
+                and self.service_process_matches(service)
+                and self.launch_state.get(service, {}).get("whatsapp_disabled") is True
+            )
         if service == "client":
-            return self.url_available(CLIENT_URL)
+            return self.url_available(CLIENT_URL) and self.service_process_matches(service)
+        if service == "stitch":
+            return self.url_available(STITCH_STATUS_URL) and self.service_process_matches(service)
         return False
+
+    def service_process_matches(self, service):
+        """No confundir otro proyecto que responda en el mismo puerto con Modo Sabor."""
+        fragments = {
+            "server": SERVER_DIR,
+            "client": CLIENT_DIR,
+            "stitch": PROMO_ROOT,
+        }
+        fragment = str(fragments.get(service, ""))
+        return bool(self.pids_by_path(fragment))
 
     def update_service_ui(self, service, status):
         palette = {
@@ -723,10 +751,7 @@ class ModoSaborLauncher:
     def _collect_status_map(self):
         status_map = {}
         for service in SERVICES:
-            if service == "server":
-                status = "on" if self.url_available(SERVER_URL) else "off"
-            else:
-                status = "on" if self.url_available(CLIENT_URL) else "off"
+            status = "on" if self.service_is_running(service) else "off"
             status_map[service] = status
         return status_map
 
@@ -735,9 +760,9 @@ class ModoSaborLauncher:
             self.update_service_ui(service, status)
 
         online = sum(1 for status in status_map.values() if status == "on")
-        self.status_summary["online"].config(text=f"{online}/2")
+        self.status_summary["online"].config(text=f"{online}/{len(SERVICES)}")
 
-        if online == 2:
+        if online == len(SERVICES):
             self.hero_status.config(text="Sistema listo", fg=COLORS["success"])
             self.hero_detail.config(text="Puedes abrir el panel o cerrar esta ventana sin detener el sistema.")
             self.start_btn.config(text="Sistema activo", bg=COLORS["success"], activebackground="#0EB094")
@@ -787,10 +812,20 @@ class ModoSaborLauncher:
             time.sleep(1.5)
 
     def ensure_server(self):
-        if self.url_available(SERVER_URL):
+        server_has_single_whatsapp = self.launch_state.get("server", {}).get("whatsapp_disabled") is True
+        if self.url_available(SERVER_URL) and self.service_process_matches("server") and server_has_single_whatsapp:
             self.dispatch(self.update_service_ui, "server", "on")
             self.dispatch(self.log, "La API ya estaba activa.")
             return True
+
+        if self.url_available(SERVER_URL) and self.service_process_matches("server") and not server_has_single_whatsapp:
+            self.dispatch(self.log, "La API estaba activa sin sesión única. Reiniciando para dejar WhatsApp en Stitch.")
+            for pid in self.pids_by_path(str(SERVER_DIR)):
+                self.terminate_pid(pid)
+            time.sleep(1.5)
+
+        if self.url_available(SERVER_URL):
+            self.dispatch(self.log, "El puerto 3001 responde, pero pertenece a otro proceso. Se liberará antes de iniciar Modo Sabor.")
 
         self.free_stale_port(3001, "API")
 
@@ -798,8 +833,10 @@ class ModoSaborLauncher:
         self.dispatch(self.update_service_ui, "server", "busy")
         self.launch_process(
             "server",
-            ["node", "index.js"],
+            ["node", str(SERVER_DIR / "index.js")],
             SERVER_DIR,
+            extra_env={"WHATSAPP_DISABLE_STARTUP": "1"},
+            metadata={"whatsapp_disabled": True},
         )
 
         if self.wait_for(lambda: self.url_available(SERVER_URL), timeout=30):
@@ -813,11 +850,39 @@ class ModoSaborLauncher:
         )
         return False
 
+    def ensure_stitch(self):
+        if self.url_available(STITCH_STATUS_URL) and self.service_process_matches("stitch"):
+            self.dispatch(self.update_service_ui, "stitch", "on")
+            self.dispatch(self.log, "El panel Stitch ya estaba activo.")
+            return True
+
+        if self.url_available(STITCH_STATUS_URL):
+            self.dispatch(self.log, "El puerto 3867 responde, pero pertenece a otro proceso. Se liberará antes de iniciar Stitch.")
+
+        self.free_stale_port(3867, "Masivos Stitch")
+        self.dispatch(self.log, "Iniciando Masivos Stitch en segundo plano...")
+        self.dispatch(self.update_service_ui, "stitch", "busy")
+        self.launch_process("stitch", node_command(PROMO_SERVER), PROMO_ROOT)
+
+        if self.wait_for(lambda: self.url_available(STITCH_STATUS_URL), timeout=45):
+            self.dispatch(self.update_service_ui, "stitch", "on")
+            return True
+
+        self.dispatch(self.update_service_ui, "stitch", "error")
+        self.dispatch(
+            self.log,
+            "El panel Stitch no respondió en el puerto 3867. Revisá .launcher/logs/stitch.log para más detalle.",
+        )
+        return False
+
     def ensure_client(self):
-        if self.url_available(CLIENT_URL):
+        if self.url_available(CLIENT_URL) and self.service_process_matches("client"):
             self.dispatch(self.update_service_ui, "client", "on")
             self.dispatch(self.log, "El panel web ya estaba levantado.")
             return True
+
+        if self.url_available(CLIENT_URL):
+            self.dispatch(self.log, "El puerto 5173 responde, pero pertenece a otro proyecto. Se liberará antes de iniciar Modo Sabor.")
 
         self.free_stale_port(5173, "Panel Web")
 
@@ -851,12 +916,13 @@ class ModoSaborLauncher:
             steps = [
                 self.ensure_server,
                 self.ensure_client,
+                self.ensure_stitch,
             ]
             for step in steps:
                 if not step():
                     return
             self.dispatch(self.log, "Todo listo. Abriendo el panel principal...")
-            webbrowser.open(CLIENT_URL)
+            webbrowser.open(STITCH_URL)
         except Exception as exc:
             self.dispatch(self.log, f"Fallo crítico durante el arranque: {exc}")
             self.dispatch(messagebox.showerror, "Modo Sabor", f"No pude completar el arranque.\n\n{exc}")
@@ -876,7 +942,7 @@ class ModoSaborLauncher:
             self.dispatch(self.log, "Iniciando apagado seguro...")
 
             victims = []
-            for service in ("client", "server"):
+            for service in ("stitch", "client", "server"):
                 pid = self.tracked_pid(service)
                 if pid:
                     victims.append(pid)
