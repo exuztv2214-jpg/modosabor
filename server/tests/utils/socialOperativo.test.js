@@ -359,6 +359,30 @@ async function run() {
     db.exec('ROLLBACK TO social_operativo_campanas; RELEASE social_operativo_campanas');
   }
 
+  db.exec('SAVEPOINT social_operativo_sin_relleno');
+  try {
+    const accountId = Number(
+      db
+        .prepare(
+          "INSERT INTO social_accounts (provider, nombre, identificador_externo, metadata) VALUES ('facebook', 'Cuenta de prueba visible', 'test-social-relleno', '{}')"
+        )
+        .run().lastInsertRowid
+    );
+    db.prepare(
+      "INSERT INTO social_destinations (cuenta_id, provider, tipo, nombre, identificador_externo) VALUES (?, 'facebook', 'facebook_page', 'Destino de ensayo visible', 'demo-visible')"
+    ).run(accountId);
+    assert.ok(
+      !social.listIdentities().some((item) => item.id === accountId),
+      'Las identidades técnicas no aparecen en el panel'
+    );
+    assert.ok(
+      !social.listDestinations().some((item) => item.cuenta_id === accountId),
+      'Los destinos técnicos no aparecen en el panel'
+    );
+  } finally {
+    db.exec('ROLLBACK TO social_operativo_sin_relleno; RELEASE social_operativo_sin_relleno');
+  }
+
   db.exec('SAVEPOINT social_operativo_metricas');
   try {
     db.prepare('DELETE FROM social_post_targets').run();

@@ -152,7 +152,7 @@ function mapCampaign(row) {
 }
 
 function listDestinations({ type = '', enabledOnly = false, cuentaId = null } = {}) {
-  const conditions = [];
+  const conditions = ["COALESCE(a.identificador_externo, '') NOT LIKE 'test-social-%'"];
   const params = [];
   if (type) {
     conditions.push('d.tipo = ?');
@@ -313,7 +313,12 @@ function estadoDeDestinoSocial(destino, { now = Date.now() } = {}) {
 
 function estadoViasSocial({ now = Date.now() } = {}) {
   const destinos = db
-    .prepare('SELECT id, tipo FROM social_destinations WHERE habilitada = 1')
+    .prepare(
+      `SELECT d.id, d.tipo FROM social_destinations d
+       LEFT JOIN social_accounts a ON a.id = d.cuenta_id
+       WHERE d.habilitada = 1
+         AND COALESCE(a.identificador_externo, '') NOT LIKE 'test-social-%'`
+    )
     .all();
   const estadoCanal = (tipos, sinConfigurar) => {
     const encontrados = destinos.filter((d) => tipos.includes(d.tipo));
@@ -347,8 +352,13 @@ function estadoViasSocial({ now = Date.now() } = {}) {
 
 /** Las identidades de publicación disponibles, ordenadas. */
 function listIdentities(provider = null) {
-  const where = provider ? 'WHERE provider = ?' : '';
-  const params = provider ? [clean(provider, 40).toLowerCase()] : [];
+  const conditions = ["identificador_externo NOT LIKE 'test-social-%'"];
+  const params = [];
+  if (provider) {
+    conditions.push('provider = ?');
+    params.push(clean(provider, 40).toLowerCase());
+  }
+  const where = `WHERE ${conditions.join(' AND ')}`;
   const fallosParaPausar = Number(getSocialConfig().fallosParaPausar || 5);
   return db
     .prepare(`SELECT * FROM social_accounts ${where} ORDER BY provider, id`)
@@ -2506,7 +2516,10 @@ function dashboard() {
     .get().c;
   const groups = db
     .prepare(
-      "SELECT COUNT(*) AS c FROM social_destinations WHERE tipo = 'facebook_group' AND habilitada = 1"
+      `SELECT COUNT(*) AS c FROM social_destinations d
+       LEFT JOIN social_accounts a ON a.id = d.cuenta_id
+       WHERE d.tipo = 'facebook_group' AND d.habilitada = 1
+         AND COALESCE(a.identificador_externo, '') NOT LIKE 'test-social-%'`
     )
     .get().c;
   const worker = db
@@ -2532,7 +2545,9 @@ function dashboard() {
     worker: estadoRealDelWorker(worker),
     vias: estadoViasSocial(),
     health: health ? { ...health, resultado: parse(health.resultado) } : null,
-    campaigns: listCampaigns(8),
+    campaigns: listCampaigns(30)
+      .filter((campaign) => !campaign.ensayo)
+      .slice(0, 8),
     logs: db
       .prepare('SELECT * FROM social_publication_logs ORDER BY id DESC LIMIT 12')
       .all()

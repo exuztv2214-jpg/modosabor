@@ -48,12 +48,15 @@ import {
   ThumbsUp,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import ActionDialog from '../components/ActionDialog.jsx';
 import api from '../lib/api.js';
 import {
   STATUS_STYLES,
   estadoVisualDeVia,
   formatSocialDate,
   formatSocialDateTime,
+  planDeGuardado,
+  resumenDeRevision,
   socialApiError,
 } from './social/socialUi.js';
 import { CATEGORIAS_DE_EMOJI, buscarEmojis } from './social/emojis.js';
@@ -97,6 +100,8 @@ export default function Social() {
   });
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  const [campaignError, setCampaignError] = useState('');
+  const [editingCampaignId, setEditingCampaignId] = useState(null);
 
   // Composer state
   const [draft, setDraft] = useState({
@@ -438,16 +443,18 @@ export default function Social() {
     }
   }, [activeSection, metricsData]);
 
-  const selectedCount = useMemo(
-    () =>
-      new Set([
+  const resolvedDestinationIds = useMemo(
+    () => [
+      ...new Set([
         ...draft.destinoIds,
         ...data.conjuntos
           .filter((set) => draft.conjuntoIds.includes(set.id))
           .flatMap((set) => set.destinos.map((item) => item.id)),
-      ]).size,
+      ]),
+    ],
     [data.conjuntos, draft]
   );
+  const selectedCount = resolvedDestinationIds.length;
 
   const toggle = (field, id) =>
     setDraft((old) => ({
@@ -457,12 +464,12 @@ export default function Social() {
         : [...old[field], id],
     }));
 
-  const saveCampaign = async (queueNow = false) => {
+  const saveCampaign = async (action = 'borrador') => {
     const textosPorRed = draft.personalizaciones?.textos_por_red || {};
     const hayTexto =
       draft.texto.trim() || Object.values(textosPorRed).some((texto) => String(texto || '').trim());
-    if ((!hayTexto && !draft.mediaIds.length) || !selectedCount)
-      return toast.error('Completá el contenido y elegí al menos un destino.');
+    if (!hayTexto && !draft.mediaIds.length) return toast.error('Completá el contenido.');
+    if (action !== 'borrador' && !selectedCount) return toast.error('Elegí al menos un destino.');
     /*
       ── El aviso tiene que decir dónde está la perilla ─────────────────────
 
@@ -475,6 +482,7 @@ export default function Social() {
       "no". Este dice cuántos elegiste y dónde se apaga.
     */
     if (
+      action !== 'borrador' &&
       !draft.ensayo &&
       draft.personalizaciones.modo_prueba &&
       (draft.conjuntoIds.length || selectedCount !== 1)
@@ -483,6 +491,7 @@ export default function Social() {
         `El modo seguro deja publicar en un solo lugar y elegiste ${selectedCount}. ` +
           'Dejá uno solo, o destildá «Modo seguro» abajo en Más opciones.'
       );
+    setCampaignError('');
     setSending(true);
     try {
       /* El nombre interno es una nota opcional, no una traba escondida. */
@@ -491,8 +500,19 @@ export default function Social() {
         Object.values(textosPorRed).find((texto) => String(texto || '').trim()) ||
         '';
       const nombreAutomatico = String(primerTexto).replace(/\s+/g, ' ').trim().slice(0, 72);
+      const publish = action === 'publicar';
+      const schedule = action === 'programar';
+      const plan = planDeGuardado(action, draft.programadaPara);
+      if (schedule && !draft.programadaPara) {
+        throw new Error('Elegí una fecha y hora para programar.');
+      }
       const campaign = await api.post('/social/campanas', {
         ...draft,
+        programadaPara: plan.programadaPara,
+        personalizaciones: {
+          ...draft.personalizaciones,
+          auto_publicar: plan.autoPublicar,
+        },
         nombre:
           draft.nombre.trim() ||
           nombreAutomatico ||
@@ -500,8 +520,15 @@ export default function Social() {
       });
 
       let encolada = null;
-      if (queueNow) {
+      if (plan.encolar) {
         encolada = await api.post(`/social/campanas/${campaign.id}/encolar`, { ahora: true });
+      }
+      if (editingCampaignId) {
+        try {
+          await api.delete(`/social/campanas/${editingCampaignId}`);
+        } catch {
+          toast.error('La nueva versión se guardó, pero el borrador anterior sigue en la lista.');
+        }
       }
 
       /*
@@ -513,9 +540,11 @@ export default function Social() {
         es lo que hace que uno desconfíe del sistema.
       */
       toast.success(
-        queueNow
+        publish
           ? (draft.ensayo ? 'Ensayo: ' : '') + resumenDelReparto(encolada?.reparto)
-          : 'Borrador guardado.'
+          : schedule
+            ? 'Publicación programada.'
+            : 'Borrador guardado.'
       );
       setDraft({
         nombre: '',
@@ -526,7 +555,6 @@ export default function Social() {
         mediaIds: [],
         personalizaciones: { modo_prueba: true },
         ensayo: false,
-        autoPublicar: true,
         /*
           El formato también se limpia.
 
@@ -537,11 +565,14 @@ export default function Social() {
         formato: 'post',
         formatos: {},
       });
+      setEditingCampaignId(null);
       await reload();
       loadSocialConfig();
       setActiveSection('campanas');
     } catch (error) {
-      toast.error(apiError(error));
+      const message = apiError(error);
+      setCampaignError(message);
+      toast.error(message);
     } finally {
       setSending(false);
     }
@@ -763,6 +794,40 @@ export default function Social() {
       await reload();
       loadSocialConfig();
       toast.success('Campaña duplicada.');
+    } catch (error) {
+      toast.error(apiError(error));
+    }
+  };
+
+  const openCampaignDraft = async (id) => {
+    try {
+      const campaign = await api.get(`/social/campanas/${id}`);
+      let formatos = {};
+      try {
+        formatos =
+          typeof campaign.formatos === 'string'
+            ? JSON.parse(campaign.formatos || '{}')
+            : campaign.formatos || {};
+      } catch {
+        formatos = {};
+      }
+      setDraft({
+        nombre: campaign.nombre || '',
+        texto: campaign.texto || '',
+        programadaPara: campaign.programada_para
+          ? String(campaign.programada_para).replace(' ', 'T').slice(0, 16)
+          : '',
+        destinoIds: (campaign.targets || []).map((item) => item.destino_id),
+        conjuntoIds: [],
+        mediaIds: (campaign.media || []).map((item) => item.id),
+        personalizaciones: campaign.personalizaciones || { modo_prueba: true },
+        ensayo: Boolean(campaign.ensayo),
+        formato: campaign.formato || 'post',
+        formatos,
+      });
+      setEditingCampaignId(id);
+      setCampaignError('');
+      setActiveSection('crear');
     } catch (error) {
       toast.error(apiError(error));
     }
@@ -1621,6 +1686,10 @@ export default function Social() {
               onGuardar={saveCampaign}
               onAlternarDestino={(id) => toggle('destinoIds', id)}
               destinosElegidos={selectedCount}
+              destinosRevision={data.destinos.filter((item) =>
+                resolvedDestinationIds.includes(item.id)
+              )}
+              errorAlGuardar={campaignError}
               identidades={data.identidades || []}
               onIrADestinos={() => setActiveSection('destinos')}
               /*
@@ -1643,6 +1712,7 @@ export default function Social() {
                   formato: 'post',
                   formatos: {},
                 });
+                setEditingCampaignId(null);
                 setActiveSection('dashboard');
               }}
             />
@@ -2232,6 +2302,15 @@ export default function Social() {
                                   title="Reintentar fallidos"
                                 >
                                   <RefreshCw size={14} />
+                                </button>
+                              )}
+                              {item.estado === 'draft' && (
+                                <button
+                                  onClick={() => openCampaignDraft(item.id)}
+                                  className="rounded p-1 text-xs font-bold text-slate-600 hover:bg-slate-100"
+                                  title="Continuar editando"
+                                >
+                                  <Pencil size={14} />
                                 </button>
                               )}
                               {['draft', 'scheduled', 'queued', 'processing'].includes(
@@ -3551,13 +3630,16 @@ function Compositor({
   onGuardar,
   onAlternarDestino,
   destinosElegidos,
+  destinosRevision,
+  errorAlGuardar,
   onCancelar,
   identidades,
   onIrADestinos,
 }) {
   const [masOpciones, setMasOpciones] = useState(false);
-  const [menuAbierto, setMenuAbierto] = useState(false);
   const [mostrarNotas, setMostrarNotas] = useState(Boolean(draft.nombre));
+  const [accionPendiente, setAccionPendiente] = useState('');
+  const disparadorAccion = useRef(null);
 
   const elegidos = useMemo(
     () => destinos.filter((d) => draft.destinoIds.includes(d.id)),
@@ -3847,6 +3929,24 @@ function Compositor({
     : draft.texto.trim() || draft.mediaIds.length;
 
   const puedePublicar = todosLosTextosListos && destinosElegidos && !problemaDeFormato;
+  const puedeGuardarBorrador = Boolean(todosLosTextosListos);
+  const revision = useMemo(
+    () =>
+      resumenDeRevision(
+        { ...draft, destinoIds: destinosRevision.map((item) => item.id) },
+        destinosRevision,
+        media
+      ),
+    [draft, destinosRevision, media]
+  );
+  const cerrarRevision = () => {
+    setAccionPendiente('');
+    requestAnimationFrame(() => disparadorAccion.current?.focus());
+  };
+  const pedirConfirmacion = (accion, evento) => {
+    disparadorAccion.current = evento.currentTarget;
+    setAccionPendiente(accion);
+  };
 
   return (
     <div className="social-compositor">
@@ -4337,38 +4437,6 @@ function Compositor({
             de Instagram. Desplegados ocuparían la mitad del editor todos los
             días para algo que se toca una vez por mes.
           */}
-          <details className="social-comp-config">
-            <summary>
-              <Settings size={15} />
-              Configuración global
-              <span className="social-comp-config-resumen">
-                {draft.autoPublicar === false ? 'Guardar borrador' : 'Publicar automáticamente'}
-              </span>
-            </summary>
-
-            <label className="social-comp-perilla">
-              <input
-                type="checkbox"
-                checked={draft.autoPublicar !== false}
-                onChange={(e) =>
-                  setDraft({
-                    ...draft,
-                    autoPublicar: e.target.checked,
-                    programadaPara: e.target.checked ? draft.programadaPara : '',
-                    personalizaciones: {
-                      ...draft.personalizaciones,
-                      auto_publicar: e.target.checked,
-                    },
-                  })
-                }
-              />
-              <span>
-                <strong>Publicar automáticamente</strong>
-                <em>Si lo apagás, se guarda como borrador y no se envía a ninguna red.</em>
-              </span>
-            </label>
-          </details>
-
           {/*
             La de Instagram sólo aparece si Instagram está entre los destinos.
 
@@ -4610,53 +4678,41 @@ function Compositor({
               leerlos para saber cuál apretar. Así, la acción habitual está a un
               clic y las otras a dos, que es la proporción en que se usan.
             */}
-            <div className="social-comp-accion">
+            <div className="social-comp-acciones">
               <button
+                type="button"
+                disabled={enviando || !puedeGuardarBorrador}
+                onClick={() => onGuardar('borrador')}
+                className="social-comp-borrador"
+              >
+                <Save size={14} /> Guardar borrador
+              </button>
+              <button
+                type="button"
+                disabled={
+                  enviando || !puedePublicar || !draft.programadaPara || !revision.puedePublicar
+                }
+                onClick={(evento) => pedirConfirmacion('programar', evento)}
+                className="social-comp-programar"
+              >
+                <Clock size={14} /> Programar
+              </button>
+              <button
+                type="button"
                 disabled={enviando || !puedePublicar}
-                onClick={() => onGuardar(draft.autoPublicar !== false)}
+                onClick={(evento) => pedirConfirmacion('publicar', evento)}
                 className={`social-comp-principal ${draft.ensayo ? 'ensayo' : ''}`}
               >
-                <Play size={14} />
-                {draft.autoPublicar === false
-                  ? 'Guardar borrador'
-                  : draft.ensayo
-                    ? 'Correr el ensayo'
-                    : draft.programadaPara
-                      ? 'Programar'
-                      : 'Publicar ahora'}
+                <Play size={14} /> {draft.ensayo ? 'Correr ensayo' : 'Publicar ahora'}
               </button>
-
-              <button
-                onClick={() => setMenuAbierto(!menuAbierto)}
-                disabled={enviando}
-                className={`social-comp-flecha ${draft.ensayo ? 'ensayo' : ''}`}
-                title="Otras opciones"
-              >
-                <ChevronDown size={15} />
-              </button>
-
-              {menuAbierto && (
-                <div className="social-comp-menu">
-                  <button
-                    onClick={() => {
-                      setMenuAbierto(false);
-                      onGuardar(false);
-                    }}
-                  >
-                    Guardar como borrador
-                  </button>
-                  <button
-                    onClick={() => {
-                      setMenuAbierto(false);
-                      setDraft({ ...draft, ensayo: !draft.ensayo });
-                    }}
-                  >
-                    {draft.ensayo ? 'Salir del ensayo' : 'Convertir en ensayo'}
-                  </button>
-                </div>
-              )}
             </div>
           </div>
+
+          {errorAlGuardar && (
+            <p className="social-comp-error" role="alert">
+              <AlertTriangle size={14} /> {errorAlGuardar}
+            </p>
+          )}
 
           {!puedePublicar && (
             <p className="social-comp-falta">
@@ -4748,6 +4804,44 @@ function Compositor({
           </p>
         </div>
       </div>
+
+      <ActionDialog
+        open={Boolean(accionPendiente)}
+        title={accionPendiente === 'programar' ? 'Confirmar programación' : 'Confirmar publicación'}
+        description="Revisá el contenido, los destinos y el momento antes de continuar."
+        confirmLabel={accionPendiente === 'programar' ? 'Confirmar y programar' : 'Publicar ahora'}
+        cancelLabel="Volver a editar"
+        tone="primary"
+        loading={enviando}
+        onClose={cerrarRevision}
+        onConfirm={() => {
+          const accion = accionPendiente;
+          cerrarRevision();
+          onGuardar(accion);
+        }}
+      >
+        <div className="social-revision">
+          <p>
+            <strong>Texto:</strong> {revision.texto || 'Sólo contenido multimedia'}
+          </p>
+          <p>
+            <strong>Destinos:</strong> {revision.destinos.join(', ') || 'Ninguno'}
+          </p>
+          <p>
+            <strong>Adjuntos:</strong> {revision.adjuntos.join(', ') || 'Ninguno'}
+          </p>
+          <p>
+            <strong>Momento:</strong> {accionPendiente === 'programar' ? revision.momento : 'Ahora'}
+          </p>
+          {revision.alertas.length > 0 && (
+            <ul>
+              {revision.alertas.map((alerta) => (
+                <li key={alerta}>{alerta}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </ActionDialog>
     </div>
   );
 }

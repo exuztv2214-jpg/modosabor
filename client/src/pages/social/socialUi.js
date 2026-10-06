@@ -37,3 +37,49 @@ export const formatSocialDate = (value) =>
   value
     ? new Intl.DateTimeFormat('es-AR', { day: 'numeric', month: 'short' }).format(new Date(value))
     : '—';
+
+export function resumenDeRevision(borrador = {}, destinos = [], media = []) {
+  const idsDestino = new Set(borrador.destinoIds || []);
+  const idsMedia = new Set(borrador.mediaIds || []);
+  const elegidos = destinos
+    .filter((destino) => idsDestino.has(destino.id))
+    .map((destino) => destino.nombre);
+  const adjuntos = media.filter((item) => idsMedia.has(item.id)).map((item) => item.nombre);
+  const texto = String(
+    borrador.texto ||
+      Object.values(borrador.personalizaciones?.textos_por_red || {}).find((item) =>
+        String(item || '').trim()
+      ) ||
+      ''
+  ).trim();
+  const alertas = [];
+  let momento = 'Ahora';
+
+  if (!texto && !adjuntos.length) alertas.push('Falta contenido.');
+  if (!elegidos.length) alertas.push('Falta elegir al menos un destino.');
+
+  if (borrador.programadaPara) {
+    const fecha = new Date(borrador.programadaPara);
+    if (Number.isNaN(fecha.getTime())) {
+      momento = 'Fecha inválida';
+      alertas.push('La fecha programada no es válida.');
+    } else {
+      momento = formatSocialDateTime(fecha);
+    }
+  }
+
+  return {
+    texto,
+    destinos: [...new Set(elegidos)],
+    adjuntos: [...new Set(adjuntos)],
+    momento,
+    alertas,
+    puedePublicar: alertas.length === 0,
+  };
+}
+
+export const planDeGuardado = (accion, programadaPara = '') => ({
+  programadaPara: accion === 'programar' ? programadaPara : '',
+  autoPublicar: accion !== 'borrador',
+  encolar: accion === 'publicar',
+});

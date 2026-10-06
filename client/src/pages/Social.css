@@ -2903,82 +2903,89 @@
   background: #fff;
 }
 
-.social-vista .social-comp-accion {
-  position: relative;
+.social-vista .social-comp-acciones {
   display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
 }
 
-.social-vista .social-comp-principal {
+.social-vista .social-comp-principal,
+.social-vista .social-comp-programar,
+.social-vista .social-comp-borrador {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  border: 0;
-  border-radius: 11px 0 0 11px;
-  padding: 11px 22px;
-  background: linear-gradient(140deg, var(--rojo-vivo), #c0182a);
-  color: #fff;
+  min-height: 40px;
+  border: 1px solid var(--linea);
+  border-radius: 11px;
+  padding: 10px 15px;
+  background: #fff;
+  color: #334155;
   cursor: pointer;
-  font-size: 13.5px;
+  font-size: 13px;
   font-weight: 700;
 }
 
-.social-vista .social-comp-principal.ensayo,
-.social-vista .social-comp-flecha.ensayo {
+.social-vista .social-comp-principal {
+  border-color: transparent;
+  background: linear-gradient(140deg, var(--rojo-vivo), #c0182a);
+  color: #fff;
+}
+
+.social-vista .social-comp-programar {
+  border-color: #fecaca;
+  color: #b91c1c;
+}
+
+.social-vista .social-comp-principal.ensayo {
   background: var(--violeta);
 }
 
 .social-vista .social-comp-principal:disabled,
-.social-vista .social-comp-flecha:disabled {
+.social-vista .social-comp-programar:disabled,
+.social-vista .social-comp-borrador:disabled {
+  border-color: #cbd5e1;
   background: #cbd5e1;
+  color: #64748b;
   cursor: not-allowed;
-}
-
-.social-vista .social-comp-flecha {
-  display: grid;
-  place-items: center;
-  width: 36px;
-  border: 0;
-  border-left: 1px solid rgb(255 255 255 / 25%);
-  border-radius: 0 11px 11px 0;
-  background: linear-gradient(140deg, var(--rojo-vivo), #c0182a);
-  color: #fff;
-  cursor: pointer;
-}
-
-.social-vista .social-comp-menu {
-  position: absolute;
-  right: 0;
-  bottom: calc(100% + 6px);
-  z-index: 20;
-  overflow: hidden;
-  min-width: 13rem;
-  border: 1px solid var(--linea);
-  border-radius: 12px;
-  background: #fff;
-  box-shadow: 0 12px 32px rgb(15 23 42 / 16%);
-}
-
-.social-vista .social-comp-menu button {
-  display: block;
-  width: 100%;
-  padding: 11px 14px;
-  border: 0;
-  background: transparent;
-  color: #334155;
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 600;
-  text-align: left;
-}
-
-.social-vista .social-comp-menu button:hover {
-  background: #f8fafc;
 }
 
 .social-vista .social-comp-falta {
   margin: 0;
   color: #b45309;
   font-size: 12px;
+}
+
+.social-vista .social-comp-error {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 2px 0 0;
+  color: #b91c1c;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.social-revision {
+  display: grid;
+  gap: 8px;
+  margin-top: 18px;
+  border-radius: 14px;
+  background: #f8fafc;
+  padding: 14px;
+  color: #475569;
+  font-size: 13px;
+}
+
+.social-revision p,
+.social-revision ul {
+  margin: 0;
+}
+
+.social-revision ul {
+  padding-left: 18px;
+  color: #b91c1c;
 }
 
 /* ── La vista previa al costado ────────────────────────────────────────── */
