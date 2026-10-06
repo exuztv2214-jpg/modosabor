@@ -86,8 +86,8 @@ function completarImagenesFaltantesDelCatalogo(db) {
  * no para la otra.
  */
 const IDENTIDADES_FACEBOOK = [
-  { clave: 'fb_perfil', nombre: 'Perfil Modo Sabor', tipo: 'perfil' },
-  { clave: 'fb_page', nombre: 'Fan Page Modo Sabor Delivery', tipo: 'page' },
+  { clave: 'fb_perfil', nombre: 'Perfil de Facebook', tipo: 'perfil' },
+  { clave: 'fb_page', nombre: 'Página de Facebook', tipo: 'page' },
 ];
 
 /**
@@ -197,16 +197,20 @@ function sembrarIdentidades(db) {
 
   IDENTIDADES_FACEBOOK.forEach((identidad) => {
     const existe = db
-      .prepare("SELECT id FROM social_accounts WHERE provider = 'facebook' AND nombre = ?")
-      .get(identidad.nombre);
+      .prepare(
+        "SELECT id FROM social_accounts WHERE provider = 'facebook' AND identificador_externo = ?"
+      )
+      .get(identidad.clave);
     if (!existe) {
       alta.run(identidad.nombre, identidad.clave, JSON.stringify({ tipo: identidad.tipo }));
     }
   });
 
   const perfil = db
-    .prepare("SELECT id FROM social_accounts WHERE provider = 'facebook' AND nombre = ?")
-    .get(IDENTIDADES_FACEBOOK[0].nombre);
+    .prepare(
+      "SELECT id FROM social_accounts WHERE provider = 'facebook' AND identificador_externo = ?"
+    )
+    .get(IDENTIDADES_FACEBOOK[0].clave);
 
   return Number(perfil?.id || 0);
 }
@@ -2912,31 +2916,12 @@ function crearDestinosQueFaltan(db) {
      DO UPDATE SET execution_class = 'api', provider_clave = excluded.provider_clave`
   );
 
-  const guardarPerfil = db.prepare(
-    `INSERT INTO social_destinations
-       (provider, cuenta_id, tipo, identificador_externo, nombre, url, habilitada,
-        execution_class, provider_clave)
-     VALUES ('facebook', ?, 'facebook_profile', 'me', ?, 'https://www.facebook.com/me/',
-             1, 'browser', 'facebook_profile_browser')
-     ON CONFLICT(provider, cuenta_id, tipo, identificador_externo)
-     DO UPDATE SET execution_class = 'browser', provider_clave = 'facebook_profile_browser'`
-  );
-
   for (const identidad of identidades) {
     let meta;
     try {
       meta = JSON.parse(identidad.metadata || '{}');
     } catch {
       continue;
-    }
-
-    /*
-      El Perfil no tiene token oficial, pero sí es un destino real del Worker.
-      Sin esta fila la pantalla puede mostrar sus grupos, aunque no existe
-      ningún destino seleccionable para su muro, Reel o Historia.
-    */
-    if (meta.tipo === 'perfil') {
-      guardarPerfil.run(identidad.id, meta.profileNombre || identidad.nombre);
     }
 
     /* Sin token no hay nada que publicar por API: el destino sería mentira. */
