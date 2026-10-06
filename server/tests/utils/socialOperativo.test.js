@@ -251,6 +251,106 @@ async function run() {
   } finally {
     db.exec('ROLLBACK TO social_operativo_estado; RELEASE social_operativo_estado');
   }
+
+  db.exec('SAVEPOINT social_operativo_campanas');
+  try {
+    const draft = social.createCampaign({
+      nombre: 'Borrador sin cuenta',
+      texto: 'Contenido guardado',
+    });
+    assert.strictEqual(draft.estado, 'draft');
+    assert.deepStrictEqual(draft.targets, []);
+    assert.throws(
+      () =>
+        social.createCampaign({
+          nombre: 'Programada vacía',
+          texto: 'Contenido',
+          programadaPara: new Date(Date.now() + 60_000).toISOString(),
+        }),
+      /destino/i
+    );
+    assert.throws(() => social.queueCampaign(draft.id, { now: true }), /destino/i);
+
+    const disconnectedAccountId = Number(
+      db
+        .prepare(
+          'INSERT INTO social_accounts (provider, nombre, identificador_externo, metadata) VALUES (\'facebook\', \'Página sin comprobar\', \'schedule-disconnected-test\', \'{"tipo":"page","token":"x","pageId":"page-x"}\')'
+        )
+        .run().lastInsertRowid
+    );
+    const disconnectedDestinationId = Number(
+      db
+        .prepare(
+          "INSERT INTO social_destinations (cuenta_id, provider, tipo, nombre, identificador_externo, habilitada, execution_class) VALUES (?, 'facebook', 'facebook_page', 'Página sin comprobar', 'page-x', 1, 'api')"
+        )
+        .run(disconnectedAccountId).lastInsertRowid
+    );
+    assert.throws(
+      () =>
+        social.createCampaign({
+          nombre: 'Programada sin conexión',
+          texto: 'Contenido',
+          destinoIds: [disconnectedDestinationId],
+          programadaPara: new Date(Date.now() + 60_000).toISOString(),
+        }),
+      /comprob|conect|credencial/i
+    );
+
+    const accountId = db
+      .prepare("SELECT id FROM social_accounts WHERE identificador_externo = 'fb_perfil'")
+      .get().id;
+    const destinationId = Number(
+      db
+        .prepare(
+          "INSERT INTO social_destinations (cuenta_id, provider, tipo, nombre, identificador_externo, habilitada, execution_class) VALUES (?, 'facebook', 'facebook_group', 'Grupo temporal', 'queue-disabled-test', 1, 'browser')"
+        )
+        .run(accountId).lastInsertRowid
+    );
+    const campaign = social.createCampaign({
+      nombre: 'Destino retirado',
+      texto: 'Contenido',
+      destinoIds: [destinationId],
+    });
+    db.prepare('UPDATE social_destinations SET habilitada = 0 WHERE id = ?').run(destinationId);
+    assert.throws(
+      () => social.queueCampaign(campaign.id, { now: true }),
+      /habilitado|disponible|destino/i
+    );
+    assert.strictEqual(social.getCampaign(campaign.id).targets[0].estado, 'draft');
+
+    db.prepare('UPDATE social_destinations SET habilitada = 1 WHERE id = ?').run(destinationId);
+    const mixed = social.createCampaign({
+      nombre: 'Selección mixta',
+      texto: 'Contenido',
+      destinoIds: [destinationId, disconnectedDestinationId],
+    });
+    assert.throws(
+      () => social.queueCampaign(mixed.id, { now: true }),
+      /comprob|conect|credencial/i
+    );
+    assert.deepStrictEqual(
+      social.getCampaign(mixed.id).targets.map((target) => target.estado),
+      ['draft', 'draft'],
+      'Una vía caída no deja la otra encolada a medias'
+    );
+
+    db.prepare(
+      "UPDATE social_post_targets SET estado = 'cancelled' WHERE estado IN ('queued','scheduled','processing')"
+    ).run();
+    const pending = social.createCampaign({
+      nombre: 'Conexión perdida',
+      texto: 'Contenido',
+      destinoIds: [destinationId],
+    });
+    social.queueCampaign(pending.id, { now: true });
+    db.prepare("UPDATE social_workers SET ultimo_heartbeat_en = '2000-01-01 00:00:00'").run();
+    assert.strictEqual(social.claimWork(), null);
+    const pendingTarget = social.getCampaign(pending.id).targets[0];
+    assert.strictEqual(pendingTarget.estado, 'queued');
+    assert.match(pendingTarget.ultimo_error, /extensión|servidor|vincul/i);
+  } finally {
+    db.exec('ROLLBACK TO social_operativo_campanas; RELEASE social_operativo_campanas');
+  }
 }
 
 module.exports = { run };

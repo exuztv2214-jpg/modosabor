@@ -66,4 +66,19 @@ function sembrarCatalogoBase(db) {
   })();
 }
 
-module.exports = { sembrarCatalogoBase };
+function sembrarSocialListo(db) {
+  db.prepare(
+    `INSERT INTO social_workers (codigo, nombre, estado, ultimo_heartbeat_en)
+     VALUES ('tests-worker', 'Worker de tests', 'online', CURRENT_TIMESTAMP)`
+  ).run();
+  db.prepare(
+    `INSERT INTO social_worker_commands (tipo, estado, resultado, finalizado_en)
+     VALUES ('health_check', 'done', '{"facebook_session":"ACTIVE"}', CURRENT_TIMESTAMP)`
+  ).run();
+  db.prepare(
+    `INSERT OR REPLACE INTO configuracion (clave, valor)
+     VALUES ('social_worker_linked_after_command_id', '0')`
+  ).run();
+}
+
+module.exports = { sembrarCatalogoBase, sembrarSocialListo };

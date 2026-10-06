@@ -238,28 +238,31 @@ function estadoDeDestinoSocial(destino, { now = Date.now() } = {}) {
   const row = destino?.id
     ? db.prepare('SELECT * FROM social_destinations WHERE id = ?').get(Number(destino.id))
     : destino;
-  if (!row)
+  if (!row) {
     return {
       estado: 'sin_configurar',
       motivo: 'El destino ya no existe.',
       comprobadoEn: null,
       accion: 'destinos',
     };
-  if (!Number(row.habilitada))
+  }
+  if (!Number(row.habilitada)) {
     return {
       estado: 'en_pausa',
       motivo: 'El destino está deshabilitado.',
       comprobadoEn: null,
       accion: 'destinos',
     };
+  }
   const cuenta = db.prepare('SELECT * FROM social_accounts WHERE id = ?').get(row.cuenta_id);
-  if (!cuenta)
+  if (!cuenta) {
     return {
       estado: 'sin_configurar',
       motivo: 'Falta la cuenta de este destino.',
       comprobadoEn: null,
       accion: 'destinos',
     };
+  }
   if (Number(cuenta.pausada) || !Number(cuenta.habilitada)) {
     return {
       estado: 'en_pausa',
@@ -422,8 +425,9 @@ function guardarCredenciales(cuentaId, { token, pageId, igId, borrarToken = fals
   if (!cuenta) throw new Error('No existe esa identidad');
 
   const metadata = parse(cuenta.metadata);
-  if (borrarToken || token || pageId !== undefined || igId !== undefined)
+  if (borrarToken || token || pageId !== undefined || igId !== undefined) {
     delete metadata.verificaciones;
+  }
 
   if (borrarToken) {
     delete metadata.token;
@@ -939,6 +943,11 @@ function createCampaign({
   }
 
   const ids = destinationIds({ destinoIds, conjuntoIds });
+  const scheduledAt = programadaPara ? new Date(programadaPara) : null;
+  if (scheduledAt && Number.isNaN(scheduledAt.getTime())) {
+    throw new Error('La fecha programada no es válida');
+  }
+  const state = scheduledAt && ajustes.auto_publicar !== false ? 'scheduled' : 'draft';
   /*
     El modo de prueba viejo obliga a elegir un solo destino: es un seguro para
     no mandar una tanda sin querer. El ensayo es otra cosa —recorre todo y no
@@ -952,18 +961,23 @@ function createCampaign({
     cantidadDestinos: ids.length,
   });
   if (frena) throw new Error(frena);
-  if (!ids.length) throw new Error('Elegí al menos un destino o conjunto');
-  const destinations = db
-    .prepare(
-      `SELECT id FROM social_destinations WHERE habilitada = 1 AND id IN (${ids.map(() => '?').join(',')})`
-    )
-    .all(...ids);
-  if (!destinations.length) throw new Error('Los destinos elegidos no están habilitados');
-  const scheduledAt = programadaPara ? new Date(programadaPara) : null;
-  if (scheduledAt && Number.isNaN(scheduledAt.getTime())) {
-    throw new Error('La fecha programada no es válida');
+  if (!ids.length && state !== 'draft') throw new Error('Elegí al menos un destino para programar');
+  const destinations = ids.length
+    ? db
+        .prepare(
+          `SELECT id FROM social_destinations WHERE habilitada = 1 AND id IN (${ids.map(() => '?').join(',')})`
+        )
+        .all(...ids)
+    : [];
+  if (ids.length && destinations.length !== ids.length) {
+    throw new Error('Uno de los destinos elegidos no está habilitado');
   }
-  const state = scheduledAt && ajustes.auto_publicar !== false ? 'scheduled' : 'draft';
+  if (state === 'scheduled' && !ensayo) {
+    for (const destination of destinations) {
+      const conexion = estadoDeDestinoSocial(destination);
+      if (conexion.estado !== 'lista') throw new Error(conexion.motivo);
+    }
+  }
   const result = db
     .prepare(
       `INSERT INTO social_campaigns (nombre, texto, personalizaciones, estado, programada_para, creado_por, ensayo, formato, formatos)
@@ -1220,13 +1234,14 @@ function queueCampaign(id, { now = false } = {}) {
   const candidatos = db
     .prepare(
       `SELECT t.id, t.destino_id, d.cuenta_id, d.nombre AS destino_nombre,
-              d.permite_comercial, d.bloqueado_manualmente
+              d.permite_comercial, d.bloqueado_manualmente, d.habilitada
          FROM social_post_targets t
          JOIN social_destinations d ON d.id = t.destino_id
         WHERE t.campana_id = ? AND t.estado IN ('draft', 'scheduled', 'failed')
         ORDER BY t.id`
     )
     .all(id);
+  if (!candidatos.length) throw new Error('La campaña no tiene destinos para publicar');
 
   const config = getSocialConfig();
   const huella = huellaDeCampana(campaign);
@@ -1250,6 +1265,12 @@ function queueCampaign(id, { now = false } = {}) {
     if (motivo) {
       descartados.push({ ...candidato, ...motivo });
       continue;
+    }
+    if (!Number(campaign.ensayo)) {
+      const conexion = estadoDeDestinoSocial({ id: candidato.destino_id });
+      if (conexion.estado !== 'lista') {
+        throw new Error(`${candidato.destino_nombre}: ${conexion.motivo}`);
+      }
     }
     pendientes.push(candidato);
   }
@@ -1887,6 +1908,13 @@ function claimWork({ puedeSubirMedia = false } = {}) {
 
     let target = null;
     for (const candidato of candidatos) {
+      const conexion = estadoDeDestinoSocial({ id: candidato.destino_id });
+      if (conexion.estado !== 'lista') {
+        db.prepare(
+          'UPDATE social_post_targets SET ultimo_error = ?, actualizado_en = CURRENT_TIMESTAMP WHERE id = ?'
+        ).run(clean(conexion.motivo, 300), candidato.id);
+        continue;
+      }
       /*
         La extensión puede escribir en un compositor, pero no puede cargar un
         archivo local en Facebook de forma segura. Si tomara estos trabajos,
@@ -1993,6 +2021,15 @@ function claimApiWork() {
       .all();
 
     for (const candidato of candidatos) {
+      if (!Number(candidato.ensayo)) {
+        const conexion = estadoDeDestinoSocial({ id: candidato.destino_id });
+        if (conexion.estado !== 'lista') {
+          db.prepare(
+            'UPDATE social_post_targets SET ultimo_error = ?, actualizado_en = CURRENT_TIMESTAMP WHERE id = ?'
+          ).run(clean(conexion.motivo, 300), candidato.id);
+          continue;
+        }
+      }
       const configDestino = candidato.frecuencia_maxima_horas
         ? { ...config, cooldownGrupoHoras: Number(candidato.frecuencia_maxima_horas) }
         : config;
