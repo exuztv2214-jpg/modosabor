@@ -48,8 +48,13 @@ api.interceptors.response.use(
     const isProtectedAdminRoute = pathname.startsWith('/admin/');
     const isMasivosRoute = pathname === '/masivos' || pathname.startsWith('/masivos/');
     const isSocialRoute = pathname === '/social' || pathname.startsWith('/social/');
+    const isMarketingLogin = /^\/(?:masivos|social)\/admin\/?$/.test(pathname);
 
-    if (status === 401 && (isProtectedAdminRoute || isMasivosRoute || isSocialRoute)) {
+    if (
+      status === 401 &&
+      !isMarketingLogin &&
+      (isProtectedAdminRoute || isMasivosRoute || isSocialRoute)
+    ) {
       // Los paneles de Marketing son autónomos y tienen su propio login. Sin
       // este corte explícito una sesión vencida dejaba Social cargando para
       // siempre porque sus siete consultas iniciales recibían 401.
