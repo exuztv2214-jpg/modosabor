@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 
@@ -55,7 +55,6 @@ const Usuarios = lazy(() => import('./pages/Usuarios.jsx'));
 const Reportes = lazy(() => import('./pages/Reportes.jsx'));
 const ReportesDelivery = lazy(() => import('./pages/ReportesDelivery.jsx'));
 const MarketingDigital = lazy(() => import('./pages/MarketingDigital.jsx'));
-const WhatsAppMasivo = lazy(() => import('./pages/WhatsAppMasivo.jsx'));
 const Social = lazy(() => import('./pages/Social.jsx'));
 const Configuracion = lazy(() => import('./pages/Configuracion.jsx'));
 const Cupones = lazy(() => import('./pages/Cupones.jsx'));
@@ -67,6 +66,20 @@ const SeguimientoPedido = lazy(() => import('./pages/SeguimientoPedido.jsx'));
 const RiderPanel = lazy(() => import('./pages/RiderPanel.jsx'));
 const EstadoPedidosPublico = lazy(() => import('./pages/EstadoPedidosPublico.jsx'));
 const IntercambioDatos = lazy(() => import('./pages/IntercambioDatos.jsx'));
+
+const MASIVOS_STITCH_URL = 'http://127.0.0.1:3867';
+
+function MasivosStitchRedirect() {
+  useEffect(() => {
+    window.location.replace(MASIVOS_STITCH_URL);
+  }, []);
+
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-slate-50 p-6 text-slate-700">
+      <p className="rounded-xl bg-white px-5 py-4 shadow-sm">Abriendo el centro de campañas…</p>
+    </main>
+  );
+}
 
 function MasivosRoutes() {
   return (
@@ -91,7 +104,7 @@ function MasivosRoutes() {
           />
         }
       >
-        <Route path="/" element={<WhatsAppMasivo />} />
+        <Route path="/" element={<MasivosStitchRedirect />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>
@@ -151,7 +164,7 @@ function MasivosPathRoutes() {
           />
         }
       >
-        <Route index element={<WhatsAppMasivo />} />
+        <Route index element={<MasivosStitchRedirect />} />
         <Route path="*" element={<Navigate to="/masivos" replace />} />
       </Route>
     </Routes>
