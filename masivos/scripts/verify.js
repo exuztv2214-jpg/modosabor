@@ -58,7 +58,7 @@ function verifyFrontendContract() {
   assert.match(app, /renderContactos/);
   assert.match(app, /renderConversaciones/);
   assert.match(app, /\/api\/status/);
-  assert.match(app, /new EventSource\('\/api\/eventos'\)/);
+  assert.match(app, /new EventSource\(panelPath\('\/api\/eventos'\)\)/);
   assert.match(app, /\/api\/cliente-detalle/);
   assert.match(app, /\/fotos\//);
   assert.match(app, /data-action="photos"/);

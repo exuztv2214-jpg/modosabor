@@ -8,6 +8,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const express = require('express');
 const QRCode = require('qrcode');
 const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
@@ -16,6 +17,8 @@ const { liberarSesionWhatsApp } = require('./session-utils');
 
 const PORT = Number(process.env.PORT || 3867);
 const HOST = process.env.HOST || '127.0.0.1';
+const PANEL_PROXY_TOKEN = String(process.env.MASIVOS_PROXY_TOKEN || '').trim();
+const PANEL_BASE_PATH = String(process.env.MASIVOS_BASE_PATH || '').replace(/\/+$/, '');
 const ROOT = __dirname;
 const BROWSER_EXECUTABLE =
   process.env.MODO_SABOR_BROWSER ||
@@ -2546,6 +2549,14 @@ function origenAutorizado(valor) {
   }
 }
 
+function proxyAutorizado(req) {
+  const recibido = String(req.headers['x-masivos-proxy-token'] || '');
+  if (!PANEL_PROXY_TOKEN || !recibido) return false;
+  const expected = Buffer.from(PANEL_PROXY_TOKEN);
+  const actual = Buffer.from(recibido);
+  return expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
+}
+
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'same-origin');
@@ -2565,7 +2576,7 @@ app.use((req, res, next) => {
   // navegador preguntando, no el panel pidiendo algo.
   if (req.method === 'OPTIONS') return res.sendStatus(204);
 
-  if (!esLoopback(req.socket.remoteAddress)) {
+  if (!esLoopback(req.socket.remoteAddress) && !proxyAutorizado(req)) {
     return res.status(403).json({ error: 'Panel disponible solo desde esta PC.' });
   }
 
@@ -2577,6 +2588,15 @@ app.use((req, res, next) => {
   }
 
   next();
+});
+
+function renderIndex() {
+  const html = fs.readFileSync(path.join(ROOT, 'public', 'index.html'), 'utf8');
+  return html.replaceAll('__MASIVOS_BASE__', PANEL_BASE_PATH);
+}
+
+app.get('/', (_req, res) => {
+  res.type('html').send(renderIndex());
 });
 
 app.use(express.static(path.join(ROOT, 'public')));

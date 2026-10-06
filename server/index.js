@@ -2,6 +2,7 @@ require('dotenv').config({ path: require('path').join(__dirname, '.env') });
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const { Readable } = require('stream');
 const express = require('express');
 const compression = require('compression');
 const cookieParser = require('cookie-parser');
@@ -32,6 +33,8 @@ const { createRateLimiter, createSqliteRateLimitStore } = require('./utils/rateL
 const { traducirErrorDeBase } = require('./utils/erroresDeBase');
 const logger = require('./utils/logger');
 const sanitizeMiddleware = require('./middleware/sanitize');
+const auth = require('./middleware/auth');
+const { requirePermission } = require('./utils/permissions');
 
 const app = express();
 app.use(compression());
@@ -314,6 +317,52 @@ try {
 }
 
 app.set('io', io);
+
+const MASIVOS_UPSTREAM_URL = String(
+  process.env.MASIVOS_UPSTREAM_URL || 'http://127.0.0.1:3867'
+).replace(/\/+$/, '');
+const MASIVOS_PROXY_TOKEN = String(process.env.MASIVOS_PROXY_TOKEN || '').trim();
+
+async function proxyMasivos(req, res) {
+  const targetPath = req.originalUrl.replace(/^\/masivos(?=\/|$)/, '') || '/';
+  const target = `${MASIVOS_UPSTREAM_URL}${targetPath}`;
+  const headers = { ...req.headers, 'x-masivos-proxy-token': MASIVOS_PROXY_TOKEN };
+  delete headers.host;
+  delete headers.cookie;
+  delete headers.connection;
+  delete headers['content-length'];
+
+  let body;
+  if (!['GET', 'HEAD'].includes(req.method) && req.body !== undefined) {
+    body = JSON.stringify(req.body);
+    headers['content-type'] = 'application/json';
+  }
+
+  try {
+    const upstream = await fetch(target, { method: req.method, headers, body });
+    res.status(upstream.status);
+    upstream.headers.forEach((value, key) => {
+      if (!['connection', 'content-length', 'transfer-encoding'].includes(key)) {
+        res.setHeader(key, value);
+      }
+    });
+    if (!upstream.body) return res.end();
+    return Readable.fromWeb(upstream.body).pipe(res);
+  } catch (error) {
+    logger.error('Proxy de Masivos no disponible', { message: error.message, target });
+    return res.status(502).json({ error: 'Centro Masivos no disponible' });
+  }
+}
+
+app.use('/masivos', (req, res, next) => {
+  // La pantalla de login sigue perteneciendo al cliente principal.
+  if (req.path === '/admin' || req.path.startsWith('/admin/')) return next();
+  const credential = req.cookies?.auth_token || req.headers.authorization;
+  if (req.path === '/' && !credential) return next();
+  return auth(req, res, () =>
+    requirePermission('marketing.edit')(req, res, () => proxyMasivos(req, res))
+  );
+});
 
 app.use(moneyResponseMiddleware);
 

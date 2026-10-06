@@ -33,6 +33,13 @@ const state = {
   busy: false,
 };
 
+const PANEL_BASE_PATH = String(window.__MODO_SABOR_MASIVOS_BASE_PATH__ || '').replace(/\/+$/, '');
+const panelPath = (value) => {
+  const raw = String(value || '');
+  if (/^(?:https?:|data:|blob:)/i.test(raw)) return raw;
+  return `${PANEL_BASE_PATH}${raw.startsWith('/') ? raw : `/${raw}`}`;
+};
+
 const $ = (selector, root = document) => root.querySelector(selector);
 const esc = (value) =>
   String(value ?? '').replace(
@@ -58,14 +65,14 @@ function avatarMarkup(contact, className = 'avatar') {
   if (contact?.foto) {
     const source = /^https?:/i.test(contact.foto)
       ? contact.foto
-      : `/fotos/${encodeURIComponent(contact.foto)}`;
+      : panelPath(`/fotos/${encodeURIComponent(contact.foto)}`);
     return `<span class="${className} photo-avatar"><img src="${esc(source)}" alt="Foto de ${esc(contact.nombre || 'contacto')}" loading="lazy"></span>`;
   }
   return `<span class="${className}">${esc(initials(contact?.nombre || contact?.telefono))}</span>`;
 }
 
 async function api(path, options = {}) {
-  const response = await fetch(path, {
+  const response = await fetch(panelPath(path), {
     headers: { 'Content-Type': 'application/json' },
     ...options,
   });
@@ -627,10 +634,12 @@ function renderConfiguracionCompleta() {
 
 function renderWhatsappPreview() {
   const c = state.config || {};
-  const logo = c.NEGOCIO_LOGO || '/assets/logo.png';
+  const logo = panelPath(c.NEGOCIO_LOGO || '/assets/logo.png');
   const name = c.NEGOCIO_NOMBRE || 'Modo Sabor Palermo';
   const status = c.NEGOCIO_ESTADO || 'Cuenta oficial del delivery';
-  const media = state.media?.[0]?.dataUrl || state.media?.[0]?.url || '/assets/promo.png';
+  const media = panelPath(
+    state.media?.[0]?.dataUrl || state.media?.[0]?.url || '/assets/promo.png'
+  );
   const pdf = state.pdf?.nombre || '';
   const text = (
     state.message ||
@@ -759,7 +768,7 @@ async function refresh() {
 
 function connectLive() {
   if (!window.EventSource) return;
-  const stream = new EventSource('/api/eventos');
+  const stream = new EventSource(panelPath('/api/eventos'));
   stream.addEventListener('respuesta', (event) => {
     const info = JSON.parse(event.data || '{}');
     const numero = String(info.numero || '');
