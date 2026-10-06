@@ -1,0 +1,3 @@
+¡Hola {NOMBRE}! 👋
+
+Tenemos una propuesta especial para vos. Respondé a este mensaje y te ayudamos a reservar.

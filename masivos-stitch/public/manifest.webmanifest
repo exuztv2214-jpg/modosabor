@@ -1,0 +1,9 @@
+{
+  "name": "Modo Sabor Promo Pro",
+  "short_name": "Modo Sabor",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f9f9ff",
+  "theme_color": "#181b1f",
+  "icons": [{ "src": "/desktop.ico", "sizes": "48x48", "type": "image/x-icon" }]
+}

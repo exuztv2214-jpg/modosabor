@@ -1,0 +1,10 @@
+node_modules/
+sesion/
+.wwebjs_cache/
+data/fotos/
+data/backups/
+data/config-override.json
+data/chat-estados.json
+data/
+logs/
+*.log
