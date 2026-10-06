@@ -358,7 +358,7 @@ app.use('/masivos', (req, res, next) => {
   // La pantalla de login sigue perteneciendo al cliente principal.
   if (req.path === '/admin' || req.path.startsWith('/admin/')) return next();
   const credential = req.cookies?.auth_token || req.headers.authorization;
-  if (req.path === '/' && !credential) return next();
+  if (req.path === '/' && !credential) return res.redirect('/masivos/admin');
   return auth(req, res, () =>
     requirePermission('marketing.edit')(req, res, () => proxyMasivos(req, res))
   );

@@ -14,7 +14,7 @@ assert.ok(routeStart >= 0, 'No se encontró MasivosPathRoutes');
 assert.ok(routeEnd > routeStart, 'No se pudo delimitar MasivosPathRoutes');
 const route = app.slice(routeStart, routeEnd);
 
-assert.match(app, /window\.location\.replace\('\/masivos'\)/);
+assert.match(app, /window\.location\.replace\('\/masivos\/admin'\)/);
 assert.doesNotMatch(route, /<WhatsAppMasivo\s*\/>/);
 assert.equal(fs.existsSync(oldMasivosPath), false);
 assert.match(stitchServer, /const PORT = Number\(process\.env\.PORT \|\| 3867\)/);
@@ -24,6 +24,7 @@ assert.match(stitchServer, /MASIVOS_BASE_PATH/);
 const mainServer = fs.readFileSync(path.join(root, 'server', 'index.js'), 'utf8');
 assert.match(mainServer, /MASIVOS_UPSTREAM_URL/);
 assert.match(mainServer, /x-masivos-proxy-token/);
+assert.match(mainServer, /res\.redirect\('\/masivos\/admin'\)/);
 assert.match(mainServer, /marketing\.edit/);
 assert.match(launcher, /PROMO_ROOT\s*=\s*BASE_DIR\s*\/\s*["']masivos["']/);
 assert.doesNotMatch(launcher, /D:\\\\ModoSaborPromoStitch/);

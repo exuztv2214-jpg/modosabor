@@ -69,7 +69,7 @@ const IntercambioDatos = lazy(() => import('./pages/IntercambioDatos.jsx'));
 
 function MasivosStitchRedirect() {
   useEffect(() => {
-    window.location.replace('/masivos');
+    window.location.replace('/masivos/admin');
   }, []);
 
   return (
