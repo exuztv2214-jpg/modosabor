@@ -18,8 +18,8 @@ function verifyIsolation() {
 
   const server = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
   assert.match(server, /const PORT = Number\(process\.env\.PORT \|\| 3867\)/);
-  assert.match(server, /const HOST = process\.env\.HOST \|\| "127\.0\.0\.1"/);
-  assert.match(server, /path\.join\(ROOT, "sesion"/);
+  assert.match(server, /const HOST = process\.env\.HOST \|\| ['"]127\.0\.0\.1['"]/);
+  assert.match(server, /path\.join\(ROOT, ['"]sesion['"]/);
   assert.doesNotMatch(server, /D:\\ModoSaborPromoPro/);
   assert.doesNotMatch(server, /Documents\\kimi\\Workspaces\\masivos/);
   assert.match(server, /client\.getContacts\(\)/);
@@ -95,7 +95,7 @@ function verifyFrontendContract() {
   assert.match(app, /chat-filter/);
   assert.match(app, /chatQuery/);
   assert.doesNotMatch(app, /filter === 'consultas'\) return chat\.estado === 'consulta' \|\|/);
-  assert.match(app, /function chatMatchesFilter\(chat, filter\).*filter === 'nuevos'/);
+  assert.match(app, /function chatMatchesFilter\(chat, filter\)[\s\S]*filter === ['"]nuevos['"]/);
   assert.match(app, /unreadChats/);
   assert.match(app, /addEventListener\('respuesta'/);
   assert.match(app, /data-unread-chats/);
@@ -124,8 +124,8 @@ function verifyFrontendContract() {
   assert.match(app, /run-campaign/);
   assert.match(app, /run-simulation/);
   assert.match(app, /token: state\.campaignPlan\.token/);
-  assert.match(app, /replace\('32 ms', '—'\)/);
-  assert.match(app, /replace\('Fase 1'/);
+  assert.match(app, /replace\(\s*['"]32 ms['"],\s*['"]—['"]\)/);
+  assert.match(app, /replace\(\s*['"]Fase 1['"]/);
   assert.match(app, /Preparar y revisar envío/);
   assert.match(app, /renderWhatsappPreview/);
   assert.match(app, /wa-preview/);
@@ -144,16 +144,16 @@ function verifyFrontendContract() {
   assert.match(server, /ARCHIVO_CHAT_ESTADOS/);
   assert.match(server, /chat-estados\.json/);
   assert.match(server, /numero.*estado|estado.*numero/s);
-  assert.match(server, /app\.get\("\/api\/conversacion"/);
-  assert.match(server, /app\.get\("\/api\/conversaciones"/);
-  assert.match(server, /app\.post\("\/api\/conversacion\/mensaje"/);
-  assert.match(server, /app\.post\("\/api\/conversacion\/adjunto"/);
+  assert.match(server, /app\.get\(["']\/api\/conversacion["']/);
+  assert.match(server, /app\.get\(["']\/api\/conversaciones["']/);
+  assert.match(server, /app\.post\(["']\/api\/conversacion\/mensaje["']/);
+  assert.match(server, /app\.post\(["']\/api\/conversacion\/adjunto["']/);
   assert.match(server, /MessageMedia/);
   assert.match(server, /ARCHIVO_GRUPOS_ENVIO/);
   assert.match(server, /api\/grupos-envio/);
   assert.match(server, /api\/reactivar-contactos/);
   assert.match(server, /api\/contactos\/importar/);
-  assert.match(server, /app\.post\("\/api\/contactos"/);
+  assert.match(server, /app\.post\(["']\/api\/contactos["']/);
   assert.match(server, /function combinarClientesSincronizados/);
   assert.match(server, /combinarClientesSincronizados\(encontrados, previos\)/);
   assert.match(server, /function sincronizarConversacionesEnCRM/);
@@ -175,12 +175,12 @@ function verifyFrontendContract() {
   assert.match(css, /#181b1f/i);
   assert.match(css, /#e03b24/i);
   assert.match(css, /contact-card-grid/);
-  assert.match(css, /conversation-body\{[^}]*overflow-y:auto/);
+  assert.match(css, /conversation-body\s*\{[^}]*overflow-y\s*:\s*auto/);
   assert.match(css, /#075e54/);
   assert.match(css, /chat-row-copy/);
   assert.match(css, /chat-search-wrap/);
   assert.match(css, /chat-filter/);
-  assert.match(css, /photo-avatar img[^}]*border-radius:\s*50%/s);
+  assert.match(css, /photo-avatar img[^}]*border-radius\s*:\s*50%/s);
   console.log('verify: frontend contract OK');
 }
 

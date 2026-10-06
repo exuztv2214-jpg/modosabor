@@ -2835,13 +2835,11 @@ app.post('/api/contactos', (req, res) => {
   const contacto = normalizarContactoEntrada(req.body || {});
   if (!contacto)
     return res.status(400).json({ error: 'Ingresá un teléfono válido (mínimo 8 dígitos).' });
-  res
-    .status(201)
-    .json({
-      ok: true,
-      contacto,
-      ...fusionarContactosEntrantes([contacto], 'alta manual de contacto'),
-    });
+  res.status(201).json({
+    ok: true,
+    contacto,
+    ...fusionarContactosEntrantes([contacto], 'alta manual de contacto'),
+  });
 });
 
 app.post('/api/contactos/importar', (req, res) => {
@@ -3698,11 +3696,9 @@ app.post('/api/enviar', (req, res) => {
   const simulacro = !!(req.body && req.body.simulacro);
   const cfgEnvio = getConfig();
   if (!simulacro && cfgEnvio.MODO_SOLO_RESPUESTAS) {
-    return res
-      .status(409)
-      .json({
-        error: "Modo 'solo respuestas' activo: no se mandan promos (se desactiva en Config → 🛡️).",
-      });
+    return res.status(409).json({
+      error: "Modo 'solo respuestas' activo: no se mandan promos (se desactiva en Config → 🛡️).",
+    });
   }
   if (!simulacro && esDiaNoEnvio(cfgEnvio)) {
     return res.status(409).json({ error: 'Hoy es un día de NO envío (se cambia en Config → 🛡️).' });
@@ -3721,12 +3717,10 @@ app.post('/api/enviar', (req, res) => {
   }
   const salud = calcularSaludNumero();
   if (!simulacro && salud.estado === 'rojo' && !['pidio', 'activo'].includes(segmento)) {
-    return res
-      .status(409)
-      .json({
-        error:
-          'Salud roja: el panel bloqueó esta campaña masiva. Usá pedidos/activos, bajá volumen o hacé simulacro.',
-      });
+    return res.status(409).json({
+      error:
+        'Salud roja: el panel bloqueó esta campaña masiva. Usá pedidos/activos, bajá volumen o hacé simulacro.',
+    });
   }
   const forzarFriosRecientes = !!(confirmacionCampana && confirmacionCampana.forzarFriosRecientes);
   motor.corriendo = true;
