@@ -264,7 +264,7 @@ const paginaPorApi = {
   nombre: 'Fan Page (API oficial)',
   executionClass: 'api',
   soporta: (destino) => destino.tipo === 'facebook_page',
-  validar: ({ contenido, destino }) => {
+  validar: ({ contenido, destino, identidad }) => {
     const base = validarContenidoBasico({ contenido });
     const errores = [...base.errores];
 
@@ -347,13 +347,25 @@ const instagramPorApi = {
    * momento de armar la campaña y que falle media hora después sin que nadie
    * entienda por qué.
    */
-  validar: ({ contenido, destino }) => {
+  validar: ({ contenido, destino, identidad }) => {
     const base = validarContenidoBasico({ contenido });
     const errores = [...base.errores];
 
     const formato = String(contenido?.formato || 'post');
     const motivo = porQueNoAceptaElFormato(destino || { tipo: 'instagram_feed' }, formato);
     if (motivo) errores.push(motivo);
+    if (formato === 'historia') {
+      const tipoCuenta = String(
+        identidad?.metadata?.igAccountType || destino?.metadata?.accountType || ''
+      ).toUpperCase();
+      if (tipoCuenta !== 'BUSINESS') {
+        errores.push(
+          tipoCuenta === 'MEDIA_CREATOR'
+            ? 'Las historias por API requieren una cuenta Business de Instagram.'
+            : 'Volvé a conectar Instagram para comprobar que sea una cuenta Business antes de publicar historias.'
+        );
+      }
+    }
 
     const media = contenido.media || [];
     const imagenes = media.filter((m) => String(m.mime || '').startsWith('image/'));

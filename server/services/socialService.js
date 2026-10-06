@@ -928,6 +928,29 @@ function destinationIds({ destinoIds = [], conjuntoIds = [] }) {
   return [...new Set([...direct, ...fromSets])];
 }
 
+function asegurarFormatoProgramable(destino, campana) {
+  const formato = formatoParaLaRed({
+    ...campana,
+    cuenta_id: destino.cuenta_id,
+    destino_tipo: destino.tipo || destino.destino_tipo,
+  });
+  if ((destino.tipo || destino.destino_tipo) !== 'instagram_feed' || formato !== 'historia') {
+    return;
+  }
+
+  const cuenta = db
+    .prepare('SELECT metadata FROM social_accounts WHERE id = ?')
+    .get(destino.cuenta_id);
+  const tipoCuenta = String(parse(cuenta?.metadata).igAccountType || '').toUpperCase();
+  if (tipoCuenta !== 'BUSINESS') {
+    throw new Error(
+      tipoCuenta === 'MEDIA_CREATOR'
+        ? `${destino.nombre || destino.destino_nombre}: las historias por API requieren una cuenta Business de Instagram.`
+        : `${destino.nombre || destino.destino_nombre}: volvé a conectar Instagram para comprobar que sea una cuenta Business antes de programar historias.`
+    );
+  }
+}
+
 function createCampaign({
   nombre,
   texto,
@@ -1027,7 +1050,8 @@ function createCampaign({
   const destinations = ids.length
     ? db
         .prepare(
-          `SELECT id FROM social_destinations WHERE habilitada = 1 AND id IN (${ids.map(() => '?').join(',')})`
+          `SELECT id, cuenta_id, tipo, nombre FROM social_destinations
+            WHERE habilitada = 1 AND id IN (${ids.map(() => '?').join(',')})`
         )
         .all(...ids)
     : [];
@@ -1036,6 +1060,10 @@ function createCampaign({
   }
   if (state === 'scheduled' && !ensayo) {
     for (const destination of destinations) {
+      asegurarFormatoProgramable(destination, {
+        formato: formatoElegido,
+        formatos: json(formatosElegidos),
+      });
       const conexion = estadoDeDestinoSocial(destination);
       if (conexion.estado !== 'lista') throw new Error(conexion.motivo);
     }
@@ -1296,7 +1324,8 @@ function queueCampaign(id, { now = false } = {}) {
   const candidatos = db
     .prepare(
       `SELECT t.id, t.destino_id, d.cuenta_id, d.nombre AS destino_nombre,
-              d.permite_comercial, d.bloqueado_manualmente, d.habilitada
+              d.tipo AS destino_tipo, d.permite_comercial,
+              d.bloqueado_manualmente, d.habilitada
          FROM social_post_targets t
          JOIN social_destinations d ON d.id = t.destino_id
         WHERE t.campana_id = ? AND t.estado IN ('draft', 'scheduled', 'failed')
@@ -1323,6 +1352,7 @@ function queueCampaign(id, { now = false } = {}) {
   */
   const pendientes = [];
   for (const candidato of candidatos) {
+    asegurarFormatoProgramable(candidato, campaign);
     const motivo = motivoParaSaltear(candidato, campaign, huella, config);
     if (motivo) {
       descartados.push({ ...candidato, ...motivo });
