@@ -11,13 +11,19 @@ assert.ok(routeStart >= 0, 'No se encontró MasivosPathRoutes');
 assert.ok(routeEnd > routeStart, 'No se pudo delimitar MasivosPathRoutes');
 const route = app.slice(routeStart, routeEnd);
 
-assert.match(app, /MASIVOS_STITCH_URL\s*=\s*['"]http:\/\/127\.0\.0\.1:3867['"]/);
+assert.match(app, /VITE_MASIVOS_PANEL_URL/);
+assert.match(app, /127\.0\.0\.1:3867/);
 assert.match(app, /window\.location\.replace\(MASIVOS_STITCH_URL\)/);
 assert.doesNotMatch(route, /<WhatsAppMasivo\s*\/>/);
 assert.match(launcher, /STITCH_URL\s*=\s*["']http:\/\/127\.0\.0\.1:3867["']/);
 assert.match(launcher, /PROMO_ROOT/);
+assert.match(launcher, /PROMO_LOCK/);
+assert.match(launcher, /panel\.lock\.json/);
 assert.match(launcher, /WHATSAPP_DISABLE_STARTUP/);
 assert.match(launcher, /api\/status/);
 assert.match(launcher, /"stitch"/);
+assert.match(launcher, /for port in \(5173, 3001, 3867\)/);
+assert.match(launcher, /str\(PROMO_SERVER\)/);
+assert.match(launcher, /self\.write_pid\("stitch",/);
 
 console.log('Masivos cutover estático: OK');

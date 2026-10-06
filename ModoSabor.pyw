@@ -26,6 +26,7 @@ CLIENT_DIR = BASE_DIR / "client"
 CLIENT_VITE = CLIENT_DIR / "node_modules" / "vite" / "bin" / "vite.js"
 PROMO_ROOT = Path(r"D:\ModoSaborPromoStitch")
 PROMO_SERVER = PROMO_ROOT / "server.js"
+PROMO_LOCK = PROMO_ROOT / "data" / "panel.lock.json"
 BRANDING_DIR = BASE_DIR / "assets" / "branding"
 LAUNCHER_DIR = BASE_DIR / ".launcher"
 PIDS_DIR = LAUNCHER_DIR / "pids"
@@ -730,8 +731,14 @@ class ModoSaborLauncher:
         fragments = {
             "server": SERVER_DIR,
             "client": CLIENT_DIR,
-            "stitch": PROMO_ROOT,
         }
+        if service == "stitch":
+            lock = read_json(PROMO_LOCK, {})
+            try:
+                pid = int(lock.get("pid"))
+            except (TypeError, ValueError):
+                return False
+            return pid in self.pids_by_port(3867) and self.is_process_running(pid)
         fragment = str(fragments.get(service, ""))
         return bool(self.pids_by_path(fragment))
 
@@ -852,6 +859,15 @@ class ModoSaborLauncher:
 
     def ensure_stitch(self):
         if self.url_available(STITCH_STATUS_URL) and self.service_process_matches("stitch"):
+            stitch_pid = read_json(PROMO_LOCK, {}).get("pid")
+            if stitch_pid:
+                self.write_pid("stitch", int(stitch_pid))
+                self.launch_state["stitch"] = {
+                    **self.launch_state.get("stitch", {}),
+                    "pid": int(stitch_pid),
+                    "adopted": True,
+                }
+                write_json(STATE_FILE, self.launch_state)
             self.dispatch(self.update_service_ui, "stitch", "on")
             self.dispatch(self.log, "El panel Stitch ya estaba activo.")
             return True
@@ -949,12 +965,13 @@ class ModoSaborLauncher:
                 self.clear_pid(service)
                 self.launch_state.pop(service, None)
 
-            for port in (5173, 3001):
+            for port in (5173, 3001, 3867):
                 victims.extend(self.pids_by_port(port))
 
             victims.extend(self.pids_by_command_fragments([
                 str(CLIENT_VITE),
                 str(SERVER_DIR / "index.js"),
+                str(PROMO_SERVER),
             ]))
 
             seen = set()

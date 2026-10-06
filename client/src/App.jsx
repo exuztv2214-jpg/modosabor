@@ -67,7 +67,7 @@ const RiderPanel = lazy(() => import('./pages/RiderPanel.jsx'));
 const EstadoPedidosPublico = lazy(() => import('./pages/EstadoPedidosPublico.jsx'));
 const IntercambioDatos = lazy(() => import('./pages/IntercambioDatos.jsx'));
 
-const MASIVOS_STITCH_URL = 'http://127.0.0.1:3867';
+const MASIVOS_STITCH_URL = import.meta.env.VITE_MASIVOS_PANEL_URL || 'http://127.0.0.1:3867';
 
 function MasivosStitchRedirect() {
   useEffect(() => {
