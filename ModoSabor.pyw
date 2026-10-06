@@ -213,7 +213,7 @@ class ModoSaborLauncher:
         chips = tk.Frame(parent, bg=COLORS["navy"])
         chips.pack(fill=tk.X, padx=28, pady=(6, 20))
 
-        self.status_summary["online"] = self._make_stat_chip(chips, "Servicios activos", "0/2", COLORS["soft_blue"], COLORS["primary"])
+        self.status_summary["online"] = self._make_stat_chip(chips, "Servicios activos", f"0/{len(SERVICES)}", COLORS["soft_blue"], COLORS["primary"])
         self.status_summary["panel"] = self._make_stat_chip(chips, "Panel", "masivos:3867", COLORS["soft_green"], COLORS["success"])
 
         actions = tk.Frame(parent, bg=COLORS["navy"])
@@ -783,7 +783,7 @@ class ModoSaborLauncher:
             self.start_btn.config(text="Completar arranque", bg=COLORS["primary"], activebackground="#4970E9")
 
         if log_summary:
-            self.log(f"Estado revisado: {online}/2 servicios activos.")
+            self.log(f"Estado revisado: {online}/{len(SERVICES)} servicios activos.")
 
     def refresh_status(self, log_summary=True):
         if self.refresh_in_progress:
