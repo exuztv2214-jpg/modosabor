@@ -69,7 +69,8 @@ const IntercambioDatos = lazy(() => import('./pages/IntercambioDatos.jsx'));
 
 function MasivosStitchRedirect() {
   useEffect(() => {
-    window.location.replace('/masivos/admin');
+    const panelUrl = window.location.port === '5173' ? 'http://localhost:3001/masivos' : '/masivos';
+    window.location.replace(panelUrl);
   }, []);
 
   return (

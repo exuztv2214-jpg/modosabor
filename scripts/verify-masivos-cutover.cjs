@@ -14,7 +14,7 @@ assert.ok(routeStart >= 0, 'No se encontró MasivosPathRoutes');
 assert.ok(routeEnd > routeStart, 'No se pudo delimitar MasivosPathRoutes');
 const route = app.slice(routeStart, routeEnd);
 
-assert.match(app, /window\.location\.replace\('\/masivos\/admin'\)/);
+assert.match(app, /localhost:3001\/masivos/);
 assert.doesNotMatch(route, /<WhatsAppMasivo\s*\/>/);
 assert.equal(fs.existsSync(oldMasivosPath), false);
 assert.match(stitchServer, /const PORT = Number\(process\.env\.PORT \|\| 3867\)/);
