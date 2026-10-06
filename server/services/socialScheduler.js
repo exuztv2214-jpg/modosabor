@@ -59,6 +59,7 @@ function recoverAndQueueSocialWork() {
 async function despacharUnaPublicacionApi() {
   let trabajo = null;
   try {
+    await social.revalidarCredencialesApi();
     trabajo = social.claimApiWork();
   } catch (error) {
     logger.error('[social] no se pudo reclamar trabajo de API', error);

@@ -182,6 +182,8 @@ function listDestinations({ type = '', enabledOnly = false, cuentaId = null } = 
 }
 
 const PRUEBA_API_MAX_MS = 24 * 60 * 60 * 1000;
+const REVALIDAR_API_MS = 12 * 60 * 60 * 1000;
+const REINTENTAR_API_MS = 6 * 60 * 60 * 1000;
 
 function estadoWorkerSocial(now = Date.now()) {
   const marker = db
@@ -526,6 +528,56 @@ async function probarCredenciales(cuentaId, tipo = 'pagina') {
     mensaje: `${cuenta.nombre}: ${resultado.detalle}`,
   });
   return resultado;
+}
+
+/**
+ * Renueva en segundo plano las comprobaciones de Página e Instagram.
+ *
+ * La pantalla exige una prueba de menos de 24 horas antes de publicar. Se
+ * renueva a las 12 horas para que una campaña nocturna no dependa de que una
+ * persona abra el panel ese mismo día. Los errores esperan seis horas antes
+ * de volver a probarse: insistir cada treinta segundos sólo agravaría una
+ * caída o un límite temporal de Meta.
+ */
+async function revalidarCredencialesApi({ now = Date.now(), comprobar = probarCredenciales } = {}) {
+  const filas = db
+    .prepare(
+      `SELECT DISTINCT a.id AS cuenta_id, a.metadata, d.tipo
+         FROM social_accounts a
+         JOIN social_destinations d ON d.cuenta_id = a.id
+        WHERE a.habilitada = 1 AND a.pausada = 0
+          AND d.habilitada = 1 AND d.execution_class = 'api'
+          AND d.tipo IN ('facebook_page', 'instagram_feed')`
+    )
+    .all();
+
+  const resultados = [];
+  for (const fila of filas) {
+    const metadata = parse(fila.metadata);
+    const canal = fila.tipo === 'instagram_feed' ? 'instagram' : 'pagina';
+    if (!metadata.token || !(canal === 'instagram' ? metadata.igId : metadata.pageId)) continue;
+
+    const check = metadata.verificaciones?.[canal];
+    const comprobado = Date.parse(check?.en || '');
+    const edad = Number.isFinite(comprobado) ? now - comprobado : Infinity;
+    const espera = check?.estado === 'ACTIVE' ? REVALIDAR_API_MS : REINTENTAR_API_MS;
+    if (edad >= 0 && edad < espera) continue;
+
+    try {
+      resultados.push({
+        cuentaId: Number(fila.cuenta_id),
+        canal,
+        resultado: await comprobar(Number(fila.cuenta_id), canal),
+      });
+    } catch (error) {
+      resultados.push({
+        cuentaId: Number(fila.cuenta_id),
+        canal,
+        resultado: { estado: 'ERROR', detalle: error.message },
+      });
+    }
+  }
+  return resultados;
 }
 
 /**
@@ -2678,6 +2730,7 @@ module.exports = {
   guardarCredenciales,
   estadoDeCredenciales,
   probarCredenciales,
+  revalidarCredencialesApi,
   listDestinations,
   createDestination,
   updateDestination,
