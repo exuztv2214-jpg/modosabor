@@ -878,7 +878,12 @@ class ModoSaborLauncher:
         self.free_stale_port(3867, "Masivos Stitch")
         self.dispatch(self.log, "Iniciando Masivos Stitch en segundo plano...")
         self.dispatch(self.update_service_ui, "stitch", "busy")
-        self.launch_process("stitch", node_command(PROMO_SERVER), PROMO_ROOT)
+        self.launch_process(
+            "stitch",
+            node_command(PROMO_SERVER),
+            PROMO_ROOT,
+            extra_env={"MASIVOS_BASE_PATH": "/masivos"},
+        )
 
         if self.wait_for(lambda: self.url_available(STITCH_STATUS_URL), timeout=45):
             self.dispatch(self.update_service_ui, "stitch", "on")
