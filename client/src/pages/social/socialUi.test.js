@@ -1,7 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { estadoVisualDeVia, planDeGuardado, resumenDeRevision } from './socialUi.js';
+import {
+  estadoVisualDeVia,
+  formatearPorcentajeMetrica,
+  planDeGuardado,
+  resumenDeRevision,
+  tieneAlcanceReal,
+} from './socialUi.js';
 
 test('una vía desconectada nunca se presenta como conectada', () => {
   assert.deepEqual(estadoVisualDeVia({ estado: 'sin_conectar' }), {
@@ -77,4 +83,17 @@ test('guardar borrador nunca encola ni programa', () => {
   });
   assert.equal(planDeGuardado('publicar').encolar, true);
   assert.equal(planDeGuardado('programar', '2026-10-07T20:00').encolar, false);
+});
+
+test('una métrica sin muestra dice Sin datos y no cero por ciento', () => {
+  assert.equal(formatearPorcentajeMetrica(null), 'Sin datos');
+  assert.equal(formatearPorcentajeMetrica(undefined), 'Sin datos');
+  assert.equal(formatearPorcentajeMetrica(0), '0 %');
+  assert.equal(formatearPorcentajeMetrica(68), '68 %');
+});
+
+test('el alcance sólo se muestra cuando el proveedor lo entregó', () => {
+  assert.equal(tieneAlcanceReal({ disponible: false }), false);
+  assert.equal(tieneAlcanceReal(null), false);
+  assert.equal(tieneAlcanceReal({ disponible: true }), true);
 });

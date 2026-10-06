@@ -591,35 +591,92 @@
     overflow: auto;
   }
 
-  .social-vista .social-lateral {
+  .social-vista .social-shell-nav {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    width: 100% !important;
+    max-height: 66px;
     flex-direction: row;
-    align-items: center;
-    gap: 8px;
+    align-items: stretch;
+    border-right: 0;
+    border-bottom: 1px solid #292d34;
+  }
+
+  .social-vista .social-shell-brand {
+    width: 56px;
+    height: auto;
+    flex: none;
+    padding: 10px 12px;
+  }
+
+  .social-vista .social-shell-brand > span {
+    display: none;
+  }
+
+  .social-vista .social-shell-menu {
+    display: flex;
     overflow-x: auto;
-    padding: 0 10px;
-  }
-
-  .social-vista .social-menu {
+    overflow-y: hidden;
     flex-direction: row;
-    padding: 8px 0;
+    gap: 4px;
+    padding: 8px;
+    scrollbar-width: none;
   }
 
-  .social-vista .social-menu-item.activa::before {
+  .social-vista .social-shell-menu::-webkit-scrollbar,
+  .social-vista .social-shell-menu p,
+  .social-vista .social-shell-menu > div > div:empty {
     display: none;
   }
 
-  .social-vista .social-lateral-bloque,
-  .social-vista .social-lateral-pie {
+  .social-vista .social-shell-menu > div {
+    display: flex;
+    flex: none;
+    gap: 4px;
+  }
+
+  .social-vista .social-shell-menu button {
+    width: auto;
+    flex: none;
+    white-space: nowrap;
+  }
+
+  .social-vista .social-shell-identidades,
+  .social-vista .social-shell-footer {
     display: none;
+  }
+
+  .social-vista .social-main {
+    overflow: visible;
   }
 
   .social-vista .social-header {
+    top: 66px;
     flex-wrap: wrap;
-    padding: 14px 18px;
+    padding: 12px;
+  }
+
+  .social-vista .social-header-titulo p {
+    display: none;
+  }
+
+  .social-vista .social-header-acciones {
+    width: 100%;
+    overflow-x: auto;
+    padding-bottom: 2px;
+  }
+
+  .social-vista .social-header-acciones > * {
+    flex: none;
+  }
+
+  .social-vista .social-boton-principal {
+    margin-left: auto;
   }
 
   .social-vista .social-content {
-    padding: 18px !important;
+    padding: 12px !important;
   }
 }
 .social-vista .social-kpi {
@@ -3027,6 +3084,40 @@
 }
 
 @media (max-width: 640px) {
+  .social-vista .social-header-acciones {
+    flex-wrap: wrap;
+    overflow: visible;
+  }
+
+  .social-vista .social-boton-principal {
+    order: -1;
+    width: 100%;
+    justify-content: center;
+    margin-left: 0;
+  }
+
+  .social-vista .social-comp-pie {
+    align-items: stretch;
+  }
+
+  .social-vista .social-comp-atajos,
+  .social-vista .social-comp-cuando,
+  .social-vista .social-comp-acciones {
+    width: 100%;
+  }
+
+  .social-vista .social-comp-acciones {
+    display: grid;
+    grid-template-columns: 1fr;
+    margin-left: 0;
+  }
+
+  .social-vista .social-comp-principal,
+  .social-vista .social-comp-programar,
+  .social-vista .social-comp-borrador {
+    justify-content: center;
+  }
+
   .social-vista .social-comp-cabecera {
     align-items: flex-start;
     padding: 15px 16px;

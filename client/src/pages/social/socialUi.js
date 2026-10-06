@@ -83,3 +83,10 @@ export const planDeGuardado = (accion, programadaPara = '') => ({
   autoPublicar: accion !== 'borrador',
   encolar: accion === 'publicar',
 });
+
+export const formatearPorcentajeMetrica = (valor) =>
+  valor === null || valor === undefined || !Number.isFinite(Number(valor))
+    ? 'Sin datos'
+    : `${Number(valor)} %`;
+
+export const tieneAlcanceReal = (alcance) => alcance?.disponible === true;

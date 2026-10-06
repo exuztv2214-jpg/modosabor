@@ -55,6 +55,7 @@ import {
   estadoVisualDeVia,
   formatSocialDate,
   formatSocialDateTime,
+  formatearPorcentajeMetrica,
   planDeGuardado,
   resumenDeRevision,
   socialApiError,
@@ -99,6 +100,7 @@ export default function Social() {
     templates: [],
   });
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [sending, setSending] = useState(false);
   const [campaignError, setCampaignError] = useState('');
   const [editingCampaignId, setEditingCampaignId] = useState(null);
@@ -259,27 +261,31 @@ export default function Social() {
   const [campFilter, setCampFilter] = useState('all');
   const [metricsData, setMetricsData] = useState(null);
   const [metricsLoading, setMetricsLoading] = useState(false);
+  const [metricsError, setMetricsError] = useState('');
   const [socialConfig, setSocialConfig] = useState({ delaySegundos: 30 });
   const [savingConfig, setSavingConfig] = useState(false);
+  const [configError, setConfigError] = useState('');
 
   const loadMetrics = async () => {
+    setMetricsError('');
     setMetricsLoading(true);
     try {
       const data = await api.get('/social/metricas?dias=30');
       setMetricsData(data);
     } catch (error) {
-      toast.error(apiError(error));
+      setMetricsError(apiError(error));
     } finally {
       setMetricsLoading(false);
     }
   };
 
   const loadSocialConfig = async () => {
+    setConfigError('');
     try {
       const config = await api.get('/social/config');
       setSocialConfig(config);
     } catch (error) {
-      // Silencioso: usamos default
+      setConfigError(apiError(error));
     }
   };
 
@@ -288,9 +294,12 @@ export default function Social() {
     try {
       const config = await api.post('/social/config', cambios);
       setSocialConfig(config);
+      setConfigError('');
       toast.success('Configuración de cola guardada.');
     } catch (error) {
-      toast.error(apiError(error));
+      const message = apiError(error);
+      setConfigError(message);
+      toast.error(message);
     } finally {
       setSavingConfig(false);
     }
@@ -334,6 +343,7 @@ export default function Social() {
   const fotosPedidas = useRef(false);
 
   const reload = async () => {
+    setLoadError('');
     try {
       const [dashboard, destinos, conjuntos, campanas, media, logs, templates, identidades] =
         await Promise.all([
@@ -421,7 +431,7 @@ export default function Social() {
           .catch(() => {});
       }
     } catch (error) {
-      toast.error(apiError(error));
+      setLoadError(apiError(error));
     } finally {
       setLoading(false);
     }
@@ -1048,6 +1058,31 @@ export default function Social() {
     );
   }
 
+  if (loadError && !data.dashboard) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-50 p-6">
+        <div
+          className="max-w-md rounded-2xl border border-rose-200 bg-white p-6 text-center shadow-sm"
+          role="alert"
+        >
+          <AlertTriangle className="mx-auto text-rose-500" size={30} />
+          <h1 className="mt-3 text-lg font-bold text-slate-900">No se pudo cargar Social</h1>
+          <p className="mt-2 text-sm text-slate-600">{loadError}</p>
+          <button
+            type="button"
+            onClick={() => {
+              setLoading(true);
+              reload();
+            }}
+            className="mt-5 rounded-xl bg-slate-900 px-4 py-2 text-sm font-bold text-white"
+          >
+            Reintentar
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="social-vista">
       {/*
@@ -1074,7 +1109,7 @@ export default function Social() {
           menuAbiertoLateral ? 'w-64' : 'w-16'
         }`}
       >
-        <div className="h-16 flex items-center px-4 border-b border-gray-100">
+        <div className="social-shell-brand h-16 flex items-center px-4 border-b border-gray-100">
           <div className="w-8 h-8 rounded-lg bg-brand-500 flex items-center justify-center text-white flex-shrink-0">
             <Share2 size={17} />
           </div>
@@ -1084,7 +1119,7 @@ export default function Social() {
         </div>
 
         <nav
-          className="flex-1 overflow-y-auto py-3 px-2"
+          className="social-shell-menu flex-1 overflow-y-auto py-3 px-2"
           aria-label="Secciones de Modo Sabor Social"
         >
           {gruposDeMenu.map((grupo, i) => (
@@ -1161,7 +1196,7 @@ export default function Social() {
             identidades no se nota; con cinco, «Configuración» desaparece de la
             pantalla sin que nada lo insinúe.
           */
-          <div className="max-h-[168px] flex-shrink-0 overflow-y-auto border-t border-gray-100 px-2 py-2">
+          <div className="social-shell-identidades max-h-[168px] flex-shrink-0 overflow-y-auto border-t border-gray-100 px-2 py-2">
             <p className="px-2 pb-2 text-[10px] font-bold uppercase tracking-wider text-gray-400">
               Publicás como
             </p>
@@ -1226,7 +1261,7 @@ export default function Social() {
           </div>
         )}
 
-        <div className="border-t border-gray-100 p-2 space-y-1">
+        <div className="social-shell-footer border-t border-gray-100 p-2 space-y-1">
           {/*
             Conectar va arriba de Verificar a propósito: es lo primero que hay
             que hacer, y verificar algo que nunca se conectó siempre va a dar
@@ -1655,7 +1690,23 @@ export default function Social() {
 
           {/* ==================== CONFIGURACIÓN ==================== */}
           {activeSection === 'config' && (
-            <div className="mx-auto max-w-2xl">
+            <div className="mx-auto max-w-5xl space-y-6">
+              {configError && (
+                <div
+                  className="flex items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700"
+                  role="alert"
+                >
+                  <span>{configError}</span>
+                  <button type="button" onClick={loadSocialConfig} className="font-bold">
+                    Reintentar
+                  </button>
+                </div>
+              )}
+              <EstadoDeVias
+                vias={data.dashboard?.vias}
+                onIr={setActiveSection}
+                onVincular={vincularEstaPC}
+              />
               <PerillasDeLaCola
                 config={socialConfig}
                 onCambiar={(campo, valor) =>
@@ -2373,6 +2424,17 @@ export default function Social() {
                   <RefreshCw className="mr-2 animate-spin" size={18} /> Cargando métricas…
                 </div>
               )}
+              {!metricsLoading && metricsError && (
+                <div
+                  className="rounded-xl border border-rose-200 bg-rose-50 p-5 text-sm text-rose-700"
+                  role="alert"
+                >
+                  <p>{metricsError}</p>
+                  <button type="button" onClick={loadMetrics} className="mt-3 font-bold">
+                    Reintentar
+                  </button>
+                </div>
+              )}
               {!metricsLoading && metricsData && (
                 <>
                   {/* Resumen */}
@@ -2393,7 +2455,7 @@ export default function Social() {
                     />
                     <MetricCard
                       label="Tasa de éxito"
-                      value={metricsData.resumen.tasaExito}
+                      value={formatearPorcentajeMetrica(metricsData.resumen.tasaExito)}
                       icon={ShieldCheck}
                       color="text-emerald-600"
                       bg="bg-emerald-50"
@@ -2462,6 +2524,11 @@ export default function Social() {
                             </div>
                           );
                         })}
+                      {!metricsData.porDia.length && (
+                        <p className="m-auto text-sm text-slate-400">
+                          Todavía no hay ejecuciones para mostrar.
+                        </p>
+                      )}
                     </div>
                   </div>
 
@@ -2496,7 +2563,10 @@ export default function Social() {
 
                     {/* Horarios más efectivos */}
                     <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-                      <h3 className="text-sm font-bold text-slate-900">Horarios más efectivos</h3>
+                      <h3 className="text-sm font-bold text-slate-900">Ejecución por hora</h3>
+                      <p className="mt-1 text-xs text-slate-400">
+                        Indica si el sistema logró publicar, no cuánta gente lo vio.
+                      </p>
                       <div className="mt-4 grid grid-cols-6 gap-2">
                         {metricsData.porHora.map((h) => (
                           <div key={h.hora} className="text-center">
@@ -2546,6 +2616,11 @@ export default function Social() {
                           <span className="text-xs text-slate-400">{e.cantidad}</span>
                         </div>
                       ))}
+                      {!metricsData.estados.length && (
+                        <p className="text-sm text-slate-400">
+                          Todavía no hay estados registrados.
+                        </p>
+                      )}
                     </div>
                   </div>
                 </>
