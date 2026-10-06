@@ -219,11 +219,11 @@ initSocketSecurity(io);
 
 const cspDirectives = {
   defaultSrc: ["'self'"],
-  styleSrc: ["'self'", "'unsafe-inline'"],
+  styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
   scriptSrc: ["'self'", "'unsafe-inline'"],
   imgSrc: ["'self'", 'data:', 'blob:', 'https:'],
   connectSrc: ["'self'", 'https:'],
-  fontSrc: ["'self'", 'data:'],
+  fontSrc: ["'self'", 'data:', 'https://fonts.gstatic.com'],
   frameSrc: ["'self'", 'https://www.google.com', 'https://maps.google.com'],
 };
 if (isProduction) {
