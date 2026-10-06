@@ -15,6 +15,17 @@ export const STATUS_STYLES = {
 export const socialApiError = (error) =>
   error?.error || error?.message || 'No se pudo completar la operación';
 
+const VIA_STATES = {
+  sin_configurar: { etiqueta: 'Sin configurar', tono: 'pendiente', accion: 'Configurar' },
+  sin_conectar: { etiqueta: 'Sin conectar', tono: 'pendiente', accion: 'Conectar' },
+  comprobando: { etiqueta: 'Comprobando', tono: 'espera', accion: 'Comprobar' },
+  lista: { etiqueta: 'Lista', tono: 'lista', accion: null },
+  requiere_atencion: { etiqueta: 'Requiere atención', tono: 'alerta', accion: 'Revisar' },
+  en_pausa: { etiqueta: 'En pausa', tono: 'espera', accion: 'Reanudar' },
+};
+
+export const estadoVisualDeVia = (via = {}) => VIA_STATES[via.estado] || VIA_STATES.sin_configurar;
+
 export const formatSocialDateTime = (value) =>
   value
     ? new Intl.DateTimeFormat('es-AR', { dateStyle: 'short', timeStyle: 'short' }).format(

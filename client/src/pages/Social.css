@@ -41,6 +41,115 @@
   color: var(--tinta);
 }
 
+.social-shell-nav {
+  border-color: #292d34;
+  background: #171a1f;
+  color: #f8fafc;
+}
+
+.social-shell-nav .border-gray-100,
+.social-shell-nav .border-gray-200 {
+  border-color: #292d34;
+}
+
+.social-shell-nav .text-gray-900,
+.social-shell-nav .text-gray-600 {
+  color: #f8fafc;
+}
+
+.social-shell-nav .text-gray-400,
+.social-shell-nav .text-gray-300 {
+  color: #9ca3af;
+}
+
+.social-shell-nav button:hover {
+  background: #23272e;
+  color: #fff;
+}
+
+.social-shell-nav .bg-brand-50 {
+  background: rgb(220 31 45 / 18%);
+  color: #fff;
+}
+
+.social-via {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 12px;
+  border: 1px solid var(--linea);
+  border-radius: 16px;
+  background: #fff;
+  padding: 16px;
+  box-shadow: 0 5px 18px rgb(15 23 42 / 4%);
+}
+
+.social-via--lista {
+  border-color: #bbf7d0;
+}
+
+.social-via--alerta {
+  border-color: #fecaca;
+  background: #fffafa;
+}
+
+.social-via--espera,
+.social-via--pendiente {
+  border-color: #fde68a;
+}
+
+.social-via-icono {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  place-items: center;
+  border-radius: 11px;
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.social-via-estado {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 3px 8px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.social-via-estado.lista {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.social-via-estado.alerta {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.social-via-estado.espera,
+.social-via-estado.pendiente {
+  background: #fef3c7;
+  color: #a16207;
+}
+
+.social-via-accion {
+  flex: none;
+  border-radius: 10px;
+  background: #f1f5f9;
+  padding: 7px 10px;
+  color: #334155;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.social-via-accion:hover {
+  background: #e2e8f0;
+}
+
 /* ── El sidebar ─────────────────────────────────────────────────────────── */
 
 .social-vista .social-lateral {

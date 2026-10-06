@@ -178,7 +178,7 @@ function listDestinations({ type = '', enabledOnly = false, cuentaId = null } = 
        ORDER BY d.favorita DESC, d.nombre COLLATE NOCASE`
     )
     .all(...params)
-    .map(mapDestination);
+    .map((row) => ({ ...mapDestination(row), estadoConexion: estadoDeDestinoSocial(row) }));
 }
 
 const PRUEBA_API_MAX_MS = 24 * 60 * 60 * 1000;

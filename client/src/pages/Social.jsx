@@ -51,6 +51,7 @@ import toast from 'react-hot-toast';
 import api from '../lib/api.js';
 import {
   STATUS_STYLES,
+  estadoVisualDeVia,
   formatSocialDate,
   formatSocialDateTime,
   socialApiError,
@@ -1004,7 +1005,7 @@ export default function Social() {
         cosa al cambiar de pestaña.
       */}
       <aside
-        className={`flex-shrink-0 bg-white border-r border-gray-200 flex flex-col transition-all duration-300 ${
+        className={`social-shell-nav flex-shrink-0 border-r flex flex-col transition-all duration-300 ${
           menuAbiertoLateral ? 'w-64' : 'w-16'
         }`}
       >
@@ -1102,6 +1103,11 @@ export default function Social() {
             {(data.identidades || []).filter(esIdentidadFacebookOperativa).map((identidad) => {
               const elegida = identidadElegida === identidad.id;
               const detenida = identidad.pausada || identidad.frenadaAutomaticamente;
+              const via =
+                identidad.metadata?.tipo === 'page'
+                  ? data.dashboard?.vias?.pagina
+                  : data.dashboard?.vias?.perfilGrupos;
+              const estadoVia = estadoVisualDeVia(via);
               const cuantos = data.destinos.filter(
                 (d) => d.tipo === 'facebook_group' && d.cuenta_id === identidad.id
               ).length;
@@ -1134,14 +1140,14 @@ export default function Social() {
                   </span>
                   <span
                     className={`w-2 h-2 flex-shrink-0 rounded-full ${
-                      detenida ? 'bg-amber-400' : 'bg-emerald-500'
+                      detenida || estadoVia.tono !== 'lista' ? 'bg-amber-400' : 'bg-emerald-500'
                     }`}
                     title={
                       identidad.frenadaAutomaticamente
                         ? `Frenada por ${identidad.fallosSeguidos} fallos seguidos`
                         : identidad.pausada
                           ? 'En pausa'
-                          : 'Activa'
+                          : estadoVia.etiqueta
                     }
                   />
                 </button>
@@ -1213,7 +1219,7 @@ export default function Social() {
                 <Pause size={12} /> Todo pausado
               </span>
             )}
-            {data.dashboard?.worker?.estado !== 'online' && (
+            {data.dashboard?.vias?.perfilGrupos?.estado !== 'lista' && (
               <span className="social-chip alerta">
                 <AlertTriangle size={12} /> Extensión desconectada
               </span>
@@ -1253,8 +1259,14 @@ export default function Social() {
           {/* ==================== DASHBOARD ==================== */}
           {activeSection === 'dashboard' && (
             <div className="space-y-6">
+              <EstadoDeVias
+                vias={data.dashboard?.vias}
+                onIr={setActiveSection}
+                onVincular={vincularEstaPC}
+              />
+
               {/* Métricas Cards */}
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="grid gap-4 sm:grid-cols-3">
                 <MetricCard
                   label="Grupos disponibles"
                   tinte="#2563eb"
@@ -1291,36 +1303,10 @@ export default function Social() {
                   color="text-rose-600"
                   bg="bg-rose-50"
                 />
-                <MetricCard
-                  label="Extensión"
-                  tinte="#0d9488"
-                  value={
-                    data.dashboard?.health?.resultado?.facebook_session === 'ACTIVE'
-                      ? 'Online'
-                      : data.dashboard?.health?.resultado?.facebook_session === 'EXPIRED'
-                        ? 'Sesión vencida'
-                        : data.dashboard?.worker?.estado === 'online'
-                          ? 'Sin validar'
-                          : 'Offline'
-                  }
-                  icon={ShieldCheck}
-                  color={
-                    data.dashboard?.health?.resultado?.facebook_session === 'ACTIVE'
-                      ? 'text-emerald-600'
-                      : 'text-slate-400'
-                  }
-                  bg={
-                    data.dashboard?.health?.resultado?.facebook_session === 'ACTIVE'
-                      ? 'bg-emerald-50'
-                      : 'bg-slate-100'
-                  }
-                />
               </div>
 
               <QueFaltaParaEmpezar
-                identidades={data.identidades || []}
-                destinos={data.destinos || []}
-                workerOnline={data.dashboard?.worker?.estado === 'online'}
+                vias={data.dashboard?.vias}
                 extensionInstalada={extensionInstalada}
                 onIr={setActiveSection}
                 onVincular={vincularEstaPC}
@@ -1348,7 +1334,7 @@ export default function Social() {
                 enseñar a usar el sistema. Es el lugar para decir qué pasa y
                 dar el botón que lo arregla.
               */}
-              {data.dashboard?.worker?.estado !== 'online' && (
+              {data.dashboard?.vias?.perfilGrupos?.estado !== 'lista' && (
                 <div className="flex items-center gap-4 rounded-2xl border border-amber-200 bg-amber-50 p-4">
                   <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-600">
                     <AlertTriangle size={19} />
@@ -2018,119 +2004,120 @@ export default function Social() {
 
               {/* Grid de destinos */}
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {data.destinos.map((item) => (
-                  <div
-                    key={item.id}
-                    className="group relative rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition-shadow hover:shadow-md"
-                  >
-                    {editingDest === item.id ? (
-                      <div className="space-y-2">
-                        <input
-                          value={editForm.nombre}
-                          onChange={(e) => setEditForm({ ...editForm, nombre: e.target.value })}
-                          className="w-full rounded-lg border border-slate-200 p-2 text-sm"
-                        />
-                        <input
-                          value={editForm.url}
-                          onChange={(e) => setEditForm({ ...editForm, url: e.target.value })}
-                          className="w-full rounded-lg border border-slate-200 p-2 text-sm"
-                        />
-                        <div className="flex items-center gap-3 text-xs">
-                          <label className="flex items-center gap-1">
-                            <input
-                              type="checkbox"
-                              checked={editForm.habilitada}
-                              onChange={(e) =>
-                                setEditForm({ ...editForm, habilitada: e.target.checked })
-                              }
-                            />
-                            Habilitado
-                          </label>
-                          <label className="flex items-center gap-1">
-                            <input
-                              type="checkbox"
-                              checked={editForm.favorita}
-                              onChange={(e) =>
-                                setEditForm({ ...editForm, favorita: e.target.checked })
-                              }
-                            />
-                            Favorito
-                          </label>
-                        </div>
-                        <div className="flex gap-2">
-                          <button
-                            onClick={saveEditDest}
-                            className="rounded-lg bg-slate-900 px-3 py-1 text-xs font-bold text-white"
-                          >
-                            Guardar
-                          </button>
-                          <button
-                            onClick={() => setEditingDest(null)}
-                            className="rounded-lg border border-slate-300 px-3 py-1 text-xs font-bold"
-                          >
-                            <X size={12} />
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <>
-                        <div className="flex items-start justify-between">
-                          <div className="flex items-center gap-2">
-                            <div
-                              className={`flex h-8 w-8 items-center justify-center rounded-lg ${
-                                item.tipo.startsWith('instagram_')
-                                  ? 'bg-pink-50 text-pink-600'
-                                  : item.tipo === 'facebook_page'
-                                    ? 'bg-blue-50 text-blue-600'
-                                    : 'bg-indigo-50 text-indigo-600'
-                              }`}
-                            >
-                              {item.tipo.startsWith('instagram_') ? (
-                                <Instagram size={14} />
-                              ) : (
-                                <Facebook size={14} />
-                              )}
-                            </div>
-                            <div>
-                              <p className="text-sm font-bold">{item.nombre}</p>
-                              <p className="text-[10px] text-slate-400 uppercase">
-                                {item.tipo
-                                  .replace('facebook_', 'Facebook ')
-                                  .replace('instagram_', 'Instagram ')}
-                              </p>
-                            </div>
+                {data.destinos.map((item) => {
+                  const conexion = estadoVisualDeVia(item.estadoConexion);
+                  return (
+                    <div
+                      key={item.id}
+                      className="group relative rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition-shadow hover:shadow-md"
+                    >
+                      {editingDest === item.id ? (
+                        <div className="space-y-2">
+                          <input
+                            value={editForm.nombre}
+                            onChange={(e) => setEditForm({ ...editForm, nombre: e.target.value })}
+                            className="w-full rounded-lg border border-slate-200 p-2 text-sm"
+                          />
+                          <input
+                            value={editForm.url}
+                            onChange={(e) => setEditForm({ ...editForm, url: e.target.value })}
+                            className="w-full rounded-lg border border-slate-200 p-2 text-sm"
+                          />
+                          <div className="flex items-center gap-3 text-xs">
+                            <label className="flex items-center gap-1">
+                              <input
+                                type="checkbox"
+                                checked={editForm.habilitada}
+                                onChange={(e) =>
+                                  setEditForm({ ...editForm, habilitada: e.target.checked })
+                                }
+                              />
+                              Habilitado
+                            </label>
+                            <label className="flex items-center gap-1">
+                              <input
+                                type="checkbox"
+                                checked={editForm.favorita}
+                                onChange={(e) =>
+                                  setEditForm({ ...editForm, favorita: e.target.checked })
+                                }
+                              />
+                              Favorito
+                            </label>
                           </div>
-                          <div className="flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                          <div className="flex gap-2">
                             <button
-                              onClick={() => startEditDest(item)}
-                              className="rounded p-1 text-slate-400 hover:bg-slate-100"
-                              title="Editar"
+                              onClick={saveEditDest}
+                              className="rounded-lg bg-slate-900 px-3 py-1 text-xs font-bold text-white"
                             >
-                              <Pencil size={13} />
+                              Guardar
                             </button>
                             <button
-                              onClick={() => removeDest(item.id)}
-                              className="rounded p-1 text-rose-400 hover:bg-rose-50"
-                              title="Eliminar"
+                              onClick={() => setEditingDest(null)}
+                              className="rounded-lg border border-slate-300 px-3 py-1 text-xs font-bold"
                             >
-                              <Trash2 size={13} />
+                              <X size={12} />
                             </button>
                           </div>
                         </div>
-                        <div className="mt-3 flex items-center justify-between">
-                          <span
-                            className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${item.habilitada ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-400'}`}
-                          >
-                            {item.habilitada ? 'Activo' : 'Pausado'}
-                          </span>
-                          {item.favorita && (
-                            <Star size={14} className="text-amber-400" fill="currentColor" />
-                          )}
-                        </div>
-                      </>
-                    )}
-                  </div>
-                ))}
+                      ) : (
+                        <>
+                          <div className="flex items-start justify-between">
+                            <div className="flex items-center gap-2">
+                              <div
+                                className={`flex h-8 w-8 items-center justify-center rounded-lg ${
+                                  item.tipo.startsWith('instagram_')
+                                    ? 'bg-pink-50 text-pink-600'
+                                    : item.tipo === 'facebook_page'
+                                      ? 'bg-blue-50 text-blue-600'
+                                      : 'bg-indigo-50 text-indigo-600'
+                                }`}
+                              >
+                                {item.tipo.startsWith('instagram_') ? (
+                                  <Instagram size={14} />
+                                ) : (
+                                  <Facebook size={14} />
+                                )}
+                              </div>
+                              <div>
+                                <p className="text-sm font-bold">{item.nombre}</p>
+                                <p className="text-[10px] text-slate-400 uppercase">
+                                  {item.tipo
+                                    .replace('facebook_', 'Facebook ')
+                                    .replace('instagram_', 'Instagram ')}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                              <button
+                                onClick={() => startEditDest(item)}
+                                className="rounded p-1 text-slate-400 hover:bg-slate-100"
+                                title="Editar"
+                              >
+                                <Pencil size={13} />
+                              </button>
+                              <button
+                                onClick={() => removeDest(item.id)}
+                                className="rounded p-1 text-rose-400 hover:bg-rose-50"
+                                title="Eliminar"
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            </div>
+                          </div>
+                          <div className="mt-3 flex items-center justify-between">
+                            <span className={`social-via-estado ${conexion.tono}`}>
+                              {item.habilitada ? conexion.etiqueta : 'Pausado'}
+                            </span>
+                            {item.favorita && (
+                              <Star size={14} className="text-amber-400" fill="currentColor" />
+                            )}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
                 {!data.destinos.length && (
                   <div className="col-span-full rounded-xl border border-dashed border-slate-200 p-8 text-center text-sm text-slate-400">
                     Aún no hay destinos sincronizados.
@@ -2954,16 +2941,62 @@ function ProximasSalidas({ campanas, onVerCalendario }) {
  * todo hecho, el bloque desaparece solo y el tablero queda para lo que
  * importa: qué se publicó y qué está por salir.
  */
-function QueFaltaParaEmpezar({
-  identidades,
-  destinos,
-  workerOnline,
-  extensionInstalada,
-  onIr,
-  onVincular,
-}) {
-  const hayGrupos = destinos.some((d) => d.tipo === 'facebook_group');
-  const hayConexionApi = identidades.some((i) => i.tieneToken);
+function EstadoDeVias({ vias = {}, onIr, onVincular }) {
+  const items = [
+    { clave: 'pagina', nombre: 'Página de Facebook', icono: Facebook },
+    { clave: 'instagram', nombre: 'Instagram', icono: Instagram },
+    { clave: 'perfilGrupos', nombre: 'Perfil y grupos', icono: Users },
+  ];
+
+  return (
+    <section aria-labelledby="social-vias-titulo">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div>
+          <h3 id="social-vias-titulo" className="text-sm font-bold text-slate-900">
+            Canales de publicación
+          </h3>
+          <p className="mt-0.5 text-xs text-slate-400">Cada canal funciona por separado.</p>
+        </div>
+      </div>
+      <div className="grid gap-3 md:grid-cols-3">
+        {items.map(({ clave, nombre, icono: Icono }) => {
+          const via = vias?.[clave] || { estado: 'sin_configurar' };
+          const visual = estadoVisualDeVia(via);
+          return (
+            <article key={clave} className={`social-via social-via--${visual.tono}`}>
+              <span className="social-via-icono" aria-hidden="true">
+                <Icono size={17} />
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h4 className="text-sm font-bold text-slate-900">{nombre}</h4>
+                  <span className={`social-via-estado ${visual.tono}`}>{visual.etiqueta}</span>
+                </div>
+                <p className="mt-1 text-xs leading-relaxed text-slate-500">
+                  {via.motivo || 'Todavía no se comprobó este canal.'}
+                </p>
+              </div>
+              {visual.accion && (
+                <button
+                  type="button"
+                  onClick={() => (clave === 'perfilGrupos' ? onVincular() : onIr('destinos'))}
+                  className="social-via-accion"
+                >
+                  {visual.accion}
+                </button>
+              )}
+            </article>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function QueFaltaParaEmpezar({ vias = {}, extensionInstalada, onIr, onVincular }) {
+  const perfilListo = vias?.perfilGrupos?.estado === 'lista';
+  const paginaLista = vias?.pagina?.estado === 'lista';
+  const instagramListo = vias?.instagram?.estado === 'lista';
 
   const pasos = [
     /*
@@ -2976,30 +3009,28 @@ function QueFaltaParaEmpezar({
     */
     extensionInstalada
       ? {
-          hecho: workerOnline,
-          titulo: 'Conectar tus grupos',
-          detalle:
-            'Un clic. La extensión publica en tus grupos usando la sesión de Facebook que ya tenés abierta.',
+          hecho: perfilListo,
+          titulo: 'Comprobar perfil y grupos',
+          detalle: vias?.perfilGrupos?.motivo || 'Vinculá esta PC y comprobá tu sesión.',
           accion: { texto: 'Conectar', vincular: true },
         }
       : {
-          hecho: false,
+          hecho: perfilListo,
           titulo: 'Instalar la extensión de Chrome',
           detalle:
             'Es una sola vez y lleva un minuto. Facebook cerró la forma de publicar en grupos desde un servidor, así que hay que hacerlo desde tu navegador.',
-          accion: { texto: 'Cómo se instala', ir: 'configuracion' },
+          accion: { texto: 'Cómo se instala', ir: 'config' },
         },
     {
-      hecho: hayGrupos,
-      titulo: 'Traer tus grupos de Facebook',
-      detalle: 'Con el Worker andando y la sesión iniciada, el sistema trae la lista solo.',
-      accion: { texto: 'Ir a Destinos', ir: 'destinos' },
+      hecho: paginaLista,
+      titulo: 'Conectar la Página de Facebook',
+      detalle: vias?.pagina?.motivo || 'Elegí la página que administrás y comprobá la conexión.',
+      accion: { texto: 'Conectar', ir: 'destinos' },
     },
     {
-      hecho: hayConexionApi,
-      titulo: 'Conectar la Fan Page e Instagram',
-      detalle:
-        'Con un botón. Eso publica desde el servidor, sin navegador y sin que la PC esté prendida.',
+      hecho: instagramListo,
+      titulo: 'Comprobar Instagram',
+      detalle: vias?.instagram?.motivo || 'Instagram se conecta desde la página de Facebook.',
       accion: { texto: 'Conectar', ir: 'destinos' },
     },
   ];

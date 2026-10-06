@@ -135,6 +135,13 @@ async function run() {
       social.estadoDeDestinoSocial({ id: otherPageId }, { now }).estado,
       'lista'
     );
+    const listedStates = new Map(
+      social
+        .listDestinations()
+        .map((destination) => [destination.id, destination.estadoConexion?.estado])
+    );
+    assert.strictEqual(listedStates.get(pageId), 'lista');
+    assert.notStrictEqual(listedStates.get(otherPageId), 'lista');
     assert.strictEqual(social.estadoViasSocial({ now }).pagina.estado, 'lista');
     assert.notStrictEqual(social.estadoViasSocial({ now }).instagram.estado, 'lista');
     assert.ok(social.dashboard().vias, 'El dashboard entrega el mismo estado real');
