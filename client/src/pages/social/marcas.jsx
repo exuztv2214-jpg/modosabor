@@ -20,7 +20,7 @@
  * lo que un logo tiene que hacer.
  */
 
-import { useId } from 'react';
+import { useEffect, useId, useState } from 'react';
 
 export function MarcaFacebook({ size = 24 }) {
   return (
@@ -101,6 +101,8 @@ export function MarcaDeIdentidad({ tipo, size = 24 }) {
  * la inicial, que es lo que había antes — nunca un cuadrado roto.
  */
 export function FotoDeCuenta({ foto, nombre, red, size = 40 }) {
+  const [fotoDisponible, setFotoDisponible] = useState(Boolean(foto));
+  useEffect(() => setFotoDisponible(Boolean(foto)), [foto]);
   const inicial = String(nombre || 'MS')
     .replace(/^@/, '')
     .slice(0, 2)
@@ -111,8 +113,14 @@ export function FotoDeCuenta({ foto, nombre, red, size = 40 }) {
 
   return (
     <span className="social-foto-cuenta" style={{ width: size, height: size }} title={nombre}>
-      {foto ? (
-        <img src={foto} alt="" width={size} height={size} />
+      {fotoDisponible ? (
+        <img
+          src={foto}
+          alt=""
+          width={size}
+          height={size}
+          onError={() => setFotoDisponible(false)}
+        />
       ) : (
         <em style={{ fontSize: Math.round(size * 0.34) }}>{inicial}</em>
       )}

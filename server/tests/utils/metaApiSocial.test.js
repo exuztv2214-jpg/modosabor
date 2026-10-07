@@ -376,7 +376,7 @@ module.exports = {
         }),
         (error) => {
           assert.strictEqual(error.codigo, 'DURACION_INVALIDA');
-          assert.match(error.message, /90/, 'dice cuál es el tope');
+          assert.match(error.message, /60/, 'dice cuál es el tope');
           assert.match(error.message, /120/, 'y cuánto dura el que mandó');
           return true;
         }
@@ -395,7 +395,7 @@ module.exports = {
           pageId: '55',
           token: 't',
           videoUrl: 'https://modosabor.com.ar/corto.mp4',
-          duracionSegundos: 2,
+          duracionSegundos: 3,
           esperar: sinEsperar,
         }),
         (error) => error.codigo === 'DURACION_INVALIDA'
@@ -505,8 +505,7 @@ module.exports = {
 
   'una historia en video de más de 60 segundos se frena': async () => {
     /*
-      El tope de la historia es 60, el del reel 90. Son distintos y es fácil
-      confundirlos.
+      Meta limita a 60 segundos tanto la historia como el reel de Página.
     */
     const meta = simularMeta([{ datos: {} }]);
     try {
@@ -530,11 +529,10 @@ module.exports = {
     }
   },
 
-  'una historia de 75 segundos se frena aunque como reel pasaría': async () => {
+  'un video de 60 segundos entra como reel': async () => {
     /*
-      Este es el caso que agarra la confusión entre los dos topes: 75 segundos
-      es un reel válido y una historia inválida. Si alguien "unifica" los
-      límites, este test se pone rojo.
+      El borde superior es inclusivo. Frenarlo a los 60 desperdiciaría un video
+      que Meta acepta.
     */
     const meta = simularMeta([
       { datos: { video_id: 'v1' } },
@@ -547,10 +545,10 @@ module.exports = {
         pageId: '55',
         token: 't',
         videoUrl: 'https://modosabor.com.ar/x.mp4',
-        duracionSegundos: 75,
+        duracionSegundos: 60,
         esperar: sinEsperar,
       });
-      assert.ok(reel.id, 'como reel, 75 segundos entra');
+      assert.ok(reel.id, 'como reel, 60 segundos entra');
     } finally {
       meta.restaurar();
     }

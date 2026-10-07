@@ -7,6 +7,12 @@ const auth = require('../middleware/auth');
 const db = require('../db');
 const { requirePermission } = require('../utils/permissions');
 const { uploadsDir, ensureDir } = require('../utils/storagePaths');
+const {
+  MAX_TOTAL_BYTES,
+  borrarArchivos,
+  extensionParaMime,
+  firmaCompatible,
+} = require('../utils/socialMediaUpload');
 const social = require('../services/socialService');
 const { generarTextoSocial } = require('../services/socialTextGenerator');
 const oauthFacebook = require('./../services/social/oauthFacebook');
@@ -38,18 +44,28 @@ const upload = multer({
   storage: multer.diskStorage({
     destination: (_req, _file, done) => done(null, mediaDir),
     filename: (_req, file, done) => {
-      const ext = path.extname(file.originalname || '').toLowerCase();
+      const ext = extensionParaMime(file.mimetype) || '.bin';
       done(null, `${Date.now()}-${crypto.randomUUID().slice(0, 8)}${ext}`);
     },
   }),
   limits: { fileSize: 256 * 1024 * 1024, files: 8 },
   fileFilter: (_req, file, done) => {
-    const accepted = /^(image|video)\/(jpeg|png|webp|gif|mp4|quicktime)$/i.test(
-      file.mimetype || ''
-    );
+    const accepted = Boolean(extensionParaMime(file.mimetype));
     done(accepted ? null : new Error('Sólo se permiten imágenes o videos compatibles'), accepted);
   },
 });
+
+const recibirMedia = (req, res, next) =>
+  upload.array('archivos', 8)(req, res, (error) => {
+    if (!error) return next();
+    if (error instanceof multer.MulterError && error.code === 'LIMIT_FILE_SIZE') {
+      return res.status(413).json({ error: 'Cada archivo puede pesar hasta 256 MB' });
+    }
+    if (error.message === 'Sólo se permiten imágenes o videos compatibles') {
+      return res.status(415).json({ error: error.message });
+    }
+    return next(error);
+  });
 
 /**
  * La vuelta de Facebook, **antes** del control de sesión.
@@ -199,12 +215,18 @@ router.post('/avatares/refrescar', async (_req, res) => {
     const cuentas = social.listIdentities(null);
     const hechos = [];
     for (const cuenta of cuentas) {
-      const resultados = await oauthFacebook.bajarAvataresDeLaCuenta(cuenta.id);
-      hechos.push(...resultados.map((r) => ({ ...r, cuenta: cuenta.nombre })));
+      try {
+        const resultados = await oauthFacebook.bajarAvataresDeLaCuenta(cuenta.id);
+        hechos.push(...resultados.map((r) => ({ ...r, cuenta: cuenta.nombre })));
+      } catch (error) {
+        hechos.push({ cuenta: cuenta.nombre, avatar: null, error: error.message });
+      }
     }
+    const enCola = social.encolarAvataresRemotosPendientes();
     return res.json({
       total: hechos.length,
       conFoto: hechos.filter((h) => h.avatar).length,
+      enCola,
       detalle: hechos,
     });
   } catch (error) {
@@ -220,6 +242,17 @@ router.get('/metricas', (req, res) => {
     return res.status(500).json({ error: error.message });
   }
 });
+router.post(
+  '/metricas/actualizar-alcance',
+  rateLimit({ windowMs: 60_000, max: 4 }),
+  async (req, res) => {
+    try {
+      return res.json(await social.actualizarAlcanceMeta({ days: Number(req.body?.dias) || 30 }));
+    } catch (error) {
+      return res.status(500).json({ error: error.message });
+    }
+  }
+);
 /**
  * Las identidades de publicación.
  *
@@ -251,9 +284,17 @@ router.get('/campanas/:id', (req, res) => {
 
 router.use(requirePermission('marketing.edit'));
 
-router.post('/media', upload.array('archivos', 8), (req, res) => {
+router.post('/media', recibirMedia, (req, res) => {
   const files = req.files || [];
   if (!files.length) return res.status(400).json({ error: 'Elegí al menos un archivo' });
+  if (files.reduce((total, file) => total + file.size, 0) > MAX_TOTAL_BYTES) {
+    borrarArchivos(files);
+    return res.status(413).json({ error: 'El conjunto de archivos puede pesar hasta 256 MB' });
+  }
+  if (files.some((file) => !firmaCompatible(file.path, file.mimetype))) {
+    borrarArchivos(files);
+    return res.status(415).json({ error: 'Un archivo no coincide con su formato declarado' });
+  }
   const insert = db.prepare(
     'INSERT INTO social_media (nombre, ruta, mime, tamano, tipo) VALUES (?, ?, ?, ?, ?)'
   );

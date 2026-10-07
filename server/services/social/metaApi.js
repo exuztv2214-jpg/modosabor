@@ -347,7 +347,7 @@ async function esperarVideo({ videoId, token, esperar = esperarUnPoco, intentos 
  * Sólo se puede publicar reels en **páginas**. En perfiles personales no, y no
  * es una limitación nuestra.
  */
-const LIMITES_REEL = { duracionMin: 3, duracionMax: 90, porDia: 30 };
+const LIMITES_REEL = { duracionMin: 4, duracionMax: 60, porDia: 30 };
 
 async function publicarReelEnPagina({
   pageId,

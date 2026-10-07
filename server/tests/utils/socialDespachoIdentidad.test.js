@@ -65,6 +65,16 @@ async function run() {
   const terminado = social.getCampaign(campana.id);
   assert.strictEqual(terminado.estado, 'published');
   assert.strictEqual(terminado.targets[0].estado, 'published');
+  const logDePublicacion = db
+    .prepare(
+      'SELECT detalle FROM social_publication_logs WHERE target_id = ? ORDER BY id DESC LIMIT 1'
+    )
+    .get(terminado.targets[0].id);
+  assert.strictEqual(
+    JSON.parse(logDePublicacion.detalle || '{}').referencia,
+    `ensayo:${destino.id}`,
+    'la publicación conserva la referencia del proveedor para poder pedir métricas después'
+  );
 
   console.log('  ✓ consulta la identidad y completa un ensayo Reel con video sin tocar Meta');
   console.log('✅ Despacho Social verificado\n');

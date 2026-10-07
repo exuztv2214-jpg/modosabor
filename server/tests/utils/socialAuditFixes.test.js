@@ -101,8 +101,8 @@ async function pruebaTipoDeCuentaInstagram() {
   };
   try {
     const paginas = await oauthFacebook.paginasDelUsuario('token-usuario');
-    assert.match(decodeURIComponent(urlPedida), /account_type/);
-    assert.strictEqual(paginas[0].instagram.tipo, 'MEDIA_CREATOR');
+    assert.doesNotMatch(decodeURIComponent(urlPedida), /account_type/);
+    assert.strictEqual(paginas[0].instagram.tipo, '');
   } finally {
     global.fetch = originalFetch;
   }

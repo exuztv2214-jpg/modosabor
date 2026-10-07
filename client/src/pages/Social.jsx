@@ -49,15 +49,27 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import ActionDialog from '../components/ActionDialog.jsx';
+import { fondoModal, useCerrarConEscape } from '../hooks/useCerrarConEscape.js';
 import api from '../lib/api.js';
 import {
   STATUS_STYLES,
+  actividadParaOperador,
+  destinoIdsParaIdentidad,
+  destinosSeleccionadosDeCuenta,
+  esDiagnosticoDePrueba,
+  estadoLegibleDeDestino,
   estadoVisualDeVia,
   formatSocialDate,
   formatSocialDateTime,
   formatearPorcentajeMetrica,
+  hayCampanasProgramadasEnPeriodo,
+  hayGruposElegidos,
+  mediaSeleccionada,
+  nombreCampanaVisible,
   planDeGuardado,
   resumenDeRevision,
+  resumenDeDestinos,
+  rutasDuplicadasDeGrupos,
   socialApiError,
 } from './social/socialUi.js';
 import { CATEGORIAS_DE_EMOJI, buscarEmojis } from './social/emojis.js';
@@ -279,6 +291,25 @@ export default function Social() {
     }
   };
 
+  const actualizarAlcanceMeta = async () => {
+    setMetricsError('');
+    setMetricsLoading(true);
+    try {
+      const resultado = await api.post('/social/metricas/actualizar-alcance', { dias: 30 });
+      const metricas = await api.get('/social/metricas?dias=30');
+      setMetricsData(metricas);
+      toast.success(
+        resultado.consultadas
+          ? `Alcance actualizado en ${resultado.consultadas} publicación(es).`
+          : 'No hay publicaciones de Fan Page con alcance para actualizar todavía.'
+      );
+    } catch (error) {
+      setMetricsError(apiError(error));
+    } finally {
+      setMetricsLoading(false);
+    }
+  };
+
   const loadSocialConfig = async () => {
     setConfigError('');
     try {
@@ -352,7 +383,7 @@ export default function Social() {
           api.get('/social/conjuntos'),
           api.get('/social/campanas'),
           api.get('/social/media'),
-          api.get('/social/logs'),
+          api.get('/social/logs?limite=30'),
           api.get('/social/plantillas'),
           /*
             Las identidades: Perfil Modo Sabor y Fan Page Modo Sabor Delivery.
@@ -422,12 +453,14 @@ export default function Social() {
         ella, cada recarga llamaría a Meta de nuevo — y si la foto no se puede
         bajar nunca, sería para siempre.
       */
-      const faltanFotos = (destinos || []).some((d) => d.executionClass === 'api' && !d.avatar);
+      const faltanFotos = (destinos || []).some((d) => d.avatar && !d.avatarLocal);
       if (faltanFotos && !fotosPedidas.current) {
         fotosPedidas.current = true;
         api
           .post('/social/avatares/refrescar')
-          .then((r) => r?.conFoto && reload())
+          .then((r) => {
+            if (r?.conFoto || r?.enCola) window.setTimeout(reload, 1200);
+          })
           .catch(() => {});
       }
     } catch (error) {
@@ -465,6 +498,35 @@ export default function Social() {
     [data.conjuntos, draft]
   );
   const selectedCount = resolvedDestinationIds.length;
+
+  /* La cuenta de Instagram es un destino API de la Fan Page, no otra sesión de Facebook. */
+  const cuentasDelLateral = useMemo(() => {
+    const facebook = (data.identidades || [])
+      .filter(esIdentidadFacebookOperativa)
+      .map((cuenta) => ({
+        clave: `facebook-${cuenta.id}`,
+        cuenta,
+        nombre: cuenta.nombre,
+        avatar: cuenta.avatar,
+        red: 'facebook',
+        grupos: (data.destinos || []).filter(
+          (destino) => destino.cuenta_id === cuenta.id && destino.tipo === 'facebook_group'
+        ).length,
+      }));
+    const instagram = (data.destinos || [])
+      .filter((destino) => destino.tipo === 'instagram_feed')
+      .map((destino) => ({
+        clave: `instagram-${destino.id}`,
+        cuenta: (data.identidades || []).find((item) => item.id === destino.cuenta_id),
+        nombre: destino.nombre,
+        avatar:
+          destino.avatar ||
+          (data.identidades || []).find((item) => item.id === destino.cuenta_id)?.avatar,
+        red: 'instagram',
+        destinoId: destino.id,
+      }));
+    return [...facebook, ...instagram];
+  }, [data.destinos, data.identidades]);
 
   const toggle = (field, id) =>
     setDraft((old) => ({
@@ -998,6 +1060,8 @@ export default function Social() {
     };
   }, [data.campanas, data.dashboard, data.destinos, autolistasActivas]);
 
+  const resumenDestinos = useMemo(() => resumenDeDestinos(data.destinos), [data.destinos]);
+
   /*
     ── El menú, agrupado ──────────────────────────────────────────────────────
 
@@ -1082,6 +1146,11 @@ export default function Social() {
       </div>
     );
   }
+
+  const estadoPerfilGrupos = data.dashboard?.vias?.perfilGrupos?.estado;
+  const workerComprobando = estadoPerfilGrupos === 'comprobando';
+  const extensionDetectada =
+    extensionInstalada || workerComprobando || estadoPerfilGrupos === 'lista';
 
   return (
     <div className="social-vista">
@@ -1200,42 +1269,50 @@ export default function Social() {
             <p className="px-2 pb-2 text-[10px] font-bold uppercase tracking-wider text-gray-400">
               Publicás como
             </p>
-            {(data.identidades || []).filter(esIdentidadFacebookOperativa).map((identidad) => {
-              const elegida = identidadElegida === identidad.id;
-              const detenida = identidad.pausada || identidad.frenadaAutomaticamente;
-              const via =
-                identidad.metadata?.tipo === 'page'
+            {cuentasDelLateral.map((item) => {
+              const identidad = item.cuenta;
+              const esInstagram = item.red === 'instagram';
+              const elegida = esInstagram
+                ? draft.destinoIds.includes(item.destinoId)
+                : identidadElegida === identidad?.id;
+              const detenida = identidad?.pausada || identidad?.frenadaAutomaticamente;
+              const via = esInstagram
+                ? data.dashboard?.vias?.instagram
+                : identidad?.metadata?.tipo === 'page'
                   ? data.dashboard?.vias?.pagina
                   : data.dashboard?.vias?.perfilGrupos;
               const estadoVia = estadoVisualDeVia(via);
-              const cuantos = data.destinos.filter(
-                (d) => d.tipo === 'facebook_group' && d.cuenta_id === identidad.id
-              ).length;
 
               return (
                 <button
-                  key={identidad.id}
+                  key={item.clave}
                   type="button"
                   onClick={() => {
-                    setIdentidadElegida(identidad.id);
-                    setActiveSection('destinos');
+                    if (esInstagram) {
+                      setDraft((actual) =>
+                        actual.destinoIds.includes(item.destinoId)
+                          ? actual
+                          : { ...actual, destinoIds: [...actual.destinoIds, item.destinoId] }
+                      );
+                      setActiveSection('crear');
+                    } else {
+                      setIdentidadElegida(identidad.id);
+                      setActiveSection('destinos');
+                    }
                   }}
                   className={`w-full flex items-center gap-2.5 px-2 py-2 rounded-xl text-left transition-colors ${
                     elegida ? 'bg-brand-50' : 'hover:bg-gray-50'
                   }`}
                 >
-                  <FotoDeCuenta
-                    foto={identidad.avatar}
-                    nombre={identidad.nombre}
-                    red="facebook"
-                    size={30}
-                  />
+                  <FotoDeCuenta foto={item.avatar} nombre={item.nombre} red={item.red} size={30} />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-xs font-semibold text-gray-900">
-                      {identidad.nombre}
+                      {item.nombre}
                     </span>
                     <span className="block text-[11px] text-gray-400">
-                      {cuantos} {cuantos === 1 ? 'grupo' : 'grupos'}
+                      {esInstagram
+                        ? 'Cuenta oficial'
+                        : `${item.grupos} ${item.grupos === 1 ? 'grupo' : 'grupos'}`}
                     </span>
                   </span>
                   <span
@@ -1243,9 +1320,9 @@ export default function Social() {
                       detenida || estadoVia.tono !== 'lista' ? 'bg-amber-400' : 'bg-emerald-500'
                     }`}
                     title={
-                      identidad.frenadaAutomaticamente
+                      identidad?.frenadaAutomaticamente
                         ? `Frenada por ${identidad.fallosSeguidos} fallos seguidos`
-                        : identidad.pausada
+                        : identidad?.pausada
                           ? 'En pausa'
                           : estadoVia.etiqueta
                     }
@@ -1269,7 +1346,7 @@ export default function Social() {
           */}
           <button
             type="button"
-            onClick={vincularEstaPC}
+            onClick={workerComprobando ? health : vincularEstaPC}
             title={!menuAbiertoLateral ? 'Conectar mis grupos' : undefined}
             className={`w-full flex items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold text-brand-700 bg-brand-50 hover:bg-brand-100 transition-colors ${
               menuAbiertoLateral ? '' : 'justify-center'
@@ -1278,7 +1355,11 @@ export default function Social() {
             <Link2 size={15} className="flex-shrink-0" />
             {menuAbiertoLateral && (
               <span className="truncate">
-                {extensionInstalada ? 'Conectar mis grupos' : 'Instalar extensión'}
+                {workerComprobando
+                  ? 'Comprobar mis grupos'
+                  : extensionDetectada
+                    ? 'Conectar mis grupos'
+                    : 'Instalar extensión'}
               </span>
             )}
           </button>
@@ -1319,9 +1400,12 @@ export default function Social() {
                 <Pause size={12} /> Todo pausado
               </span>
             )}
-            {data.dashboard?.vias?.perfilGrupos?.estado !== 'lista' && (
+            {estadoPerfilGrupos !== 'lista' && (
               <span className="social-chip alerta">
-                <AlertTriangle size={12} /> Extensión desconectada
+                <AlertTriangle size={12} />
+                {workerComprobando
+                  ? 'Extensión conectada · falta comprobar'
+                  : 'Extensión desconectada'}
               </span>
             )}
 
@@ -1374,6 +1458,7 @@ export default function Social() {
                 vias={data.dashboard?.vias}
                 onIr={setActiveSection}
                 onVincular={vincularEstaPC}
+                onProbar={health}
               />
 
               {/* Métricas Cards */}
@@ -1406,14 +1491,28 @@ export default function Social() {
                   }
                   pie={socialConfig.cupoDiario ? `cupo ${socialConfig.cupoDiario}/día` : null}
                 />
-                <MetricCard
-                  label="Con errores"
-                  tinte="#e11d48"
-                  value={data.dashboard?.failed || 0}
-                  icon={XCircle}
-                  color="text-rose-600"
-                  bg="bg-rose-50"
-                />
+                <div className="space-y-2">
+                  <MetricCard
+                    label="Fallidas (histórico)"
+                    tinte="#e11d48"
+                    value={data.dashboard?.failed || 0}
+                    icon={XCircle}
+                    color="text-rose-600"
+                    bg="bg-rose-50"
+                  />
+                  {Number(data.dashboard?.failed || 0) > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCampFilter('failed');
+                        setActiveSection('campanas');
+                      }}
+                      className="w-full text-left text-xs font-bold text-rose-700 hover:text-rose-800"
+                    >
+                      Revisar y reintentar fallas →
+                    </button>
+                  )}
+                </div>
               </div>
 
               <QueFaltaParaEmpezar
@@ -1421,6 +1520,7 @@ export default function Social() {
                 extensionInstalada={extensionInstalada}
                 onIr={setActiveSection}
                 onVincular={vincularEstaPC}
+                onProbar={health}
               />
 
               <FrenoDeMano
@@ -1445,24 +1545,31 @@ export default function Social() {
                 enseñar a usar el sistema. Es el lugar para decir qué pasa y
                 dar el botón que lo arregla.
               */}
-              {data.dashboard?.vias?.perfilGrupos?.estado !== 'lista' && (
+              {estadoPerfilGrupos !== 'lista' && (
                 <div className="flex items-center gap-4 rounded-2xl border border-amber-200 bg-amber-50 p-4">
                   <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-600">
                     <AlertTriangle size={19} />
                   </span>
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-bold text-amber-900">
-                      La extensión no está respondiendo
+                      {workerComprobando
+                        ? 'La extensión está conectada'
+                        : 'La extensión no está respondiendo'}
                     </p>
                     <p className="text-xs text-amber-700">
-                      Sin ella no se publica en grupos ni en el perfil.
+                      {data.dashboard?.vias?.perfilGrupos?.motivo ||
+                        'Sin ella no se publica en grupos ni en el perfil.'}
                     </p>
                   </div>
                   <button
-                    onClick={vincularEstaPC}
+                    onClick={workerComprobando ? health : vincularEstaPC}
                     className="flex-shrink-0 rounded-xl bg-amber-600 px-4 py-2 text-xs font-bold text-white transition-colors hover:bg-amber-700"
                   >
-                    {extensionInstalada ? 'Reconectar' : 'Instalar'}
+                    {workerComprobando
+                      ? 'Comprobar'
+                      : extensionDetectada
+                        ? 'Reconectar'
+                        : 'Instalar'}
                   </button>
                 </div>
               )}
@@ -1717,6 +1824,7 @@ export default function Social() {
                 vias={data.dashboard?.vias}
                 onIr={setActiveSection}
                 onVincular={vincularEstaPC}
+                onProbar={health}
               />
               <PerillasDeLaCola
                 config={socialConfig}
@@ -1969,9 +2077,9 @@ export default function Social() {
                                         ? 'bg-rose-100 text-rose-700'
                                         : 'bg-blue-100 text-blue-700'
                                   }`}
-                                  title={c.nombre}
+                                  title={nombreCampanaVisible(c.nombre)}
                                 >
-                                  {c.nombre}
+                                  {nombreCampanaVisible(c.nombre)}
                                 </div>
                               ))}
                             </div>
@@ -2022,7 +2130,7 @@ export default function Social() {
                   */}
                   <p className="text-sm text-slate-400">
                     {(data.destinos || []).length > 0
-                      ? `${(data.destinos || []).length} destinos sincronizados`
+                      ? `${resumenDestinos.detectados} detectados · ${resumenDestinos.activos} activos · ${resumenDestinos.gruposAptos} grupos aptos`
                       : 'Sin destinos todavía'}
                   </p>
                 </div>
@@ -2219,6 +2327,9 @@ export default function Social() {
                                     .replace('facebook_', 'Facebook ')
                                     .replace('instagram_', 'Instagram ')}
                                 </p>
+                                <p className="mt-1 text-[10px] font-semibold text-slate-500">
+                                  Publicar como {item.cuenta_nombre || 'Sin identidad'}
+                                </p>
                               </div>
                             </div>
                             <div className="flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
@@ -2340,7 +2451,7 @@ export default function Social() {
                       {filteredCampaigns.map((item) => (
                         <tr key={item.id} className="hover:bg-slate-50/50">
                           <td className="px-5 py-3">
-                            <p className="font-semibold">{item.nombre}</p>
+                            <p className="font-semibold">{nombreCampanaVisible(item.nombre)}</p>
                           </td>
                           <td className="px-5 py-3">
                             <span
@@ -2431,6 +2542,30 @@ export default function Social() {
           {/* ==================== MÉTRICAS ==================== */}
           {activeSection === 'metricas' && (
             <div className="space-y-6">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-sm text-slate-500">
+                  Resultados de ejecución de los últimos 30 días.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={actualizarAlcanceMeta}
+                    disabled={metricsLoading}
+                    className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <BarChart3 size={14} /> Actualizar alcance Meta
+                  </button>
+                  <button
+                    type="button"
+                    onClick={loadMetrics}
+                    disabled={metricsLoading}
+                    className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <RefreshCw size={14} className={metricsLoading ? 'animate-spin' : ''} />{' '}
+                    Actualizar métricas
+                  </button>
+                </div>
+              </div>
               {metricsLoading && (
                 <div className="flex items-center justify-center py-12 text-slate-400">
                   <RefreshCw className="mr-2 animate-spin" size={18} /> Cargando métricas…
@@ -2452,14 +2587,14 @@ export default function Social() {
                   {/* Resumen */}
                   <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                     <MetricCard
-                      label="Campañas totales"
+                      label="Campañas (últimos 30 días)"
                       value={metricsData.resumen.totalCampanas}
                       icon={ListFilter}
                       color="text-blue-600"
                       bg="bg-blue-50"
                     />
                     <MetricCard
-                      label="Publicaciones"
+                      label="Publicaciones (últimos 30 días)"
                       value={metricsData.resumen.totalPublicaciones}
                       icon={Send}
                       color="text-indigo-600"
@@ -2473,13 +2608,39 @@ export default function Social() {
                       bg="bg-emerald-50"
                     />
                     <MetricCard
-                      label="Destinos activos"
-                      value={metricsData.resumen.destinosActivos}
+                      label="Destinos activos ahora"
+                      value={resumenDestinos.activos}
                       icon={MapPin}
                       color="text-rose-600"
                       bg="bg-rose-50"
                     />
                   </div>
+
+                  {metricsData.alcance?.disponible && (
+                    <div className="grid gap-3 rounded-xl border border-emerald-100 bg-emerald-50/60 p-4 sm:grid-cols-3">
+                      <div>
+                        <p className="text-xs font-bold uppercase tracking-wide text-emerald-700">
+                          Alcance Meta · Fan Page
+                        </p>
+                        <p className="mt-1 text-2xl font-black text-emerald-900">
+                          {metricsData.alcance.personasQueLoVieron}
+                        </p>
+                        <p className="text-xs text-emerald-800">personas alcanzadas</p>
+                      </div>
+                      <div>
+                        <p className="text-2xl font-black text-emerald-900">
+                          {metricsData.alcance.clics}
+                        </p>
+                        <p className="text-xs text-emerald-800">clics registrados</p>
+                      </div>
+                      <div>
+                        <p className="text-2xl font-black text-emerald-900">
+                          {metricsData.alcance.publicacionesMedidas}
+                        </p>
+                        <p className="text-xs text-emerald-800">publicaciones medidas</p>
+                      </div>
+                    </div>
+                  )}
 
                   {/*
                     Estas métricas son de ejecución, no de alcance. Decirlo
@@ -2499,9 +2660,9 @@ export default function Social() {
                         ))}
                       </ul>
                       <p className="mt-2 text-xs leading-relaxed text-slate-500">
-                        El alcance real sólo existe donde Meta lo publica: la Fan Page e Instagram,
-                        y con la API oficial conectada. Preferimos decirlo antes que mostrar un cero
-                        que parece un dato.
+                        La consulta de alcance de esta pantalla usa la Fan Page conectada por API.
+                        Perfil y grupos no entregan ese dato; preferimos decirlo antes que mostrar
+                        un cero que parece un dato.
                       </p>
                     </div>
                   )}
@@ -2643,41 +2804,79 @@ export default function Social() {
           {/* ==================== ACTIVIDAD ==================== */}
           {activeSection === 'actividad' && (
             <div className="mx-auto max-w-3xl">
-              <h3 className="mb-4 text-lg font-bold">Actividad reciente</h3>
+              <div className="mb-4">
+                <h3 className="text-lg font-bold">Actividad reciente</h3>
+                <p className="mt-1 text-sm text-slate-500">
+                  Mostramos primero lo que requiere una acción. Las comprobaciones técnicas quedan
+                  aparte.
+                </p>
+              </div>
               <div className="space-y-3">
-                {data.logs.map((log) => (
-                  <div
-                    key={log.id}
-                    className={`rounded-xl border bg-white p-4 shadow-sm ${
-                      log.nivel === 'error' ? 'border-rose-200' : 'border-slate-200'
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={`h-2 w-2 rounded-full ${
-                            log.nivel === 'error'
-                              ? 'bg-rose-500'
-                              : log.nivel === 'warn'
-                                ? 'bg-amber-500'
-                                : 'bg-emerald-500'
-                          }`}
-                        />
-                        <p
-                          className={`text-sm font-semibold ${log.nivel === 'error' ? 'text-rose-700' : 'text-slate-800'}`}
-                        >
-                          {log.mensaje}
-                        </p>
+                {data.logs
+                  .filter((log) => !esDiagnosticoDePrueba(log))
+                  .map((log) => {
+                    const actividad = actividadParaOperador(log);
+                    return (
+                      <div
+                        key={log.id}
+                        className={`rounded-xl border bg-white p-4 shadow-sm ${
+                          log.nivel === 'error' ? 'border-rose-200' : 'border-slate-200'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="flex items-center gap-2">
+                            <span
+                              className={`h-2 w-2 rounded-full ${
+                                log.nivel === 'error'
+                                  ? 'bg-rose-500'
+                                  : log.nivel === 'warn'
+                                    ? 'bg-amber-500'
+                                    : 'bg-emerald-500'
+                              }`}
+                            />
+                            <p
+                              className={`text-sm font-semibold ${log.nivel === 'error' ? 'text-rose-700' : 'text-slate-800'}`}
+                            >
+                              {actividad.mensaje}
+                            </p>
+                          </div>
+                          <span className="shrink-0 text-xs text-slate-400">
+                            {when(log.creado_en)}
+                          </span>
+                        </div>
+                        {actividad.detalle && (
+                          <details className="mt-2 pl-4 text-xs text-slate-500">
+                            <summary className="cursor-pointer font-semibold">
+                              Ver detalle técnico
+                            </summary>
+                            <p className="mt-1 break-words font-mono">{actividad.detalle}</p>
+                          </details>
+                        )}
                       </div>
-                      <span className="shrink-0 text-xs text-slate-400">{when(log.creado_en)}</span>
+                    );
+                  })}
+                {data.logs.some(esDiagnosticoDePrueba) && (
+                  <details className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+                    <summary className="cursor-pointer font-semibold">
+                      Ver comprobaciones técnicas ({data.logs.filter(esDiagnosticoDePrueba).length})
+                    </summary>
+                    <div className="mt-3 space-y-2">
+                      {data.logs.filter(esDiagnosticoDePrueba).map((log) => {
+                        const actividad = actividadParaOperador(log);
+                        return (
+                          <p key={log.id}>
+                            {actividad.mensaje}{' '}
+                            <span className="text-slate-400">· {when(log.creado_en)}</span>
+                          </p>
+                        );
+                      })}
                     </div>
-                    {log.codigo && (
-                      <p className="mt-1 pl-4 text-xs text-slate-400 font-mono">{log.codigo}</p>
-                    )}
-                  </div>
-                ))}
-                {!data.logs.length && (
-                  <p className="text-center text-sm text-slate-400">Sin movimientos por ahora.</p>
+                  </details>
+                )}
+                {!data.logs.some((log) => !esDiagnosticoDePrueba(log)) && (
+                  <p className="text-center text-sm text-slate-400">
+                    No hay acciones pendientes; las últimas comprobaciones están abajo.
+                  </p>
                 )}
               </div>
             </div>
@@ -2890,13 +3089,7 @@ function GruposFacebook({
             }`}
           >
             <div className="flex items-start gap-3">
-              <span className="relative flex h-14 w-14 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-blue-50 text-blue-600 ring-2 ring-white shadow-sm">
-                {grupo.avatar ? (
-                  <img src={grupo.avatar} alt="" className="h-full w-full object-cover" />
-                ) : (
-                  <Users size={22} />
-                )}
-              </span>
+              <FotoDeCuenta foto={grupo.avatar} nombre={grupo.nombre} red="facebook" size={56} />
               <div className="min-w-0 flex-1">
                 <p className="line-clamp-2 min-h-10 text-sm font-bold leading-5 text-slate-900">
                   {grupo.nombre}
@@ -2930,10 +3123,9 @@ function GruposFacebook({
                   siempre y es siempre igual no es información: es ruido que
                   tapa las etiquetas que sí cambian.
                 */}
-                  {grupo.ultimo_estado &&
-                    !['pendiente', 'detectado'].includes(grupo.ultimo_estado) && (
-                      <span>{grupo.ultimo_estado}</span>
-                    )}
+                  {estadoLegibleDeDestino(grupo.ultimo_estado) && (
+                    <span>{estadoLegibleDeDestino(grupo.ultimo_estado)}</span>
+                  )}
                   {/*
                   La dirección, como un link y no como texto.
 
@@ -3082,7 +3274,7 @@ function ProximasSalidas({ campanas, onVerCalendario }) {
                 })}
               </span>
               <p className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-800">
-                {campana.nombre}
+                {nombreCampanaVisible(campana.nombre)}
               </p>
               <span className="whitespace-nowrap text-xs text-slate-400">
                 {campana.total} destino{campana.total === 1 ? '' : 's'}
@@ -3107,7 +3299,7 @@ function ProximasSalidas({ campanas, onVerCalendario }) {
  * todo hecho, el bloque desaparece solo y el tablero queda para lo que
  * importa: qué se publicó y qué está por salir.
  */
-function EstadoDeVias({ vias = {}, onIr, onVincular }) {
+function EstadoDeVias({ vias = {}, onIr, onVincular, onProbar }) {
   const items = [
     { clave: 'pagina', nombre: 'Página de Facebook', icono: Facebook },
     { clave: 'instagram', nombre: 'Instagram', icono: Instagram },
@@ -3157,8 +3349,10 @@ function EstadoDeVias({ vias = {}, onIr, onVincular }) {
                       );
                       return;
                     }
-                    if (clave === 'perfilGrupos') onVincular();
-                    else onIr('destinos');
+                    if (clave === 'perfilGrupos') {
+                      if (via.accion === 'probar_worker') onProbar();
+                      else onVincular();
+                    } else onIr('destinos');
                   }}
                   className="social-via-accion"
                 >
@@ -3173,7 +3367,7 @@ function EstadoDeVias({ vias = {}, onIr, onVincular }) {
   );
 }
 
-function QueFaltaParaEmpezar({ vias = {}, extensionInstalada, onIr, onVincular }) {
+function QueFaltaParaEmpezar({ vias = {}, extensionInstalada, onIr, onVincular, onProbar }) {
   const perfilListo = vias?.perfilGrupos?.estado === 'lista';
   const paginaLista = vias?.pagina?.estado === 'lista';
   const instagramListo = vias?.instagram?.estado === 'lista';
@@ -3187,20 +3381,27 @@ function QueFaltaParaEmpezar({ vias = {}, extensionInstalada, onIr, onVincular }
       archivo .cmd, abrirlo, y copiar una clave de un .env a una ventana.
       Cuatro cosas que no significan nada para quien atiende un local.
     */
-    extensionInstalada
+    vias?.perfilGrupos?.estado === 'comprobando'
       ? {
           hecho: perfilListo,
           titulo: 'Comprobar perfil y grupos',
-          detalle: vias?.perfilGrupos?.motivo || 'Vinculá esta PC y comprobá tu sesión.',
-          accion: { texto: 'Conectar', vincular: true },
+          detalle: vias.perfilGrupos.motivo,
+          accion: { texto: 'Comprobar', probar: true },
         }
-      : {
-          hecho: perfilListo,
-          titulo: 'Instalar la extensión de Chrome',
-          detalle:
-            'Es una sola vez y lleva un minuto. Facebook cerró la forma de publicar en grupos desde un servidor, así que hay que hacerlo desde tu navegador.',
-          accion: { texto: 'Cómo se instala', ir: 'config' },
-        },
+      : extensionInstalada
+        ? {
+            hecho: perfilListo,
+            titulo: 'Comprobar perfil y grupos',
+            detalle: vias?.perfilGrupos?.motivo || 'Vinculá esta PC y comprobá tu sesión.',
+            accion: { texto: 'Conectar', vincular: true },
+          }
+        : {
+            hecho: perfilListo,
+            titulo: 'Instalar la extensión de Chrome',
+            detalle:
+              'Es una sola vez y lleva un minuto. Facebook cerró la forma de publicar en grupos desde un servidor, así que hay que hacerlo desde tu navegador.',
+            accion: { texto: 'Cómo se instala', ir: 'config' },
+          },
     {
       hecho: paginaLista,
       titulo: 'Conectar la Página de Facebook',
@@ -3240,7 +3441,13 @@ function QueFaltaParaEmpezar({ vias = {}, extensionInstalada, onIr, onVincular }
             </div>
             {!paso.hecho && paso.accion && (
               <button
-                onClick={() => (paso.accion.vincular ? onVincular() : onIr(paso.accion.ir))}
+                onClick={() =>
+                  paso.accion.probar
+                    ? onProbar()
+                    : paso.accion.vincular
+                      ? onVincular()
+                      : onIr(paso.accion.ir)
+                }
                 className="social-arranque-boton"
               >
                 {paso.accion.texto}
@@ -3375,6 +3582,7 @@ function ChipDeRed({
   cuenta,
   formato,
   onCambiar,
+  onSeleccionar,
   onElegirGrupos,
   gruposActivos = false,
   cuantos,
@@ -3425,9 +3633,12 @@ function ChipDeRed({
         un vistazo si eso va a Facebook o a Instagram. Dos contornos grises
         obligan a leer el nombre para distinguirlos.
       */}
-      <span
+      <button
+        type="button"
         className="social-chip-red-avatar"
-        title={cuenta.nombre}
+        onClick={onSeleccionar}
+        title={`Crear publicación como ${cuenta.nombre}`}
+        aria-label={`Crear publicación como ${cuenta.nombre}`}
         style={activa ? undefined : { opacity: 0.72 }}
       >
         {/*
@@ -3443,7 +3654,7 @@ function ChipDeRed({
           <CalendarDays size={11} />
         </span>
         {cuantos > 0 && <em className="social-chip-red-cuantos">{cuantos}</em>}
-      </span>
+      </button>
 
       <button
         type="button"
@@ -3538,11 +3749,16 @@ function VistaPreviaRed({ red, formato = 'post', texto, media, identidad, avatar
 
   const avatarVisual = (
     <span className="social-previa-avatar">
-      {avatar ? (
-        <img src={avatar} alt="" />
-      ) : (
-        <em>{identidad?.replace(/^@/, '').slice(0, 2).toUpperCase() || 'MS'}</em>
+      {avatar && (
+        <img
+          src={avatar}
+          alt=""
+          onError={(e) => {
+            e.currentTarget.hidden = true;
+          }}
+        />
       )}
+      <em>{identidad?.replace(/^@/, '').slice(0, 2).toUpperCase() || 'MS'}</em>
     </span>
   );
 
@@ -3750,6 +3966,20 @@ function Compositor({
     () => destinos.filter((d) => draft.destinoIds.includes(d.id)),
     [destinos, draft.destinoIds]
   );
+  const adjuntosSeleccionados = useMemo(
+    () => mediaSeleccionada(media, draft.mediaIds),
+    [media, draft.mediaIds]
+  );
+
+  const moverAdjunto = (id, direccion) =>
+    setDraft((actual) => {
+      const desde = actual.mediaIds.indexOf(id);
+      const hasta = desde + direccion;
+      if (desde < 0 || hasta < 0 || hasta >= actual.mediaIds.length) return actual;
+      const mediaIds = [...actual.mediaIds];
+      [mediaIds[desde], mediaIds[hasta]] = [mediaIds[hasta], mediaIds[desde]];
+      return { ...actual, mediaIds };
+    });
 
   /*
     `redes` va en useMemo porque abajo lo usa otro useMemo como dependencia.
@@ -3855,24 +4085,67 @@ function Compositor({
   const [previaDispositivo, setPreviaDispositivo] = useState('telefono');
   const [emojisAbiertos, setEmojisAbiertos] = useState(false);
   const [redEdicionElegida, setRedEdicion] = useState('facebook');
-  const [filtroCuentaGrupos, setFiltroCuentaGrupos] = useState(null);
-  const bloqueDestinos = useRef(null);
+  const [filtroCuentaGrupos, setFiltroCuentaGrupos] = useState('');
+  const [selectorDestinosAbierto, setSelectorDestinosAbierto] = useState(false);
+  const [busquedaDestinos, setBusquedaDestinos] = useState('');
 
-  const destinosVisibles = filtroCuentaGrupos
+  const cuentaFiltrada = cuentasDisponibles.find((cuenta) => cuenta.clave === filtroCuentaGrupos);
+
+  useEffect(() => {
+    if (filtroCuentaGrupos || !cuentasDisponibles.length) return;
+    setFiltroCuentaGrupos(cuentasDisponibles[0].clave);
+  }, [cuentasDisponibles, filtroCuentaGrupos]);
+
+  const destinosVisibles = cuentaFiltrada
     ? destinos.filter(
-        (destino) => destino.cuenta_id === filtroCuentaGrupos && destino.tipo === 'facebook_group'
+        (destino) =>
+          destino.cuenta_id === cuentaFiltrada.cuentaId &&
+          redDelDestino(destino) === cuentaFiltrada.red
       )
-    : destinos;
-
-  const cuentaFiltrada = cuentasDisponibles.find(
-    (cuenta) => cuenta.cuentaId === filtroCuentaGrupos
+    : [];
+  const destinosSeleccionadosEnCuenta = cuentaFiltrada
+    ? destinosSeleccionadosDeCuenta(destinos, draft.destinoIds, cuentaFiltrada)
+    : [];
+  const terminoDestinos = busquedaDestinos.trim().toLocaleLowerCase('es-AR');
+  const destinosFiltrados = destinosVisibles.filter(
+    (destino) =>
+      !terminoDestinos ||
+      String(destino.nombre || '')
+        .toLocaleLowerCase('es-AR')
+        .includes(terminoDestinos)
   );
+  const gruposEnDosRutas = rutasDuplicadasDeGrupos(destinos, draft.destinoIds);
 
-  const mostrarGruposDe = (cuentaId) => {
-    setFiltroCuentaGrupos(cuentaId);
-    requestAnimationFrame(() =>
-      bloqueDestinos.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    );
+  const cerrarSelectorDestinos = () => setSelectorDestinosAbierto(false);
+  useCerrarConEscape(selectorDestinosAbierto, cerrarSelectorDestinos);
+
+  const activarIdentidad = (cuenta, { formato = '', abrirDestinos = false } = {}) => {
+    setFiltroCuentaGrupos(cuenta.clave);
+    setPreviaCuenta(cuenta.clave);
+    setRedEdicion(cuenta.red);
+    setDraft((actual) => {
+      return {
+        ...actual,
+        destinoIds: destinoIdsParaIdentidad(destinos, actual.destinoIds, cuenta),
+        formatos: formato
+          ? { ...(actual.formatos || {}), [cuenta.clave]: formato }
+          : actual.formatos,
+      };
+    });
+    if (abrirDestinos) {
+      setBusquedaDestinos('');
+      setSelectorDestinosAbierto(true);
+    }
+  };
+
+  const alternarDestinoSeguro = (destino) => {
+    if (draft.destinoIds.includes(destino.id)) return onAlternarDestino(destino.id);
+    const repetidos = rutasDuplicadasDeGrupos(destinos, [...draft.destinoIds, destino.id]);
+    if (repetidos.length) {
+      toast.error(`«${repetidos[0]}» ya está elegido desde otra identidad. Elegí una sola ruta.`);
+      return;
+    }
+    onAlternarDestino(destino.id);
   };
 
   const edicionPorRed = Boolean(draft.personalizaciones?.editar_por_red);
@@ -4113,20 +4386,11 @@ function Compositor({
               cuenta={cuenta}
               activa={suyos.length > 0}
               cuantos={suyos.length}
-              gruposActivos={filtroCuentaGrupos === cuenta.cuentaId}
+              gruposActivos={hayGruposElegidos(destinos, draft.destinoIds, cuenta)}
               formato={formatoDeCuenta(draft, cuenta)}
-              onElegirGrupos={() => {
-                setPreviaCuenta(cuenta.clave);
-                mostrarGruposDe(cuenta.cuentaId);
-              }}
-              onCambiar={(clave) => {
-                setFiltroCuentaGrupos(null);
-                setPreviaCuenta(cuenta.clave);
-                setDraft((actual) => ({
-                  ...actual,
-                  formatos: { ...(actual.formatos || {}), [cuenta.clave]: clave },
-                }));
-              }}
+              onSeleccionar={() => activarIdentidad(cuenta)}
+              onElegirGrupos={() => activarIdentidad(cuenta, { abrirDestinos: true })}
+              onCambiar={(clave) => activarIdentidad(cuenta, { formato: clave })}
             />
           );
         })}
@@ -4256,6 +4520,67 @@ function Compositor({
             placeholder="Escribí lo que querés publicar…"
             className="social-comp-texto"
           />
+
+          {adjuntosSeleccionados.length > 0 && (
+            <div className="social-comp-adjuntos-elegidos" aria-label="Adjuntos de la publicación">
+              <div className="social-comp-adjuntos-titulo">
+                <strong>
+                  {adjuntosSeleccionados.length} adjunto
+                  {adjuntosSeleccionados.length > 1 ? 's' : ''}
+                </strong>
+                <span>El primero es la portada</span>
+              </div>
+              <div className="social-comp-adjuntos-lista">
+                {adjuntosSeleccionados.map((archivo, indice) => {
+                  const esVideo = String(archivo.mime || '').startsWith('video/');
+                  return (
+                    <article key={archivo.id} className="social-comp-adjunto">
+                      <span className="social-comp-adjunto-orden">{indice + 1}</span>
+                      {esVideo ? (
+                        <video src={archivo.ruta} muted playsInline />
+                      ) : (
+                        <img src={archivo.ruta} alt={archivo.nombre} />
+                      )}
+                      <span className="social-comp-adjunto-nombre" title={archivo.nombre}>
+                        {indice === 0 ? 'Portada · ' : ''}
+                        {archivo.nombre}
+                      </span>
+                      <span className="social-comp-adjunto-acciones">
+                        <button
+                          type="button"
+                          onClick={() => moverAdjunto(archivo.id, -1)}
+                          disabled={indice === 0}
+                          title="Mover antes"
+                        >
+                          <ChevronLeft size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => moverAdjunto(archivo.id, 1)}
+                          disabled={indice === adjuntosSeleccionados.length - 1}
+                          title="Mover después"
+                        >
+                          <ChevronRight size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setDraft((actual) => ({
+                              ...actual,
+                              mediaIds: actual.mediaIds.filter((id) => id !== archivo.id),
+                            }))
+                          }
+                          title="Quitar adjunto"
+                        >
+                          <X size={14} />
+                        </button>
+                      </span>
+                    </article>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* La barra de herramientas, pegada abajo del texto como en Metricool. */}
           <div className="social-comp-barra">
@@ -4589,49 +4914,50 @@ function Compositor({
           )}
 
           {/* ── Adónde va ───────────────────────────────────────────────── */}
-          <div className="social-comp-destinos" ref={bloqueDestinos}>
+          <div className="social-comp-destinos">
             <div className="social-comp-destinos-cabecera">
-              <span className="social-comp-etiqueta">
-                {filtroCuentaGrupos
-                  ? `Grupos de ${cuentaFiltrada?.nombre || 'Facebook'}`
-                  : 'Dónde se publica'}{' '}
-                {destinosElegidos > 0 && (
-                  <b className="text-red-600">
-                    · {destinosElegidos} elegido{destinosElegidos > 1 ? 's' : ''}
-                  </b>
+              <div className="min-w-0">
+                <span className="social-comp-etiqueta">Destinos de esta publicación</span>
+                <p className="mt-0.5 truncate text-sm font-semibold text-slate-800">
+                  {cuentaFiltrada
+                    ? `Publicás como ${cuentaFiltrada.nombre}`
+                    : 'Elegí una identidad arriba'}
+                </p>
+                {cuentaFiltrada && (
+                  <p className="mt-0.5 truncate text-xs text-slate-500">
+                    {destinosSeleccionadosEnCuenta.length
+                      ? destinosSeleccionadosEnCuenta
+                          .slice(0, 2)
+                          .map((destino) => destino.nombre)
+                          .join(' · ')
+                      : 'Todavía no elegiste destinos'}
+                    {destinosSeleccionadosEnCuenta.length > 2 &&
+                      ` · +${destinosSeleccionadosEnCuenta.length - 2}`}
+                  </p>
                 )}
-              </span>
-
-              {filtroCuentaGrupos && (
-                <button type="button" onClick={() => setFiltroCuentaGrupos(null)}>
-                  Ver todos los destinos
-                </button>
-              )}
+              </div>
+              <button
+                type="button"
+                disabled={!cuentaFiltrada}
+                onClick={() => {
+                  setBusquedaDestinos('');
+                  setSelectorDestinosAbierto(true);
+                }}
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <ListFilter size={14} /> Editar destinos
+              </button>
             </div>
 
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {destinosVisibles.map((destino) => {
-                const puesto = draft.destinoIds.includes(destino.id);
-                const Icono = LIMITES_DE_RED[redDelDestino(destino)].icono;
-                return (
-                  <button
-                    key={destino.id}
-                    onClick={() => onAlternarDestino(destino.id)}
-                    disabled={!destino.habilitada}
-                    className={`social-comp-destino ${puesto ? 'puesto' : ''}`}
-                    title={destino.habilitada ? destino.nombre : 'Este destino está pausado'}
-                  >
-                    <Icono size={12} />
-                    <span className="truncate">{destino.nombre}</span>
-                    {puesto && <Check size={12} />}
-                  </button>
-                );
-              })}
-            </div>
-
-            {filtroCuentaGrupos && !destinosVisibles.length && (
-              <p className="social-comp-destinos-vacio">
-                Esta identidad todavía no tiene grupos sincronizados.
+            {gruposEnDosRutas.length > 0 && (
+              <p
+                className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800"
+                role="alert"
+              >
+                {gruposEnDosRutas.length === 1
+                  ? `«${gruposEnDosRutas[0]}»`
+                  : `${gruposEnDosRutas.length} grupos`}{' '}
+                están elegidos desde dos identidades. Elegí una sola ruta para evitar duplicados.
               </p>
             )}
 
@@ -4894,7 +5220,7 @@ function Compositor({
               red={previaRed}
               formato={formatoDeCuenta(draft, cuentaDeLaPrevia)}
               texto={textoDeRed(previaRed)}
-              media={(media || []).filter((m) => draft.mediaIds.includes(m.id))}
+              media={adjuntosSeleccionados}
               identidad={cuentaDeLaPrevia?.nombre || identidadPrincipal}
               avatar={cuentaDeLaPrevia?.avatar || null}
               dispositivo={previaDispositivo}
@@ -4950,6 +5276,110 @@ function Compositor({
           )}
         </div>
       </ActionDialog>
+
+      {selectorDestinosAbierto && (
+        <div
+          role="presentation"
+          className="fixed inset-0 z-[120] flex items-end justify-center bg-slate-950/45 p-3 backdrop-blur-sm sm:items-center sm:p-6"
+          onClick={fondoModal(cerrarSelectorDestinos)}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-label="Editar destinos de publicación"
+            className="flex max-h-[86dvh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
+          >
+            <header className="flex items-start justify-between gap-4 border-b border-slate-100 px-5 py-4">
+              <div className="min-w-0">
+                <p className="text-sm font-bold text-slate-900">
+                  Destinos de {cuentaFiltrada?.nombre || 'la publicación'}
+                </p>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  Marcá dónde sale esta publicación. La selección queda guardada al volver.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={cerrarSelectorDestinos}
+                aria-label="Cerrar selector de destinos"
+                className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+              >
+                <X size={18} />
+              </button>
+            </header>
+
+            <div className="border-b border-slate-100 px-5 py-3">
+              <input
+                autoFocus
+                value={busquedaDestinos}
+                onChange={(event) => setBusquedaDestinos(event.target.value)}
+                placeholder="Buscar grupo o cuenta…"
+                className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-red-300 focus:bg-white"
+              />
+            </div>
+
+            <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+              {gruposEnDosRutas.length > 0 && (
+                <p
+                  className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800"
+                  role="alert"
+                >
+                  {gruposEnDosRutas.length === 1
+                    ? `«${gruposEnDosRutas[0]}» ya está elegido desde otra identidad.`
+                    : `${gruposEnDosRutas.length} grupos ya están elegidos desde otra identidad.`}
+                </p>
+              )}
+
+              <div className="grid gap-2 sm:grid-cols-2">
+                {destinosFiltrados.map((destino) => {
+                  const puesto = draft.destinoIds.includes(destino.id);
+                  const Icono = LIMITES_DE_RED[redDelDestino(destino)].icono;
+                  return (
+                    <button
+                      key={destino.id}
+                      type="button"
+                      onClick={() => alternarDestinoSeguro(destino)}
+                      disabled={!destino.habilitada}
+                      className={`social-comp-destino w-full ${puesto ? 'puesto' : ''}`}
+                      title={destino.habilitada ? destino.nombre : 'Este destino está pausado'}
+                    >
+                      <Icono size={12} />
+                      <span className="truncate">{destino.nombre}</span>
+                      {puesto && <Check size={12} />}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {cuentaFiltrada && !destinosVisibles.length && (
+                <p className="social-comp-destinos-vacio">
+                  Esta identidad todavía no tiene destinos sincronizados.
+                </p>
+              )}
+
+              {cuentaFiltrada && destinosVisibles.length > 0 && !destinosFiltrados.length && (
+                <p className="social-comp-destinos-vacio">
+                  No hay destinos que coincidan con esa búsqueda.
+                </p>
+              )}
+            </div>
+
+            <footer className="flex items-center justify-between border-t border-slate-100 px-5 py-3">
+              <span className="text-xs text-slate-500">
+                {destinosSeleccionadosEnCuenta.length} elegido
+                {destinosSeleccionadosEnCuenta.length === 1 ? '' : 's'}
+              </span>
+              <button
+                type="button"
+                onClick={cerrarSelectorDestinos}
+                className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
+              >
+                Listo
+              </button>
+            </footer>
+          </section>
+        </div>
+      )}
     </div>
   );
 }
@@ -5462,6 +5892,7 @@ function SemanaPorHoras({ campanas, arranque, onMover }) {
   });
 
   const horas = Array.from({ length: ULTIMA_HORA - PRIMERA_HORA + 1 }, (_, i) => PRIMERA_HORA + i);
+  const hayPublicacionesEnSemana = hayCampanasProgramadasEnPeriodo(campanas, arranque);
 
   /*
     ── Las «mejores horas», calculadas y no inventadas ───────────────────────
@@ -5538,6 +5969,28 @@ function SemanaPorHoras({ campanas, arranque, onMover }) {
     */
     fila?.scrollIntoView({ block: 'center' });
   }, []);
+
+  if (!hayPublicacionesEnSemana) {
+    return (
+      <div className="rounded-xl border border-dashed border-slate-300 bg-white px-6 py-14 text-center shadow-sm">
+        <CalendarDays className="mx-auto text-slate-300" size={30} />
+        <h4 className="mt-3 text-base font-bold text-slate-800">
+          No hay publicaciones en esta vista
+        </h4>
+        <p className="mx-auto mt-1 max-w-md text-sm leading-relaxed text-slate-500">
+          Creá la primera y elegí día y hora; después el calendario mostrará las próximas salidas
+          acá.
+        </p>
+        <button
+          type="button"
+          onClick={() => onMover?.(new Date(), new Date().getHours())}
+          className="mt-5 rounded-lg bg-slate-900 px-4 py-2 text-sm font-bold text-white hover:bg-slate-800"
+        >
+          Crear publicación
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="social-semana">
@@ -5622,7 +6075,7 @@ function SemanaPorHoras({ campanas, arranque, onMover }) {
                       key={campana.id}
                       className={`social-semana-post estado-${campana.estado}`}
                     >
-                      {campana.nombre}
+                      {nombreCampanaVisible(campana.nombre)}
                     </span>
                   ))}
                 </button>

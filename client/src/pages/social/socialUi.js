@@ -26,6 +26,35 @@ const VIA_STATES = {
 
 export const estadoVisualDeVia = (via = {}) => VIA_STATES[via.estado] || VIA_STATES.sin_configurar;
 
+const DESTINATION_STATES = {
+  no_detectado: 'No apareció en la última sincronización',
+};
+
+export const estadoLegibleDeDestino = (estado = '') => DESTINATION_STATES[estado] || '';
+
+export function resumenDeDestinos(destinos = []) {
+  const lista = Array.isArray(destinos) ? destinos : [];
+  return {
+    detectados: lista.length,
+    activos: lista.filter((destino) => destino.habilitada).length,
+    gruposAptos: lista.filter((destino) => destino.habilitada && destino.tipo === 'facebook_group')
+      .length,
+  };
+}
+
+export function hayCampanasProgramadasEnPeriodo(campanas = [], inicio, dias = 7) {
+  const desde = new Date(inicio);
+  if (Number.isNaN(desde.getTime())) return false;
+  const hasta = new Date(desde);
+  hasta.setDate(hasta.getDate() + dias);
+
+  return campanas.some((campana) => {
+    if (!campana.programada_para) return false;
+    const cuando = new Date(String(campana.programada_para).replace(' ', 'T'));
+    return !Number.isNaN(cuando.getTime()) && cuando >= desde && cuando < hasta;
+  });
+}
+
 export const formatSocialDateTime = (value) =>
   value
     ? new Intl.DateTimeFormat('es-AR', { dateStyle: 'short', timeStyle: 'short' }).format(
@@ -38,13 +67,18 @@ export const formatSocialDate = (value) =>
     ? new Intl.DateTimeFormat('es-AR', { day: 'numeric', month: 'short' }).format(new Date(value))
     : '—';
 
+/* Conserva el orden en que se eligieron los adjuntos: el primero es la portada. */
+export function mediaSeleccionada(media = [], ids = []) {
+  const porId = new Map(media.map((item) => [Number(item.id), item]));
+  return [...new Set(ids.map(Number).filter(Boolean))].map((id) => porId.get(id)).filter(Boolean);
+}
+
 export function resumenDeRevision(borrador = {}, destinos = [], media = []) {
   const idsDestino = new Set(borrador.destinoIds || []);
-  const idsMedia = new Set(borrador.mediaIds || []);
   const elegidos = destinos
     .filter((destino) => idsDestino.has(destino.id))
     .map((destino) => destino.nombre);
-  const adjuntos = media.filter((item) => idsMedia.has(item.id)).map((item) => item.nombre);
+  const adjuntos = mediaSeleccionada(media, borrador.mediaIds).map((item) => item.nombre);
   const texto = String(
     borrador.texto ||
       Object.values(borrador.personalizaciones?.textos_por_red || {}).find((item) =>
@@ -90,3 +124,113 @@ export const formatearPorcentajeMetrica = (valor) =>
     : `${Number(valor)} %`;
 
 export const tieneAlcanceReal = (alcance) => alcance?.disponible === true;
+
+export const nombreCampanaVisible = (nombre = '') =>
+  String(nombre)
+    .replace(/\s+\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z?$/i, '')
+    .trim() || String(nombre || 'Sin nombre');
+
+export function rutasDuplicadasDeGrupos(destinos = [], destinoIds = []) {
+  const elegidos = new Set(destinoIds.map(Number));
+  const vistos = new Map();
+  const repetidos = new Set();
+  for (const destino of destinos) {
+    if (!elegidos.has(Number(destino.id))) continue;
+    if (destino.tipo !== 'facebook_group' || !destino.identificador_externo) continue;
+    const clave = `${destino.provider}|${destino.tipo}|${destino.identificador_externo}`;
+    const anterior = vistos.get(clave);
+    if (anterior && Number(anterior.cuenta_id) !== Number(destino.cuenta_id)) {
+      repetidos.add(destino.nombre || anterior.nombre || 'Este grupo');
+    }
+    vistos.set(clave, destino);
+  }
+  return [...repetidos];
+}
+
+export function destinoPrincipalDeCuenta(destinos = [], cuenta = {}) {
+  const propios = destinos.filter(
+    (destino) =>
+      Number(destino.cuenta_id) === Number(cuenta.cuentaId) &&
+      (cuenta.red === 'instagram'
+        ? String(destino.tipo || '').startsWith('instagram_')
+        : String(destino.tipo || '').startsWith('facebook_'))
+  );
+  const tiposPreferidos =
+    cuenta.red === 'instagram'
+      ? ['instagram_feed']
+      : cuenta.tipos?.includes('facebook_page')
+        ? ['facebook_page']
+        : ['facebook_profile'];
+
+  return (
+    propios.find(
+      (destino) => tiposPreferidos.includes(destino.tipo) && destino.habilitada !== false
+    ) ||
+    propios.find((destino) => tiposPreferidos.includes(destino.tipo)) ||
+    propios.find((destino) => destino.habilitada !== false) ||
+    propios[0] ||
+    null
+  );
+}
+
+export function destinoIdsParaIdentidad(destinos = [], destinoIds = [], cuenta = {}) {
+  const propios = new Set(
+    destinos
+      .filter(
+        (destino) =>
+          Number(destino.cuenta_id) === Number(cuenta.cuentaId) &&
+          (cuenta.red === 'instagram'
+            ? String(destino.tipo || '').startsWith('instagram_')
+            : String(destino.tipo || '').startsWith('facebook_'))
+      )
+      .map((destino) => Number(destino.id))
+  );
+  const principal = destinoPrincipalDeCuenta(destinos, cuenta);
+  const deEstaIdentidad = destinoIds.map(Number).filter((id) => propios.has(id));
+  return [...new Set(principal ? [Number(principal.id), ...deEstaIdentidad] : deEstaIdentidad)];
+}
+
+export function destinosSeleccionadosDeCuenta(destinos = [], destinoIds = [], cuenta = {}) {
+  const elegidos = new Set(destinoIds.map(Number));
+  return destinos.filter(
+    (destino) =>
+      elegidos.has(Number(destino.id)) &&
+      Number(destino.cuenta_id) === Number(cuenta.cuentaId) &&
+      (cuenta.red === 'instagram'
+        ? String(destino.tipo || '').startsWith('instagram_')
+        : String(destino.tipo || '').startsWith('facebook_'))
+  );
+}
+
+export function hayGruposElegidos(destinos = [], destinoIds = [], cuenta = {}) {
+  const elegidos = new Set(destinoIds.map(Number));
+  return destinos.some(
+    (destino) =>
+      elegidos.has(Number(destino.id)) &&
+      Number(destino.cuenta_id) === Number(cuenta.cuentaId) &&
+      destino.tipo === 'facebook_group'
+  );
+}
+
+export const esDiagnosticoDePrueba = (log = {}) => {
+  if (log.nivel === 'error') return false;
+  const codigo = String(log.codigo || '');
+  return codigo.startsWith('PRUEBA_') || ['health_check', 'sync_facebook_groups'].includes(codigo);
+};
+
+export function actividadParaOperador(log = {}) {
+  const codigo = String(log.codigo || '');
+  const traducidos = {
+    PRUEBA_ACTIVE: 'Conexión comprobada.',
+    PRUEBA_TOKEN_VENCIDO: 'La conexión venció y necesita revisarse.',
+    PRUEBA_SIN_CONFIGURAR: 'La conexión todavía no está configurada.',
+    PUBLICATION_AMBIGUOUS: 'No se pudo confirmar si la publicación salió.',
+  };
+  const tecnico =
+    esDiagnosticoDePrueba(log) || /connectOverCDP|browserType\.connect/i.test(log.mensaje || '');
+  return {
+    mensaje: traducidos[codigo] || log.mensaje || 'Actividad sin detalle.',
+    detalle: tecnico ? log.mensaje || '' : '',
+    codigo: tecnico ? codigo : '',
+  };
+}

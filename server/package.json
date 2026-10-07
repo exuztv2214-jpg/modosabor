@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "dev": "nodemon index.js",
+    "dev": "node --watch index.js",
     "start": "node index.js",
     "seed:menu": "node scripts/seedMenuModoSabor.js",
     "smoke": "node scripts/smoke-test.js",
@@ -35,7 +35,7 @@
     "pino": "^9.14.0",
     "playwright-core": "^1.62.1",
     "qrcode": "^1.5.4",
-    "sharp": "0.35.4",
+    "sharp": "0.35.5",
     "socket.io": "^4.8.3",
     "zod": "^3.23.8"
   },
@@ -44,12 +44,11 @@
     "eslint": "^9.39.5",
     "eslint-plugin-import": "^2.32.0",
     "globals": "^15.15.0",
-    "nodemon": "^3.0.3",
     "socket.io-client": "4.8.3"
   },
   "overrides": {
     "body-parser": "1.20.6",
-    "brace-expansion": "5.0.9",
+    "brace-expansion": "5.0.12",
     "qs": "6.16.0",
     "socket.io-parser": "4.2.7",
     "uuid": "11.1.1"

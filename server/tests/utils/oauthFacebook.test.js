@@ -51,6 +51,10 @@ module.exports = {
       );
       assert.match(url.searchParams.get('scope'), /pages_manage_posts/);
       assert.match(url.searchParams.get('scope'), /instagram_content_publish/);
+      assert.ok(
+        !url.searchParams.get('scope').includes('instagram_manage_comments'),
+        'la conexión básica no debe pedir permisos avanzados que bloquean todo el OAuth'
+      );
     }),
 
   'el secreto de la app nunca va en la dirección': () =>
@@ -63,6 +67,23 @@ module.exports = {
       assert.ok(!url.includes('secreto-de-prueba-no-real'));
       assert.ok(!url.includes('client_secret'));
     }),
+
+  'la consulta de páginas no pide campos eliminados por Graph v25': async () => {
+    const fetchAnterior = global.fetch;
+    let pedido = '';
+    global.fetch = async (url) => {
+      pedido = decodeURIComponent(String(url));
+      return { ok: true, json: async () => ({ data: [] }) };
+    };
+
+    try {
+      await oauth.paginasDelUsuario('token-de-prueba');
+    } finally {
+      global.fetch = fetchAnterior;
+    }
+
+    assert.ok(!pedido.includes('account_type'), 'Graph v25 rechaza ese campo anidado');
+  },
 
   'cada pedido lleva un pase distinto': () =>
     conConfig(() => {

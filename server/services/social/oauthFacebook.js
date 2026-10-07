@@ -54,7 +54,6 @@ const PERMISOS = [
   'read_insights', // alcance e interacciones
   'instagram_basic', // ver la cuenta de Instagram vinculada
   'instagram_content_publish', // publicar en Instagram
-  'instagram_manage_comments', // publicar el primer comentario pedido en el compositor
 ];
 
 /*
@@ -291,7 +290,7 @@ async function canjearCodigo(codigo) {
 async function paginasDelUsuario(tokenDeUsuario) {
   const datos = await pedirAMeta('me/accounts', {
     access_token: tokenDeUsuario,
-    fields: 'id,name,access_token,instagram_business_account{id,username,account_type}',
+    fields: 'id,name,access_token,instagram_business_account{id,username}',
   });
 
   return (datos.data || []).map((pagina) => ({
@@ -302,7 +301,7 @@ async function paginasDelUsuario(tokenDeUsuario) {
       ? {
           id: pagina.instagram_business_account.id,
           usuario: pagina.instagram_business_account.username || '',
-          tipo: pagina.instagram_business_account.account_type || '',
+          tipo: '',
         }
       : null,
   }));

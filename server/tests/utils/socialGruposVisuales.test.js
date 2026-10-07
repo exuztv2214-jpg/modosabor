@@ -69,6 +69,13 @@ try {
     'la identidad recibe la foto circular de su página'
   );
 
+  const paginaConFoto = social.listDestinations({ cuentaId, type: 'facebook_page' })[0];
+  assert.strictEqual(
+    paginaConFoto.avatarLocal,
+    true,
+    'la pantalla distingue una foto guardada de una URL temporal de Facebook'
+  );
+
   const grupos = social.listDestinations({ cuentaId, type: 'facebook_group' });
   assert.strictEqual(
     grupos.find((item) => item.id === grupoUno).avatar.includes('fbcdn.net'),
@@ -108,11 +115,18 @@ try {
         {
           id: `${marca}-Grupo uno`,
           nombre: 'Grupo uno',
-          avatarUrl: 'https://scontent.xx.fbcdn.net/nueva.jpg',
+          avatarUrl: 'https://scontent.xx.fbcdn.net/nueva.jpg?oh=firma&amp;oe=vence',
         },
       ],
     },
   });
+  assert.strictEqual(
+    JSON.parse(
+      db.prepare('SELECT metadata FROM social_destinations WHERE id = ?').get(grupoUno).metadata
+    ).avatarUrl,
+    'https://scontent.xx.fbcdn.net/nueva.jpg?oh=firma&oe=vence',
+    'la URL del grupo se guarda lista para navegador, sin entidades HTML'
+  );
   assert.strictEqual(
     db.prepare('SELECT habilitada FROM social_destinations WHERE id = ?').get(grupoViejo)
       .habilitada,

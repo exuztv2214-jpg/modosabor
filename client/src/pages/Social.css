@@ -1379,7 +1379,17 @@
   position: relative;
   display: grid;
   place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
   line-height: 0;
+}
+
+.social-vista .social-chip-red-avatar:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 3px;
 }
 
 /* La pequeña grilla identifica que la cuenta participa del planificador. */
@@ -2142,6 +2152,8 @@
 }
 
 .social-vista .social-previa-avatar img {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -2729,6 +2741,100 @@
   border-radius: 999px;
   background: #eef2f7;
   color: #64748b;
+}
+
+/* Adjuntos siempre visibles: la biblioteca queda en Más opciones, la selección no. */
+.social-vista .social-comp-adjuntos-elegidos {
+  padding: 11px 12px;
+  border: 1px solid var(--linea);
+  border-bottom: 0;
+  background: #f8fafc;
+}
+
+.social-vista .social-comp-adjuntos-titulo {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 9px;
+  color: #334155;
+  font-size: 12px;
+}
+
+.social-vista .social-comp-adjuntos-titulo span {
+  color: #64748b;
+}
+
+.social-vista .social-comp-adjuntos-lista {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.social-vista .social-comp-adjunto {
+  position: relative;
+  display: grid;
+  width: 104px;
+  flex: 0 0 104px;
+  gap: 5px;
+}
+
+.social-vista .social-comp-adjunto > img,
+.social-vista .social-comp-adjunto > video {
+  width: 104px;
+  height: 76px;
+  border-radius: 8px;
+  background: #e2e8f0;
+  object-fit: cover;
+}
+
+.social-vista .social-comp-adjunto-orden {
+  position: absolute;
+  top: 5px;
+  left: 5px;
+  display: grid;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  border-radius: 50%;
+  background: #0f172a;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.social-vista .social-comp-adjunto-nombre {
+  overflow: hidden;
+  color: #475569;
+  font-size: 11px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.social-vista .social-comp-adjunto-acciones {
+  display: flex;
+  gap: 3px;
+}
+
+.social-vista .social-comp-adjunto-acciones button {
+  display: grid;
+  width: 23px;
+  height: 23px;
+  place-items: center;
+  border: 1px solid #dbe3ee;
+  border-radius: 6px;
+  background: #fff;
+  color: #64748b;
+}
+
+.social-vista .social-comp-adjunto-acciones button:hover:not(:disabled) {
+  border-color: #fecaca;
+  color: #c81e1e;
+}
+
+.social-vista .social-comp-adjunto-acciones button:disabled {
+  opacity: 0.35;
 }
 
 .social-vista .social-comp-extra {

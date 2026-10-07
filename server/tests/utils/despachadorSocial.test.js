@@ -243,6 +243,11 @@ module.exports = {
 
     assert.strictEqual(detalle.ensayo, true);
     assert.strictEqual(detalle.textoQueSeHabriaMandado, texto);
+    assert.strictEqual(
+      detalle.referencia,
+      `ensayo:${grupo.id}`,
+      'el identificador devuelto por el proveedor queda disponible para consultar métricas después'
+    );
   },
 
   'un ensayo pasa por los mismos frenos que una publicación de verdad': () => {

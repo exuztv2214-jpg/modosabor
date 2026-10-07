@@ -46,7 +46,7 @@ export const FORMATOS_UI = [
     ayuda: 'Video vertical corto. Es lo que más alcance tiene hoy.',
     requisitos: [
       'Video vertical 9:16, mínimo 540×960',
-      'Entre 3 y 90 segundos',
+      'Entre 4 y 60 segundos',
       'Hasta 30 reels por día en la Fan Page',
     ],
     destinos: ['facebook_page', 'facebook_profile', 'instagram_feed'],

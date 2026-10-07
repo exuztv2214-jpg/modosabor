@@ -6,8 +6,12 @@ const { encriptar } = require('../utils/encryptConfig');
 const { canDispatch, repartirPorDia, LIMITES } = require('./social/politicaEnvio');
 const providers = require('./social/providers');
 const { resolverProvider, claseDeEjecucion } = providers;
-const { porQueNoHayMetricas } = require('./social/metaApi');
-const { avatarDelDestino } = require('./social/avatares');
+const { porQueNoHayMetricas, alcanceDePosteo } = require('./social/metaApi');
+const {
+  avatarDelDestino,
+  encolarAvatarRemoto,
+  normalizarAvatarRemoto,
+} = require('./social/avatares');
 const { porQueFrenaElModoSeguro } = require('./social/modoSeguro');
 
 const TARGET_STATES = new Set([
@@ -101,6 +105,7 @@ function log({
 
 function mapDestination(row) {
   const metadata = row ? parse(row.metadata) : {};
+  const avatarLocal = row ? avatarDelDestino(row.id) : null;
   return (
     row && {
       ...row,
@@ -122,18 +127,20 @@ function mapDestination(row) {
         los uploads—. Es un `existsSync` sobre una carpeta chica, no un
         problema de velocidad.
       */
-      avatar: avatarDelDestino(row.id) || avatarRemotoSeguro(metadata?.avatarUrl),
+      avatar: avatarLocal || avatarRemotoSeguro(metadata?.avatarUrl),
+      avatarLocal: Boolean(avatarLocal),
     }
   );
 }
 
 function avatarRemotoSeguro(valor) {
   try {
-    const url = new URL(String(valor || ''));
+    const normalizada = normalizarAvatarRemoto(valor);
+    const url = new URL(normalizada);
     const host = url.hostname.toLowerCase();
     return url.protocol === 'https:' &&
       (host === 'facebook.com' || host.endsWith('.facebook.com') || host.endsWith('.fbcdn.net'))
-      ? url.toString()
+      ? normalizada
       : null;
   } catch {
     return null;
@@ -181,24 +188,33 @@ function listDestinations({ type = '', enabledOnly = false, cuentaId = null } = 
     .map((row) => ({ ...mapDestination(row), estadoConexion: estadoDeDestinoSocial(row) }));
 }
 
+/* Agenda las fotos que el worker ya vio; no espera la red ni frena la pantalla. */
+function encolarAvataresRemotosPendientes() {
+  const filas = db
+    .prepare(
+      `SELECT d.id, d.metadata AS destino_metadata, a.metadata AS cuenta_metadata
+       FROM social_destinations d
+       LEFT JOIN social_accounts a ON a.id = d.cuenta_id`
+    )
+    .all();
+  let enCola = 0;
+  filas.forEach((fila) => {
+    if (avatarDelDestino(fila.id)) return;
+    const destino = parse(fila.destino_metadata);
+    const cuenta = parse(fila.cuenta_metadata);
+    const url = avatarRemotoSeguro(destino.avatarUrl || cuenta.avatarUrl);
+    if (!url) return;
+    encolarAvatarRemoto({ destinoId: fila.id, url }).catch(() => {});
+    enCola += 1;
+  });
+  return enCola;
+}
+
 const PRUEBA_API_MAX_MS = 24 * 60 * 60 * 1000;
 const REVALIDAR_API_MS = 12 * 60 * 60 * 1000;
 const REINTENTAR_API_MS = 6 * 60 * 60 * 1000;
 
 function estadoWorkerSocial(now = Date.now()) {
-  const marker = db
-    .prepare(
-      "SELECT valor FROM configuracion WHERE clave = 'social_worker_linked_after_command_id'"
-    )
-    .get();
-  if (!marker) {
-    return {
-      estado: 'sin_conectar',
-      motivo: 'Vinculá esta PC para publicar desde el perfil o grupos.',
-      comprobadoEn: null,
-      accion: 'vincular',
-    };
-  }
   const worker = estadoRealDelWorker(
     db.prepare('SELECT * FROM social_workers ORDER BY ultimo_heartbeat_en DESC LIMIT 1').get(),
     now
@@ -209,6 +225,19 @@ function estadoWorkerSocial(now = Date.now()) {
       motivo: 'La extensión no está comunicándose con el servidor.',
       comprobadoEn: null,
       accion: 'vincular',
+    };
+  }
+  const marker = db
+    .prepare(
+      "SELECT valor FROM configuracion WHERE clave = 'social_worker_linked_after_command_id'"
+    )
+    .get();
+  if (!marker) {
+    return {
+      estado: 'comprobando',
+      motivo: 'La extensión está conectada; falta comprobar la sesión de Facebook.',
+      comprobadoEn: null,
+      accion: 'probar_worker',
     };
   }
   const health = db
@@ -928,6 +957,21 @@ function destinationIds({ destinoIds = [], conjuntoIds = [] }) {
   return [...new Set([...direct, ...fromSets])];
 }
 
+function asegurarRutasDeGrupoUnicas(destinos = []) {
+  const vistos = new Map();
+  for (const destino of destinos) {
+    if (destino.tipo !== 'facebook_group' || !destino.identificador_externo) continue;
+    const clave = `${destino.provider}|${destino.tipo}|${destino.identificador_externo}`;
+    const anterior = vistos.get(clave);
+    if (anterior && Number(anterior.cuenta_id) !== Number(destino.cuenta_id)) {
+      throw new Error(
+        `El grupo «${destino.nombre}» quedó elegido desde dos identidades. Elegí una sola ruta para no publicarlo dos veces.`
+      );
+    }
+    vistos.set(clave, destino);
+  }
+}
+
 function asegurarFormatoProgramable(destino, campana) {
   const formato = formatoParaLaRed({
     ...campana,
@@ -1050,7 +1094,7 @@ function createCampaign({
   const destinations = ids.length
     ? db
         .prepare(
-          `SELECT id, cuenta_id, tipo, nombre FROM social_destinations
+          `SELECT id, cuenta_id, provider, tipo, nombre, identificador_externo FROM social_destinations
             WHERE habilitada = 1 AND id IN (${ids.map(() => '?').join(',')})`
         )
         .all(...ids)
@@ -1058,6 +1102,7 @@ function createCampaign({
   if (ids.length && destinations.length !== ids.length) {
     throw new Error('Uno de los destinos elegidos no está habilitado');
   }
+  asegurarRutasDeGrupoUnicas(destinations);
   if (state === 'scheduled' && !ensayo) {
     for (const destination of destinations) {
       asegurarFormatoProgramable(destination, {
@@ -1586,6 +1631,27 @@ function getMetrics(days = 30) {
     .get(since);
   const totalPublicaciones = Number(summary.totalPublicaciones || 0);
   const exitosos = Number(summary.exitosos || 0);
+  const alcancesMeta = db
+    .prepare(
+      `SELECT l.detalle
+         FROM social_publication_logs l
+         JOIN (
+           SELECT target_id, MAX(id) AS ultimo_id
+             FROM social_publication_logs
+            WHERE codigo = 'METRICAS_META' AND creado_en >= ?
+            GROUP BY target_id
+         ) ultimos ON ultimos.ultimo_id = l.id`
+    )
+    .all(since)
+    .map((fila) => parse(fila.detalle))
+    .filter((detalle) => detalle?.disponible === true);
+  const alcanceReal = alcancesMeta.reduce(
+    (total, detalle) => ({
+      personasQueLoVieron: total.personasQueLoVieron + Number(detalle.personasQueLoVieron || 0),
+      clics: total.clics + Number(detalle.clics || 0),
+    }),
+    { personasQueLoVieron: 0, clics: 0 }
+  );
   return {
     resumen: {
       totalCampanas: Number(summary.totalCampanas || 0),
@@ -1666,7 +1732,9 @@ function getMetrics(days = 30) {
       distintas para quien está decidiendo dónde publicar.
     */
     alcance: {
-      disponible: false,
+      disponible: alcancesMeta.length > 0,
+      publicacionesMedidas: alcancesMeta.length,
+      ...alcanceReal,
       sinDatosPara: db
         .prepare(
           `SELECT DISTINCT d.tipo FROM social_post_targets t
@@ -1678,6 +1746,57 @@ function getMetrics(days = 30) {
         .filter((x) => x.motivo),
     },
   };
+}
+
+async function actualizarAlcanceMeta({ days = 30, consultar = alcanceDePosteo } = {}) {
+  const safeDays = Math.min(Math.max(Number(days) || 30, 1), 365);
+  const since = sqlFecha(new Date(Date.now() - safeDays * 24 * 60 * 60 * 1000));
+  const publicaciones = db
+    .prepare(
+      `SELECT t.id AS target_id, t.campana_id, t.destino_id, a.metadata AS cuenta_metadata, l.detalle
+         FROM social_post_targets t
+         JOIN social_destinations d ON d.id = t.destino_id
+         JOIN social_accounts a ON a.id = d.cuenta_id
+         LEFT JOIN social_publication_logs l ON l.id = (
+           SELECT MAX(id) FROM social_publication_logs
+            WHERE target_id = t.id AND codigo <> 'METRICAS_META'
+         )
+        WHERE t.estado = 'published'
+          AND d.tipo = 'facebook_page'
+          AND COALESCE(d.execution_class, 'browser') = 'api'
+          AND COALESCE(t.finalizado_en, t.creado_en) >= ?`
+    )
+    .all(since);
+  const resumen = { consultadas: 0, disponibles: 0, sinReferencia: 0 };
+
+  for (const publicacion of publicaciones) {
+    const referencia = clean(parse(publicacion.detalle).referencia, 200);
+    const tokenMeta = parse(publicacion.cuenta_metadata).token;
+    if (!referencia || !tokenMeta) {
+      resumen.sinReferencia += 1;
+      continue;
+    }
+    resumen.consultadas += 1;
+    let alcance;
+    try {
+      alcance = await consultar({ postId: referencia, token: tokenMeta });
+    } catch {
+      alcance = { disponible: false, motivo: 'No se pudo actualizar el alcance desde Meta.' };
+    }
+    if (alcance?.disponible) resumen.disponibles += 1;
+    log({
+      campanaId: publicacion.campana_id,
+      targetId: publicacion.target_id,
+      destinoId: publicacion.destino_id,
+      nivel: alcance?.disponible ? 'info' : 'warn',
+      codigo: 'METRICAS_META',
+      mensaje: alcance?.disponible
+        ? 'Alcance actualizado desde Meta.'
+        : 'Meta no devolvió alcance.',
+      detalle: { ...alcance, referencia },
+    });
+  }
+  return resumen;
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -2275,7 +2394,10 @@ async function publicarPorApi(trabajo) {
       estado: resultado.estado || 'published',
       externalPostUrl: resultado.externalUrl || '',
       codigo: provider.clave,
-      detalle: resultado.detalle || {},
+      detalle: {
+        ...(resultado.detalle || {}),
+        ...(resultado.referencia ? { referencia: resultado.referencia } : {}),
+      },
     });
   } catch (error) {
     /*
@@ -2436,7 +2558,19 @@ function createWorkerCommand(tipo, payload = {}) {
   const result = db
     .prepare('INSERT INTO social_worker_commands (tipo, payload) VALUES (?, ?)')
     .run(tipo, json(cuerpo));
-  return Number(result.lastInsertRowid);
+  const commandId = Number(result.lastInsertRowid);
+  if (tipo === 'health_check') {
+    /*
+      Instalaciones anteriores no tenían marcador de vinculación. Al pedir una
+      comprobación explícita, este comando pasa a ser la prueba posterior que
+      faltaba; los controles viejos quedan antes del marcador y no cuentan.
+    */
+    db.prepare(
+      `INSERT OR IGNORE INTO configuracion (clave, valor)
+       VALUES ('social_worker_linked_after_command_id', ?)`
+    ).run(String(commandId - 1));
+  }
+  return commandId;
 }
 
 function reportCommand({ commandId, lockToken, estado, resultado = {}, error = '' }) {
@@ -2487,10 +2621,16 @@ function reportCommand({ commandId, lockToken, estado, resultado = {}, error = '
 
     let guardados = 0;
     const idsDetectados = new Set();
+    const buscarDestino = db.prepare(
+      `SELECT id FROM social_destinations
+        WHERE cuenta_id = ? AND provider = 'facebook' AND tipo = 'facebook_group'
+          AND identificador_externo = ?`
+    );
     (resultado.grupos || []).forEach((group) => {
       const id = clean(group.id, 200);
       if (!id) return;
       idsDetectados.add(id);
+      const avatarUrl = avatarRemotoSeguro(group.avatarUrl);
       upsert.run(
         identidad,
         clean(group.nombre || 'Grupo de Facebook', 200),
@@ -2499,12 +2639,17 @@ function reportCommand({ commandId, lockToken, estado, resultado = {}, error = '
         json({
           source: 'worker',
           detectedAt: nowSql(),
-          avatarUrl: avatarRemotoSeguro(group.avatarUrl),
+          avatarUrl,
           /* Lo declara el worker: hay grupos donde un admin aprueba cada post. */
           requiereAprobacion: Boolean(group.requiereAprobacion),
           puedeAbrirCompositor: group.puedeAbrirCompositor !== false,
         })
       );
+      const destino = buscarDestino.get(identidad, id);
+      if (process.env.NODE_ENV !== 'test' && avatarUrl && destino?.id) {
+        /* No se espera: guardar fotos no puede bloquear la sincronización de grupos. */
+        encolarAvatarRemoto({ destinoId: destino.id, url: avatarUrl }).catch(() => {});
+      }
       guardados += 1;
     });
 
@@ -2548,6 +2693,18 @@ function reportCommand({ commandId, lockToken, estado, resultado = {}, error = '
         }),
         identidad
       );
+      const destinoIdentidad = db
+        .prepare(
+          `SELECT id FROM social_destinations
+            WHERE cuenta_id = ? AND tipo IN ('facebook_profile', 'facebook_page')
+            ORDER BY CASE tipo WHEN 'facebook_profile' THEN 1 ELSE 2 END LIMIT 1`
+        )
+        .get(identidad);
+      if (process.env.NODE_ENV !== 'test' && avatarIdentidad && destinoIdentidad?.id) {
+        encolarAvatarRemoto({ destinoId: destinoIdentidad.id, url: avatarIdentidad }).catch(
+          () => {}
+        );
+      }
     }
 
     resultado.identityId = identidad;
@@ -2762,6 +2919,7 @@ module.exports = {
   probarCredenciales,
   revalidarCredencialesApi,
   listDestinations,
+  encolarAvataresRemotosPendientes,
   createDestination,
   updateDestination,
   updateDestinationsBulk,
@@ -2783,6 +2941,7 @@ module.exports = {
   duplicateCampaign,
   deleteCampaign,
   getMetrics,
+  actualizarAlcanceMeta,
   getSocialConfig,
   setSocialConfig,
   pausarTodo,

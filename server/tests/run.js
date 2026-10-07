@@ -24,6 +24,7 @@ process.env.INITIAL_ADMIN_PASSWORD = process.env.INITIAL_ADMIN_PASSWORD || 'test
 const dirTemporal = fs.mkdtempSync(path.join(os.tmpdir(), 'modosabor-tests-'));
 process.env.DATA_DIR = dirTemporal;
 process.env.DB_FILE = path.join(dirTemporal, 'tests.sqlite');
+process.env.UPLOADS_DIR = path.join(dirTemporal, 'uploads');
 
 const db = require('../db');
 const fixtures = require('./fixtures');

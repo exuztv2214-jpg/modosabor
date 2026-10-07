@@ -171,19 +171,39 @@ async function run() {
     const profileId = db
       .prepare("SELECT id FROM social_accounts WHERE identificador_externo = 'fb_perfil'")
       .get().id;
-    const healthId =
-      Number(db.prepare('SELECT COALESCE(MAX(id), 0) AS id FROM social_worker_commands').get().id) +
-      1;
     db.prepare(
-      "INSERT OR REPLACE INTO configuracion (clave, valor) VALUES ('social_worker_linked_after_command_id', ?)"
-    ).run(String(healthId - 1));
+      "DELETE FROM configuracion WHERE clave = 'social_worker_linked_after_command_id'"
+    ).run();
     db.prepare("UPDATE social_workers SET ultimo_heartbeat_en = '2000-01-01 00:00:00'").run();
     db.prepare(
       "INSERT INTO social_workers (codigo, nombre, estado, ultimo_heartbeat_en) VALUES ('test-worker', 'Prueba', 'online', ?) "
-    ).run(sqlFecha(new Date(now - 121_000)));
+    ).run(sqlFecha(new Date(now - 15_000)));
+    assert.deepStrictEqual(
+      {
+        estado: social.estadoViasSocial({ now }).perfilGrupos.estado,
+        accion: social.estadoViasSocial({ now }).perfilGrupos.accion,
+      },
+      { estado: 'comprobando', accion: 'probar_worker' },
+      'Un heartbeat vivo se reconoce aunque falte el marcador histórico'
+    );
+    const healthId = social.createWorkerCommand('health_check');
+    assert.strictEqual(
+      Number(
+        db
+          .prepare(
+            "SELECT valor FROM configuracion WHERE clave = 'social_worker_linked_after_command_id'"
+          )
+          .get().valor
+      ),
+      healthId - 1,
+      'La primera comprobación deja afuera los controles históricos'
+    );
     db.prepare(
-      "INSERT INTO social_worker_commands (id, tipo, estado, resultado, finalizado_en) VALUES (?, 'health_check', 'done', '{\"facebook_session\":\"ACTIVE\"}', ?)"
-    ).run(healthId, sqlFecha(new Date(now - 60_000)));
+      'UPDATE social_worker_commands SET estado = \'done\', resultado = \'{"facebook_session":"ACTIVE"}\', finalizado_en = ? WHERE id = ?'
+    ).run(sqlFecha(new Date(now - 60_000)), healthId);
+    db.prepare(
+      "UPDATE social_workers SET ultimo_heartbeat_en = ? WHERE codigo = 'test-worker'"
+    ).run(sqlFecha(new Date(now - 121_000)));
     assert.notStrictEqual(social.estadoViasSocial({ now }).perfilGrupos.estado, 'lista');
     db.prepare(
       "UPDATE social_workers SET ultimo_heartbeat_en = ? WHERE codigo = 'test-worker'"
@@ -430,6 +450,68 @@ async function run() {
       'INSERT INTO social_post_targets (campana_id, destino_id, estado) VALUES (?, ?, ?)'
     ).run(campaignId, secondDestinationId, 'failed');
     assert.strictEqual(social.getMetrics(30).resumen.tasaExito, 50);
+
+    const targetId = db
+      .prepare('SELECT id FROM social_post_targets WHERE campana_id = ? AND destino_id = ?')
+      .get(campaignId, destinationId).id;
+    db.prepare(
+      `INSERT INTO social_publication_logs
+        (campana_id, target_id, destino_id, codigo, mensaje, detalle)
+       VALUES (?, ?, ?, 'METRICAS_META', 'Métricas actualizadas', ?)`
+    ).run(
+      campaignId,
+      targetId,
+      destinationId,
+      JSON.stringify({ disponible: true, personasQueLoVieron: 123, clics: 4 })
+    );
+    const conAlcance = social.getMetrics(30).alcance;
+    assert.strictEqual(conAlcance.disponible, true);
+    assert.strictEqual(conAlcance.personasQueLoVieron, 123);
+    assert.strictEqual(conAlcance.clics, 4);
+
+    const cuentaPaginaId = Number(
+      db
+        .prepare(
+          "INSERT INTO social_accounts (provider, nombre, identificador_externo, metadata) VALUES ('facebook', 'Página métricas', 'pagina-metricas', ?)"
+        )
+        .run(JSON.stringify({ token: 'token-de-prueba' })).lastInsertRowid
+    );
+    const destinoPaginaId = Number(
+      db
+        .prepare(
+          `INSERT INTO social_destinations
+            (cuenta_id, provider, tipo, nombre, identificador_externo, execution_class)
+           VALUES (?, 'facebook', 'facebook_page', 'Página métricas', 'pagina-metricas', 'api')`
+        )
+        .run(cuentaPaginaId).lastInsertRowid
+    );
+    const targetPaginaId = Number(
+      db
+        .prepare(
+          'INSERT INTO social_post_targets (campana_id, destino_id, estado) VALUES (?, ?, ?)'
+        )
+        .run(campaignId, destinoPaginaId, 'published').lastInsertRowid
+    );
+    db.prepare(
+      `INSERT INTO social_publication_logs
+        (campana_id, target_id, destino_id, codigo, mensaje, detalle)
+       VALUES (?, ?, ?, 'facebook_page_api', 'Destino published', ?)`
+    ).run(
+      campaignId,
+      targetPaginaId,
+      destinoPaginaId,
+      JSON.stringify({ referencia: 'post-de-prueba' })
+    );
+    const actualizado = await social.actualizarAlcanceMeta({
+      consultar: async ({ postId, token }) => {
+        assert.strictEqual(postId, 'post-de-prueba');
+        assert.strictEqual(token, 'token-de-prueba');
+        return { disponible: true, personasQueLoVieron: 200, clics: 8 };
+      },
+    });
+    assert.deepStrictEqual(actualizado, { consultadas: 1, disponibles: 1, sinReferencia: 0 });
+    assert.strictEqual(social.getMetrics(30).alcance.personasQueLoVieron, 323);
+    assert.strictEqual(social.getMetrics(30).alcance.clics, 12);
 
     db.prepare(
       "UPDATE social_campaigns SET creado_en = datetime('now', '-40 days') WHERE id = ?"

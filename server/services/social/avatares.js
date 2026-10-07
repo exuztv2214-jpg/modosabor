@@ -43,6 +43,10 @@ const GRAPH = `https://graph.facebook.com/${VERSION}`;
 
 /* Dónde viven. Bajo uploads porque esa carpeta ya se sirve sin autenticación. */
 const CARPETA = path.join(uploadsDir, 'social-avatares');
+const colaDeAvatares = [];
+const destinosEnCola = new Set();
+let descargasActivas = 0;
+const MAX_DESCARGAS_SIMULTANEAS = 3;
 
 /*
   Un archivo por destino, no por página.
@@ -52,6 +56,38 @@ const CARPETA = path.join(uploadsDir, 'social-avatares');
 */
 const archivoDe = (destinoId) => path.join(CARPETA, `${Number(destinoId)}.jpg`);
 const urlPublica = (destinoId) => `/uploads/social-avatares/${Number(destinoId)}.jpg`;
+
+/*
+  Facebook serializa algunos `src` del DOM con `&amp;`. En una etiqueta HTML eso
+  vuelve a ser `&`, pero al mandarlo como string a React o fetch queda literal
+  y rompe la firma de la imagen. Se normaliza antes de persistirla o bajarla.
+*/
+function normalizarAvatarRemoto(valor) {
+  const crudo = String(valor || '')
+    .replace(/&amp;/gi, '&')
+    .trim();
+  try {
+    const url = new URL(crudo);
+    return url.protocol === 'https:' ? url.toString() : '';
+  } catch {
+    return '';
+  }
+}
+
+function esAvatarDeFacebook(valor) {
+  const url = normalizarAvatarRemoto(valor);
+  if (!url) return false;
+  const host = new URL(url).hostname.toLowerCase();
+  return host === 'facebook.com' || host.endsWith('.facebook.com') || host.endsWith('.fbcdn.net');
+}
+
+function guardarImagen(destinoId, bytes) {
+  if (bytes.length < 1000) throw new Error('La respuesta no parece una imagen');
+  if (bytes.length > 5 * 1024 * 1024) throw new Error('La foto supera el tamaño permitido');
+  fs.mkdirSync(CARPETA, { recursive: true });
+  fs.writeFileSync(archivoDe(destinoId), bytes);
+  return urlPublica(destinoId);
+}
 
 /** La URL pública si el archivo existe; `null` si no. */
 function avatarDelDestino(destinoId) {
@@ -121,16 +157,64 @@ async function bajarAvatar({ destinoId, tipo, idExterno, tokenCifrado }) {
       de Meta rechaza una URL vencida. Guardarla dejaría un archivo roto que
       además existe, y `avatarDelDestino` lo daría por bueno para siempre.
     */
-    if (bytes.length < 1000) throw new Error('La respuesta no parece una imagen');
-
-    fs.mkdirSync(CARPETA, { recursive: true });
-    fs.writeFileSync(archivoDe(destinoId), bytes);
-
-    return urlPublica(destinoId);
+    return guardarImagen(destinoId, bytes);
   } catch (error) {
     console.warn(`[social] no se pudo bajar la foto del destino ${destinoId}:`, error.message);
     return null;
   }
 }
 
-module.exports = { avatarDelDestino, bajarAvatar, CARPETA };
+/**
+ * Guarda localmente un avatar que el Worker vio en Facebook.
+ *
+ * Los grupos y el perfil no tienen API de Meta para bajar su foto. La URL que
+ * devuelve el navegador sí sirve en ese momento, pero vence; guardarla en
+ * `uploads` evita que una tarjeta quede con una imagen rota días después.
+ */
+async function cachearAvatarRemoto({ destinoId, url }) {
+  const fuente = normalizarAvatarRemoto(url);
+  if (!destinoId || !esAvatarDeFacebook(fuente)) return null;
+  try {
+    const respuesta = await fetch(fuente, { signal: AbortSignal.timeout(20000) });
+    if (!respuesta.ok) throw new Error(`La imagen respondió ${respuesta.status}`);
+    return guardarImagen(destinoId, Buffer.from(await respuesta.arrayBuffer()));
+  } catch (error) {
+    console.warn(`[social] no se pudo guardar la foto del destino ${destinoId}:`, error.message);
+    return null;
+  }
+}
+
+/* Las sincronizaciones pueden devolver cientos de grupos; tres descargas a la vez evita un pico. */
+function procesarColaDeAvatares() {
+  while (descargasActivas < MAX_DESCARGAS_SIMULTANEAS && colaDeAvatares.length) {
+    const siguiente = colaDeAvatares.shift();
+    descargasActivas += 1;
+    cachearAvatarRemoto(siguiente.datos)
+      .then(siguiente.resolve)
+      .finally(() => {
+        destinosEnCola.delete(siguiente.datos.destinoId);
+        descargasActivas -= 1;
+        procesarColaDeAvatares();
+      });
+  }
+}
+
+function encolarAvatarRemoto(datos) {
+  const destinoId = Number(datos?.destinoId);
+  if (!destinoId || destinosEnCola.has(destinoId)) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    destinosEnCola.add(destinoId);
+    colaDeAvatares.push({ datos: { ...datos, destinoId }, resolve });
+    procesarColaDeAvatares();
+  });
+}
+
+module.exports = {
+  avatarDelDestino,
+  bajarAvatar,
+  cachearAvatarRemoto,
+  encolarAvatarRemoto,
+  normalizarAvatarRemoto,
+  esAvatarDeFacebook,
+  CARPETA,
+};
