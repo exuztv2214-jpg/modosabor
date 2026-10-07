@@ -3396,7 +3396,11 @@ function ChipDeRed({
     La Fan Page sale por API y el Perfil por el Worker local. Por eso ambos
     ofrecen Post, Reel e Historia, aunque usen motores diferentes.
   */
-  const formatosDisponibles = FORMATOS_UI.filter((f) => f.destinos.includes(cuenta.tipoDestino));
+  const formatosDisponibles = FORMATOS_UI.filter(
+    (f) =>
+      f.destinos.includes(cuenta.tipoDestino) &&
+      !(f.clave === 'historia' && red === 'instagram' && cuenta.igAccountType !== 'BUSINESS')
+  );
   const opcionGrupos = cuenta.tipos?.includes('facebook_group')
     ? {
         clave: 'grupos',
@@ -3807,6 +3811,9 @@ function Compositor({
         nombre:
           red === 'instagram' ? destino.nombre : identidad?.nombre || destino.nombre || 'Facebook',
         avatar: destino.avatar || null,
+        igAccountType: String(
+          destino.metadata?.accountType || identidad?.metadata?.igAccountType || ''
+        ).toUpperCase(),
       });
     }
 

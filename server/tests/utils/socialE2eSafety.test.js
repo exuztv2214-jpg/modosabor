@@ -85,6 +85,10 @@ assert.ok(
   bloqueHistoriaPerfil.includes('confirmacionHistoria'),
   'la Historia de Perfil no puede marcarse publicada sólo porque se cerró el compositor'
 );
+assert.ok(
+  ui.includes("cuenta.igAccountType !== 'BUSINESS'"),
+  'la interfaz no debe ofrecer historias a una cuenta Creator de Instagram'
+);
 assert.ok(/modo seguro/i.test(ui));
 assert.ok(ui.includes('Reintentar fallidos'));
 console.log('  ✓ modo prueba, retry limitado, sesión vencida y ambigüedad protegidos');
