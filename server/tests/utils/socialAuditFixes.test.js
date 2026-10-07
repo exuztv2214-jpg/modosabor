@@ -218,10 +218,18 @@ async function pruebaVariasFotosEnPagina() {
   }
 }
 
+function pruebaComandosWorkerSoportados() {
+  assert.throws(
+    () => social.createWorkerCommand('switch_identity', { identityId: 1 }),
+    /inválido/i
+  );
+}
+
 async function run() {
   await pruebaRevalidacionAutomatica();
   await pruebaTipoDeCuentaInstagram();
   await pruebaVariasFotosEnPagina();
+  pruebaComandosWorkerSoportados();
   console.log('socialAuditFixes.test.js OK');
 }
 

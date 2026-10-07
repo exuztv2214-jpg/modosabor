@@ -2416,12 +2416,12 @@ function reportPublication({
  * llamar a esto, y la regla tiene que valer para los dos.
  */
 function createWorkerCommand(tipo, payload = {}) {
-  const allowed = new Set(['sync_facebook_groups', 'health_check', 'switch_identity']);
+  const allowed = new Set(['sync_facebook_groups', 'health_check']);
   if (!allowed.has(tipo)) throw new Error('Comando de worker inválido');
 
   const cuerpo = { ...payload };
 
-  if (tipo === 'sync_facebook_groups' || tipo === 'switch_identity') {
+  if (tipo === 'sync_facebook_groups') {
     const identidad = Number(cuerpo.identityId);
     if (!Number.isFinite(identidad) || identidad <= 0) {
       throw new Error('Indicá con qué identidad: Perfil o Fan Page');
