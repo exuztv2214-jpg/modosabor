@@ -1,7 +1,7 @@
 {
   "name": "modo-sabor-social-worker",
   "private": true,
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Worker local y visible para publicaciones sociales de Modo Sabor",
   "author": "Modo Sabor",
   "main": "electron-main.js",

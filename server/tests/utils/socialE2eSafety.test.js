@@ -77,6 +77,14 @@ assert.ok(
 );
 assert.ok(worker.includes("estado: 'ambiguous'"));
 assert.ok(!worker.includes('context.cookies('));
+const bloqueHistoriaPerfil =
+  (worker.match(
+    /async function publicarHistoriaDePerfil\([\s\S]*?\n}\n\nasync function publishFacebookGroup/
+  ) || [])[0] || '';
+assert.ok(
+  bloqueHistoriaPerfil.includes('confirmacionHistoria'),
+  'la Historia de Perfil no puede marcarse publicada sólo porque se cerró el compositor'
+);
 assert.ok(/modo seguro/i.test(ui));
 assert.ok(ui.includes('Reintentar fallidos'));
 console.log('  ✓ modo prueba, retry limitado, sesión vencida y ambigüedad protegidos');
