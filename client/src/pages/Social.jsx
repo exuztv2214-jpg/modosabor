@@ -48,11 +48,16 @@ import {
   ThumbsUp,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import ActionDialog from '../components/ActionDialog.jsx';
 import api from '../lib/api.js';
 import {
   STATUS_STYLES,
+  estadoVisualDeVia,
   formatSocialDate,
   formatSocialDateTime,
+  formatearPorcentajeMetrica,
+  planDeGuardado,
+  resumenDeRevision,
   socialApiError,
 } from './social/socialUi.js';
 import { CATEGORIAS_DE_EMOJI, buscarEmojis } from './social/emojis.js';
@@ -95,7 +100,10 @@ export default function Social() {
     templates: [],
   });
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [sending, setSending] = useState(false);
+  const [campaignError, setCampaignError] = useState('');
+  const [editingCampaignId, setEditingCampaignId] = useState(null);
 
   // Composer state
   const [draft, setDraft] = useState({
@@ -253,27 +261,31 @@ export default function Social() {
   const [campFilter, setCampFilter] = useState('all');
   const [metricsData, setMetricsData] = useState(null);
   const [metricsLoading, setMetricsLoading] = useState(false);
+  const [metricsError, setMetricsError] = useState('');
   const [socialConfig, setSocialConfig] = useState({ delaySegundos: 30 });
   const [savingConfig, setSavingConfig] = useState(false);
+  const [configError, setConfigError] = useState('');
 
   const loadMetrics = async () => {
+    setMetricsError('');
     setMetricsLoading(true);
     try {
       const data = await api.get('/social/metricas?dias=30');
       setMetricsData(data);
     } catch (error) {
-      toast.error(apiError(error));
+      setMetricsError(apiError(error));
     } finally {
       setMetricsLoading(false);
     }
   };
 
   const loadSocialConfig = async () => {
+    setConfigError('');
     try {
       const config = await api.get('/social/config');
       setSocialConfig(config);
     } catch (error) {
-      // Silencioso: usamos default
+      setConfigError(apiError(error));
     }
   };
 
@@ -282,9 +294,12 @@ export default function Social() {
     try {
       const config = await api.post('/social/config', cambios);
       setSocialConfig(config);
+      setConfigError('');
       toast.success('Configuración de cola guardada.');
     } catch (error) {
-      toast.error(apiError(error));
+      const message = apiError(error);
+      setConfigError(message);
+      toast.error(message);
     } finally {
       setSavingConfig(false);
     }
@@ -328,6 +343,7 @@ export default function Social() {
   const fotosPedidas = useRef(false);
 
   const reload = async () => {
+    setLoadError('');
     try {
       const [dashboard, destinos, conjuntos, campanas, media, logs, templates, identidades] =
         await Promise.all([
@@ -415,7 +431,7 @@ export default function Social() {
           .catch(() => {});
       }
     } catch (error) {
-      toast.error(apiError(error));
+      setLoadError(apiError(error));
     } finally {
       setLoading(false);
     }
@@ -437,16 +453,18 @@ export default function Social() {
     }
   }, [activeSection, metricsData]);
 
-  const selectedCount = useMemo(
-    () =>
-      new Set([
+  const resolvedDestinationIds = useMemo(
+    () => [
+      ...new Set([
         ...draft.destinoIds,
         ...data.conjuntos
           .filter((set) => draft.conjuntoIds.includes(set.id))
           .flatMap((set) => set.destinos.map((item) => item.id)),
-      ]).size,
+      ]),
+    ],
     [data.conjuntos, draft]
   );
+  const selectedCount = resolvedDestinationIds.length;
 
   const toggle = (field, id) =>
     setDraft((old) => ({
@@ -456,12 +474,12 @@ export default function Social() {
         : [...old[field], id],
     }));
 
-  const saveCampaign = async (queueNow = false) => {
+  const saveCampaign = async (action = 'borrador') => {
     const textosPorRed = draft.personalizaciones?.textos_por_red || {};
     const hayTexto =
       draft.texto.trim() || Object.values(textosPorRed).some((texto) => String(texto || '').trim());
-    if ((!hayTexto && !draft.mediaIds.length) || !selectedCount)
-      return toast.error('Completá el contenido y elegí al menos un destino.');
+    if (!hayTexto && !draft.mediaIds.length) return toast.error('Completá el contenido.');
+    if (action !== 'borrador' && !selectedCount) return toast.error('Elegí al menos un destino.');
     /*
       ── El aviso tiene que decir dónde está la perilla ─────────────────────
 
@@ -474,6 +492,7 @@ export default function Social() {
       "no". Este dice cuántos elegiste y dónde se apaga.
     */
     if (
+      action !== 'borrador' &&
       !draft.ensayo &&
       draft.personalizaciones.modo_prueba &&
       (draft.conjuntoIds.length || selectedCount !== 1)
@@ -482,6 +501,7 @@ export default function Social() {
         `El modo seguro deja publicar en un solo lugar y elegiste ${selectedCount}. ` +
           'Dejá uno solo, o destildá «Modo seguro» abajo en Más opciones.'
       );
+    setCampaignError('');
     setSending(true);
     try {
       /* El nombre interno es una nota opcional, no una traba escondida. */
@@ -490,8 +510,19 @@ export default function Social() {
         Object.values(textosPorRed).find((texto) => String(texto || '').trim()) ||
         '';
       const nombreAutomatico = String(primerTexto).replace(/\s+/g, ' ').trim().slice(0, 72);
+      const publish = action === 'publicar';
+      const schedule = action === 'programar';
+      const plan = planDeGuardado(action, draft.programadaPara);
+      if (schedule && !draft.programadaPara) {
+        throw new Error('Elegí una fecha y hora para programar.');
+      }
       const campaign = await api.post('/social/campanas', {
         ...draft,
+        programadaPara: plan.programadaPara,
+        personalizaciones: {
+          ...draft.personalizaciones,
+          auto_publicar: plan.autoPublicar,
+        },
         nombre:
           draft.nombre.trim() ||
           nombreAutomatico ||
@@ -499,8 +530,15 @@ export default function Social() {
       });
 
       let encolada = null;
-      if (queueNow) {
+      if (plan.encolar) {
         encolada = await api.post(`/social/campanas/${campaign.id}/encolar`, { ahora: true });
+      }
+      if (editingCampaignId) {
+        try {
+          await api.delete(`/social/campanas/${editingCampaignId}`);
+        } catch {
+          toast.error('La nueva versión se guardó, pero el borrador anterior sigue en la lista.');
+        }
       }
 
       /*
@@ -512,9 +550,11 @@ export default function Social() {
         es lo que hace que uno desconfíe del sistema.
       */
       toast.success(
-        queueNow
+        publish
           ? (draft.ensayo ? 'Ensayo: ' : '') + resumenDelReparto(encolada?.reparto)
-          : 'Borrador guardado.'
+          : schedule
+            ? 'Publicación programada.'
+            : 'Borrador guardado.'
       );
       setDraft({
         nombre: '',
@@ -525,7 +565,6 @@ export default function Social() {
         mediaIds: [],
         personalizaciones: { modo_prueba: true },
         ensayo: false,
-        autoPublicar: true,
         /*
           El formato también se limpia.
 
@@ -536,11 +575,14 @@ export default function Social() {
         formato: 'post',
         formatos: {},
       });
+      setEditingCampaignId(null);
       await reload();
       loadSocialConfig();
       setActiveSection('campanas');
     } catch (error) {
-      toast.error(apiError(error));
+      const message = apiError(error);
+      setCampaignError(message);
+      toast.error(message);
     } finally {
       setSending(false);
     }
@@ -767,6 +809,40 @@ export default function Social() {
     }
   };
 
+  const openCampaignDraft = async (id) => {
+    try {
+      const campaign = await api.get(`/social/campanas/${id}`);
+      let formatos = {};
+      try {
+        formatos =
+          typeof campaign.formatos === 'string'
+            ? JSON.parse(campaign.formatos || '{}')
+            : campaign.formatos || {};
+      } catch {
+        formatos = {};
+      }
+      setDraft({
+        nombre: campaign.nombre || '',
+        texto: campaign.texto || '',
+        programadaPara: campaign.programada_para
+          ? String(campaign.programada_para).replace(' ', 'T').slice(0, 16)
+          : '',
+        destinoIds: (campaign.targets || []).map((item) => item.destino_id),
+        conjuntoIds: [],
+        mediaIds: (campaign.media || []).map((item) => item.id),
+        personalizaciones: campaign.personalizaciones || { modo_prueba: true },
+        ensayo: Boolean(campaign.ensayo),
+        formato: campaign.formato || 'post',
+        formatos,
+      });
+      setEditingCampaignId(id);
+      setCampaignError('');
+      setActiveSection('crear');
+    } catch (error) {
+      toast.error(apiError(error));
+    }
+  };
+
   const removeCampaign = async (id) => {
     if (!window.confirm('¿Eliminar esta campaña? No se puede deshacer.')) return;
     try {
@@ -982,6 +1058,31 @@ export default function Social() {
     );
   }
 
+  if (loadError && !data.dashboard) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-50 p-6">
+        <div
+          className="max-w-md rounded-2xl border border-rose-200 bg-white p-6 text-center shadow-sm"
+          role="alert"
+        >
+          <AlertTriangle className="mx-auto text-rose-500" size={30} />
+          <h1 className="mt-3 text-lg font-bold text-slate-900">No se pudo cargar Social</h1>
+          <p className="mt-2 text-sm text-slate-600">{loadError}</p>
+          <button
+            type="button"
+            onClick={() => {
+              setLoading(true);
+              reload();
+            }}
+            className="mt-5 rounded-xl bg-slate-900 px-4 py-2 text-sm font-bold text-white"
+          >
+            Reintentar
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="social-vista">
       {/*
@@ -1004,11 +1105,11 @@ export default function Social() {
         cosa al cambiar de pestaña.
       */}
       <aside
-        className={`flex-shrink-0 bg-white border-r border-gray-200 flex flex-col transition-all duration-300 ${
+        className={`social-shell-nav flex-shrink-0 border-r flex flex-col transition-all duration-300 ${
           menuAbiertoLateral ? 'w-64' : 'w-16'
         }`}
       >
-        <div className="h-16 flex items-center px-4 border-b border-gray-100">
+        <div className="social-shell-brand h-16 flex items-center px-4 border-b border-gray-100">
           <div className="w-8 h-8 rounded-lg bg-brand-500 flex items-center justify-center text-white flex-shrink-0">
             <Share2 size={17} />
           </div>
@@ -1018,7 +1119,7 @@ export default function Social() {
         </div>
 
         <nav
-          className="flex-1 overflow-y-auto py-3 px-2"
+          className="social-shell-menu flex-1 overflow-y-auto py-3 px-2"
           aria-label="Secciones de Modo Sabor Social"
         >
           {gruposDeMenu.map((grupo, i) => (
@@ -1095,13 +1196,18 @@ export default function Social() {
             identidades no se nota; con cinco, «Configuración» desaparece de la
             pantalla sin que nada lo insinúe.
           */
-          <div className="max-h-[168px] flex-shrink-0 overflow-y-auto border-t border-gray-100 px-2 py-2">
+          <div className="social-shell-identidades max-h-[168px] flex-shrink-0 overflow-y-auto border-t border-gray-100 px-2 py-2">
             <p className="px-2 pb-2 text-[10px] font-bold uppercase tracking-wider text-gray-400">
               Publicás como
             </p>
             {(data.identidades || []).filter(esIdentidadFacebookOperativa).map((identidad) => {
               const elegida = identidadElegida === identidad.id;
               const detenida = identidad.pausada || identidad.frenadaAutomaticamente;
+              const via =
+                identidad.metadata?.tipo === 'page'
+                  ? data.dashboard?.vias?.pagina
+                  : data.dashboard?.vias?.perfilGrupos;
+              const estadoVia = estadoVisualDeVia(via);
               const cuantos = data.destinos.filter(
                 (d) => d.tipo === 'facebook_group' && d.cuenta_id === identidad.id
               ).length;
@@ -1134,14 +1240,14 @@ export default function Social() {
                   </span>
                   <span
                     className={`w-2 h-2 flex-shrink-0 rounded-full ${
-                      detenida ? 'bg-amber-400' : 'bg-emerald-500'
+                      detenida || estadoVia.tono !== 'lista' ? 'bg-amber-400' : 'bg-emerald-500'
                     }`}
                     title={
                       identidad.frenadaAutomaticamente
                         ? `Frenada por ${identidad.fallosSeguidos} fallos seguidos`
                         : identidad.pausada
                           ? 'En pausa'
-                          : 'Activa'
+                          : estadoVia.etiqueta
                     }
                   />
                 </button>
@@ -1155,7 +1261,7 @@ export default function Social() {
           </div>
         )}
 
-        <div className="border-t border-gray-100 p-2 space-y-1">
+        <div className="social-shell-footer border-t border-gray-100 p-2 space-y-1">
           {/*
             Conectar va arriba de Verificar a propósito: es lo primero que hay
             que hacer, y verificar algo que nunca se conectó siempre va a dar
@@ -1213,7 +1319,7 @@ export default function Social() {
                 <Pause size={12} /> Todo pausado
               </span>
             )}
-            {data.dashboard?.worker?.estado !== 'online' && (
+            {data.dashboard?.vias?.perfilGrupos?.estado !== 'lista' && (
               <span className="social-chip alerta">
                 <AlertTriangle size={12} /> Extensión desconectada
               </span>
@@ -1250,11 +1356,28 @@ export default function Social() {
         </header>
 
         <div className="social-content p-6 md:p-8">
+          {loadError && (
+            <div
+              className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700"
+              role="alert"
+            >
+              <span>No se pudieron actualizar los datos: {loadError}</span>
+              <button type="button" onClick={reload} className="font-bold">
+                Reintentar
+              </button>
+            </div>
+          )}
           {/* ==================== DASHBOARD ==================== */}
           {activeSection === 'dashboard' && (
             <div className="space-y-6">
+              <EstadoDeVias
+                vias={data.dashboard?.vias}
+                onIr={setActiveSection}
+                onVincular={vincularEstaPC}
+              />
+
               {/* Métricas Cards */}
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="grid gap-4 sm:grid-cols-3">
                 <MetricCard
                   label="Grupos disponibles"
                   tinte="#2563eb"
@@ -1291,36 +1414,10 @@ export default function Social() {
                   color="text-rose-600"
                   bg="bg-rose-50"
                 />
-                <MetricCard
-                  label="Extensión"
-                  tinte="#0d9488"
-                  value={
-                    data.dashboard?.health?.resultado?.facebook_session === 'ACTIVE'
-                      ? 'Online'
-                      : data.dashboard?.health?.resultado?.facebook_session === 'EXPIRED'
-                        ? 'Sesión vencida'
-                        : data.dashboard?.worker?.estado === 'online'
-                          ? 'Sin validar'
-                          : 'Offline'
-                  }
-                  icon={ShieldCheck}
-                  color={
-                    data.dashboard?.health?.resultado?.facebook_session === 'ACTIVE'
-                      ? 'text-emerald-600'
-                      : 'text-slate-400'
-                  }
-                  bg={
-                    data.dashboard?.health?.resultado?.facebook_session === 'ACTIVE'
-                      ? 'bg-emerald-50'
-                      : 'bg-slate-100'
-                  }
-                />
               </div>
 
               <QueFaltaParaEmpezar
-                identidades={data.identidades || []}
-                destinos={data.destinos || []}
-                workerOnline={data.dashboard?.worker?.estado === 'online'}
+                vias={data.dashboard?.vias}
                 extensionInstalada={extensionInstalada}
                 onIr={setActiveSection}
                 onVincular={vincularEstaPC}
@@ -1348,7 +1445,7 @@ export default function Social() {
                 enseñar a usar el sistema. Es el lugar para decir qué pasa y
                 dar el botón que lo arregla.
               */}
-              {data.dashboard?.worker?.estado !== 'online' && (
+              {data.dashboard?.vias?.perfilGrupos?.estado !== 'lista' && (
                 <div className="flex items-center gap-4 rounded-2xl border border-amber-200 bg-amber-50 p-4">
                   <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-600">
                     <AlertTriangle size={19} />
@@ -1604,7 +1701,23 @@ export default function Social() {
 
           {/* ==================== CONFIGURACIÓN ==================== */}
           {activeSection === 'config' && (
-            <div className="mx-auto max-w-2xl">
+            <div className="mx-auto max-w-5xl space-y-6">
+              {configError && (
+                <div
+                  className="flex items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700"
+                  role="alert"
+                >
+                  <span>{configError}</span>
+                  <button type="button" onClick={loadSocialConfig} className="font-bold">
+                    Reintentar
+                  </button>
+                </div>
+              )}
+              <EstadoDeVias
+                vias={data.dashboard?.vias}
+                onIr={setActiveSection}
+                onVincular={vincularEstaPC}
+              />
               <PerillasDeLaCola
                 config={socialConfig}
                 onCambiar={(campo, valor) =>
@@ -1635,6 +1748,10 @@ export default function Social() {
               onGuardar={saveCampaign}
               onAlternarDestino={(id) => toggle('destinoIds', id)}
               destinosElegidos={selectedCount}
+              destinosRevision={data.destinos.filter((item) =>
+                resolvedDestinationIds.includes(item.id)
+              )}
+              errorAlGuardar={campaignError}
               identidades={data.identidades || []}
               onIrADestinos={() => setActiveSection('destinos')}
               /*
@@ -1657,6 +1774,7 @@ export default function Social() {
                   formato: 'post',
                   formatos: {},
                 });
+                setEditingCampaignId(null);
                 setActiveSection('dashboard');
               }}
             />
@@ -1871,6 +1989,7 @@ export default function Social() {
           {activeSection === 'autolistas' && (
             <Autolistas
               destinos={(data.destinos || []).filter((d) => d.habilitada)}
+              media={data.media || []}
               onCambio={async () => {
                 try {
                   const r = await api.get('/social/autolistas');
@@ -2018,119 +2137,120 @@ export default function Social() {
 
               {/* Grid de destinos */}
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {data.destinos.map((item) => (
-                  <div
-                    key={item.id}
-                    className="group relative rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition-shadow hover:shadow-md"
-                  >
-                    {editingDest === item.id ? (
-                      <div className="space-y-2">
-                        <input
-                          value={editForm.nombre}
-                          onChange={(e) => setEditForm({ ...editForm, nombre: e.target.value })}
-                          className="w-full rounded-lg border border-slate-200 p-2 text-sm"
-                        />
-                        <input
-                          value={editForm.url}
-                          onChange={(e) => setEditForm({ ...editForm, url: e.target.value })}
-                          className="w-full rounded-lg border border-slate-200 p-2 text-sm"
-                        />
-                        <div className="flex items-center gap-3 text-xs">
-                          <label className="flex items-center gap-1">
-                            <input
-                              type="checkbox"
-                              checked={editForm.habilitada}
-                              onChange={(e) =>
-                                setEditForm({ ...editForm, habilitada: e.target.checked })
-                              }
-                            />
-                            Habilitado
-                          </label>
-                          <label className="flex items-center gap-1">
-                            <input
-                              type="checkbox"
-                              checked={editForm.favorita}
-                              onChange={(e) =>
-                                setEditForm({ ...editForm, favorita: e.target.checked })
-                              }
-                            />
-                            Favorito
-                          </label>
-                        </div>
-                        <div className="flex gap-2">
-                          <button
-                            onClick={saveEditDest}
-                            className="rounded-lg bg-slate-900 px-3 py-1 text-xs font-bold text-white"
-                          >
-                            Guardar
-                          </button>
-                          <button
-                            onClick={() => setEditingDest(null)}
-                            className="rounded-lg border border-slate-300 px-3 py-1 text-xs font-bold"
-                          >
-                            <X size={12} />
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <>
-                        <div className="flex items-start justify-between">
-                          <div className="flex items-center gap-2">
-                            <div
-                              className={`flex h-8 w-8 items-center justify-center rounded-lg ${
-                                item.tipo.startsWith('instagram_')
-                                  ? 'bg-pink-50 text-pink-600'
-                                  : item.tipo === 'facebook_page'
-                                    ? 'bg-blue-50 text-blue-600'
-                                    : 'bg-indigo-50 text-indigo-600'
-                              }`}
-                            >
-                              {item.tipo.startsWith('instagram_') ? (
-                                <Instagram size={14} />
-                              ) : (
-                                <Facebook size={14} />
-                              )}
-                            </div>
-                            <div>
-                              <p className="text-sm font-bold">{item.nombre}</p>
-                              <p className="text-[10px] text-slate-400 uppercase">
-                                {item.tipo
-                                  .replace('facebook_', 'Facebook ')
-                                  .replace('instagram_', 'Instagram ')}
-                              </p>
-                            </div>
+                {data.destinos.map((item) => {
+                  const conexion = estadoVisualDeVia(item.estadoConexion);
+                  return (
+                    <div
+                      key={item.id}
+                      className="group relative rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition-shadow hover:shadow-md"
+                    >
+                      {editingDest === item.id ? (
+                        <div className="space-y-2">
+                          <input
+                            value={editForm.nombre}
+                            onChange={(e) => setEditForm({ ...editForm, nombre: e.target.value })}
+                            className="w-full rounded-lg border border-slate-200 p-2 text-sm"
+                          />
+                          <input
+                            value={editForm.url}
+                            onChange={(e) => setEditForm({ ...editForm, url: e.target.value })}
+                            className="w-full rounded-lg border border-slate-200 p-2 text-sm"
+                          />
+                          <div className="flex items-center gap-3 text-xs">
+                            <label className="flex items-center gap-1">
+                              <input
+                                type="checkbox"
+                                checked={editForm.habilitada}
+                                onChange={(e) =>
+                                  setEditForm({ ...editForm, habilitada: e.target.checked })
+                                }
+                              />
+                              Habilitado
+                            </label>
+                            <label className="flex items-center gap-1">
+                              <input
+                                type="checkbox"
+                                checked={editForm.favorita}
+                                onChange={(e) =>
+                                  setEditForm({ ...editForm, favorita: e.target.checked })
+                                }
+                              />
+                              Favorito
+                            </label>
                           </div>
-                          <div className="flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                          <div className="flex gap-2">
                             <button
-                              onClick={() => startEditDest(item)}
-                              className="rounded p-1 text-slate-400 hover:bg-slate-100"
-                              title="Editar"
+                              onClick={saveEditDest}
+                              className="rounded-lg bg-slate-900 px-3 py-1 text-xs font-bold text-white"
                             >
-                              <Pencil size={13} />
+                              Guardar
                             </button>
                             <button
-                              onClick={() => removeDest(item.id)}
-                              className="rounded p-1 text-rose-400 hover:bg-rose-50"
-                              title="Eliminar"
+                              onClick={() => setEditingDest(null)}
+                              className="rounded-lg border border-slate-300 px-3 py-1 text-xs font-bold"
                             >
-                              <Trash2 size={13} />
+                              <X size={12} />
                             </button>
                           </div>
                         </div>
-                        <div className="mt-3 flex items-center justify-between">
-                          <span
-                            className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${item.habilitada ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-400'}`}
-                          >
-                            {item.habilitada ? 'Activo' : 'Pausado'}
-                          </span>
-                          {item.favorita && (
-                            <Star size={14} className="text-amber-400" fill="currentColor" />
-                          )}
-                        </div>
-                      </>
-                    )}
-                  </div>
-                ))}
+                      ) : (
+                        <>
+                          <div className="flex items-start justify-between">
+                            <div className="flex items-center gap-2">
+                              <div
+                                className={`flex h-8 w-8 items-center justify-center rounded-lg ${
+                                  item.tipo.startsWith('instagram_')
+                                    ? 'bg-pink-50 text-pink-600'
+                                    : item.tipo === 'facebook_page'
+                                      ? 'bg-blue-50 text-blue-600'
+                                      : 'bg-indigo-50 text-indigo-600'
+                                }`}
+                              >
+                                {item.tipo.startsWith('instagram_') ? (
+                                  <Instagram size={14} />
+                                ) : (
+                                  <Facebook size={14} />
+                                )}
+                              </div>
+                              <div>
+                                <p className="text-sm font-bold">{item.nombre}</p>
+                                <p className="text-[10px] text-slate-400 uppercase">
+                                  {item.tipo
+                                    .replace('facebook_', 'Facebook ')
+                                    .replace('instagram_', 'Instagram ')}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                              <button
+                                onClick={() => startEditDest(item)}
+                                className="rounded p-1 text-slate-400 hover:bg-slate-100"
+                                title="Editar"
+                              >
+                                <Pencil size={13} />
+                              </button>
+                              <button
+                                onClick={() => removeDest(item.id)}
+                                className="rounded p-1 text-rose-400 hover:bg-rose-50"
+                                title="Eliminar"
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            </div>
+                          </div>
+                          <div className="mt-3 flex items-center justify-between">
+                            <span className={`social-via-estado ${conexion.tono}`}>
+                              {item.habilitada ? conexion.etiqueta : 'Pausado'}
+                            </span>
+                            {item.favorita && (
+                              <Star size={14} className="text-amber-400" fill="currentColor" />
+                            )}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
                 {!data.destinos.length && (
                   <div className="col-span-full rounded-xl border border-dashed border-slate-200 p-8 text-center text-sm text-slate-400">
                     Aún no hay destinos sincronizados.
@@ -2247,6 +2367,15 @@ export default function Social() {
                                   <RefreshCw size={14} />
                                 </button>
                               )}
+                              {item.estado === 'draft' && (
+                                <button
+                                  onClick={() => openCampaignDraft(item.id)}
+                                  className="rounded p-1 text-xs font-bold text-slate-600 hover:bg-slate-100"
+                                  title="Continuar editando"
+                                >
+                                  <Pencil size={14} />
+                                </button>
+                              )}
                               {['draft', 'scheduled', 'queued', 'processing'].includes(
                                 item.estado
                               ) && (
@@ -2307,6 +2436,17 @@ export default function Social() {
                   <RefreshCw className="mr-2 animate-spin" size={18} /> Cargando métricas…
                 </div>
               )}
+              {!metricsLoading && metricsError && (
+                <div
+                  className="rounded-xl border border-rose-200 bg-rose-50 p-5 text-sm text-rose-700"
+                  role="alert"
+                >
+                  <p>{metricsError}</p>
+                  <button type="button" onClick={loadMetrics} className="mt-3 font-bold">
+                    Reintentar
+                  </button>
+                </div>
+              )}
               {!metricsLoading && metricsData && (
                 <>
                   {/* Resumen */}
@@ -2327,7 +2467,7 @@ export default function Social() {
                     />
                     <MetricCard
                       label="Tasa de éxito"
-                      value={metricsData.resumen.tasaExito}
+                      value={formatearPorcentajeMetrica(metricsData.resumen.tasaExito)}
                       icon={ShieldCheck}
                       color="text-emerald-600"
                       bg="bg-emerald-50"
@@ -2396,6 +2536,11 @@ export default function Social() {
                             </div>
                           );
                         })}
+                      {!metricsData.porDia.length && (
+                        <p className="m-auto text-sm text-slate-400">
+                          Todavía no hay ejecuciones para mostrar.
+                        </p>
+                      )}
                     </div>
                   </div>
 
@@ -2430,7 +2575,10 @@ export default function Social() {
 
                     {/* Horarios más efectivos */}
                     <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-                      <h3 className="text-sm font-bold text-slate-900">Horarios más efectivos</h3>
+                      <h3 className="text-sm font-bold text-slate-900">Ejecución por hora</h3>
+                      <p className="mt-1 text-xs text-slate-400">
+                        Indica si el sistema logró publicar, no cuánta gente lo vio.
+                      </p>
                       <div className="mt-4 grid grid-cols-6 gap-2">
                         {metricsData.porHora.map((h) => (
                           <div key={h.hora} className="text-center">
@@ -2480,6 +2628,11 @@ export default function Social() {
                           <span className="text-xs text-slate-400">{e.cantidad}</span>
                         </div>
                       ))}
+                      {!metricsData.estados.length && (
+                        <p className="text-sm text-slate-400">
+                          Todavía no hay estados registrados.
+                        </p>
+                      )}
                     </div>
                   </div>
                 </>
@@ -2954,16 +3107,76 @@ function ProximasSalidas({ campanas, onVerCalendario }) {
  * todo hecho, el bloque desaparece solo y el tablero queda para lo que
  * importa: qué se publicó y qué está por salir.
  */
-function QueFaltaParaEmpezar({
-  identidades,
-  destinos,
-  workerOnline,
-  extensionInstalada,
-  onIr,
-  onVincular,
-}) {
-  const hayGrupos = destinos.some((d) => d.tipo === 'facebook_group');
-  const hayConexionApi = identidades.some((i) => i.tieneToken);
+function EstadoDeVias({ vias = {}, onIr, onVincular }) {
+  const items = [
+    { clave: 'pagina', nombre: 'Página de Facebook', icono: Facebook },
+    { clave: 'instagram', nombre: 'Instagram', icono: Instagram },
+    { clave: 'perfilGrupos', nombre: 'Perfil y grupos', icono: Users },
+  ];
+
+  return (
+    <section aria-labelledby="social-vias-titulo">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div>
+          <h3 id="social-vias-titulo" className="text-sm font-bold text-slate-900">
+            Canales de publicación
+          </h3>
+          <p className="mt-0.5 text-xs text-slate-400">Cada canal funciona por separado.</p>
+        </div>
+      </div>
+      <div className="grid gap-3 md:grid-cols-3">
+        {items.map(({ clave, nombre, icono: Icono }) => {
+          const via = vias?.[clave] || { estado: 'sin_configurar' };
+          const visual = estadoVisualDeVia(via);
+          return (
+            <article key={clave} className={`social-via social-via--${visual.tono}`}>
+              <span className="social-via-icono" aria-hidden="true">
+                <Icono size={17} />
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h4 className="text-sm font-bold text-slate-900">{nombre}</h4>
+                  <span className={`social-via-estado ${visual.tono}`}>{visual.etiqueta}</span>
+                </div>
+                <p className="mt-1 text-xs leading-relaxed text-slate-500">
+                  {via.motivo || 'Todavía no se comprobó este canal.'}
+                </p>
+              </div>
+              {visual.accion && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (via.estado === 'en_pausa') {
+                      onIr('dashboard');
+                      setTimeout(
+                        () =>
+                          document
+                            .getElementById('social-freno')
+                            ?.scrollIntoView({ behavior: 'smooth', block: 'center' }),
+                        0
+                      );
+                      return;
+                    }
+                    if (clave === 'perfilGrupos') onVincular();
+                    else onIr('destinos');
+                  }}
+                  className="social-via-accion"
+                >
+                  {visual.accion}
+                </button>
+              )}
+            </article>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function QueFaltaParaEmpezar({ vias = {}, extensionInstalada, onIr, onVincular }) {
+  const perfilListo = vias?.perfilGrupos?.estado === 'lista';
+  const paginaLista = vias?.pagina?.estado === 'lista';
+  const instagramListo = vias?.instagram?.estado === 'lista';
 
   const pasos = [
     /*
@@ -2976,30 +3189,28 @@ function QueFaltaParaEmpezar({
     */
     extensionInstalada
       ? {
-          hecho: workerOnline,
-          titulo: 'Conectar tus grupos',
-          detalle:
-            'Un clic. La extensión publica en tus grupos usando la sesión de Facebook que ya tenés abierta.',
+          hecho: perfilListo,
+          titulo: 'Comprobar perfil y grupos',
+          detalle: vias?.perfilGrupos?.motivo || 'Vinculá esta PC y comprobá tu sesión.',
           accion: { texto: 'Conectar', vincular: true },
         }
       : {
-          hecho: false,
+          hecho: perfilListo,
           titulo: 'Instalar la extensión de Chrome',
           detalle:
             'Es una sola vez y lleva un minuto. Facebook cerró la forma de publicar en grupos desde un servidor, así que hay que hacerlo desde tu navegador.',
-          accion: { texto: 'Cómo se instala', ir: 'configuracion' },
+          accion: { texto: 'Cómo se instala', ir: 'config' },
         },
     {
-      hecho: hayGrupos,
-      titulo: 'Traer tus grupos de Facebook',
-      detalle: 'Con el Worker andando y la sesión iniciada, el sistema trae la lista solo.',
-      accion: { texto: 'Ir a Destinos', ir: 'destinos' },
+      hecho: paginaLista,
+      titulo: 'Conectar la Página de Facebook',
+      detalle: vias?.pagina?.motivo || 'Elegí la página que administrás y comprobá la conexión.',
+      accion: { texto: 'Conectar', ir: 'destinos' },
     },
     {
-      hecho: hayConexionApi,
-      titulo: 'Conectar la Fan Page e Instagram',
-      detalle:
-        'Con un botón. Eso publica desde el servidor, sin navegador y sin que la PC esté prendida.',
+      hecho: instagramListo,
+      titulo: 'Comprobar Instagram',
+      detalle: vias?.instagram?.motivo || 'Instagram se conecta desde la página de Facebook.',
       accion: { texto: 'Conectar', ir: 'destinos' },
     },
   ];
@@ -3185,7 +3396,11 @@ function ChipDeRed({
     La Fan Page sale por API y el Perfil por el Worker local. Por eso ambos
     ofrecen Post, Reel e Historia, aunque usen motores diferentes.
   */
-  const formatosDisponibles = FORMATOS_UI.filter((f) => f.destinos.includes(cuenta.tipoDestino));
+  const formatosDisponibles = FORMATOS_UI.filter(
+    (f) =>
+      f.destinos.includes(cuenta.tipoDestino) &&
+      !(f.clave === 'historia' && red === 'instagram' && cuenta.igAccountType !== 'BUSINESS')
+  );
   const opcionGrupos = cuenta.tipos?.includes('facebook_group')
     ? {
         clave: 'grupos',
@@ -3520,13 +3735,16 @@ function Compositor({
   onGuardar,
   onAlternarDestino,
   destinosElegidos,
+  destinosRevision,
+  errorAlGuardar,
   onCancelar,
   identidades,
   onIrADestinos,
 }) {
   const [masOpciones, setMasOpciones] = useState(false);
-  const [menuAbierto, setMenuAbierto] = useState(false);
   const [mostrarNotas, setMostrarNotas] = useState(Boolean(draft.nombre));
+  const [accionPendiente, setAccionPendiente] = useState('');
+  const disparadorAccion = useRef(null);
 
   const elegidos = useMemo(
     () => destinos.filter((d) => draft.destinoIds.includes(d.id)),
@@ -3593,6 +3811,9 @@ function Compositor({
         nombre:
           red === 'instagram' ? destino.nombre : identidad?.nombre || destino.nombre || 'Facebook',
         avatar: destino.avatar || null,
+        igAccountType: String(
+          destino.metadata?.accountType || identidad?.metadata?.igAccountType || ''
+        ).toUpperCase(),
       });
     }
 
@@ -3816,6 +4037,24 @@ function Compositor({
     : draft.texto.trim() || draft.mediaIds.length;
 
   const puedePublicar = todosLosTextosListos && destinosElegidos && !problemaDeFormato;
+  const puedeGuardarBorrador = Boolean(todosLosTextosListos);
+  const revision = useMemo(
+    () =>
+      resumenDeRevision(
+        { ...draft, destinoIds: destinosRevision.map((item) => item.id) },
+        destinosRevision,
+        media
+      ),
+    [draft, destinosRevision, media]
+  );
+  const cerrarRevision = () => {
+    setAccionPendiente('');
+    requestAnimationFrame(() => disparadorAccion.current?.focus());
+  };
+  const pedirConfirmacion = (accion, evento) => {
+    disparadorAccion.current = evento.currentTarget;
+    setAccionPendiente(accion);
+  };
 
   return (
     <div className="social-compositor">
@@ -4306,38 +4545,6 @@ function Compositor({
             de Instagram. Desplegados ocuparían la mitad del editor todos los
             días para algo que se toca una vez por mes.
           */}
-          <details className="social-comp-config">
-            <summary>
-              <Settings size={15} />
-              Configuración global
-              <span className="social-comp-config-resumen">
-                {draft.autoPublicar === false ? 'Guardar borrador' : 'Publicar automáticamente'}
-              </span>
-            </summary>
-
-            <label className="social-comp-perilla">
-              <input
-                type="checkbox"
-                checked={draft.autoPublicar !== false}
-                onChange={(e) =>
-                  setDraft({
-                    ...draft,
-                    autoPublicar: e.target.checked,
-                    programadaPara: e.target.checked ? draft.programadaPara : '',
-                    personalizaciones: {
-                      ...draft.personalizaciones,
-                      auto_publicar: e.target.checked,
-                    },
-                  })
-                }
-              />
-              <span>
-                <strong>Publicar automáticamente</strong>
-                <em>Si lo apagás, se guarda como borrador y no se envía a ninguna red.</em>
-              </span>
-            </label>
-          </details>
-
           {/*
             La de Instagram sólo aparece si Instagram está entre los destinos.
 
@@ -4579,53 +4786,41 @@ function Compositor({
               leerlos para saber cuál apretar. Así, la acción habitual está a un
               clic y las otras a dos, que es la proporción en que se usan.
             */}
-            <div className="social-comp-accion">
+            <div className="social-comp-acciones">
               <button
+                type="button"
+                disabled={enviando || !puedeGuardarBorrador}
+                onClick={() => onGuardar('borrador')}
+                className="social-comp-borrador"
+              >
+                <Save size={14} /> Guardar borrador
+              </button>
+              <button
+                type="button"
+                disabled={
+                  enviando || !puedePublicar || !draft.programadaPara || !revision.puedePublicar
+                }
+                onClick={(evento) => pedirConfirmacion('programar', evento)}
+                className="social-comp-programar"
+              >
+                <Clock size={14} /> Programar
+              </button>
+              <button
+                type="button"
                 disabled={enviando || !puedePublicar}
-                onClick={() => onGuardar(draft.autoPublicar !== false)}
+                onClick={(evento) => pedirConfirmacion('publicar', evento)}
                 className={`social-comp-principal ${draft.ensayo ? 'ensayo' : ''}`}
               >
-                <Play size={14} />
-                {draft.autoPublicar === false
-                  ? 'Guardar borrador'
-                  : draft.ensayo
-                    ? 'Correr el ensayo'
-                    : draft.programadaPara
-                      ? 'Programar'
-                      : 'Publicar ahora'}
+                <Play size={14} /> {draft.ensayo ? 'Correr ensayo' : 'Publicar ahora'}
               </button>
-
-              <button
-                onClick={() => setMenuAbierto(!menuAbierto)}
-                disabled={enviando}
-                className={`social-comp-flecha ${draft.ensayo ? 'ensayo' : ''}`}
-                title="Otras opciones"
-              >
-                <ChevronDown size={15} />
-              </button>
-
-              {menuAbierto && (
-                <div className="social-comp-menu">
-                  <button
-                    onClick={() => {
-                      setMenuAbierto(false);
-                      onGuardar(false);
-                    }}
-                  >
-                    Guardar como borrador
-                  </button>
-                  <button
-                    onClick={() => {
-                      setMenuAbierto(false);
-                      setDraft({ ...draft, ensayo: !draft.ensayo });
-                    }}
-                  >
-                    {draft.ensayo ? 'Salir del ensayo' : 'Convertir en ensayo'}
-                  </button>
-                </div>
-              )}
             </div>
           </div>
+
+          {errorAlGuardar && (
+            <p className="social-comp-error" role="alert">
+              <AlertTriangle size={14} /> {errorAlGuardar}
+            </p>
+          )}
 
           {!puedePublicar && (
             <p className="social-comp-falta">
@@ -4717,6 +4912,44 @@ function Compositor({
           </p>
         </div>
       </div>
+
+      <ActionDialog
+        open={Boolean(accionPendiente)}
+        title={accionPendiente === 'programar' ? 'Confirmar programación' : 'Confirmar publicación'}
+        description="Revisá el contenido, los destinos y el momento antes de continuar."
+        confirmLabel={accionPendiente === 'programar' ? 'Confirmar y programar' : 'Publicar ahora'}
+        cancelLabel="Volver a editar"
+        tone="primary"
+        loading={enviando}
+        onClose={cerrarRevision}
+        onConfirm={() => {
+          const accion = accionPendiente;
+          cerrarRevision();
+          onGuardar(accion);
+        }}
+      >
+        <div className="social-revision">
+          <p>
+            <strong>Texto:</strong> {revision.texto || 'Sólo contenido multimedia'}
+          </p>
+          <p>
+            <strong>Destinos:</strong> {revision.destinos.join(', ') || 'Ninguno'}
+          </p>
+          <p>
+            <strong>Adjuntos:</strong> {revision.adjuntos.join(', ') || 'Ninguno'}
+          </p>
+          <p>
+            <strong>Momento:</strong> {accionPendiente === 'programar' ? revision.momento : 'Ahora'}
+          </p>
+          {revision.alertas.length > 0 && (
+            <ul>
+              {revision.alertas.map((alerta) => (
+                <li key={alerta}>{alerta}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </ActionDialog>
     </div>
   );
 }
@@ -4741,7 +4974,7 @@ function Compositor({
  * la piedra, cómo llegar, las fotos del salón. Se carga una vez y queda
  * girando: cuando una pieza sale, vuelve al final de la fila.
  */
-function Autolistas({ destinos, onCambio }) {
+function Autolistas({ destinos, media, onCambio }) {
   const [listas, setListas] = useState([]);
   const [abierta, setAbierta] = useState(null);
   const [creando, setCreando] = useState(false);
@@ -4876,6 +5109,7 @@ function Autolistas({ destinos, onCambio }) {
           key={lista.id}
           lista={lista}
           destinos={destinos}
+          media={media}
           abierta={abierta === lista.id}
           onAbrir={() => setAbierta(abierta === lista.id ? null : lista.id)}
           onCambio={async () => {
@@ -4888,9 +5122,12 @@ function Autolistas({ destinos, onCambio }) {
   );
 }
 
-function AutolistaFila({ lista, destinos, abierta, onAbrir, onCambio }) {
+function AutolistaFila({ lista, destinos, media, abierta, onAbrir, onCambio }) {
   const [detalle, setDetalle] = useState(null);
   const [texto, setTexto] = useState('');
+  const [mediaIds, setMediaIds] = useState([]);
+  const [formato, setFormato] = useState('post');
+  const [formatos, setFormatos] = useState({});
 
   useEffect(() => {
     if (!abierta) return;
@@ -4911,10 +5148,30 @@ function AutolistaFila({ lista, destinos, abierta, onAbrir, onCambio }) {
   };
 
   const agregar = async () => {
-    if (!texto.trim()) return;
+    if (!texto.trim() && !mediaIds.length) {
+      return toast.error('Escribí un texto o elegí al menos un archivo.');
+    }
     try {
-      setDetalle(await api.post(`/social/autolistas/${lista.id}/piezas`, { texto }));
+      const formatosPorCuenta = Object.fromEntries(
+        canales.map((canal) => [
+          canal.clave,
+          canal.formatos.some((opcion) => opcion.clave === (formatos[canal.clave] || formato))
+            ? formatos[canal.clave] || formato
+            : 'post',
+        ])
+      );
+      setDetalle(
+        await api.post(`/social/autolistas/${lista.id}/piezas`, {
+          texto,
+          mediaIds,
+          formato,
+          formatos: formatosPorCuenta,
+        })
+      );
       setTexto('');
+      setMediaIds([]);
+      setFormato('post');
+      setFormatos({});
       await onCambio?.();
     } catch (error) {
       toast.error(apiError(error));
@@ -4922,6 +5179,20 @@ function AutolistaFila({ lista, destinos, abierta, onAbrir, onCambio }) {
   };
 
   const elegidos = destinos.filter((d) => lista.destinos.includes(d.id));
+  const canales = Object.values(
+    elegidos.reduce((acumulado, destino) => {
+      const red = redDelDestino(destino);
+      const clave = `${destino.cuenta_id}|${red}`;
+      if (!acumulado[clave]) {
+        acumulado[clave] = { clave, nombre: destino.nombre, destinos: [], formatos: [] };
+      }
+      acumulado[clave].destinos.push(destino);
+      acumulado[clave].formatos = FORMATOS_UI.filter((opcion) =>
+        acumulado[clave].destinos.every((item) => opcion.destinos.includes(item.tipo))
+      );
+      return acumulado;
+    }, {})
+  );
 
   return (
     <div className="social-tarjeta p-5">
@@ -5022,6 +5293,10 @@ function AutolistaFila({ lista, destinos, abierta, onAbrir, onCambio }) {
                 >
                   <span className="mt-0.5 text-xs font-bold text-slate-400">{i + 1}</span>
                   <p className="min-w-0 flex-1 text-sm text-slate-700">{pieza.texto}</p>
+                  <span className="whitespace-nowrap text-[11px] font-semibold text-slate-400">
+                    {FORMATOS_UI.find((opcion) => opcion.clave === pieza.formato)?.nombre || 'Post'}
+                    {pieza.mediaIds?.length ? ` · ${pieza.mediaIds.length} archivo(s)` : ''}
+                  </span>
                   {pieza.veces_publicada > 0 && (
                     <span className="whitespace-nowrap text-[11px] text-slate-400">
                       salió {pieza.veces_publicada} {pieza.veces_publicada === 1 ? 'vez' : 'veces'}
@@ -5046,20 +5321,103 @@ function AutolistaFila({ lista, destinos, abierta, onAbrir, onCambio }) {
             </div>
           </div>
 
-          <div className="flex gap-2">
-            <textarea
-              value={texto}
-              onChange={(e) => setTexto(e.target.value)}
-              rows={2}
-              placeholder="Ej.: Hacemos delivery hasta las 23. Pedí por WhatsApp."
-              className="flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-red-300 focus:outline-none"
-            />
-            <button
-              onClick={agregar}
-              className="self-end rounded-lg bg-slate-900 px-4 py-2 text-xs font-bold text-white hover:bg-slate-800"
-            >
-              Agregar
-            </button>
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-xs font-bold text-slate-700">Agregar a la fila</span>
+              <select
+                value={formato}
+                onChange={(e) => setFormato(e.target.value)}
+                className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700"
+              >
+                {FORMATOS_UI.map((opcion) => (
+                  <option key={opcion.clave} value={opcion.clave}>
+                    {opcion.nombre}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {canales.length > 0 && (
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                {canales.map((canal) => (
+                  <label key={canal.clave} className="text-[11px] font-semibold text-slate-500">
+                    {canal.nombre}
+                    <select
+                      value={
+                        canal.formatos.some(
+                          (opcion) => opcion.clave === (formatos[canal.clave] || formato)
+                        )
+                          ? formatos[canal.clave] || formato
+                          : 'post'
+                      }
+                      onChange={(e) =>
+                        setFormatos((actual) => ({ ...actual, [canal.clave]: e.target.value }))
+                      }
+                      className="mt-1 block w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs font-semibold text-slate-700"
+                    >
+                      {canal.formatos.map((opcion) => (
+                        <option key={opcion.clave} value={opcion.clave}>
+                          {opcion.nombre}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ))}
+              </div>
+            )}
+
+            <div className="mt-3 flex flex-wrap gap-2">
+              {media.slice(0, 10).map((archivo) => {
+                const elegido = mediaIds.includes(archivo.id);
+                return (
+                  <button
+                    key={archivo.id}
+                    type="button"
+                    disabled={!elegido && mediaIds.length >= 10}
+                    onClick={() =>
+                      setMediaIds((actual) =>
+                        elegido ? actual.filter((id) => id !== archivo.id) : [...actual, archivo.id]
+                      )
+                    }
+                    className={`overflow-hidden rounded-lg border-2 bg-white disabled:opacity-40 ${
+                      elegido ? 'border-red-500' : 'border-transparent'
+                    }`}
+                    title={archivo.nombre}
+                  >
+                    {String(archivo.mime || '').startsWith('image/') ? (
+                      <img
+                        src={archivo.ruta}
+                        alt={archivo.nombre}
+                        className="h-12 w-12 object-cover"
+                      />
+                    ) : (
+                      <FileText className="m-3 text-slate-400" size={24} />
+                    )}
+                  </button>
+                );
+              })}
+              {!media.length && (
+                <p className="text-xs text-slate-400">
+                  Todavía no hay archivos en la biblioteca. Cargalos desde Crear campaña.
+                </p>
+              )}
+            </div>
+
+            <div className="mt-3 flex gap-2">
+              <textarea
+                value={texto}
+                onChange={(e) => setTexto(e.target.value)}
+                rows={2}
+                placeholder="Ej.: Hacemos delivery hasta las 23. Pedí por WhatsApp."
+                className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-red-300 focus:outline-none"
+              />
+              <button
+                onClick={agregar}
+                className="self-end rounded-lg bg-slate-900 px-4 py-2 text-xs font-bold text-white hover:bg-slate-800"
+              >
+                Agregar
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -6089,7 +6447,7 @@ function FrenoDeMano({ pausado, motivo, identidades, onPausaGeneral, onPausaIden
   const frenadasSolas = identidades.filter((i) => i.frenadaAutomaticamente);
 
   return (
-    <div className={`social-freno ${pausado ? 'social-freno--activo' : ''}`}>
+    <div id="social-freno" className={`social-freno ${pausado ? 'social-freno--activo' : ''}`}>
       <div className="social-freno-principal">
         <div>
           <div className="social-freno-titulo">

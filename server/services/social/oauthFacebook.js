@@ -291,7 +291,7 @@ async function canjearCodigo(codigo) {
 async function paginasDelUsuario(tokenDeUsuario) {
   const datos = await pedirAMeta('me/accounts', {
     access_token: tokenDeUsuario,
-    fields: 'id,name,access_token,instagram_business_account{id,username}',
+    fields: 'id,name,access_token,instagram_business_account{id,username,account_type}',
   });
 
   return (datos.data || []).map((pagina) => ({
@@ -302,6 +302,7 @@ async function paginasDelUsuario(tokenDeUsuario) {
       ? {
           id: pagina.instagram_business_account.id,
           usuario: pagina.instagram_business_account.username || '',
+          tipo: pagina.instagram_business_account.account_type || '',
         }
       : null,
   }));
@@ -363,11 +364,12 @@ function paginasEncontradas(usuarioId) {
 function crearDestinosDeLaPagina(cuentaId, pagina) {
   const guardar = db.prepare(
     `INSERT INTO social_destinations
-       (provider, cuenta_id, tipo, identificador_externo, nombre, url, habilitada, execution_class, provider_clave)
-     VALUES (?, ?, ?, ?, ?, ?, 1, 'api', ?)
+      (provider, cuenta_id, tipo, identificador_externo, nombre, url, metadata, habilitada, execution_class, provider_clave)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 1, 'api', ?)
      ON CONFLICT(provider, cuenta_id, tipo, identificador_externo)
      DO UPDATE SET nombre = excluded.nombre, url = excluded.url, habilitada = 1,
-                   execution_class = 'api', provider_clave = excluded.provider_clave`
+                   metadata = excluded.metadata, execution_class = 'api',
+                   provider_clave = excluded.provider_clave`
   );
 
   guardar.run(
@@ -377,6 +379,7 @@ function crearDestinosDeLaPagina(cuentaId, pagina) {
     String(pagina.id),
     pagina.nombre,
     `https://www.facebook.com/${pagina.id}`,
+    '{}',
     'facebook_page_api'
   );
 
@@ -388,6 +391,7 @@ function crearDestinosDeLaPagina(cuentaId, pagina) {
       String(pagina.instagram.id),
       pagina.instagram.usuario ? `@${pagina.instagram.usuario}` : 'Instagram',
       pagina.instagram.usuario ? `https://www.instagram.com/${pagina.instagram.usuario}/` : '',
+      JSON.stringify({ accountType: pagina.instagram.tipo || '' }),
       'instagram_feed_api'
     );
   }
@@ -464,9 +468,11 @@ function conectarPagina({ usuarioId, pageId, cuentaId }) {
   metadata.token = pagina.token; // ya viene cifrado
   metadata.pageId = pagina.id;
   metadata.pageNombre = pagina.nombre;
+  delete metadata.verificaciones;
   if (pagina.instagram) {
     metadata.igId = pagina.instagram.id;
     metadata.igUsuario = pagina.instagram.usuario;
+    metadata.igAccountType = pagina.instagram.tipo || '';
   }
 
   db.prepare('UPDATE social_accounts SET metadata = ? WHERE id = ?').run(

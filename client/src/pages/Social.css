@@ -41,6 +41,115 @@
   color: var(--tinta);
 }
 
+.social-shell-nav {
+  border-color: #292d34;
+  background: #171a1f;
+  color: #f8fafc;
+}
+
+.social-shell-nav .border-gray-100,
+.social-shell-nav .border-gray-200 {
+  border-color: #292d34;
+}
+
+.social-shell-nav .text-gray-900,
+.social-shell-nav .text-gray-600 {
+  color: #f8fafc;
+}
+
+.social-shell-nav .text-gray-400,
+.social-shell-nav .text-gray-300 {
+  color: #9ca3af;
+}
+
+.social-shell-nav button:hover {
+  background: #23272e;
+  color: #fff;
+}
+
+.social-shell-nav .bg-brand-50 {
+  background: rgb(220 31 45 / 18%);
+  color: #fff;
+}
+
+.social-via {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 12px;
+  border: 1px solid var(--linea);
+  border-radius: 16px;
+  background: #fff;
+  padding: 16px;
+  box-shadow: 0 5px 18px rgb(15 23 42 / 4%);
+}
+
+.social-via--lista {
+  border-color: #bbf7d0;
+}
+
+.social-via--alerta {
+  border-color: #fecaca;
+  background: #fffafa;
+}
+
+.social-via--espera,
+.social-via--pendiente {
+  border-color: #fde68a;
+}
+
+.social-via-icono {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  place-items: center;
+  border-radius: 11px;
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.social-via-estado {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 3px 8px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.social-via-estado.lista {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.social-via-estado.alerta {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.social-via-estado.espera,
+.social-via-estado.pendiente {
+  background: #fef3c7;
+  color: #a16207;
+}
+
+.social-via-accion {
+  flex: none;
+  border-radius: 10px;
+  background: #f1f5f9;
+  padding: 7px 10px;
+  color: #334155;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.social-via-accion:hover {
+  background: #e2e8f0;
+}
+
 /* ── El sidebar ─────────────────────────────────────────────────────────── */
 
 .social-vista .social-lateral {
@@ -482,35 +591,92 @@
     overflow: auto;
   }
 
-  .social-vista .social-lateral {
+  .social-vista .social-shell-nav {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    width: 100% !important;
+    max-height: 66px;
     flex-direction: row;
-    align-items: center;
-    gap: 8px;
+    align-items: stretch;
+    border-right: 0;
+    border-bottom: 1px solid #292d34;
+  }
+
+  .social-vista .social-shell-brand {
+    width: 56px;
+    height: auto;
+    flex: none;
+    padding: 10px 12px;
+  }
+
+  .social-vista .social-shell-brand > span {
+    display: none;
+  }
+
+  .social-vista .social-shell-menu {
+    display: flex;
     overflow-x: auto;
-    padding: 0 10px;
-  }
-
-  .social-vista .social-menu {
+    overflow-y: hidden;
     flex-direction: row;
-    padding: 8px 0;
+    gap: 4px;
+    padding: 8px;
+    scrollbar-width: none;
   }
 
-  .social-vista .social-menu-item.activa::before {
+  .social-vista .social-shell-menu::-webkit-scrollbar,
+  .social-vista .social-shell-menu p,
+  .social-vista .social-shell-menu > div > div:empty {
     display: none;
   }
 
-  .social-vista .social-lateral-bloque,
-  .social-vista .social-lateral-pie {
+  .social-vista .social-shell-menu > div {
+    display: flex;
+    flex: none;
+    gap: 4px;
+  }
+
+  .social-vista .social-shell-menu button {
+    width: auto;
+    flex: none;
+    white-space: nowrap;
+  }
+
+  .social-vista .social-shell-identidades,
+  .social-vista .social-shell-footer {
     display: none;
+  }
+
+  .social-vista .social-main {
+    overflow: visible;
   }
 
   .social-vista .social-header {
+    top: 66px;
     flex-wrap: wrap;
-    padding: 14px 18px;
+    padding: 12px;
+  }
+
+  .social-vista .social-header-titulo p {
+    display: none;
+  }
+
+  .social-vista .social-header-acciones {
+    width: 100%;
+    overflow-x: auto;
+    padding-bottom: 2px;
+  }
+
+  .social-vista .social-header-acciones > * {
+    flex: none;
+  }
+
+  .social-vista .social-boton-principal {
+    margin-left: auto;
   }
 
   .social-vista .social-content {
-    padding: 18px !important;
+    padding: 12px !important;
   }
 }
 .social-vista .social-kpi {
@@ -2794,82 +2960,89 @@
   background: #fff;
 }
 
-.social-vista .social-comp-accion {
-  position: relative;
+.social-vista .social-comp-acciones {
   display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
 }
 
-.social-vista .social-comp-principal {
+.social-vista .social-comp-principal,
+.social-vista .social-comp-programar,
+.social-vista .social-comp-borrador {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  border: 0;
-  border-radius: 11px 0 0 11px;
-  padding: 11px 22px;
-  background: linear-gradient(140deg, var(--rojo-vivo), #c0182a);
-  color: #fff;
+  min-height: 40px;
+  border: 1px solid var(--linea);
+  border-radius: 11px;
+  padding: 10px 15px;
+  background: #fff;
+  color: #334155;
   cursor: pointer;
-  font-size: 13.5px;
+  font-size: 13px;
   font-weight: 700;
 }
 
-.social-vista .social-comp-principal.ensayo,
-.social-vista .social-comp-flecha.ensayo {
+.social-vista .social-comp-principal {
+  border-color: transparent;
+  background: linear-gradient(140deg, var(--rojo-vivo), #c0182a);
+  color: #fff;
+}
+
+.social-vista .social-comp-programar {
+  border-color: #fecaca;
+  color: #b91c1c;
+}
+
+.social-vista .social-comp-principal.ensayo {
   background: var(--violeta);
 }
 
 .social-vista .social-comp-principal:disabled,
-.social-vista .social-comp-flecha:disabled {
+.social-vista .social-comp-programar:disabled,
+.social-vista .social-comp-borrador:disabled {
+  border-color: #cbd5e1;
   background: #cbd5e1;
+  color: #64748b;
   cursor: not-allowed;
-}
-
-.social-vista .social-comp-flecha {
-  display: grid;
-  place-items: center;
-  width: 36px;
-  border: 0;
-  border-left: 1px solid rgb(255 255 255 / 25%);
-  border-radius: 0 11px 11px 0;
-  background: linear-gradient(140deg, var(--rojo-vivo), #c0182a);
-  color: #fff;
-  cursor: pointer;
-}
-
-.social-vista .social-comp-menu {
-  position: absolute;
-  right: 0;
-  bottom: calc(100% + 6px);
-  z-index: 20;
-  overflow: hidden;
-  min-width: 13rem;
-  border: 1px solid var(--linea);
-  border-radius: 12px;
-  background: #fff;
-  box-shadow: 0 12px 32px rgb(15 23 42 / 16%);
-}
-
-.social-vista .social-comp-menu button {
-  display: block;
-  width: 100%;
-  padding: 11px 14px;
-  border: 0;
-  background: transparent;
-  color: #334155;
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 600;
-  text-align: left;
-}
-
-.social-vista .social-comp-menu button:hover {
-  background: #f8fafc;
 }
 
 .social-vista .social-comp-falta {
   margin: 0;
   color: #b45309;
   font-size: 12px;
+}
+
+.social-vista .social-comp-error {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 2px 0 0;
+  color: #b91c1c;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.social-revision {
+  display: grid;
+  gap: 8px;
+  margin-top: 18px;
+  border-radius: 14px;
+  background: #f8fafc;
+  padding: 14px;
+  color: #475569;
+  font-size: 13px;
+}
+
+.social-revision p,
+.social-revision ul {
+  margin: 0;
+}
+
+.social-revision ul {
+  padding-left: 18px;
+  color: #b91c1c;
 }
 
 /* ── La vista previa al costado ────────────────────────────────────────── */
@@ -2911,6 +3084,40 @@
 }
 
 @media (max-width: 640px) {
+  .social-vista .social-header-acciones {
+    flex-wrap: wrap;
+    overflow: visible;
+  }
+
+  .social-vista .social-boton-principal {
+    order: -1;
+    width: 100%;
+    justify-content: center;
+    margin-left: 0;
+  }
+
+  .social-vista .social-comp-pie {
+    align-items: stretch;
+  }
+
+  .social-vista .social-comp-atajos,
+  .social-vista .social-comp-cuando,
+  .social-vista .social-comp-acciones {
+    width: 100%;
+  }
+
+  .social-vista .social-comp-acciones {
+    display: grid;
+    grid-template-columns: 1fr;
+    margin-left: 0;
+  }
+
+  .social-vista .social-comp-principal,
+  .social-vista .social-comp-programar,
+  .social-vista .social-comp-borrador {
+    justify-content: center;
+  }
+
   .social-vista .social-comp-cabecera {
     align-items: flex-start;
     padding: 15px 16px;

@@ -540,23 +540,28 @@ async function publicarHistoriaDePerfil(page, item, downloaded) {
     .last();
   await compartir.waitFor({ state: 'visible', timeout: 20_000 });
   await compartir.click();
-  await page.waitForTimeout(2500);
 
-  if (/\/stories\/create/i.test(page.url()) && (await compartir.isVisible().catch(() => false))) {
-    return {
-      estado: 'ambiguous',
-      externalPostUrl: page.url(),
-      codigo: 'PUBLICATION_AMBIGUOUS',
-      error:
-        'Facebook recibió la Historia pero no confirmó que terminara de publicarla. Revisala antes de repetir.',
-      detalle: { destino: item.destino_nombre, formato: 'historia' },
-    };
+  const confirmacionHistoria = page
+    .getByText(/tu historia se compartió|your story was shared|historia compartida/i)
+    .last();
+  for (let intento = 0; intento < 6; intento += 1) {
+    if (await confirmacionHistoria.isVisible().catch(() => false)) {
+      return {
+        estado: 'published',
+        externalPostUrl: page.url(),
+        codigo: 'FACEBOOK_PROFILE_STORY_PUBLISHED',
+        detalle: { destino: item.destino_nombre, formato: 'historia' },
+      };
+    }
+    await page.waitForTimeout(2500);
   }
 
   return {
-    estado: 'published',
+    estado: 'ambiguous',
     externalPostUrl: page.url(),
-    codigo: 'FACEBOOK_PROFILE_STORY_PUBLISHED',
+    codigo: 'PUBLICATION_AMBIGUOUS',
+    error:
+      'Facebook recibió la Historia pero no confirmó que terminara de publicarla. Revisala antes de repetir.',
     detalle: { destino: item.destino_nombre, formato: 'historia' },
   };
 }

@@ -26,7 +26,9 @@ process.env.DATA_DIR = dirTemporal;
 process.env.DB_FILE = path.join(dirTemporal, 'tests.sqlite');
 
 const db = require('../db');
-require('./fixtures').sembrarCatalogoBase(db);
+const fixtures = require('./fixtures');
+fixtures.sembrarCatalogoBase(db);
+fixtures.sembrarSocialListo(db);
 
 process.on('exit', () => {
   try {
