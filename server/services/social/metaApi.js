@@ -176,14 +176,38 @@ async function pedir(ruta, { metodo = 'GET', token, parametros = {} } = {}) {
  *
  * Documentado en Pages API › Posts (v25.0): POST /{page-id}/feed con `message`
  * y opcionalmente `link`. Para una foto es otro endpoint, /{page-id}/photos con
- * `url`, y devuelve `post_id` además de `id`.
+ * `url`, y devuelve `post_id` además de `id`. Para varias fotos, primero se
+ * crean como no publicadas y después se adjuntan juntas al post del feed.
  */
-async function publicarEnPagina({ pageId, token, texto, link = '', fotoUrl = '' }) {
-  if (fotoUrl) {
+async function publicarEnPagina({ pageId, token, texto, link = '', fotoUrl = '', fotosUrl = [] }) {
+  const fotos = [
+    ...new Set([...(Array.isArray(fotosUrl) ? fotosUrl : []), fotoUrl].filter(Boolean)),
+  ];
+
+  if (fotos.length > 1) {
+    const adjuntos = [];
+    for (const url of fotos) {
+      const datos = await pedir(`${pageId}/photos`, {
+        metodo: 'POST',
+        token,
+        parametros: { url, published: false },
+      });
+      if (datos.id) adjuntos.push({ media_fbid: datos.id });
+    }
+
+    const datos = await pedir(`${pageId}/feed`, {
+      metodo: 'POST',
+      token,
+      parametros: { message: texto, attached_media: adjuntos },
+    });
+    return { id: datos.id, url: datos.id ? `https://www.facebook.com/${datos.id}` : '' };
+  }
+
+  if (fotos[0]) {
     const datos = await pedir(`${pageId}/photos`, {
       metodo: 'POST',
       token,
-      parametros: { url: fotoUrl, caption: texto },
+      parametros: { url: fotos[0], caption: texto },
     });
     const id = datos.post_id || datos.id;
     return { id, url: id ? `https://www.facebook.com/${id}` : '' };

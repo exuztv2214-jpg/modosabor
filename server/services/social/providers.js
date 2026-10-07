@@ -285,6 +285,9 @@ const paginaPorApi = {
 
     const formato = String(contenido.formato || 'post');
     const foto = primerImagen(contenido);
+    const fotos = (contenido.media || [])
+      .filter((archivo) => String(archivo.mime || '').startsWith('image/'))
+      .map(urlPublicaDe);
     const video = primerVideo(contenido);
 
     /*
@@ -316,6 +319,7 @@ const paginaPorApi = {
         token,
         texto: contenido.texto,
         fotoUrl: foto ? urlPublicaDe(foto) : '',
+        fotosUrl: fotos,
         link: contenido.personalizaciones?.link || '',
       });
     }

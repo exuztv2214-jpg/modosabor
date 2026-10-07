@@ -3,6 +3,7 @@ const db = require('../../db');
 const social = require('../../services/socialService');
 const providers = require('../../services/social/providers');
 const oauthFacebook = require('../../services/social/oauthFacebook');
+const metaApi = require('../../services/social/metaApi');
 
 async function pruebaRevalidacionAutomatica() {
   db.exec('SAVEPOINT social_audit_revalidacion');
@@ -159,9 +160,68 @@ async function pruebaTipoDeCuentaInstagram() {
   }
 }
 
+async function pruebaVariasFotosEnPagina() {
+  const originalFetch = global.fetch;
+  const pedidos = [];
+  const respuestas = [{ id: 'foto-1' }, { id: 'foto-2' }, { id: 'post-final' }];
+  global.fetch = async (url, opciones = {}) => {
+    pedidos.push({ url: String(url), cuerpo: JSON.parse(opciones.body || '{}') });
+    return { ok: true, json: async () => respuestas[pedidos.length - 1] };
+  };
+  try {
+    const publicado = await metaApi.publicarEnPagina({
+      pageId: 'pagina-multiple',
+      token: 'token-prueba',
+      texto: 'Dos platos',
+      fotosUrl: ['https://modosabor.com.ar/uno.jpg', 'https://modosabor.com.ar/dos.jpg'],
+    });
+    assert.strictEqual(pedidos.length, 3);
+    assert.match(pedidos[0].url, /pagina-multiple\/photos$/);
+    assert.strictEqual(pedidos[0].cuerpo.published, false);
+    assert.match(pedidos[2].url, /pagina-multiple\/feed$/);
+    assert.deepStrictEqual(pedidos[2].cuerpo.attached_media, [
+      { media_fbid: 'foto-1' },
+      { media_fbid: 'foto-2' },
+    ]);
+    assert.strictEqual(publicado.id, 'post-final');
+  } finally {
+    global.fetch = originalFetch;
+  }
+
+  const provider = providers.resolverProvider({ tipo: 'facebook_page' });
+  const originalPublicar = metaApi.publicarEnPagina;
+  const antesPublicUrl = process.env.PUBLIC_API_URL;
+  let recibido;
+  process.env.PUBLIC_API_URL = 'https://modosabor.com.ar';
+  metaApi.publicarEnPagina = async (entrada) => {
+    recibido = entrada;
+    return { id: 'post', url: 'https://facebook.com/post' };
+  };
+  try {
+    await provider.publicar({
+      contenido: {
+        texto: 'Carta',
+        formato: 'post',
+        media: [
+          { mime: 'image/jpeg', ruta: '/uploads/social-media/uno.jpg' },
+          { mime: 'image/jpeg', ruta: '/uploads/social-media/dos.jpg' },
+        ],
+        personalizaciones: {},
+      },
+      identidad: { metadata: { token: 'enc:prueba', pageId: 'pagina' } },
+    });
+    assert.strictEqual(recibido.fotosUrl.length, 2);
+  } finally {
+    metaApi.publicarEnPagina = originalPublicar;
+    if (antesPublicUrl === undefined) delete process.env.PUBLIC_API_URL;
+    else process.env.PUBLIC_API_URL = antesPublicUrl;
+  }
+}
+
 async function run() {
   await pruebaRevalidacionAutomatica();
   await pruebaTipoDeCuentaInstagram();
+  await pruebaVariasFotosEnPagina();
   console.log('socialAuditFixes.test.js OK');
 }
 
