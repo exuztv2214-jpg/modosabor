@@ -264,7 +264,7 @@ const paginaPorApi = {
   nombre: 'Fan Page (API oficial)',
   executionClass: 'api',
   soporta: (destino) => destino.tipo === 'facebook_page',
-  validar: ({ contenido, destino, identidad }) => {
+  validar: ({ contenido, destino }) => {
     const base = validarContenidoBasico({ contenido });
     const errores = [...base.errores];
 
