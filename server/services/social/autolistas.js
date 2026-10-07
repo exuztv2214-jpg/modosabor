@@ -23,8 +23,9 @@
  */
 
 const db = require('../../db');
+const { FORMATOS } = require('./providers');
 
-const parse = (valor, porOmision) => {
+const parseArray = (valor, porOmision) => {
   try {
     const v = JSON.parse(valor);
     return Array.isArray(v) ? v : porOmision;
@@ -33,14 +34,50 @@ const parse = (valor, porOmision) => {
   }
 };
 
+const parseObject = (valor, porOmision = {}) => {
+  try {
+    const v = JSON.parse(valor);
+    return v && typeof v === 'object' && !Array.isArray(v) ? v : porOmision;
+  } catch {
+    return porOmision;
+  }
+};
+
+const limpiarMediaIds = (ids) =>
+  [...new Set((Array.isArray(ids) ? ids : []).map(Number).filter((id) => id > 0))].slice(0, 10);
+
+function limpiarFormatos(formatos = {}) {
+  const limpios = {};
+  for (const [cuenta, formato] of Object.entries(formatos || {})) {
+    if (!/^(?:facebook|instagram|\d+\|(facebook|instagram))$/.test(cuenta)) continue;
+    const limpio = String(formato || '').toLowerCase();
+    if (!FORMATOS.includes(limpio)) throw new Error(`El formato «${formato}» no existe`);
+    limpios[cuenta] = limpio;
+  }
+  return limpios;
+}
+
+const mapearPieza = (fila) => {
+  if (!fila) return fila;
+  const guardadas = limpiarMediaIds(parseArray(fila.media_ids, []));
+  return {
+    ...fila,
+    mediaIds: guardadas.length ? guardadas : limpiarMediaIds([fila.media_id]),
+    formato: FORMATOS.includes(String(fila.formato || '').toLowerCase())
+      ? String(fila.formato).toLowerCase()
+      : 'post',
+    formatos: limpiarFormatos(parseObject(fila.formatos)),
+  };
+};
+
 const mapear = (fila) =>
   fila && {
     ...fila,
     activa: Number(fila.activa) === 1,
     circular: Number(fila.circular) === 1,
-    destinos: parse(fila.destinos, []),
-    dias: parse(fila.dias, [1, 3, 5]),
-    horas: parse(fila.horas, [11, 20]),
+    destinos: parseArray(fila.destinos, []),
+    dias: parseArray(fila.dias, [1, 3, 5]),
+    horas: parseArray(fila.horas, [11, 20]),
   };
 
 function listar() {
@@ -71,7 +108,8 @@ function obtener(id) {
           WHERE p.autolista_id = ?
           ORDER BY p.orden, p.id`
       )
-      .all(lista.id),
+      .all(lista.id)
+      .map(mapearPieza),
   };
 }
 
@@ -160,7 +198,10 @@ function eliminar(id) {
 }
 
 /** Agrega una pieza al final de la fila. */
-function agregarPieza(autolistaId, { texto, mediaId = null }) {
+function agregarPieza(
+  autolistaId,
+  { texto, mediaId = null, mediaIds = [], formato = 'post', formatos = {} }
+) {
   const lista = db
     .prepare('SELECT id FROM social_autolistas WHERE id = ?')
     .get(Number(autolistaId));
@@ -169,7 +210,11 @@ function agregarPieza(autolistaId, { texto, mediaId = null }) {
   const contenido = String(texto || '')
     .trim()
     .slice(0, 8000);
-  if (!contenido && !mediaId) throw new Error('La pieza necesita texto o una imagen');
+  const adjuntos = limpiarMediaIds([...mediaIds, mediaId]);
+  if (!contenido && !adjuntos.length) throw new Error('La pieza necesita texto o una imagen');
+  const formatoLimpio = String(formato || 'post').toLowerCase();
+  if (!FORMATOS.includes(formatoLimpio)) throw new Error(`El formato «${formato}» no existe`);
+  const formatosLimpios = limpiarFormatos(formatos);
 
   const ultimo = Number(
     db
@@ -180,9 +225,18 @@ function agregarPieza(autolistaId, { texto, mediaId = null }) {
   );
 
   db.prepare(
-    `INSERT INTO social_autolista_piezas (autolista_id, texto, media_id, orden)
-     VALUES (?, ?, ?, ?)`
-  ).run(lista.id, contenido, mediaId ? Number(mediaId) : null, ultimo + 1);
+    `INSERT INTO social_autolista_piezas
+       (autolista_id, texto, media_id, media_ids, formato, formatos, orden)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    lista.id,
+    contenido,
+    adjuntos[0] || null,
+    JSON.stringify(adjuntos),
+    formatoLimpio,
+    JSON.stringify(formatosLimpios),
+    ultimo + 1
+  );
 
   return obtener(lista.id);
 }
@@ -240,9 +294,10 @@ function leToca(lista, ahora = new Date()) {
  * porque `veces_publicada` la deja atrás en el orden.
  */
 function proximaPieza(autolistaId) {
-  return db
-    .prepare(
-      `SELECT p.*, m.ruta AS media_ruta
+  return mapearPieza(
+    db
+      .prepare(
+        `SELECT p.*, m.ruta AS media_ruta
          FROM social_autolista_piezas p
          LEFT JOIN social_media m ON m.id = p.media_id
         WHERE p.autolista_id = ?
@@ -252,8 +307,9 @@ function proximaPieza(autolistaId) {
           )
         ORDER BY p.orden, p.id
         LIMIT 1`
-    )
-    .get(Number(autolistaId));
+      )
+      .get(Number(autolistaId))
+  );
 }
 
 /**

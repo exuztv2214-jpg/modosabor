@@ -3001,6 +3001,9 @@ function crearAutolistas(db) {
       autolista_id INTEGER NOT NULL REFERENCES social_autolistas(id) ON DELETE CASCADE,
       texto TEXT NOT NULL,
       media_id INTEGER REFERENCES social_media(id) ON DELETE SET NULL,
+      media_ids TEXT DEFAULT '[]',
+      formato TEXT DEFAULT 'post',
+      formatos TEXT DEFAULT '{}',
 
       /*
         El lugar en la fila. Al publicarse, la pieza recibe el orden más alto
@@ -3016,6 +3019,10 @@ function crearAutolistas(db) {
     CREATE INDEX IF NOT EXISTS idx_autolista_piezas
       ON social_autolista_piezas(autolista_id, orden);
   `);
+
+  ensureColumn(db, 'social_autolista_piezas', 'media_ids', "TEXT DEFAULT '[]'");
+  ensureColumn(db, 'social_autolista_piezas', 'formato', "TEXT DEFAULT 'post'");
+  ensureColumn(db, 'social_autolista_piezas', 'formatos', "TEXT DEFAULT '{}'");
 }
 
 /**

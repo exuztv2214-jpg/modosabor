@@ -1989,6 +1989,7 @@ export default function Social() {
           {activeSection === 'autolistas' && (
             <Autolistas
               destinos={(data.destinos || []).filter((d) => d.habilitada)}
+              media={data.media || []}
               onCambio={async () => {
                 try {
                   const r = await api.get('/social/autolistas');
@@ -4966,7 +4967,7 @@ function Compositor({
  * la piedra, cómo llegar, las fotos del salón. Se carga una vez y queda
  * girando: cuando una pieza sale, vuelve al final de la fila.
  */
-function Autolistas({ destinos, onCambio }) {
+function Autolistas({ destinos, media, onCambio }) {
   const [listas, setListas] = useState([]);
   const [abierta, setAbierta] = useState(null);
   const [creando, setCreando] = useState(false);
@@ -5101,6 +5102,7 @@ function Autolistas({ destinos, onCambio }) {
           key={lista.id}
           lista={lista}
           destinos={destinos}
+          media={media}
           abierta={abierta === lista.id}
           onAbrir={() => setAbierta(abierta === lista.id ? null : lista.id)}
           onCambio={async () => {
@@ -5113,9 +5115,12 @@ function Autolistas({ destinos, onCambio }) {
   );
 }
 
-function AutolistaFila({ lista, destinos, abierta, onAbrir, onCambio }) {
+function AutolistaFila({ lista, destinos, media, abierta, onAbrir, onCambio }) {
   const [detalle, setDetalle] = useState(null);
   const [texto, setTexto] = useState('');
+  const [mediaIds, setMediaIds] = useState([]);
+  const [formato, setFormato] = useState('post');
+  const [formatos, setFormatos] = useState({});
 
   useEffect(() => {
     if (!abierta) return;
@@ -5136,10 +5141,30 @@ function AutolistaFila({ lista, destinos, abierta, onAbrir, onCambio }) {
   };
 
   const agregar = async () => {
-    if (!texto.trim()) return;
+    if (!texto.trim() && !mediaIds.length) {
+      return toast.error('Escribí un texto o elegí al menos un archivo.');
+    }
     try {
-      setDetalle(await api.post(`/social/autolistas/${lista.id}/piezas`, { texto }));
+      const formatosPorCuenta = Object.fromEntries(
+        canales.map((canal) => [
+          canal.clave,
+          canal.formatos.some((opcion) => opcion.clave === (formatos[canal.clave] || formato))
+            ? formatos[canal.clave] || formato
+            : 'post',
+        ])
+      );
+      setDetalle(
+        await api.post(`/social/autolistas/${lista.id}/piezas`, {
+          texto,
+          mediaIds,
+          formato,
+          formatos: formatosPorCuenta,
+        })
+      );
       setTexto('');
+      setMediaIds([]);
+      setFormato('post');
+      setFormatos({});
       await onCambio?.();
     } catch (error) {
       toast.error(apiError(error));
@@ -5147,6 +5172,20 @@ function AutolistaFila({ lista, destinos, abierta, onAbrir, onCambio }) {
   };
 
   const elegidos = destinos.filter((d) => lista.destinos.includes(d.id));
+  const canales = Object.values(
+    elegidos.reduce((acumulado, destino) => {
+      const red = redDelDestino(destino);
+      const clave = `${destino.cuenta_id}|${red}`;
+      if (!acumulado[clave]) {
+        acumulado[clave] = { clave, nombre: destino.nombre, destinos: [], formatos: [] };
+      }
+      acumulado[clave].destinos.push(destino);
+      acumulado[clave].formatos = FORMATOS_UI.filter((opcion) =>
+        acumulado[clave].destinos.every((item) => opcion.destinos.includes(item.tipo))
+      );
+      return acumulado;
+    }, {})
+  );
 
   return (
     <div className="social-tarjeta p-5">
@@ -5247,6 +5286,10 @@ function AutolistaFila({ lista, destinos, abierta, onAbrir, onCambio }) {
                 >
                   <span className="mt-0.5 text-xs font-bold text-slate-400">{i + 1}</span>
                   <p className="min-w-0 flex-1 text-sm text-slate-700">{pieza.texto}</p>
+                  <span className="whitespace-nowrap text-[11px] font-semibold text-slate-400">
+                    {FORMATOS_UI.find((opcion) => opcion.clave === pieza.formato)?.nombre || 'Post'}
+                    {pieza.mediaIds?.length ? ` · ${pieza.mediaIds.length} archivo(s)` : ''}
+                  </span>
                   {pieza.veces_publicada > 0 && (
                     <span className="whitespace-nowrap text-[11px] text-slate-400">
                       salió {pieza.veces_publicada} {pieza.veces_publicada === 1 ? 'vez' : 'veces'}
@@ -5271,20 +5314,103 @@ function AutolistaFila({ lista, destinos, abierta, onAbrir, onCambio }) {
             </div>
           </div>
 
-          <div className="flex gap-2">
-            <textarea
-              value={texto}
-              onChange={(e) => setTexto(e.target.value)}
-              rows={2}
-              placeholder="Ej.: Hacemos delivery hasta las 23. Pedí por WhatsApp."
-              className="flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-red-300 focus:outline-none"
-            />
-            <button
-              onClick={agregar}
-              className="self-end rounded-lg bg-slate-900 px-4 py-2 text-xs font-bold text-white hover:bg-slate-800"
-            >
-              Agregar
-            </button>
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-xs font-bold text-slate-700">Agregar a la fila</span>
+              <select
+                value={formato}
+                onChange={(e) => setFormato(e.target.value)}
+                className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700"
+              >
+                {FORMATOS_UI.map((opcion) => (
+                  <option key={opcion.clave} value={opcion.clave}>
+                    {opcion.nombre}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {canales.length > 0 && (
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                {canales.map((canal) => (
+                  <label key={canal.clave} className="text-[11px] font-semibold text-slate-500">
+                    {canal.nombre}
+                    <select
+                      value={
+                        canal.formatos.some(
+                          (opcion) => opcion.clave === (formatos[canal.clave] || formato)
+                        )
+                          ? formatos[canal.clave] || formato
+                          : 'post'
+                      }
+                      onChange={(e) =>
+                        setFormatos((actual) => ({ ...actual, [canal.clave]: e.target.value }))
+                      }
+                      className="mt-1 block w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs font-semibold text-slate-700"
+                    >
+                      {canal.formatos.map((opcion) => (
+                        <option key={opcion.clave} value={opcion.clave}>
+                          {opcion.nombre}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ))}
+              </div>
+            )}
+
+            <div className="mt-3 flex flex-wrap gap-2">
+              {media.slice(0, 10).map((archivo) => {
+                const elegido = mediaIds.includes(archivo.id);
+                return (
+                  <button
+                    key={archivo.id}
+                    type="button"
+                    disabled={!elegido && mediaIds.length >= 10}
+                    onClick={() =>
+                      setMediaIds((actual) =>
+                        elegido ? actual.filter((id) => id !== archivo.id) : [...actual, archivo.id]
+                      )
+                    }
+                    className={`overflow-hidden rounded-lg border-2 bg-white disabled:opacity-40 ${
+                      elegido ? 'border-red-500' : 'border-transparent'
+                    }`}
+                    title={archivo.nombre}
+                  >
+                    {String(archivo.mime || '').startsWith('image/') ? (
+                      <img
+                        src={archivo.ruta}
+                        alt={archivo.nombre}
+                        className="h-12 w-12 object-cover"
+                      />
+                    ) : (
+                      <FileText className="m-3 text-slate-400" size={24} />
+                    )}
+                  </button>
+                );
+              })}
+              {!media.length && (
+                <p className="text-xs text-slate-400">
+                  Todavía no hay archivos en la biblioteca. Cargalos desde Crear campaña.
+                </p>
+              )}
+            </div>
+
+            <div className="mt-3 flex gap-2">
+              <textarea
+                value={texto}
+                onChange={(e) => setTexto(e.target.value)}
+                rows={2}
+                placeholder="Ej.: Hacemos delivery hasta las 23. Pedí por WhatsApp."
+                className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-red-300 focus:outline-none"
+              />
+              <button
+                onClick={agregar}
+                className="self-end rounded-lg bg-slate-900 px-4 py-2 text-xs font-bold text-white hover:bg-slate-800"
+              >
+                Agregar
+              </button>
+            </div>
           </div>
         </div>
       )}

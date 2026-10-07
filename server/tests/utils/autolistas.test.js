@@ -32,7 +32,7 @@ function armarLista(extra = {}) {
   });
 }
 
-module.exports = {
+const tests = {
   // ── El horario, en hora de Argentina ────────────────────────────────────
   'el día y la hora se leen en hora de Argentina': () => {
     /*
@@ -200,6 +200,29 @@ module.exports = {
     assert.throws(() => autolistas.agregarPieza(lista.id, { texto: '  ' }), /texto o una imagen/);
   },
 
+  'una pieza conserva varias imágenes y el formato por cuenta': () => {
+    const lista = armarLista();
+    const media = db.prepare(
+      "INSERT INTO social_media (nombre, ruta, mime, tamano, tipo) VALUES (?, ?, 'image/jpeg', 100, 'imagen')"
+    );
+    const primera = Number(media.run(`uno-${unico()}.jpg`, `/uno-${unico()}.jpg`).lastInsertRowid);
+    const segunda = Number(media.run(`dos-${unico()}.jpg`, `/dos-${unico()}.jpg`).lastInsertRowid);
+    autolistas.agregarPieza(lista.id, {
+      texto: 'Carrusel de platos',
+      mediaIds: [primera, segunda, primera],
+      formato: 'carrusel',
+      formatos: { '17|facebook': 'carrusel', '18|instagram': 'post' },
+    });
+
+    const pieza = autolistas.proximaPieza(lista.id);
+    assert.deepStrictEqual(pieza.mediaIds, [primera, segunda]);
+    assert.strictEqual(pieza.formato, 'carrusel');
+    assert.deepStrictEqual(pieza.formatos, {
+      '17|facebook': 'carrusel',
+      '18|instagram': 'post',
+    });
+  },
+
   'borrar la lista borra sus piezas': () => {
     const lista = armarLista();
     autolistas.agregarPieza(lista.id, { texto: 'Algo' });
@@ -211,3 +234,13 @@ module.exports = {
     assert.strictEqual(Number(quedan), 0);
   },
 };
+
+async function run() {
+  for (const [nombre, prueba] of Object.entries(tests)) {
+    await prueba();
+    console.log(`  ✓ ${nombre}`);
+  }
+  console.log('autolistas.test.js OK');
+}
+
+module.exports = { run };

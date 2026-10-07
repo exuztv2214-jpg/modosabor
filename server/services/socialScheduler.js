@@ -166,8 +166,10 @@ function correrAutolistas() {
       const campana = social.createCampaign({
         nombre: `${lista.nombre} · automática`,
         texto: pieza.texto,
-        mediaIds: pieza.media_id ? [pieza.media_id] : [],
+        mediaIds: pieza.mediaIds,
         destinoIds: lista.destinos,
+        formato: pieza.formato,
+        formatos: pieza.formatos,
         /*
           Se marca de dónde salió. Sin esto, dentro de tres meses nadie va a
           entender por qué apareció una campaña que nadie armó.
