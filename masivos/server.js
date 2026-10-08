@@ -2327,6 +2327,47 @@ function limpiarBloqueosChromium() {
 let client = null;
 let estadoWA = { estado: 'iniciando', qr: null };
 
+// El disco del panel es de 500 MB y la caché de Chromium llegaba a ~140 MB. Son
+// copias descartables (la sesión de WhatsApp vive en IndexedDB y Local Storage):
+// se borran una vez al arrancar, antes de abrir el navegador.
+let cachesLimpias = false;
+function limpiarCachesChromium() {
+  const base = path.join(SESSION_AUTH_PATH, 'session', 'Default');
+  let liberado = 0;
+  for (const dir of ['Cache', 'Code Cache', 'GPUCache', 'DawnGraphiteCache', 'DawnWebGPUCache']) {
+    const ruta = path.join(base, dir);
+    try {
+      liberado += tamanoCarpeta(ruta);
+      fs.rmSync(ruta, { recursive: true, force: true });
+    } catch (e) {
+      /* no crítico */
+    }
+  }
+  if (liberado > 1024 * 1024)
+    registrarLog(
+      `🧹 Caché de Chromium borrada: ${Math.round(liberado / 1024 / 1024)} MB liberados.`
+    );
+}
+
+function tamanoCarpeta(ruta) {
+  let total = 0;
+  let entradas = [];
+  try {
+    entradas = fs.readdirSync(ruta, { withFileTypes: true });
+  } catch (e) {
+    return 0;
+  }
+  for (const e of entradas) {
+    const p = path.join(ruta, e.name);
+    try {
+      total += e.isDirectory() ? tamanoCarpeta(p) : fs.statSync(p).size;
+    } catch (err) {
+      /* archivo que desapareció */
+    }
+  }
+  return total;
+}
+
 function iniciarWhatsApp() {
   if (client) {
     try {
@@ -2348,6 +2389,10 @@ function iniciarWhatsApp() {
   }
 
   limpiarBloqueosChromium();
+  if (!cachesLimpias) {
+    cachesLimpias = true;
+    limpiarCachesChromium();
+  }
 
   client = new Client({
     authStrategy: new LocalAuth({ dataPath: SESSION_AUTH_PATH }),
@@ -2361,6 +2406,10 @@ function iniciarWhatsApp() {
         '--disable-background-timer-throttling',
         '--disable-backgrounding-occluded-windows',
         '--disable-renderer-backgrounding',
+        // El servicio tiene 1 GB: sin GPU por software (~100 MB) y con caché acotada.
+        '--disable-gpu',
+        '--disable-software-rasterizer',
+        '--disk-cache-size=33554432',
       ],
       ...(BROWSER_EXECUTABLE ? { executablePath: BROWSER_EXECUTABLE } : {}),
     },
@@ -3327,7 +3376,7 @@ async function correrFotos() {
   setTimeout(() => sincronizarHistorialPendiente('después de las fotos'), 5000);
   const conFoto = deMemoria + delServidor;
   registrarLog(
-    `📸 Fotos listas: ${conFoto} nuevas (${deMemoria} desde la memoria de WhatsApp, ${delServidor} pedidas al servidor) · ${fotosJob.total - conFoto} sin foto visible.`
+    `📸 Fotos listas: ${conFoto} nuevas (${deMemoria} desde la memoria de WhatsApp, ${delServidor} pedidas al servidor) · ${ocultas} ocultan su foto · ${Math.max(0, fotosJob.total - fotosJob.hechos)} quedan para la próxima pasada.`
   );
   emit('fotos', { tipo: 'fin', conFoto, sinFoto: fotosJob.total - conFoto });
 }
