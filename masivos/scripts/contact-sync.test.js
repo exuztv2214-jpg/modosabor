@@ -8,6 +8,7 @@ assert.equal(typeof sync.mergeSyncedContacts, 'function');
 assert.equal(typeof sync.normalizeChats, 'function');
 assert.equal(typeof sync.leerChatsConRespaldo, 'function');
 assert.equal(typeof sync.normalizarContactosLivianos, 'function');
+assert.equal(typeof sync.normalizarMapeosLid, 'function');
 assert.equal(typeof sync.conTiempoLimite, 'function');
 
 const chats = [
@@ -70,6 +71,15 @@ void (async () => {
   ]);
   assert.equal(contactosLivianos.length, 2);
   assert.equal(contactosLivianos[0].number, '5493812345678@c.us');
+  assert.deepEqual(
+    sync.normalizarMapeosLid([
+      { lid: 'cliente-a@lid', pn: '5493812345678@c.us' },
+      { lid: 'grupo@g.us', pn: '5493811111111@c.us' },
+      { lid: 'sin-telefono@lid', pn: null },
+    ]),
+    [{ lid: 'cliente-a@lid', pn: '5493812345678@c.us' }],
+    'conserva sólo relaciones LID a teléfono válidas'
+  );
   assert.equal(
     sync.mergeSyncedContacts([], contactosLivianos, []).length,
     1,
@@ -97,6 +107,20 @@ void (async () => {
     undefined,
     'limpia teléfonos históricos que eran el mismo identificador LID'
   );
+  const duplicadosHistoricos = sync.mergeSyncedContacts(
+    [],
+    [],
+    [
+      { numero: 'cliente-duplicado@lid', telefono: '5493812345678', nombre: 'Cliente' },
+      { numero: '5493812345678@c.us', telefono: '5493812345678', nombre: 'Cliente' },
+    ]
+  );
+  assert.equal(
+    duplicadosHistoricos.length,
+    1,
+    'deduplica LID y teléfono cuando la relación ya fue resuelta y guardada'
+  );
+  assert.equal(duplicadosHistoricos[0].numero, 'cliente-duplicado@lid');
   console.log('contact and chat sync: OK');
 })().catch((error) => {
   console.error(error);

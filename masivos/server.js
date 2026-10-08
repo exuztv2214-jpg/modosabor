@@ -19,6 +19,7 @@ const {
   normalizeChats,
   leerChatsConRespaldo,
   normalizarContactosLivianos,
+  normalizarMapeosLid,
   conTiempoLimite,
 } = require('./contact-sync');
 
@@ -3363,9 +3364,37 @@ app.post('/api/listar', async (req, res) => {
     chatsRaw = lectura.chats;
     if (!chatsRaw.length) throw new Error('WhatsApp no devolvió conversaciones.');
     registrarLog(`📥 ${lectura.fuente} devolvió ${chatsRaw.length} conversaciones.`);
+    let lidMappings = [];
+    try {
+      const lids = chatsRaw
+        .map((chat) => String(chat?.id?._serialized || chat?.id || ''))
+        .filter((id) => /@lid$/i.test(id));
+      lidMappings = normalizarMapeosLid(
+        await conTiempoLimite(
+          client.pupPage.evaluate(
+            (ids) =>
+              ids.map((id) => {
+                try {
+                  const wid = window.require('WAWebWidFactory').createWid(id);
+                  const phone = window.require('WAWebApiContact').getPhoneNumber(wid);
+                  return { lid: id, pn: phone?._serialized || '' };
+                } catch {
+                  return { lid: id, pn: '' };
+                }
+              }),
+            lids
+          ),
+          10000,
+          'Mapa local LID/teléfono'
+        )
+      );
+      registrarLog(`🔗 ${lidMappings.length} relaciones LID/teléfono recuperadas.`);
+    } catch (error) {
+      registrarLog(`⚠️ No se pudo leer el mapa local LID/teléfono: ${error.message}`);
+    }
     const chats = normalizeChats(chatsRaw);
     const previos = leerJsonSeguro(ARCHIVO_CLIENTES, []);
-    const listaSincronizada = mergeSyncedContacts(chatsRaw, [], previos);
+    const listaSincronizada = mergeSyncedContacts(chatsRaw, [], previos, lidMappings);
     hacerBackup('lista actualizada');
     escribirJsonSeguro(ARCHIVO_CLIENTES, listaSincronizada);
     escribirJsonSeguro(ARCHIVO_CHATS, chats);
@@ -3412,7 +3441,8 @@ app.post('/api/listar', async (req, res) => {
         const actualizados = mergeSyncedContacts(
           chatsRaw,
           contactos,
-          leerJsonSeguro(ARCHIVO_CLIENTES, [])
+          leerJsonSeguro(ARCHIVO_CLIENTES, []),
+          lidMappings
         );
         escribirJsonSeguro(ARCHIVO_CLIENTES, actualizados);
         const csv =

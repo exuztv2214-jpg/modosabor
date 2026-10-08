@@ -31,11 +31,15 @@ async function conTiempoLimite(promise, ms, etiqueta) {
 function mergeSyncedContacts(chats, contacts, previous, lidMappings = []) {
   const phoneToLid = new Map();
   const phoneByLid = new Map();
-  for (const item of lidMappings) {
+  for (const item of [
+    ...(previous || []).map((contact) => ({ lid: contact?.numero, pn: contact?.telefono })),
+    ...lidMappings,
+  ]) {
     const lid = serializedId(item?.lid);
     const pn = serializedId(item?.pn || item?.phone);
     const digits = phoneDigits(pn);
-    if (/@lid$/i.test(lid) && digits) {
+    const lidDigits = lid.replace(/\D/g, '');
+    if (/@lid$/i.test(lid) && digits && digits !== lidDigits) {
       phoneToLid.set(`${digits}@c.us`, lid);
       phoneByLid.set(lid, digits);
     }
@@ -143,10 +147,17 @@ function normalizarContactosLivianos(contacts) {
   }));
 }
 
+function normalizarMapeosLid(items) {
+  return (items || [])
+    .map((item) => ({ lid: serializedId(item?.lid), pn: serializedId(item?.pn) }))
+    .filter((item) => /@lid$/i.test(item.lid) && phoneDigits(item.pn));
+}
+
 module.exports = {
   mergeSyncedContacts,
   normalizeChats,
   leerChatsConRespaldo,
   normalizarContactosLivianos,
+  normalizarMapeosLid,
   conTiempoLimite,
 };
