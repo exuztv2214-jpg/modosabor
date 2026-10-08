@@ -3283,34 +3283,36 @@ app.post('/api/listar', async (req, res) => {
   try {
     emit('lista', { tipo: 'inicio' });
     let chatsRaw;
-    let fuente = 'colección de chats';
+    let fuente = 'getChats';
     try {
-      chatsRaw = await client.pupPage.evaluate(() =>
-        window
-          .require('WAWebCollections')
-          .Chat.getModelsArray()
-          .map((chat) => ({
-            id: chat.id?._serialized || null,
-            name: chat.formattedTitle || chat.name || '',
-            timestamp: Number(chat.t || 0),
-            isGroup: Boolean(chat.groupMetadata),
-            isChannel: Boolean(chat.newsletterMetadata),
-            unreadCount: Number(chat.unreadCount || 0),
-          }))
-          .filter((chat) => chat.id)
-      );
-      if (!chatsRaw.length) throw new Error('La colección no devolvió chats.');
+      registrarLog('📥 Leyendo conversaciones desde WhatsApp…');
+      chatsRaw = (await client.getChats()).map((chat) => ({
+        id: chat.id?._serialized,
+        name: chat.name || chat.formattedTitle || '',
+        timestamp: Number(chat.timestamp || 0),
+        isGroup: Boolean(chat.isGroup),
+        isChannel: Boolean(chat.isChannel),
+        unreadCount: Number(chat.unreadCount || 0),
+      }));
+      if (!chatsRaw.length) throw new Error('getChats no devolvió resultados.');
     } catch (error) {
       try {
-        chatsRaw = (await client.getChats()).map((chat) => ({
-          id: chat.id?._serialized,
-          name: chat.name || chat.formattedTitle || '',
-          timestamp: Number(chat.timestamp || 0),
-          isGroup: Boolean(chat.isGroup),
-          isChannel: Boolean(chat.isChannel),
-          unreadCount: Number(chat.unreadCount || 0),
-        }));
-        fuente = 'getChats';
+        registrarLog(`⚠️ getChats falló (${error.message}); usando colección directa.`);
+        chatsRaw = await client.pupPage.evaluate(() =>
+          window
+            .require('WAWebCollections')
+            .Chat.getModelsArray()
+            .map((chat) => ({
+              id: chat.id?._serialized || null,
+              name: chat.formattedTitle || chat.name || '',
+              timestamp: Number(chat.t || 0),
+              isGroup: Boolean(chat.groupMetadata),
+              isChannel: Boolean(chat.newsletterMetadata),
+              unreadCount: Number(chat.unreadCount || 0),
+            }))
+            .filter((chat) => chat.id)
+        );
+        fuente = 'colección de chats';
       } catch (fallbackError) {
         throw new Error(`No se pudieron leer los chats: ${fallbackError.message || error.message}`);
       }
