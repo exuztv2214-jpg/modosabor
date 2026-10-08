@@ -6,6 +6,10 @@
 // Mantiene UNA sola sesión de WhatsApp viva (carpeta ./sesion).
 // No usar los scripts de consola (npm run enviar) mientras el panel esté abierto.
 
+// El negocio opera en hora argentina: "hoy", la hora programada y los días sin
+// envío dependen de esto. En Railway el contenedor arranca en UTC.
+process.env.TZ = process.env.TZ || 'America/Argentina/Buenos_Aires';
+
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -24,6 +28,7 @@ const {
   conTiempoLimite,
 } = require('./contact-sync');
 const { nombreArchivoFoto, vincularFotosExistentes } = require('./photo-cache');
+const { armarMensaje, normalizarSegmento } = require('./mensaje');
 
 const PORT = Number(process.env.PORT || 3867);
 const HOST = process.env.HOST || '127.0.0.1';
@@ -173,7 +178,6 @@ async function recuperarPaginaWhatsApp() {
     );
   }
 }
-const azar = (arr) => arr[Math.floor(Math.random() * arr.length)];
 const ERRORES_SESION_FATAL = [
   'detached frame',
   'target closed',
@@ -196,7 +200,7 @@ function numeroAcotado(valor, fallback, min, max) {
 }
 
 function registrarLog(linea) {
-  const texto = `[${new Date().toLocaleString('es-AR')}] ${linea}`;
+  const texto = `[${new Date().toLocaleString('es-AR', { hour12: false })}] ${linea}`;
   try {
     fs.mkdirSync(path.dirname(ARCHIVO_LOG), { recursive: true });
     fs.appendFileSync(ARCHIVO_LOG, texto + '\n');
@@ -229,28 +233,6 @@ function guardarEnviadosHoy(set) {
   } catch (e) {
     /* no critico */
   }
-}
-
-function primerNombre(nombre) {
-  const limpio = (nombre || '').trim();
-  if (!/\p{L}.*\p{L}/u.test(limpio)) return ''; // evita nombres tipo ".", ":)"
-  return limpio.split(/\s+/)[0];
-}
-
-function armarMensaje(plantilla, nombre, config) {
-  const saludoBase = azar(config.SALUDOS);
-  const nombreCorto = primerNombre(nombre);
-  const saludo = saludoBase.replace(/\{NOMBRE\}/gi, nombreCorto ? ` ${nombreCorto}` : '');
-  let cuerpo = plantilla.trim();
-  let mensaje = /\{SALUDO\}/i.test(cuerpo)
-    ? cuerpo.replace(/\{SALUDO\}/gi, saludo)
-    : `${saludo}\n\n${cuerpo}`;
-  mensaje = mensaje.replace(/\{NOMBRE\}/gi, nombreCorto);
-  mensaje = `${mensaje}\n\n${azar(config.CIERRES)}`;
-  return mensaje
-    .replace(/ {2,}/g, ' ')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
 }
 
 const IMG_EXTS = ['jpg', 'jpeg', 'png', 'webp'];
@@ -760,7 +742,11 @@ function registrarRespuesta(msg) {
     const tipo = clasificarRespuestaTexto(msg.body);
     arr.push({
       numero: msg.from,
-      hora: new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }),
+      hora: new Date().toLocaleTimeString('es-AR', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      }),
       texto: (msg.body || '').slice(0, 120),
       tipo,
       estado: estadoAutomaticoDesdeTipo(tipo),
@@ -1998,7 +1984,7 @@ function calcularObjetivoCampana(config, opciones = {}) {
   const excluidos = leerExcluidos();
   const pausados = leerPausados();
   const enviadosHoy = config.NO_REPETIR_MISMO_DIA ? cargarEnviadosHoy() : new Set();
-  const segmento = String(opciones.segmento || '');
+  const segmento = normalizarSegmento(opciones.segmento);
   const grupoId = segmento.startsWith('grupo:')
     ? segmento.slice(6)
     : String(opciones.grupoId || '');
@@ -3770,9 +3756,9 @@ app.post('/api/enviar-prueba', async (req, res) => {
   if (estadoWA.estado !== 'listo')
     return res.status(409).json({ error: 'WhatsApp no está listo.' });
   if (motor.corriendo) return res.status(409).json({ error: 'Hay una corrida en curso.' });
-  const plantilla = fs.existsSync(ARCHIVO_MENSAJE)
-    ? fs.readFileSync(ARCHIVO_MENSAJE, 'utf8').trim()
-    : '';
+  const tag = TAGS_VALIDOS.includes(req.body && req.body.tag) ? req.body.tag : null;
+  const plantillas = fs.existsSync(ARCHIVO_MENSAJE) ? cargarPlantillas() : { general: '' };
+  const plantilla = String((tag && plantillas[tag]) || plantillas.general || '').trim();
   if (!plantilla) return res.status(400).json({ error: 'El mensaje está vacío.' });
 
   const destino = client && client.info && client.info.wid && client.info.wid._serialized;

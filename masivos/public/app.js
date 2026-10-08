@@ -184,11 +184,18 @@ function renderCampana() {
   const segments = campaignSegmentCounts();
   const total = segments.total;
   return `<div class="page-head"><div class="page-title"><div class="page-icon"><span class="material-symbols-outlined">rocket_launch</span></div><div><div class="eyebrow">CENTRO OPERATIVO / CAMPAÑA</div><h1>Constructor y Simulacro de Campaña</h1><p>Campañas segmentadas de alto impacto por WhatsApp Directo con dispersión anti-bloqueo.</p></div></div><span class="badge green">Línea ${state.status?.whatsapp === 'listo' ? 'activa' : 'pendiente'}</span></div><div class="step-rail"><div class="step active"><b>1</b> Mensaje</div><div class="step-line"></div><div class="step"><b>2</b> Multimedia</div><div class="step-line"></div><div class="step"><b>3</b> Audiencia</div><div class="step-line"></div><div class="step"><b>4</b> Despacho</div></div><div class="studio"><div class="studio-main">
-    ${card('', `<div class="section-title"><span class="number">1</span><h2>Redacción de Mensaje & Variables</h2><small>Rotación SpinTax: Activada</small></div><div class="tabs"><button class="${state.campaignTab === 'general' ? 'active' : ''}" data-action="campaign-tab" data-tab="general">General</button><button class="${state.campaignTab === 'recurrentes' ? 'active' : ''}" data-action="campaign-tab" data-tab="recurrentes">Ya Pidieron (Recurrentes)</button><button class="${state.campaignTab === 'nuevos' ? 'active' : ''}" data-action="campaign-tab" data-tab="nuevos">Nuevos (Bienvenida)</button><button class="${state.campaignTab === 'frios' ? 'active' : ''}" data-action="campaign-tab" data-tab="frios">Recuperar Fríos</button></div><div class="eyebrow">INYECTAR VARIABLES PERSONALIZADAS</div><div class="var-pills"><button class="var-pill" data-insert="{SALUDO}">+ {SALUDO}</button><button class="var-pill" data-insert="{NOMBRE}">+ {NOMBRE}</button><button class="var-pill" data-insert="{ULTIMO_PEDIDO}">+ {ULTIMO_PEDIDO}</button><button class="var-pill" data-insert="{MENU_LINK}">+ {MENU_LINK}</button></div><textarea class="editor" id="campaign-message" placeholder="Escribí el mensaje de tu campaña...">${esc(state.message)}</textarea><div class="editor-note"><span>Variables simples y claras para personalizar cada conversación.</span><b id="message-count">0 caracteres</b></div><button class="button secondary" data-action="save-message"><span class="material-symbols-outlined">save</span>Guardar borrador</button>`, 'section-card')}
+    ${card('', `<div class="section-title"><span class="number">1</span><h2>Redacción de Mensaje & Variables</h2></div><div class="tabs"><button class="${state.campaignTab === 'general' ? 'active' : ''}" data-action="campaign-tab" data-tab="general">General</button><button class="${state.campaignTab === 'recurrentes' ? 'active' : ''}" data-action="campaign-tab" data-tab="recurrentes">Ya Pidieron (Recurrentes)</button><button class="${state.campaignTab === 'nuevos' ? 'active' : ''}" data-action="campaign-tab" data-tab="nuevos">Nuevos (Bienvenida)</button><button class="${state.campaignTab === 'frios' ? 'active' : ''}" data-action="campaign-tab" data-tab="frios">Recuperar Fríos</button></div><div class="eyebrow">INYECTAR VARIABLES PERSONALIZADAS</div><div class="var-pills"><button class="var-pill" data-insert="{SALUDO}">+ {SALUDO}</button><button class="var-pill" data-insert="{NOMBRE}">+ {NOMBRE}</button></div><textarea class="editor" id="campaign-message" placeholder="Escribí el mensaje de tu campaña...">${esc(state.message)}</textarea><div class="editor-note"><span>Variables simples y claras para personalizar cada conversación.</span><b id="message-count">0 caracteres</b></div><button class="button secondary" data-action="save-message"><span class="material-symbols-outlined">save</span>Guardar borrador</button>`, 'section-card')}
     ${card('', `<div class="section-title"><span class="number">2</span><h2>Contenido Multimedia & Adjuntos</h2><small>Máx. 16 MB por archivo</small></div><div class="attachment-list">${state.media.length ? state.media.map((item) => `<div class="attachment"><div class="attachment-thumb" style="background-image:url('${esc(item.dataUrl || item.url || '')}');background-size:cover"><span class="material-symbols-outlined">image</span></div><div><strong>${esc(item.nombre || 'Imagen de campaña')}</strong><small>Imagen lista para usar</small></div><span class="material-symbols-outlined" data-remove-image="${esc(item.nombre || '')}">delete</span></div>`).join('') : '<div class="attachment"><div class="attachment-thumb"><span class="material-symbols-outlined">image</span></div><div><strong>Imagen de campaña</strong><small>JPG, PNG o WEBP</small></div></div>'}${state.pdf ? `<div class="attachment"><div class="attachment-thumb" style="background:#ffd8d2;color:#b51b07"><span class="material-symbols-outlined">picture_as_pdf</span></div><div><strong>${esc(state.pdf.nombre || 'Menú o promoción')}</strong><small>PDF listo para adjuntar</small></div><span class="material-symbols-outlined" data-remove-pdf="true">delete</span></div>` : '<div class="attachment"><div class="attachment-thumb" style="background:#ffd8d2;color:#b51b07"><span class="material-symbols-outlined">picture_as_pdf</span></div><div><strong>Menú o promoción</strong><small>PDF opcional</small></div></div>'}</div><label class="upload-row"><span class="material-symbols-outlined">upload_file</span> Agregar imágenes o PDF <input id="campaign-file" type="file" hidden multiple accept="image/*,.pdf"></label>`, 'section-card')}
-    ${card('', `<div class="section-title"><span class="number">3</span><h2>Selección de Segmento Objetivo</h2><button class="link-button" data-route="contactos" style="width:auto;margin-left:auto;color:var(--coral-dark)">Gestionar filtros CRM</button></div><div class="audience-grid"><label class="audience selected"><span><input type="radio" name="segment" value="activo" checked> Clientes Activos</span><p>Contactos con actividad reciente y consentimiento.</p><strong>${segments.loaded ? segments.recurrentes.toLocaleString('es-AR') : '—'} destinatarios</strong></label><label class="audience"><span><input type="radio" name="segment" value="nuevo"> Clientes Nuevos</span><p>Registrados recientemente o sin segunda visita confirmada.</p><strong>${segments.loaded ? segments.nuevos.toLocaleString('es-AR') : '—'} destinatarios</strong></label><label class="audience"><span><input type="radio" name="segment" value="frio"> Contactos Fríos (+60d)</span><p>Sin pedidos recientes, candidatos a reactivación.</p><strong>${segments.loaded ? segments.frios.toLocaleString('es-AR') : '—'} destinatarios</strong></label><label class="audience"><span><input type="radio" name="segment" value="todos"> Base Total Habilitada</span><p>Todos los contactos habilitados para campañas.</p><strong>${segments.loaded ? total.toLocaleString('es-AR') : '—'} contactos</strong></label></div>${state.groups.length ? `<div class="campaign-group-picker"><span class="material-symbols-outlined">bookmark</span><div><strong>Grupo guardado</strong><small>Usá una selección preparada desde Contactos.</small></div><select id="campaign-group" aria-label="Grupo guardado"><option value="">Elegir grupo...</option>${state.groups.map((group) => `<option value="${esc(group.id)}">${esc(group.nombre)} · ${group.numeros.length} contactos</option>`).join('')}</select></div>` : `<div class="campaign-group-hint"><span class="material-symbols-outlined">bookmark_add</span>Guardá una selección desde Contactos para reutilizarla como grupo de envío.</div>`}<div class="readiness"><span class="material-symbols-outlined">shield</span>La audiencia se mantiene bloqueada hasta que exista conexión y consentimiento.</div>`, 'section-card')}
+    ${card('', `<div class="section-title"><span class="number">3</span><h2>Selección de Segmento Objetivo</h2><button class="link-button" data-route="contactos" style="width:auto;margin-left:auto;color:var(--coral-dark)">Gestionar filtros CRM</button></div><div class="audience-grid"><label class="audience"><span><input type="radio" name="segment" value="activo" ${state.campaignSegment === 'activo' ? 'checked' : ''}> Clientes Activos</span><p>Contactos con actividad reciente y consentimiento.</p><strong>${segments.loaded ? segments.recurrentes.toLocaleString('es-AR') : '—'} destinatarios</strong></label><label class="audience"><span><input type="radio" name="segment" value="nuevo" ${state.campaignSegment === 'nuevo' ? 'checked' : ''}> Clientes Nuevos</span><p>Registrados recientemente o sin segunda visita confirmada.</p><strong>${segments.loaded ? segments.nuevos.toLocaleString('es-AR') : '—'} destinatarios</strong></label><label class="audience"><span><input type="radio" name="segment" value="frio" ${state.campaignSegment === 'frio' ? 'checked' : ''}> Contactos Fríos</span><p>Recibieron 3 o más promos y nunca respondieron.</p><strong>${segments.loaded ? segments.frios.toLocaleString('es-AR') : '—'} destinatarios</strong></label><label class="audience"><span><input type="radio" name="segment" value="todos" ${state.campaignSegment === 'todos' ? 'checked' : ''}> Base Total Habilitada</span><p>Todos los contactos habilitados para campañas.</p><strong>${segments.loaded ? total.toLocaleString('es-AR') : '—'} contactos</strong></label></div>${state.groups.length ? `<div class="campaign-group-picker"><span class="material-symbols-outlined">bookmark</span><div><strong>Grupo guardado</strong><small>Usá una selección preparada desde Contactos.</small></div><select id="campaign-group" aria-label="Grupo guardado"><option value="">Elegir grupo...</option>${state.groups.map((group) => `<option value="${esc(group.id)}">${esc(group.nombre)} · ${group.numeros.length} contactos</option>`).join('')}</select></div>` : `<div class="campaign-group-hint"><span class="material-symbols-outlined">bookmark_add</span>Guardá una selección desde Contactos para reutilizarla como grupo de envío.</div>`}<div class="readiness"><span class="material-symbols-outlined">shield</span>La audiencia se mantiene bloqueada hasta que exista conexión y consentimiento.</div>`, 'section-card')}
     ${card('', `<div class="section-title"><span class="number">4</span><h2>Revisión, Ritmo y Seguridad de Envío</h2><span class="badge green" style="margin-left:auto">Validación activa</span></div><div class="check-list"><div class="check-row"><span class="material-symbols-outlined">check_circle</span><div><strong>Mensaje revisado</strong><small>No se enviará nada mientras sea sólo una vista previa.</small></div></div><div class="check-row"><span class="material-symbols-outlined">check_circle</span><div><strong>Variables mapeadas</strong><small>Los campos vacíos se muestran antes de confirmar.</small></div></div><div class="check-row"><span class="material-symbols-outlined">check_circle</span><div><strong>Intervalo de seguridad configurado</strong><small>La dispersión evita ráfagas y mantiene control manual.</small></div></div></div><div class="campaign-actions"><button class="button secondary" data-action="simulate"><span class="material-symbols-outlined">play_circle</span>Hacer Simulacro</button><button class="button secondary" data-action="test"><span class="material-symbols-outlined">send_to_mobile</span>Enviar Prueba Personal</button><button class="button primary" data-action="dispatch"><span class="material-symbols-outlined">schedule_send</span>Confirmar y Programar Envío</button></div>`, 'section-card')}
   </div><aside class="preview-dock">${renderWhatsappPreview()}<div class="card side-card projection"><h3>Simulación de Rendimiento</h3><div class="projection-grid"><div><small>Apertura proyectada</small><strong class="green">—</strong><small>Se calcula al simular</small></div><div><small>Respuestas esperadas</small><strong class="red">—</strong><small>Sin histórico todavía</small></div><div><small>Reservas / Mesas</small><strong>—</strong><small>Sin campaña enviada</small></div><div><small>Costo operativo</small><strong class="green">$0</strong><small>Sesión local</small></div></div></div></aside></div>`;
+}
+
+// Cada pestaña del editor guarda su propia plantilla en el servidor (mensaje-<tag>.txt).
+const CAMPAIGN_TAB_TAGS = { recurrentes: 'pidio', nuevos: 'nuevo', frios: 'frio' };
+
+function campaignTemplateTag() {
+  return CAMPAIGN_TAB_TAGS[state.campaignTab] || null;
 }
 
 function campaignPlanMarkup() {
@@ -957,14 +964,22 @@ async function action(name, value) {
     if (name === 'close-modal') return closeQrModal();
     if (name === 'campaign-tab') {
       state.campaignTab = value || 'general';
+      const tag = campaignTemplateTag();
+      const data = await api(tag ? `/api/mensaje?tag=${tag}` : '/api/mensaje');
+      state.message = String(data.texto || '').trim();
       return render();
     }
     if (name === 'save-message') {
       const texto = $('#campaign-message')?.value?.trim() || '';
-      if (!texto) return showToast('Escribí un mensaje antes de guardar.');
-      await api('/api/mensaje', { method: 'POST', body: JSON.stringify({ texto }) });
+      const tag = campaignTemplateTag();
+      if (!texto && !tag) return showToast('Escribí un mensaje antes de guardar.');
+      await api('/api/mensaje', { method: 'POST', body: JSON.stringify({ texto, tag }) });
       state.message = texto;
-      return showToast('Borrador guardado.');
+      return showToast(
+        tag && !texto
+          ? 'Mensaje del segmento borrado: ese grupo recibirá el mensaje general.'
+          : 'Borrador guardado.'
+      );
     }
     if (name === 'preview-reply')
       return showToast(`Respuesta simulada: ${value || 'sin texto'}. No se envió nada.`);
@@ -1072,19 +1087,28 @@ async function action(name, value) {
         method: 'POST',
         body: JSON.stringify({ numeros: state.selectedContacts }),
       });
+      // Reactivar devuelve el contacto a las campañas: saca la pausa y la exclusión.
+      await api('/api/excluir', {
+        method: 'POST',
+        body: JSON.stringify({ numeros: state.selectedContacts, excluir: false }),
+      });
       state.selectedContacts = [];
       await refresh();
-      return showToast('Contactos reactivados.');
+      return showToast('Contactos reactivados: vuelven a recibir campañas.');
     }
     if (name === 'simulate' || name === 'dispatch') {
       const simulacro = name === 'simulate';
       const groupId = $('#campaign-group')?.value || '';
       const segmento = groupId
         ? `grupo:${groupId}`
-        : document.querySelector('input[name="segment"]:checked')?.value || 'activo';
+        : document.querySelector('input[name="segment"]:checked')?.value || '';
+      if (!segmento) return showToast('Elegí a quién enviar: un segmento o un grupo guardado.');
       const texto = $('#campaign-message')?.value?.trim() || state.message.trim();
       if (!texto) return showToast('Escribí un mensaje antes de preparar la campaña.');
-      await api('/api/mensaje', { method: 'POST', body: JSON.stringify({ texto }) });
+      await api('/api/mensaje', {
+        method: 'POST',
+        body: JSON.stringify({ texto, tag: campaignTemplateTag() }),
+      });
       const plan = await api('/api/preparar-envio', {
         method: 'POST',
         body: JSON.stringify({ simulacro, segmento }),
@@ -1132,7 +1156,16 @@ async function action(name, value) {
         )
       )
         return;
-      await api('/api/enviar-prueba', { method: 'POST', body: '{}' });
+      const textoPrueba = $('#campaign-message')?.value?.trim() || state.message.trim();
+      if (!textoPrueba) return showToast('Escribí un mensaje antes de enviar la prueba.');
+      await api('/api/mensaje', {
+        method: 'POST',
+        body: JSON.stringify({ texto: textoPrueba, tag: campaignTemplateTag() }),
+      });
+      await api('/api/enviar-prueba', {
+        method: 'POST',
+        body: JSON.stringify({ tag: campaignTemplateTag() }),
+      });
       return showToast('Prueba enviada.');
     }
     if (name === 'remove-image') {
@@ -1314,6 +1347,10 @@ document.addEventListener('input', (event) => {
   if (event.target.id === 'chat-message') state.chatDraft = event.target.value;
 });
 document.addEventListener('change', async (event) => {
+  if (event.target.name === 'segment') {
+    state.campaignSegment = event.target.value;
+    return;
+  }
   if (event.target.matches('.contact-select')) {
     const numero = String(event.target.dataset.contactSelect || '');
     state.selectedContacts = event.target.checked

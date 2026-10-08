@@ -222,6 +222,21 @@ function verifyFrontendContract() {
   assert.match(app, /chats\.total > state\.contacts\.length/);
   assert.doesNotMatch(app, /NUEVOS REGISTROS', total \? '—' : '—'/);
   assert.doesNotMatch(app, /Math\.min\(total, 620\)/);
+  // Campaña: nada preseleccionado, "todos" llega al servidor como base completa.
+  assert.doesNotMatch(app, /value="activo" checked/);
+  assert.match(app, /Elegí a quién enviar/);
+  assert.match(server, /normalizarSegmento\(opciones\.segmento\)/);
+  assert.doesNotMatch(app, /data-insert="\{(ULTIMO_PEDIDO|MENU_LINK)\}"/);
+  assert.doesNotMatch(app, /SpinTax/);
+  assert.match(app, /CAMPAIGN_TAB_TAGS/);
+  // Reactivar también saca la exclusión.
+  assert.match(app, /reactivar-selected'[\s\S]{0,600}excluir: false/);
+  // Hora argentina aunque el contenedor arranque en UTC.
+  assert.match(
+    server,
+    /process\.env\.TZ = process\.env\.TZ \|\| 'America\/Argentina\/Buenos_Aires'/
+  );
+  assert.match(server, /hour12: false/);
   assert.match(css, /#181b1f/i);
   assert.match(css, /#e03b24/i);
   assert.match(css, /contact-card-grid/);

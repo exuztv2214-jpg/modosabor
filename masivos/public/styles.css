@@ -1040,7 +1040,8 @@ textarea:focus-visible {
   background: #eff1ff;
   border: 1px solid transparent;
 }
-.audience.selected {
+.audience.selected,
+.audience:has(input:checked) {
   border-color: #8f9ee0;
   background: #e0e7ff;
 }
