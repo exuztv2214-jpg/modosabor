@@ -8,6 +8,8 @@ async function run() {
   const memoria = new Database(':memory:');
   memoria.exec(`
     CREATE TABLE clientes (id INTEGER PRIMARY KEY, nombre TEXT, telefono TEXT);
+    CREATE TABLE configuracion (clave TEXT PRIMARY KEY, valor TEXT);
+    INSERT INTO configuracion VALUES ('turnos_negocio', '[{"id":"noche","desde":"20:00","hasta":"02:00"}]');
     CREATE TABLE pedidos (id INTEGER PRIMARY KEY, cliente_id INTEGER, cliente_nombre TEXT,
       cliente_telefono TEXT, estado TEXT, creado_en TEXT);
     INSERT INTO clientes VALUES (1, 'Ana', '3863412345');
@@ -35,6 +37,14 @@ async function run() {
     assert.equal(sinToken.status, 403, 'sin token no entrega datos de clientes');
     const malToken = await fetch(url, { headers: { 'x-masivos-proxy-token': 'otro' } });
     assert.equal(malToken.status, 403);
+    const turnosUrl = url.replace('pedidos-por-telefono', 'turnos');
+    assert.equal((await fetch(turnosUrl)).status, 403);
+    const turnosResp = await fetch(turnosUrl, {
+      headers: { 'x-masivos-proxy-token': 'token-de-prueba' },
+    });
+    assert.deepEqual((await turnosResp.json()).turnos, [
+      { id: 'noche', desde: '20:00', hasta: '02:00' },
+    ]);
 
     const ok = await fetch(url, { headers: { 'x-masivos-proxy-token': 'token-de-prueba' } });
     assert.equal(ok.status, 200);

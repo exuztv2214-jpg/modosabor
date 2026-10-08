@@ -74,6 +74,10 @@ function mergeSyncedContacts(chats, contacts, previous, lidMappings = []) {
     const telefono = phoneByLid.get(numero) || (digits !== lidDigits ? digits : '');
     const incomingName = String(name || '').trim();
     const record = records.get(numero);
+    const ultimoMensaje = [record?.ultimoMensaje, old?.ultimoMensaje, lastMessage]
+      .filter(Boolean)
+      .sort()
+      .at(-1);
     // Un nombre real gana a un número o a "Sin nombre", venga de donde venga.
     const nombres = [old?.nombre, incomingName, record?.nombre];
     const merged = {
@@ -85,14 +89,14 @@ function mergeSyncedContacts(chats, contacts, previous, lidMappings = []) {
         nombres.find((n) => String(n || '').trim()) ||
         'Sin nombre',
       ...(telefono ? { telefono } : {}),
-      ...(lastMessage ? { ultimoMensaje: lastMessage } : {}),
+      ...(ultimoMensaje ? { ultimoMensaje } : {}),
     };
     if (telefono) merged.telefono = telefono;
     else delete merged.telefono;
     records.set(numero, merged);
   };
 
-  for (const item of (previous || []).filter((contact) => contact?.origen === 'crm'))
+  for (const item of previous || [])
     add(item?.numero, item?.nombre, item?.telefono, item?.ultimoMensaje, item);
   for (const chat of chats || []) {
     if (chat?.isGroup || chat?.grupo || chat?.isChannel) continue;
@@ -127,6 +131,17 @@ function mergeSyncedContacts(chats, contacts, previous, lidMappings = []) {
   return [...records.values()].sort((a, b) =>
     (a.nombre || a.numero).localeCompare(b.nombre || b.numero)
   );
+}
+
+function crearResolutorContactos(clientes) {
+  const equivalentes = new Map();
+  // Un LID con teléfono conocido une ambos IDs sin reescribir el historial.
+  for (const cliente of clientes || []) {
+    const numero = serializedId(cliente?.numero);
+    const telefono = phoneDigits(cliente?.telefono);
+    if (numero && telefono && numero.endsWith('@lid')) equivalentes.set(`${telefono}@c.us`, numero);
+  }
+  return (numero) => equivalentes.get(serializedId(numero)) || serializedId(numero);
 }
 
 // En los mensajes con foto o video, WhatsApp Web guarda en "body" la miniatura en
@@ -266,6 +281,7 @@ function normalizarMapeosLid(items) {
 }
 
 module.exports = {
+  crearResolutorContactos,
   cuerpoLimpio,
   esNombreGenerico,
   mergeSyncedContacts,

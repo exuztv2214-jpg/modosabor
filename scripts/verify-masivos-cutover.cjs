@@ -22,8 +22,9 @@ assert.match(stitchServer, /const HOST = process\.env\.HOST \|\| ['"]127\.0\.0\.
 assert.match(stitchServer, /MASIVOS_PROXY_TOKEN/);
 assert.match(stitchServer, /MASIVOS_BASE_PATH/);
 const mainServer = fs.readFileSync(path.join(root, 'server', 'index.js'), 'utf8');
+const proxyServer = fs.readFileSync(path.join(root, 'server', 'utils', 'masivosProxy.js'), 'utf8');
 assert.match(mainServer, /MASIVOS_UPSTREAM_URL/);
-assert.match(mainServer, /x-masivos-proxy-token/);
+assert.match(proxyServer, /x-masivos-proxy-token/);
 assert.match(mainServer, /res\.redirect\('\/masivos\/admin'\)/);
 assert.match(mainServer, /marketing\.edit/);
 assert.match(launcher, /PROMO_ROOT\s*=\s*BASE_DIR\s*\/\s*["']masivos["']/);

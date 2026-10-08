@@ -13,12 +13,15 @@ process.env.TZ = process.env.TZ || 'America/Argentina/Buenos_Aires';
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const configLocal = path.join(__dirname, '..', 'server', 'utils', 'masivosLocalConfig.js');
+if (fs.existsSync(configLocal)) require(configLocal)();
 const express = require('express');
 const QRCode = require('qrcode');
 const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const configBase = require('./config');
 const { liberarSesionWhatsApp } = require('./session-utils');
 const {
+  crearResolutorContactos,
   mergeSyncedContacts,
   normalizeChats,
   mergeChats,
@@ -33,6 +36,8 @@ const { nombreArchivoFoto, vincularFotosExistentes } = require('./photo-cache');
 const { armarMensaje, normalizarSegmento } = require('./mensaje');
 const { moverMediosAlVolumen } = require('./media');
 const { cruzarPedidos } = require('./pedidos-reales');
+const { claveTurno } = require('./turnos');
+const { imagenIdentidad, usuarioPerfil } = require('./identidad');
 
 const PORT = Number(process.env.PORT || 3867);
 const HOST = process.env.HOST || '127.0.0.1';
@@ -68,6 +73,10 @@ const ARCHIVO_RECORDATORIOS = path.join(DIR_DATA, 'recordatorios.json');
 const ARCHIVO_CIERRES_DIA = path.join(DIR_DATA, 'cierres-dia.json');
 const ARCHIVO_CHAT_ESTADOS = path.join(DIR_DATA, 'chat-estados.json');
 const ARCHIVO_GRUPOS_ENVIO = path.join(DIR_DATA, 'grupos-envio.json');
+const ARCHIVO_TURNOS = path.join(DIR_DATA, 'turnos-negocio.json');
+const ARCHIVO_ENVIOS_TURNO = path.join(DIR_DATA, 'envios-turno.json');
+const ARCHIVO_PERFILES = path.join(DIR_DATA, 'perfiles.json');
+const DIR_IDENTIDAD = path.join(DIR_DATA, 'identidad');
 // Flyers y menú viven dentro de data/ para sobrevivir a los redeploys (volumen en Railway).
 const DIR_MEDIA = path.join(DIR_DATA, 'media');
 const ARCHIVO_PDF = path.join(DIR_MEDIA, 'menu.pdf');
@@ -144,8 +153,11 @@ function getConfig() {
 
 function leerGruposEnvio() {
   const grupos = leerJsonSeguro(ARCHIVO_GRUPOS_ENVIO, []);
+  const resolver = resolverNumerosContacto();
   return Array.isArray(grupos)
-    ? grupos.filter((grupo) => grupo && grupo.id && grupo.nombre && Array.isArray(grupo.numeros))
+    ? grupos
+        .filter((grupo) => grupo && grupo.id && grupo.nombre && Array.isArray(grupo.numeros))
+        .map((grupo) => ({ ...grupo, numeros: [...new Set(grupo.numeros.map(resolver))] }))
     : [];
 }
 
@@ -232,15 +244,46 @@ function archivoEnviadosHoy() {
 
 function cargarEnviadosHoy() {
   try {
-    return new Set(JSON.parse(fs.readFileSync(archivoEnviadosHoy(), 'utf8')));
+    return new Set(
+      JSON.parse(fs.readFileSync(archivoEnviadosHoy(), 'utf8')).map(resolverNumerosContacto())
+    );
   } catch (e) {
     return new Set();
   }
 }
 
+function turnoActual() {
+  return claveTurno(leerJsonSeguro(ARCHIVO_TURNOS, []).turnos || []);
+}
+
+function turnosDisponibles() {
+  return !MODOSABOR_API_URL || Array.isArray(leerJsonSeguro(ARCHIVO_TURNOS, {}).turnos);
+}
+
+function leerEnviosTurno() {
+  if (!fs.existsSync(ARCHIVO_ENVIOS_TURNO)) {
+    // Migración conservadora: lo ya enviado hoy queda bloqueado en el primer turno.
+    escribirJsonSeguro(ARCHIVO_ENVIOS_TURNO, { [turnoActual()]: [...cargarEnviadosHoy()] });
+  }
+  return JSON.parse(fs.readFileSync(ARCHIVO_ENVIOS_TURNO, 'utf8'));
+}
+
+function enviadosEnTurno(turno = turnoActual()) {
+  return new Set((leerEnviosTurno()[turno] || []).map(resolverNumerosContacto()));
+}
+
+function registrarEnvioTurno(numero) {
+  const turno = turnoActual();
+  const registro = leerEnviosTurno();
+  registro[turno] = [
+    ...new Set([...(registro[turno] || []), numero].map(resolverNumerosContacto())),
+  ];
+  escribirJsonSeguro(ARCHIVO_ENVIOS_TURNO, registro);
+}
+
 function guardarEnviadosHoy(set) {
   try {
-    fs.writeFileSync(archivoEnviadosHoy(), JSON.stringify([...set], null, 2));
+    escribirJsonSeguro(archivoEnviadosHoy(), [...new Set([...set].map(resolverNumerosContacto()))]);
   } catch (e) {
     /* no critico */
   }
@@ -296,7 +339,9 @@ function primerSlotLibrePromo() {
 
 function leerExcluidos() {
   try {
-    return new Set(JSON.parse(fs.readFileSync(ARCHIVO_EXCLUIDOS, 'utf8')));
+    return new Set(
+      JSON.parse(fs.readFileSync(ARCHIVO_EXCLUIDOS, 'utf8')).map(resolverNumerosContacto())
+    );
   } catch (e) {
     return new Set();
   }
@@ -304,11 +349,21 @@ function leerExcluidos() {
 
 function guardarExcluidos(set) {
   fs.mkdirSync(path.dirname(ARCHIVO_EXCLUIDOS), { recursive: true });
-  fs.writeFileSync(ARCHIVO_EXCLUIDOS, JSON.stringify([...set], null, 2));
+  escribirJsonSeguro(ARCHIVO_EXCLUIDOS, [...new Set([...set].map(resolverNumerosContacto()))]);
+}
+
+function resolverNumerosContacto() {
+  return crearResolutorContactos(leerJsonSeguro(ARCHIVO_CLIENTES, []));
 }
 
 function leerPausados() {
-  const raw = leerJsonSeguro(ARCHIVO_PAUSADOS, {});
+  const guardados = leerJsonSeguro(ARCHIVO_PAUSADOS, {});
+  const resolver = resolverNumerosContacto();
+  const raw = {};
+  for (const [numero, info] of Object.entries(guardados)) {
+    const id = resolver(numero);
+    if (!raw[id] || String(info?.hasta || '') > String(raw[id].hasta || '')) raw[id] = info;
+  }
   const hoyStr = hoy();
   let cambio = false;
   for (const [numero, info] of Object.entries(raw)) {
@@ -328,7 +383,7 @@ function guardarPausados(obj) {
 function pausarNumeros(numeros, dias, motivo) {
   const pausados = leerPausados();
   const hasta = sumarDias(hoy(), dias);
-  for (const n of numeros) {
+  for (const n of numeros.map(resolverNumerosContacto())) {
     pausados[n] = { hasta, motivo: motivo || 'pausa operativa', creado: new Date().toISOString() };
   }
   guardarPausados(pausados);
@@ -338,7 +393,7 @@ function pausarNumeros(numeros, dias, motivo) {
 function reactivarNumeros(numeros) {
   const pausados = leerPausados();
   let total = 0;
-  for (const n of numeros) {
+  for (const n of numeros.map(resolverNumerosContacto())) {
     if (pausados[n]) {
       delete pausados[n];
       total++;
@@ -448,8 +503,7 @@ function escribirJsonSeguro(archivo, data) {
   const temporal = `${archivo}.${process.pid}.tmp`;
   try {
     fs.writeFileSync(temporal, JSON.stringify(data, null, 2));
-    // ponytail: reemplazo atómico mínimo; un lock por archivo sólo si aparece concurrencia real.
-    fs.rmSync(archivo, { force: true });
+    // El original debe sobrevivir si falla el reemplazo.
     fs.renameSync(temporal, archivo);
   } catch (e) {
     fs.rmSync(temporal, { force: true });
@@ -517,9 +571,10 @@ function leerCampana(id) {
 function numerosFallidosCampana(id) {
   const campana = leerCampana(id);
   if (!campana || campana.simulacro || !Array.isArray(campana.destinatarios)) return [];
+  const resolver = resolverNumerosContacto();
   return campana.destinatarios
     .filter((d) => d.estado === 'fallido' || d.estado === 'detenido')
-    .map((d) => d.numero);
+    .map((d) => resolver(d.numero));
 }
 
 function crearCampanaPersistente(simulacro, opciones, objetivo, config) {
@@ -584,7 +639,14 @@ const PRIORIDAD_CAMPANA = [
 
 function leerEtiquetas() {
   try {
-    return JSON.parse(fs.readFileSync(ARCHIVO_ETIQUETAS, 'utf8'));
+    const guardadas = JSON.parse(fs.readFileSync(ARCHIVO_ETIQUETAS, 'utf8'));
+    const resolver = resolverNumerosContacto();
+    const etiquetas = {};
+    for (const [numero, tags] of Object.entries(guardadas)) {
+      const id = resolver(numero);
+      etiquetas[id] = [...new Set([...(etiquetas[id] || []), ...tags])];
+    }
+    return etiquetas;
   } catch (e) {
     return {};
   }
@@ -813,8 +875,9 @@ async function manejarEntrante(msg) {
   if (!texto || !PALABRAS_BAJA.some((p) => texto === p || texto.startsWith(p + ' '))) return;
 
   const excluidos = leerExcluidos();
-  if (excluidos.has(msg.from)) return; // ya estaba afuera
-  excluidos.add(msg.from);
+  const numero = resolverNumerosContacto()(msg.from);
+  if (excluidos.has(numero)) return; // ya estaba afuera
+  excluidos.add(numero);
   guardarExcluidos(excluidos);
   registrarLog(`🚫 BAJA automática: ${msg.from} pidió no recibir más ("${texto.slice(0, 40)}")`);
   emit('baja', { numero: msg.from });
@@ -906,11 +969,12 @@ function parecePedido(texto) {
 function construirHistorialClientes() {
   const enviadosPorNumero = new Map();
   const respuestasPorNumero = new Map();
+  const resolver = resolverNumerosContacto();
 
   for (const f of archivosPorPatron(/^enviados-\d{4}-\d{2}-\d{2}\.json$/)) {
     const fecha = f.match(/(\d{4}-\d{2}-\d{2})/)[1];
     const arr = leerJsonSeguro(path.join(DIR_DATA, f), []);
-    for (const numero of arr) {
+    for (const numero of new Set(arr.map(resolver))) {
       if (!enviadosPorNumero.has(numero)) enviadosPorNumero.set(numero, []);
       enviadosPorNumero.get(numero).push(fecha);
     }
@@ -920,7 +984,7 @@ function construirHistorialClientes() {
     const fecha = f.match(/(\d{4}-\d{2}-\d{2})/)[1];
     const arr = leerJsonSeguro(path.join(DIR_DATA, f), []);
     for (const r of arr) {
-      const numero = r && r.numero;
+      const numero = r && resolver(r.numero);
       if (!numero) continue;
       if (!respuestasPorNumero.has(numero)) respuestasPorNumero.set(numero, []);
       respuestasPorNumero.get(numero).push({
@@ -1113,7 +1177,7 @@ function enriquecerCliente(cliente, contexto) {
 }
 
 function leerClientesEnriquecidos() {
-  const clientes = leerJsonSeguro(ARCHIVO_CLIENTES, []);
+  const clientes = mergeSyncedContacts([], [], leerJsonSeguro(ARCHIVO_CLIENTES, []));
   const pausados = leerPausados();
   const contexto = {
     ...construirHistorialClientes(),
@@ -1153,6 +1217,8 @@ function ordenarPorPrioridadCampana(clientes) {
 }
 
 function fueEnviadoDesde(numero, dias) {
+  const resolver = resolverNumerosContacto();
+  const id = resolver(numero);
   const desde = new Date();
   desde.setDate(desde.getDate() - dias);
   const limite = desde.toISOString().slice(0, 10);
@@ -1160,7 +1226,7 @@ function fueEnviadoDesde(numero, dias) {
     const fecha = f.match(/(\d{4}-\d{2}-\d{2})/)[1];
     if (fecha < limite) continue;
     const arr = leerJsonSeguro(path.join(DIR_DATA, f), []);
-    if (arr.includes(numero)) return true;
+    if (arr.some((n) => resolver(n) === id)) return true;
   }
   return false;
 }
@@ -1217,6 +1283,7 @@ function respuestasRecientes(limite = 80) {
   const archivos = archivosPorPatron(/^respuestas-\d{4}-\d{2}-\d{2}\.json$/).reverse();
   const crm = leerCrm();
   const out = [];
+  const resolver = resolverNumerosContacto();
   for (const f of archivos) {
     const fecha = f.match(/(\d{4}-\d{2}-\d{2})/)[1];
     const arr = leerJsonSeguro(path.join(DIR_DATA, f), []);
@@ -1229,6 +1296,7 @@ function respuestasRecientes(limite = 80) {
         tipo: r.tipo || clasificarRespuestaTexto(r.texto),
       };
       item.id = idRespuesta(item);
+      item.numero = resolver(item.numero);
       const estadoGuardado =
         crm[item.id] && crm[item.id].estado === 'pedido'
           ? 'pedido_probable'
@@ -2040,6 +2108,13 @@ async function esperarMotor(ms) {
   while (!motor.detener && Date.now() < fin) await esperar(Math.min(500, fin - Date.now()));
 }
 
+async function contactoHabilitadoMotor(numero) {
+  while (motor.pausado && !motor.detener) await esperar(500);
+  if (motor.detener) return false;
+  const id = resolverNumerosContacto()(numero);
+  return !leerExcluidos().has(id) && !leerPausados()[id];
+}
+
 function emitirMotor() {
   emit('motor', { corriendo: motor.corriendo, pausado: motor.pausado, stats: motor.stats });
 }
@@ -2048,7 +2123,7 @@ function calcularObjetivoCampana(config, opciones = {}) {
   const clientes = leerClientesEnriquecidos();
   const excluidos = leerExcluidos();
   const pausados = leerPausados();
-  const enviadosHoy = config.NO_REPETIR_MISMO_DIA ? cargarEnviadosHoy() : new Set();
+  const enviadosHoy = config.NO_REPETIR_MISMO_TURNO !== false ? enviadosEnTurno() : new Set();
   const segmento = normalizarSegmento(opciones.segmento);
   const grupoId = segmento.startsWith('grupo:')
     ? segmento.slice(6)
@@ -2138,21 +2213,48 @@ function crearResumenCampana(simulacro, opciones = {}) {
       esperaTandaMin,
       maxPorHora: numeroAcotado(config.MAX_POR_HORA, 0, 0, 1000),
       ventanaCupoMin: numeroAcotado(config.VENTANA_CUPO_MINUTOS, 60, 1, 240),
-      noRepetir: config.NO_REPETIR_MISMO_DIA !== false,
+      noRepetir: config.NO_REPETIR_MISMO_TURNO !== false,
+      turno: turnoActual(),
     },
     calentamiento: calc.infoLimite,
     salud,
     prioridad: calc.segmento ? [calc.segmento] : PRIORIDAD_CAMPANA,
   };
-  confirmacionCampana = resumen;
+  confirmacionCampana = { ...resumen, huella: huellaCampana(config, calc) };
   return resumen;
 }
 
-function validarConfirmacion(token, simulacro) {
+function huellaCampana(config, calculo) {
+  const archivos = [...buscarImagenesPromo(), ...(fs.existsSync(ARCHIVO_PDF) ? [ARCHIVO_PDF] : [])];
+  return crypto
+    .createHash('sha256')
+    .update(
+      JSON.stringify({
+        config,
+        objetivo: calculo.objetivo,
+        turno: turnoActual(),
+        plantillas: cargarPlantillas(),
+        etiquetas: leerEtiquetas(),
+        medios: archivos.map((archivo) => {
+          const stat = fs.statSync(archivo);
+          return [archivo, stat.size, stat.mtimeMs];
+        }),
+      })
+    )
+    .digest('hex');
+}
+
+function validarConfirmacion(token, simulacro, segmento) {
   if (!confirmacionCampana || confirmacionCampana.token !== token) return false;
   if (confirmacionCampana.simulacro !== !!simulacro) return false;
   if (confirmacionCampana.vence < Date.now()) return false;
-  return true;
+  if (confirmacionCampana.segmento !== normalizarSegmento(segmento)) return false;
+  const config = getConfig();
+  const calculo = calcularObjetivoCampana(config, {
+    segmento: confirmacionCampana.segmento,
+    forzarFriosRecientes: confirmacionCampana.forzarFriosRecientes,
+  });
+  return confirmacionCampana.huella === huellaCampana(config, calculo);
 }
 
 async function correrEnvio(simulacro, opciones = {}) {
@@ -2312,7 +2414,13 @@ async function correrEnvio(simulacro, opciones = {}) {
     let exito = false;
     let ultimoError = null;
     const reintentos = numeroAcotado(config.REINTENTOS, 0, 0, 3);
-    for (let intento = 0; intento <= reintentos && !exito; intento++) {
+    for (let intento = 0; intento <= reintentos && !exito && !motor.detener; intento++) {
+      if (!(await contactoHabilitadoMotor(cliente.numero))) break;
+      if (
+        config.NO_REPETIR_MISMO_TURNO !== false &&
+        enviadosEnTurno().has(resolverNumerosContacto()(cliente.numero))
+      )
+        break;
       try {
         if (medias.length)
           await client.sendMessage(cliente.numero, medias[0], { caption: mensaje });
@@ -2327,7 +2435,18 @@ async function correrEnvio(simulacro, opciones = {}) {
           );
           break;
         }
-        if (intento < reintentos) await esperar(10000);
+        if (intento < reintentos) await esperarMotor(10000);
+      }
+    }
+
+    if (exito) {
+      try {
+        registrarEnvioTurno(cliente.numero);
+      } catch (error) {
+        motor.detener = true;
+        registrarLog(
+          `⛔ No se pudo guardar el envío del turno. Campaña detenida: ${error.message}`
+        );
       }
     }
 
@@ -2336,7 +2455,8 @@ async function correrEnvio(simulacro, opciones = {}) {
     if (exito && medias.length > 1) {
       for (let k = 1; k < medias.length && !motor.detener; k++) {
         try {
-          await esperar(1500 + Math.random() * 2000);
+          await esperarMotor(1500 + Math.random() * 2000);
+          if (!(await contactoHabilitadoMotor(cliente.numero))) break;
           await client.sendMessage(cliente.numero, medias[k]);
         } catch (e) {
           registrarLog(`⚠️ La imagen ${k + 1} no llegó a ${etiqueta}: ${e.message}`);
@@ -2350,10 +2470,11 @@ async function correrEnvio(simulacro, opciones = {}) {
     }
 
     // Si hay PDF del menú, va como segundo mensaje (con pausita para que llegue ordenado)
-    if (exito && pdfMedia) {
+    if (exito && pdfMedia && !motor.detener) {
       try {
-        await esperar(2000 + Math.random() * 2000);
-        await client.sendMessage(cliente.numero, pdfMedia);
+        await esperarMotor(2000 + Math.random() * 2000);
+        if (await contactoHabilitadoMotor(cliente.numero))
+          await client.sendMessage(cliente.numero, pdfMedia);
       } catch (e) {
         registrarLog(`⚠️ El PDF no llegó a ${etiqueta}: ${e.message}`);
         if (esErrorSesionFatal(e)) {
@@ -2363,18 +2484,20 @@ async function correrEnvio(simulacro, opciones = {}) {
       }
     }
 
-    if (exito) {
+    if (!exito && !ultimoError && !motor.detener) {
+      campana.destinatarios[i].estado = 'omitido';
+      registrarLog(`OMITIDO ${etiqueta}: excluido o pausado durante la campaña.`);
+    } else if (exito) {
       motor.stats.ok++;
       enviadosHoy.add(cliente.numero);
       guardarEnviadosHoy(enviadosHoy);
-      registrarEnvioHora();
+      registrarEnvioHora(ventanaCupoMin);
       campana.destinatarios[i].estado = 'enviado';
       campana.stats.ok = motor.stats.ok;
       registrarLog(`OK  ${i + 1}/${objetivo.length}  ${etiqueta}`);
     } else {
       motor.stats.fallidos++;
-      campana.destinatarios[i].estado =
-        motor.detener && esErrorSesionFatal(ultimoError) ? 'detenido' : 'fallido';
+      campana.destinatarios[i].estado = motor.detener ? 'detenido' : 'fallido';
       campana.destinatarios[i].error = String((ultimoError && ultimoError.message) || '');
       campana.stats.fallidos = motor.stats.fallidos;
       registrarLog(
@@ -2846,6 +2969,54 @@ app.get('/', (_req, res) => {
 
 app.use(express.static(path.join(ROOT, 'public')));
 app.use('/fotos', express.static(path.join(ROOT, 'data', 'fotos')));
+app.use('/identidad', express.static(DIR_IDENTIDAD, { dotfiles: 'deny', index: false }));
+
+function guardarImagenIdentidad(data) {
+  const { buffer, extension } = imagenIdentidad(data);
+  const nombre = `${crypto.createHash('sha256').update(buffer).digest('hex')}.${extension}`;
+  fs.mkdirSync(DIR_IDENTIDAD, { recursive: true });
+  fs.writeFileSync(path.join(DIR_IDENTIDAD, nombre), buffer);
+  return `/identidad/${nombre}`;
+}
+
+app.get('/api/perfil', (req, res) => {
+  try {
+    const id = usuarioPerfil(req, proxyAutorizado(req));
+    res.json(leerJsonSeguro(ARCHIVO_PERFILES, {})[id] || { nombre: '', imagen: '' });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.post('/api/perfil', (req, res) => {
+  try {
+    const id = usuarioPerfil(req, proxyAutorizado(req));
+    const nombre = String(req.body?.nombre || '').trim();
+    if (!nombre || nombre.length > 80) throw new Error('Ingresá un nombre de hasta 80 caracteres.');
+    const perfiles = leerJsonSeguro(ARCHIVO_PERFILES, {});
+    const imagen = req.body?.data
+      ? guardarImagenIdentidad(req.body.data)
+      : perfiles[id]?.imagen || '';
+    perfiles[id] = { nombre, imagen };
+    escribirJsonSeguro(ARCHIVO_PERFILES, perfiles);
+    res.json(perfiles[id]);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.post('/api/logo', (req, res) => {
+  try {
+    const logo = guardarImagenIdentidad(req.body?.data);
+    escribirJsonSeguro(ARCHIVO_OVERRIDE, {
+      ...leerJsonSeguro(ARCHIVO_OVERRIDE, {}),
+      NEGOCIO_LOGO: logo,
+    });
+    res.json({ logo });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
 
 app.get('/api/eventos', (req, res) => {
   res.writeHead(200, {
@@ -2939,7 +3110,8 @@ app.get('/api/etiquetas', (req, res) => {
 });
 
 app.post('/api/etiquetas', (req, res) => {
-  const { numero, tag, activa } = req.body || {};
+  const { numero: entrada, tag, activa } = req.body || {};
+  const numero = resolverNumerosContacto()(entrada);
   if (!numero || !TAGS_VALIDOS.includes(tag) || typeof activa !== 'boolean') {
     return res.status(400).json({ error: 'Datos inválidos (numero, tag, activa).' });
   }
@@ -3005,6 +3177,9 @@ app.get('/api/config', (req, res) => {
     REINTENTOS: c.REINTENTOS,
     MAX_POR_CORRIDA: c.MAX_POR_CORRIDA,
     NO_REPETIR_MISMO_DIA: c.NO_REPETIR_MISMO_DIA,
+    NO_REPETIR_MISMO_TURNO: c.NO_REPETIR_MISMO_TURNO !== false,
+    TURNO_ACTUAL: turnoActual(),
+    TURNOS_NEGOCIO: leerJsonSeguro(ARCHIVO_TURNOS, {}).turnos || [],
     ADJUNTAR_PDF: c.ADJUNTAR_PDF !== false,
     CALENTAMIENTO_ACTIVO: !!c.CALENTAMIENTO_ACTIVO,
     CALENTAMIENTO_INICIO: c.CALENTAMIENTO_INICIO,
@@ -3056,6 +3231,8 @@ app.post('/api/config', (req, res) => {
   }
   if (typeof b.NO_REPETIR_MISMO_DIA === 'boolean')
     override.NO_REPETIR_MISMO_DIA = b.NO_REPETIR_MISMO_DIA;
+  if (typeof b.NO_REPETIR_MISMO_TURNO === 'boolean')
+    override.NO_REPETIR_MISMO_TURNO = b.NO_REPETIR_MISMO_TURNO;
   if (typeof b.ADJUNTAR_PDF === 'boolean') override.ADJUNTAR_PDF = b.ADJUNTAR_PDF;
   if (typeof b.MODO_TANDAS === 'boolean') override.MODO_TANDAS = b.MODO_TANDAS;
   if (typeof b.MODO_SOLO_RESPUESTAS === 'boolean')
@@ -3526,7 +3703,7 @@ app.post('/api/excluir', (req, res) => {
     return res.status(400).json({ error: 'Faltan datos (numeros[], excluir).' });
   }
   const set = leerExcluidos();
-  for (const n of numeros) {
+  for (const n of numeros.map(resolverNumerosContacto())) {
     if (excluir) set.add(n);
     else set.delete(n);
   }
@@ -3554,7 +3731,7 @@ app.post('/api/reactivar-contactos', (req, res) => {
     : [];
   if (!numeros.length) return res.status(400).json({ error: 'Seleccioná al menos un contacto.' });
   const excluidos = leerExcluidos();
-  for (const numero of numeros) excluidos.delete(numero);
+  for (const numero of numeros.map(resolverNumerosContacto())) excluidos.delete(numero);
   guardarExcluidos(excluidos);
   const resultado = reactivarNumeros(numeros);
   res.json({ ok: true, total: numeros.length, reactivados: resultado.total });
@@ -4009,6 +4186,12 @@ app.post('/api/preparar-envio', (req, res) => {
   if (motor.corriendo) return res.status(409).json({ error: 'Ya hay una corrida en curso.' });
   const simulacro = !!(req.body && req.body.simulacro);
   const cfgEnvio = getConfig();
+  if (!turnosDisponibles())
+    return res
+      .status(409)
+      .json({
+        error: 'Esperá a que se sincronicen los turnos del negocio antes de preparar la campaña.',
+      });
   if (!simulacro && cfgEnvio.MODO_SOLO_RESPUESTAS) {
     return res.status(409).json({ error: "Modo 'solo respuestas' activo: no se mandan promos." });
   }
@@ -4073,6 +4256,8 @@ app.post('/api/enviar', (req, res) => {
   if (motor.corriendo) return res.status(409).json({ error: 'Ya hay una corrida en curso.' });
   const simulacro = !!(req.body && req.body.simulacro);
   const cfgEnvio = getConfig();
+  if (!turnosDisponibles())
+    return res.status(409).json({ error: 'Los turnos del negocio todavía no están disponibles.' });
   if (!simulacro && cfgEnvio.MODO_SOLO_RESPUESTAS) {
     return res.status(409).json({
       error: "Modo 'solo respuestas' activo: no se mandan promos (se desactiva en Config → 🛡️).",
@@ -4090,8 +4275,10 @@ app.post('/api/enviar', (req, res) => {
 
   const token = String((req.body && req.body.token) || '');
   const segmento = req.body && typeof req.body.segmento === 'string' ? req.body.segmento : '';
-  if (!validarConfirmacion(token, simulacro)) {
-    return res.status(409).json({ error: 'Primero prepará y confirmá la campaña desde el panel.' });
+  if (!validarConfirmacion(token, simulacro, segmento)) {
+    return res
+      .status(409)
+      .json({ error: 'El plan cambió o venció. Volvé a preparar y revisar la campaña.' });
   }
   const salud = calcularSaludNumero();
   if (!simulacro && salud.estado === 'rojo' && !['pidio', 'activo'].includes(segmento)) {
@@ -4183,6 +4370,21 @@ const pedidosReales = { ultimoError: null, conPedidos: 0 };
 async function actualizarPedidosReales() {
   if (!MODOSABOR_API_URL || !PANEL_PROXY_TOKEN) return;
   try {
+    const turnosResp = await fetch(`${MODOSABOR_API_URL}/api/masivos-datos/turnos`, {
+      headers: { 'x-masivos-proxy-token': PANEL_PROXY_TOKEN },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!turnosResp.ok) throw new Error(`No se pudieron leer los turnos (${turnosResp.status})`);
+    const turnos = await turnosResp.json();
+    if (!Array.isArray(turnos.turnos)) throw new Error('El sistema devolvió turnos inválidos.');
+    escribirJsonSeguro(ARCHIVO_TURNOS, {
+      actualizado: new Date().toISOString(),
+      turnos: turnos.turnos,
+    });
+  } catch (error) {
+    registrarLog(`⚠️ No se pudieron sincronizar los turnos de Modo Sabor: ${error.message}`);
+  }
+  try {
     const resp = await fetch(`${MODOSABOR_API_URL}/api/masivos-datos/pedidos-por-telefono`, {
       headers: { 'x-masivos-proxy-token': PANEL_PROXY_TOKEN },
       signal: AbortSignal.timeout(15000),
@@ -4224,6 +4426,7 @@ setInterval(() => {
   try {
     const config = getConfig();
     if (!config.PROGRAMACION_ACTIVA) return;
+    if (!turnosDisponibles()) return;
     if (config.MODO_SOLO_RESPUESTAS) return;
     if (esDiaNoEnvio(config)) return;
     if (estadoWA.estado !== 'listo' || motor.corriendo) return;
@@ -4235,6 +4438,11 @@ setInterval(() => {
     if (ultimaCorridaProgramada === hoy()) return; // ya salió hoy
 
     ultimaCorridaProgramada = hoy();
+    const segmento = normalizarSegmento(config.PROGRAMACION_SEGMENTO);
+    if (calcularSaludNumero().estado === 'rojo' && !['pidio', 'activo'].includes(segmento)) {
+      registrarLog('⛔ Envío programado bloqueado: salud roja.');
+      return;
+    }
     motor.corriendo = true;
     motor.pausado = false;
     motor.detener = false;

@@ -36,6 +36,7 @@ module.exports = {
   // No volver a enviar hoy a quien ya recibió (evita duplicados si
   // corréis el script dos veces o se cortó a la mitad).
   NO_REPETIR_MISMO_DIA: true,
+  NO_REPETIR_MISMO_TURNO: true,
 
   // Cuántos días hacia atrás cuenta como "chat con conversación".
   // 3650 = todos los chats que alguna vez tuvieron mensajes.

@@ -7,7 +7,7 @@
   "type": "commonjs",
   "scripts": {
     "panel": "node server.js",
-    "verify": "node scripts/verify.js && node scripts/contact-sync.test.js && node scripts/photo-cache.test.js && node scripts/mensaje.test.js && node scripts/media.test.js && node scripts/pedidos-reales.test.js"
+    "verify": "node scripts/verify.js && node scripts/contact-sync.test.js && node scripts/photo-cache.test.js && node scripts/mensaje.test.js && node scripts/media.test.js && node scripts/pedidos-reales.test.js && node scripts/settings-save.test.js && node --test scripts/operacion.test.js scripts/borradores.test.js scripts/turnos.test.js scripts/identidad.test.js scripts/dialogos.test.js"
   },
   "dependencies": {
     "express": "^5.2.1",

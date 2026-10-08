@@ -5,6 +5,8 @@ async function proxyMasivos(req, res, upstreamUrl, proxyToken) {
   const targetPath = req.originalUrl.replace(/^\/masivos(?=\/|$)/, '') || '/';
   const target = `${upstreamUrl}${targetPath}`;
   const headers = { ...req.headers, 'x-masivos-proxy-token': proxyToken };
+  delete headers['x-masivos-user-id'];
+  if (req.user?.id) headers['x-masivos-user-id'] = String(req.user.id);
   delete headers.host;
   delete headers.cookie;
   // La sesión del usuario se valida acá; Masivos confía en el token del proxy.

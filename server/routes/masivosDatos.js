@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const express = require('express');
 const db = require('../db');
 const { fechaLocal } = require('../utils/fechaLocal');
+const { parseTurnos } = require('../utils/shifts');
 
 /*
  * Datos del sistema que consume el servicio Masivos (servidor a servidor).
@@ -19,6 +20,14 @@ function tokenValido(req) {
   const b = Buffer.from(recibido);
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
+
+router.get('/turnos', (req, res) => {
+  if (!tokenValido(req)) return res.status(403).json({ error: 'No autorizado' });
+  const valor = db
+    .prepare("SELECT valor FROM configuracion WHERE clave = 'turnos_negocio'")
+    .get()?.valor;
+  res.json({ turnos: parseTurnos(valor) });
+});
 
 router.get('/pedidos-por-telefono', (req, res) => {
   if (!tokenValido(req)) return res.status(403).json({ error: 'No autorizado' });

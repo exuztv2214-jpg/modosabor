@@ -11,6 +11,8 @@ const state = {
   groups: [],
   events: [],
   message: '',
+  messageLoaded: false,
+  messageRevision: 0,
   media: [],
   pdf: null,
   selectedContact: null,
@@ -32,6 +34,10 @@ const state = {
   contactQuery: '',
   busy: false,
   identity: null,
+  profile: null,
+  profileDraft: null,
+  profileImage: '',
+  profileRevision: 0,
   business: null,
   operador: null,
   motor: { corriendo: false, pausado: false, stats: {} },
@@ -51,6 +57,53 @@ const state = {
 };
 let qrRefreshTimer = null;
 let waitTimer = null;
+let activeDialog = null;
+
+function solicitarDialogo({
+  titulo = 'Confirmar acción',
+  mensaje = '',
+  campos = [],
+  aceptar = 'Confirmar',
+  peligro = false,
+  imagen = '',
+}) {
+  if (activeDialog) return Promise.resolve(null);
+  const previousFocus = document.activeElement;
+  const dialog = document.createElement('dialog');
+  dialog.className = 'modal action-dialog';
+  dialog.setAttribute('aria-labelledby', 'action-dialog-title');
+  dialog.innerHTML = `<form method="dialog"><div class="modal-head"><h2 id="action-dialog-title">${esc(titulo)}</h2><button class="button ghost icon" type="button" data-cancel-dialog aria-label="Cerrar">${icon('close')}</button></div>${mensaje ? `<p class="dialog-copy">${esc(mensaje)}</p>` : ''}${imagen ? `<img class="identity-preview" src="${esc(imagen)}" alt="Imagen seleccionada">` : ''}${campos.map((c) => `<label class="field section-gap"><span>${esc(c.label)}</span>${c.multiline ? `<textarea name="${esc(c.name)}" maxlength="${c.max || 2000}" ${c.required ? 'required' : ''}>${esc(c.value || '')}</textarea>` : `<input name="${esc(c.name)}" value="${esc(c.value || '')}" maxlength="${c.max || 120}" ${c.required ? 'required' : ''}>`}</label>`).join('')}<div class="modal-actions"><button type="button" class="button secondary" data-cancel-dialog>Cancelar</button><button type="submit" class="button ${peligro ? 'danger' : 'primary'}">${esc(aceptar)}</button></div></form>`;
+  document.body.append(dialog);
+  activeDialog = dialog;
+  return new Promise((resolve) => {
+    const finish = (value) => {
+      activeDialog = null;
+      dialog.close();
+      dialog.remove();
+      if (previousFocus?.isConnected) previousFocus.focus();
+      resolve(value);
+    };
+    dialog.addEventListener('cancel', (event) => {
+      event.preventDefault();
+      finish(null);
+    });
+    dialog
+      .querySelectorAll('[data-cancel-dialog]')
+      .forEach((button) => button.addEventListener('click', () => finish(null)));
+    dialog.querySelector('form').addEventListener('submit', (event) => {
+      event.preventDefault();
+      finish(Object.fromEntries(new FormData(event.target)));
+    });
+    dialog.showModal();
+    (
+      dialog.querySelector('input, textarea') || dialog.querySelector('[data-cancel-dialog]')
+    ).focus();
+  });
+}
+
+async function confirmAction(mensaje, opciones = {}) {
+  return (await solicitarDialogo({ mensaje, ...opciones })) !== null;
+}
 
 const ROLE_LABELS = { admin: 'Dueño', caja: 'Caja', cocina: 'Cocina', delivery: 'Delivery' };
 
@@ -161,14 +214,19 @@ function syncShell() {
   const connected = state.status?.whatsapp === 'listo';
   const user = state.identity;
   const userName = $('#shell-user');
-  if (userName) userName.textContent = user?.nombre || 'Panel local';
+  if (userName) userName.textContent = state.profile?.nombre || user?.nombre || 'Panel local';
   const role = $('#shell-role');
   if (role)
     role.textContent = user
       ? ROLE_LABELS[user.rol] || user.rol || 'Usuario'
       : 'Sin sesión del sistema';
   const avatar = $('#shell-avatar');
-  if (avatar) avatar.textContent = user ? initials(user.nombre) : '·';
+  if (avatar)
+    avatar.innerHTML = state.profile?.imagen
+      ? `<img src="${esc(assetUrl(state.profile.imagen))}" alt="Mi perfil">`
+      : esc(initials(state.profile?.nombre || user?.nombre || 'Panel local'));
+  const brandLogo = $('.brand img');
+  if (brandLogo) brandLogo.src = previewLogo();
   const business = $('#shell-business');
   if (business) business.textContent = businessLabel();
   const branch = $('#shell-branch');
@@ -872,9 +930,9 @@ function renderContactos() {
           : 'Conectá WhatsApp y tocá "Actualizar contactos".'
       );
   return `${pageHead('Contactos', 'Tus contactos de WhatsApp con su historial de envíos, respuestas y pedidos.', `${pedidosRealesBadge()}<button class="button secondary" data-action="import">${icon('upload_file')}Importar</button><button class="button primary" data-action="add-contact">${icon('person_add')}Agregar</button>`)}
-    <div class="toolbar"><label class="search-box"><span class="sr-only">Buscar contactos</span>${icon('search')}<input class="input" id="contact-search" placeholder="Buscar por nombre, teléfono o segmento" value="${esc(state.contactQuery)}"></label><div class="tabs contacts-view" role="group" aria-label="Vista"><button class="${state.contactsView === 'list' ? 'active' : ''}" data-action="contacts-view" data-view="list" aria-pressed="${state.contactsView === 'list'}">${icon('view_list')}</button><button class="${state.contactsView === 'cards' ? 'active' : ''}" data-action="contacts-view" data-view="cards" aria-pressed="${state.contactsView === 'cards'}">${icon('grid_view')}</button></div><button class="button secondary" data-action="photos">${icon('account_circle')}Fotos</button></div>
+    <section class="card contacts-controls"><div class="toolbar"><label class="search-box"><span class="sr-only">Buscar contactos</span>${icon('search')}<input class="input" id="contact-search" placeholder="Buscar por nombre, teléfono o segmento" value="${esc(state.contactQuery)}"></label><div class="tabs contacts-view" role="group" aria-label="Vista"><button class="${state.contactsView === 'list' ? 'active' : ''}" data-action="contacts-view" data-view="list" aria-pressed="${state.contactsView === 'list'}">${icon('view_list')}</button><button class="${state.contactsView === 'cards' ? 'active' : ''}" data-action="contacts-view" data-view="cards" aria-pressed="${state.contactsView === 'cards'}">${icon('grid_view')}</button></div><button class="button secondary" data-action="photos">${icon('account_circle')}Fotos</button></div>
     <div class="filter-chips contacts-filter" style="margin-bottom:16px">${chips.map(([f, label]) => `<button class="filter-chip ${filter === f ? 'active' : ''}" data-action="contacts-filter" data-filter="${f}">${label} <b>${fmt(counts[f])}</b></button>`).join('')}</div>
-    ${contactOperations()}
+    ${contactOperations()}</section>
     <div class="crm-layout">${card(`<p class="stat-foot" style="margin-bottom:8px">${fmt(todosVisibles.length)} de ${fmt(filteredContacts.length)} contactos</p>${lista}${todosVisibles.length > visible.length ? `<div class="card-foot" style="justify-content:center"><button class="button secondary" data-action="contacts-more">Ver ${fmt(Math.min(60, todosVisibles.length - visible.length))} más</button></div>` : ''}`)}${detailCard(selected)}</div>`;
 }
 
@@ -1042,10 +1100,13 @@ function scrollConversationToBottom() {
 
 function loadConversation(numero) {
   if (!numero) return Promise.resolve();
+  const request = (state.conversationRequest || 0) + 1;
+  state.conversationRequest = request;
   return api(`/api/conversacion?numero=${encodeURIComponent(numero)}`, {
     signal: AbortSignal.timeout(10000),
   })
     .then((conversation) => {
+      if (state.selectedChatNumber !== numero || state.conversationRequest !== request) return;
       state.conversation = conversation;
       render();
       scrollConversationToBottom();
@@ -1063,6 +1124,7 @@ function loadConversation(numero) {
       }
     })
     .catch((error) => {
+      if (state.selectedChatNumber !== numero || state.conversationRequest !== request) return;
       state.conversation = { disponible: false, mensajes: [], motivo: error.message };
       render();
       scrollConversationToBottom();
@@ -1257,6 +1319,18 @@ function settingRow(titulo, detalle, control) {
   return `<div class="setting-row"><div><strong>${titulo}</strong>${detalle ? `<small>${detalle}</small>` : ''}</div>${control}</div>`;
 }
 
+function renderIdentidad() {
+  const c = state.config || {};
+  const nombre = state.profileDraft ?? state.profile?.nombre ?? state.identity?.nombre ?? '';
+  const imagen = state.profileImage || assetUrl(state.profile?.imagen || '');
+  return (
+    card(
+      `${cardHead('Logo del negocio', 'Se usa en Masivos y en la vista previa del mensaje.')}${settingRow('Nombre', 'Nombre del negocio en la vista previa.', `<input id="config-business-name" value="${esc(c.NEGOCIO_NOMBRE || businessLabel())}" maxlength="80">`)}${settingRow('Descripción', 'Texto debajo del nombre.', `<input id="config-business-status" value="${esc(c.NEGOCIO_ESTADO || '')}" maxlength="80">`)}<input id="config-logo-path" type="hidden" value="${esc(c.NEGOCIO_LOGO || '/assets/logo.png')}"><div class="identity-upload"><img class="identity-preview" src="${esc(previewLogo())}" alt="Logo actual"><button type="button" class="button secondary" data-action="choose-logo">${icon('upload')}Subir logo</button><input id="identity-logo-file" type="file" accept="image/png,image/jpeg,image/webp" hidden><small>PNG, JPG o WebP · hasta 2 MB</small></div>`
+    ) +
+    `<section class="card" id="profile-section">${cardHead('Mi perfil', 'Tu nombre y foto dentro de Masivos. No cambia tu cuenta de WhatsApp.')}<label class="field"><span>Nombre para mostrar</span><input id="profile-name" value="${esc(nombre)}" maxlength="80" autocomplete="name"></label><div class="identity-upload">${imagen ? `<img class="identity-preview profile-preview" src="${esc(imagen)}" alt="Mi foto">` : `<span class="avatar lg">${esc(initials(nombre))}</span>`}<button type="button" class="button secondary" data-action="choose-profile-photo">${icon('add_a_photo')}Elegir foto</button><input id="identity-profile-file" type="file" accept="image/png,image/jpeg,image/webp" hidden><small>PNG, JPG o WebP · hasta 2 MB</small></div><div class="card-foot"><button class="button primary" data-action="save-profile">${icon('save')}Guardar mi perfil</button></div></section>`
+  );
+}
+
 function renderConfiguracionCompleta() {
   const c = state.config || {};
   const seconds = (ms, fallback) => Math.max(0, Math.round(Number(ms || fallback) / 1000));
@@ -1271,9 +1345,9 @@ function renderConfiguracionCompleta() {
   return `${pageHead('Configuración', 'Ritmo de envío, protecciones del número y mensajes. Se aplica al motor al guardar.', `<button class="button primary" data-action="save-settings">${icon('save')}Guardar cambios</button>`)}
   ${apariencia}
   <div class="settings-grid section-gap">
-    ${card(`${cardHead('Identidad', 'Cómo te ve el cliente en la vista previa')}${settingRow('Nombre', 'Aparece arriba del chat.', `<input id="config-business-name" type="text" value="${esc(c.NEGOCIO_NOMBRE || businessLabel())}" maxlength="80">`)}${settingRow('Descripción', 'Texto corto debajo del nombre.', `<input id="config-business-status" type="text" value="${esc(c.NEGOCIO_ESTADO || '')}" maxlength="80">`)}${settingRow('Logo', 'Ruta del logo de la vista previa.', `<input id="config-logo-path" type="text" value="${esc(c.NEGOCIO_LOGO || '/assets/logo.png')}" maxlength="300">`)}<div class="brand-preview"><img class="whatsapp-brand-logo" src="${esc(previewLogo())}" alt="">Logo actual</div>`)}
+    ${renderIdentidad()}
     ${card(`${cardHead('Ritmo y límites', 'Cuanto más lento, menos riesgo de bloqueo')}${settingRow('Pausa entre mensajes', 'Mínimo y máximo, en segundos.', `<span class="inline-inputs"><input id="config-delay-min" type="number" value="${seconds(c.DELAY_MIN_MS, 15000)}" min="0" max="300" aria-label="Pausa mínima"><input id="config-delay-max" type="number" value="${seconds(c.DELAY_MAX_MS, 45000)}" min="0" max="300" aria-label="Pausa máxima"></span>`)}${settingRow('Máximo por tanda', 'Mensajes en una corrida.', `<input id="config-max-run" type="number" value="${Number(c.MAX_POR_CORRIDA || 50)}" min="1" max="100">`)}${settingRow('Máximo por ventana', `Mensajes cada ${Number(c.VENTANA_CUPO_MINUTOS || 60)} minutos (0 = sin límite).`, `<span class="inline-inputs"><input id="config-max-hour" type="number" value="${Number(c.MAX_POR_HORA || 0)}" min="0" max="1000" aria-label="Mensajes"><input id="config-window-minutes" type="number" value="${Number(c.VENTANA_CUPO_MINUTOS || 60)}" min="1" max="240" aria-label="Minutos"></span>`)}${settingRow('Reintentos', 'Si falla un envío.', `<input id="config-retries" type="number" value="${Number(c.REINTENTOS || 0)}" min="0" max="3">`)}${settingRow('Pausa larga', 'Cada cuántos mensajes y cuántos segundos.', `<span class="inline-inputs"><input id="config-pause-long" type="number" value="${Number(c.PAUSA_LARGA_CADA || 0)}" min="0" max="500" aria-label="Cada cuántos mensajes"><input id="config-pause-long-seconds" type="number" value="${Number(c.PAUSA_LARGA_SEGUNDOS || 120)}" min="30" max="3600" aria-label="Segundos"></span>`)}`)}
-    ${card(`${cardHead('Protecciones', 'Cuidan a tus clientes y al número')}${settingRow('No repetir el mismo día', 'Nadie recibe dos promos el mismo día.', switchMarkup('no-repetir', 'No repetir el mismo día', active('NO_REPETIR_MISMO_DIA', true)))}${settingRow('Adjuntar PDF', 'Manda el menú si lo subiste.', switchMarkup('attach-pdf', 'Adjuntar PDF', active('ADJUNTAR_PDF', true)))}${settingRow('Baja automática', 'Quien responde BAJA queda excluido.', switchMarkup('auto-optout', 'Baja automática', active('BAJA_AUTOMATICA', true)))}<label class="field section-gap"><span>Respuesta a la baja</span><textarea id="config-baja-response" rows="2">${esc(c.BAJA_RESPUESTA || '')}</textarea></label><label class="field section-gap"><span>Pie de cada promo</span><textarea id="config-optout-footer" rows="2">${esc(c.FOOTER_BAJA || '')}</textarea><small>Se agrega al final de cada mensaje. Vacío = sin pie.</small></label>`)}
+    ${card(`${cardHead('Protecciones', 'Cuidan a tus clientes y al número')}${settingRow('No repetir en el mismo turno', 'Nadie recibe dos promos en el mismo turno, aunque cruce medianoche.', switchMarkup('no-repetir', 'No repetir en el mismo turno', active('NO_REPETIR_MISMO_TURNO', true)))}${settingRow('Adjuntar PDF', 'Manda el menú si lo subiste.', switchMarkup('attach-pdf', 'Adjuntar PDF', active('ADJUNTAR_PDF', true)))}${settingRow('Baja automática', 'Quien responde BAJA queda excluido.', switchMarkup('auto-optout', 'Baja automática', active('BAJA_AUTOMATICA', true)))}<label class="field section-gap"><span>Respuesta a la baja</span><textarea id="config-baja-response" rows="2">${esc(c.BAJA_RESPUESTA || '')}</textarea></label><label class="field section-gap"><span>Pie de cada promo</span><textarea id="config-optout-footer" rows="2">${esc(c.FOOTER_BAJA || '')}</textarea><small>Se agrega al final de cada mensaje. Vacío = sin pie.</small></label>`)}
     ${card(`${cardHead('Calentamiento y tandas', 'Para números nuevos o listas grandes')}${settingRow('Calentamiento progresivo', 'Sube el límite de a poco, día a día.', switchMarkup('warmup', 'Calentamiento progresivo', active('CALENTAMIENTO_ACTIVO')))}${settingRow('Inicio / aumento diario', 'Mensajes el primer día y cuánto sube.', `<span class="inline-inputs"><input id="config-warmup-start" type="number" value="${Number(c.CALENTAMIENTO_INICIO || 20)}" min="1" max="100" aria-label="Inicio"><input id="config-warmup-increment" type="number" value="${Number(c.CALENTAMIENTO_INCREMENTO || 10)}" min="1" max="100" aria-label="Aumento diario"></span>`)}${settingRow('Tandas automáticas', 'Sigue sola con pausas hasta cubrir la lista.', switchMarkup('batch-mode', 'Tandas automáticas', active('MODO_TANDAS')))}${settingRow('Espera entre tandas', 'Minutos.', `<input id="config-batch-wait" type="number" value="${Number(c.ESPERA_ENTRE_TANDAS_MINUTOS || 20)}" min="5" max="240">`)}<p class="notice warn section-gap">${icon('warning')}<span>Estas protecciones bajan el riesgo, pero no garantizan que WhatsApp no bloquee el número.</span></p>`)}
     ${card(`${cardHead('Programación', 'Envío automático diario')}${settingRow('Programación automática', 'No hace falta tener el panel abierto.', switchMarkup('programacion', 'Programación automática', active('PROGRAMACION_ACTIVA')))}${settingRow('Hora', 'Formato 24 h.', `<input id="config-schedule-time" type="time" value="${esc(c.PROGRAMACION_HORA || '10:30')}">`)}${settingRow('A quién manda', 'Segmento o grupo.', scheduleSegmentSelect(c.PROGRAMACION_SEGMENTO))}${settingRow('Modo sólo respuestas', 'Frena todas las promos; los chats siguen.', switchMarkup('solo-respuestas', 'Modo sólo respuestas', active('MODO_SOLO_RESPUESTAS')))}<div class="detail-block"><h3>Días sin envío</h3><div class="day-selector" id="config-days-no-send">${days.map((label, index) => `<label class="day-chip"><input class="config-day" type="checkbox" value="${index}" ${selectedDays.includes(index) ? 'checked' : ''}>${label}</label>`).join('')}</div></div>`)}
     ${card(`${cardHead('Saludos y cierres', 'Rotan al azar en cada mensaje')}<label class="field"><span>Saludos</span><textarea id="config-greetings" rows="4">${lines(c.SALUDOS)}</textarea><small>Uno por línea. {NOMBRE} pone el nombre del contacto.</small></label><label class="field section-gap"><span>Cierres</span><textarea id="config-closures" rows="4">${lines(c.CIERRES)}</textarea></label>${settingRow('Meta de pedidos por día', 'Referencia para el panel.', `<input id="config-daily-target" type="number" value="${Number(c.META_PEDIDOS_DIA || 20)}" min="1" max="10000">`)}`)}
@@ -1423,6 +1497,8 @@ function openQr() {
 
 async function refresh() {
   state.busy = true;
+  const messageTab = state.campaignTab;
+  const tag = campaignTemplateTag();
   const results = await Promise.allSettled([
     api('/api/status'),
     api('/api/clientes'),
@@ -1430,8 +1506,11 @@ async function refresh() {
     api('/api/salud'),
     api('/api/campanas'),
     api('/api/config'),
-    api('/api/mensaje'),
+    state.messageLoaded
+      ? Promise.resolve(null)
+      : api(tag ? `/api/mensaje?tag=${tag}` : '/api/mensaje'),
     api('/api/grupos-envio'),
+    api('/api/perfil'),
   ]);
   if (results[0].status === 'fulfilled')
     state.status = {
@@ -1444,9 +1523,17 @@ async function refresh() {
   if (results[3].status === 'fulfilled') state.health = results[3].value;
   if (results[4].status === 'fulfilled') state.campaigns = results[4].value.campanas || [];
   if (results[5].status === 'fulfilled') state.config = results[5].value;
-  if (results[6].status === 'fulfilled' && results[6].value.texto)
-    state.message = results[6].value.texto.trim();
+  if (
+    results[6].status === 'fulfilled' &&
+    results[6].value &&
+    !state.messageLoaded &&
+    state.campaignTab === messageTab
+  ) {
+    state.message = String(results[6].value.texto || '').trim();
+    state.messageLoaded = true;
+  }
   if (results[7].status === 'fulfilled') state.groups = results[7].value.grupos || [];
+  if (results[8].status === 'fulfilled') state.profile = results[8].value;
   if (state.status?.motor)
     state.motor = { ...state.status.motor, stats: state.status.stats || state.motor.stats };
   state.busy = false;
@@ -1679,7 +1766,7 @@ function settingsPayload() {
     CALENTAMIENTO_INICIO: number('config-warmup-start', 20),
     CALENTAMIENTO_INCREMENTO: number('config-warmup-increment', 10),
     META_PEDIDOS_DIA: number('config-daily-target', 20),
-    NO_REPETIR_MISMO_DIA: enabled('no-repetir'),
+    NO_REPETIR_MISMO_TURNO: enabled('no-repetir'),
     ADJUNTAR_PDF: enabled('attach-pdf'),
     BAJA_AUTOMATICA: enabled('auto-optout'),
     BAJA_RESPUESTA: String($('#config-baja-response')?.value || '').trim(),
@@ -1707,6 +1794,29 @@ async function saveSettings() {
 
 async function action(name, value) {
   try {
+    if (name === 'choose-logo') return $('#identity-logo-file')?.click();
+    if (name === 'choose-profile-photo') return $('#identity-profile-file')?.click();
+    if (name === 'open-profile') {
+      state.route = 'configuracion';
+      render();
+      return $('#profile-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    if (name === 'save-profile') {
+      const nombre = $('#profile-name')?.value.trim();
+      if (!nombre) return showToast('Ingresá tu nombre.');
+      const revision = state.profileRevision;
+      state.profile = await api('/api/perfil', {
+        method: 'POST',
+        body: JSON.stringify({ nombre, data: state.profileImage || undefined }),
+      });
+      if (state.profileRevision === revision) {
+        state.profileDraft = null;
+        state.profileImage = '';
+      }
+      syncShell();
+      render();
+      return showToast('Perfil guardado.');
+    }
     if (name === 'save-settings') return saveSettings();
     if (name === 'campaign-step') {
       state.campaignStep = Math.min(4, Math.max(1, Number(value) || 1));
@@ -1742,17 +1852,25 @@ async function action(name, value) {
     if (name === 'close-modal') return closeQrModal();
     if (name === 'campaign-tab') {
       state.campaignTab = value || 'general';
+      state.messageLoaded = true;
+      const tab = state.campaignTab;
+      const revision = ++state.messageRevision;
       const tag = campaignTemplateTag();
       const data = await api(tag ? `/api/mensaje?tag=${tag}` : '/api/mensaje');
+      if (state.campaignTab !== tab || state.messageRevision !== revision) return;
       state.message = String(data.texto || '').trim();
       return render();
     }
     if (name === 'save-message') {
       const texto = $('#campaign-message')?.value?.trim() || '';
       const tag = campaignTemplateTag();
+      const revision = state.messageRevision;
       if (!texto && !tag) return showToast('Escribí un mensaje antes de guardar.');
       await api('/api/mensaje', { method: 'POST', body: JSON.stringify({ texto, tag }) });
-      state.message = texto;
+      if (state.messageRevision === revision) {
+        state.message = texto;
+        state.messageLoaded = true;
+      }
       return showToast(
         tag && !texto
           ? 'Mensaje del segmento borrado: ese grupo recibirá el mensaje general.'
@@ -1815,9 +1933,16 @@ async function action(name, value) {
     if (name === 'save-group') {
       if (!state.selectedContacts.length)
         return showToast('Seleccioná contactos antes de guardar el grupo.');
-      const nombre = window.prompt('Nombre del grupo de envío:');
-      if (!nombre?.trim()) return;
-      const descripcion = window.prompt('Descripción opcional:') || '';
+      const datos = await solicitarDialogo({
+        titulo: 'Guardar grupo de envío',
+        aceptar: 'Guardar grupo',
+        campos: [
+          { name: 'nombre', label: 'Nombre del grupo', required: true, max: 80 },
+          { name: 'descripcion', label: 'Descripción (opcional)', max: 180 },
+        ],
+      });
+      if (!datos?.nombre?.trim()) return;
+      const { nombre, descripcion } = datos;
       await api('/api/grupos-envio', {
         method: 'POST',
         body: JSON.stringify({
@@ -1832,7 +1957,8 @@ async function action(name, value) {
     if (name === 'delete-group') {
       const id = $('#contact-group-select')?.value;
       if (!id) return showToast('Elegí un grupo para eliminar.');
-      if (!window.confirm('¿Eliminar este grupo guardado? Los contactos no se borran.')) return;
+      if (!(await confirmAction('¿Eliminar este grupo guardado? Los contactos no se borran.')))
+        return;
       await api(`/api/grupos-envio/${encodeURIComponent(id)}`, { method: 'DELETE' });
       await refresh();
       return showToast('Grupo eliminado.');
@@ -1840,9 +1966,9 @@ async function action(name, value) {
     if (name === 'exclude-selected') {
       if (!state.selectedContacts.length) return showToast('Seleccioná al menos un contacto.');
       if (
-        !window.confirm(
+        !(await confirmAction(
           `¿Excluir ${state.selectedContacts.length} contacto(s) de futuras campañas?`
-        )
+        ))
       )
         return;
       await api('/api/excluir', {
@@ -1855,6 +1981,10 @@ async function action(name, value) {
     }
     if (name === 'pause-selected') {
       if (!state.selectedContacts.length) return showToast('Seleccioná al menos un contacto.');
+      if (
+        !(await confirmAction(`¿Pausar ${state.selectedContacts.length} contactos durante 7 días?`))
+      )
+        return;
       await api('/api/pausar-contactos', {
         method: 'POST',
         body: JSON.stringify({
@@ -1869,6 +1999,12 @@ async function action(name, value) {
     }
     if (name === 'reactivar-selected') {
       if (!state.selectedContacts.length) return showToast('Seleccioná al menos un contacto.');
+      if (
+        !(await confirmAction(
+          `¿Reactivar ${state.selectedContacts.length} contactos para que vuelvan a recibir campañas?`
+        ))
+      )
+        return;
       await api('/api/reactivar-contactos', {
         method: 'POST',
         body: JSON.stringify({ numeros: state.selectedContacts }),
@@ -1914,21 +2050,26 @@ async function action(name, value) {
     }
     if (name === 'run-simulation' || name === 'run-campaign') {
       if (!state.campaignPlan?.token) return showToast('Prepará la campaña antes de ejecutarla.');
+      const plan = state.campaignPlan;
       const simulacro = name === 'run-simulation';
       if (
-        !confirm(
+        !(await confirmAction(
           simulacro
             ? 'Se ejecutará el simulacro sin enviar mensajes. ¿Continuar?'
             : 'Esto enviará mensajes reales a los destinatarios preparados. ¿Continuar?'
-        )
+        ))
       )
         return;
+      if (state.campaignPlan !== plan)
+        return showToast(
+          'El plan cambió mientras lo revisabas. Revisá la nueva campaña antes de confirmar.'
+        );
       await api('/api/enviar', {
         method: 'POST',
         body: JSON.stringify({
-          token: state.campaignPlan.token,
+          token: plan.token,
           simulacro,
-          segmento: state.campaignPlan.segmento,
+          segmento: plan.segmento,
         }),
       });
       state.campaignPlan = null;
@@ -1937,9 +2078,9 @@ async function action(name, value) {
     }
     if (name === 'test') {
       if (
-        !confirm(
+        !(await confirmAction(
           'La prueba se enviará sólo a tu propio WhatsApp cuando la sesión esté conectada. ¿Continuar?'
-        )
+        ))
       )
         return;
       const textoPrueba = $('#campaign-message')?.value?.trim() || state.message.trim();
@@ -1955,11 +2096,13 @@ async function action(name, value) {
       return showToast('Prueba enviada.');
     }
     if (name === 'remove-image') {
+      if (!(await confirmAction('¿Quitar esta imagen de la campaña?'))) return;
       await api(`/api/imagen?nombre=${encodeURIComponent(value || '')}`, { method: 'DELETE' });
       await refresh();
       return showToast('Imagen quitada.');
     }
     if (name === 'remove-pdf') {
+      if (!(await confirmAction('¿Quitar el PDF de la campaña?'))) return;
       await api('/api/pdf', { method: 'DELETE' });
       await refresh();
       return showToast('PDF quitado.');
@@ -2000,7 +2143,7 @@ async function action(name, value) {
       const detalle = state.chatAttachment
         ? `el archivo ${state.chatAttachment.name}`
         : `el mensaje: «${texto.slice(0, 120)}»`;
-      if (!window.confirm(`¿Enviar ${detalle} al chat ${destino}?`)) return;
+      if (!(await confirmAction(`¿Enviar ${detalle} al chat ${destino}?`))) return;
       if (state.chatAttachment)
         await api('/api/conversacion/adjunto', {
           method: 'POST',
@@ -2032,7 +2175,8 @@ async function action(name, value) {
       return showToast('Campaña reanudada.');
     }
     if (name === 'motor-detener') {
-      if (!window.confirm('¿Detener la campaña? Los que faltan no reciben el mensaje.')) return;
+      if (!(await confirmAction('¿Detener la campaña? Los que faltan no reciben el mensaje.')))
+        return;
       await api('/api/detener', { method: 'POST', body: '{}' });
       return showToast('Deteniendo: termina el mensaje en curso y frena.');
     }
@@ -2040,8 +2184,13 @@ async function action(name, value) {
       const numero = state.selectedDetail?.cliente?.numero || state.selectedContact?.numero;
       if (!numero) return showToast('Elegí un contacto.');
       const actual = state.selectedDetail?.nota?.texto || '';
-      const nota = window.prompt('Nota para este cliente:', actual);
-      if (nota == null) return;
+      const datos = await solicitarDialogo({
+        titulo: 'Nota del contacto',
+        aceptar: 'Guardar nota',
+        campos: [{ name: 'nota', label: 'Nota', value: actual, multiline: true, max: 2000 }],
+      });
+      if (!datos) return;
+      const nota = datos.nota;
       await api('/api/cliente-nota', { method: 'POST', body: JSON.stringify({ numero, nota }) });
       state.selectedDetail = await api(`/api/cliente-detalle?numero=${encodeURIComponent(numero)}`);
       render();
@@ -2156,14 +2305,23 @@ document.addEventListener('click', (event) => {
     const input = $('#campaign-message');
     if (input) {
       input.value += ` ${insert}`;
+      state.message = input.value;
+      state.messageLoaded = true;
+      state.messageRevision++;
       updateMessageCount();
       input.focus();
     }
   }
 });
 document.addEventListener('input', (event) => {
+  if (event.target.id === 'profile-name') {
+    state.profileDraft = event.target.value;
+    state.profileRevision++;
+  }
   if (event.target.id === 'campaign-message') {
     state.message = event.target.value;
+    state.messageLoaded = true;
+    state.messageRevision++;
     updateMessageCount();
     const copy = $('.wa-message-copy');
     if (copy) copy.innerHTML = waFormat(esc(previewMessage()));
@@ -2195,6 +2353,48 @@ document.addEventListener('input', (event) => {
   if (event.target.id === 'chat-message') state.chatDraft = event.target.value;
 });
 document.addEventListener('change', async (event) => {
+  if (event.target.id === 'identity-logo-file' || event.target.id === 'identity-profile-file') {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    try {
+      if (
+        !['image/png', 'image/jpeg', 'image/webp'].includes(file.type) ||
+        file.size > 2 * 1024 * 1024
+      )
+        throw new Error('Elegí una imagen PNG, JPG o WebP de hasta 2 MB.');
+      const data = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(new Error('No se pudo leer la imagen.'));
+        reader.readAsDataURL(file);
+      });
+      if (event.target.id === 'identity-logo-file') {
+        if (
+          !(await confirmAction('¿Usar esta imagen como logo de Masivos?', {
+            titulo: 'Cambiar logo',
+            aceptar: 'Usar logo',
+            imagen: data,
+          }))
+        )
+          return;
+        const { logo } = await api('/api/logo', { method: 'POST', body: JSON.stringify({ data }) });
+        state.config = { ...state.config, NEGOCIO_LOGO: logo };
+        syncShell();
+        render();
+        showToast('Logo actualizado.');
+      } else {
+        state.profileDraft = $('#profile-name')?.value || '';
+        state.profileImage = data;
+        state.profileRevision++;
+        render();
+      }
+    } catch (error) {
+      showToast(error.message);
+    } finally {
+      event.target.value = '';
+    }
+    return;
+  }
   if (event.target.name === 'segment') {
     state.campaignSegment = event.target.value;
     state.campaignGroup = '';

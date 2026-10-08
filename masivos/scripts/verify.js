@@ -139,7 +139,7 @@ function verifyFrontendContract() {
   assert.match(app, /¿Enviar.*chat/);
   assert.match(app, /run-campaign/);
   assert.match(app, /run-simulation/);
-  assert.match(app, /token: state\.campaignPlan\.token/);
+  assert.match(app, /token: plan\.token/);
   assert.doesNotMatch(app, /32 ms/);
   assert.doesNotMatch(app, /Fase 1/);
   assert.match(app, /function healthCard\(connected\)/);
@@ -232,7 +232,7 @@ function verifyFrontendContract() {
   assert.doesNotMatch(app, /SpinTax/);
   assert.match(app, /CAMPAIGN_TAB_TAGS/);
   // Reactivar también saca la exclusión.
-  assert.match(app, /reactivar-selected'[\s\S]{0,600}excluir: false/);
+  assert.match(app, /reactivar-selected'[\s\S]{0,1000}excluir: false/);
   // Medios en el volumen, historial de chats unido y mensajes salientes registrados.
   assert.match(server, /const DIR_MEDIA = path\.join\(DIR_DATA, 'media'\)/);
   assert.doesNotMatch(server, /path\.join\(ROOT, ['"]menu\.pdf['"]\)/);

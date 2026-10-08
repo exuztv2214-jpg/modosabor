@@ -33,6 +33,11 @@ jobs:
       - name: Run tests
         run: npm test
 
+      - name: Verify Masivos without sending messages
+        run: |
+          npm --prefix ../masivos run verify
+          node ../scripts/verify-masivos-cutover.cjs
+
       - name: Verify backup restore in a temporary database
         run: npm run verify:backup
 

@@ -1758,28 +1758,29 @@ input[type='radio'] {
   margin-bottom: var(--s4);
   padding: var(--s3) var(--s4);
   border-radius: var(--radius-md);
-  background: var(--gray-900);
-  color: #fff;
+  background: var(--brand-50);
+  color: var(--brand-700);
+  border: 1px solid var(--brand-200);
   font-size: var(--text-sm);
 }
 .bulk-bar strong {
   margin-right: auto;
 }
 .bulk-bar .button.secondary {
-  background: transparent;
-  border-color: var(--gray-600);
-  color: #fff;
+  background: var(--surface);
+  border-color: var(--border);
+  color: var(--text);
 }
 .bulk-bar .button.ghost {
-  color: var(--gray-300);
+  color: var(--brand-700);
 }
 .bulk-bar select {
   min-height: 34px;
   padding: 4px 10px;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--gray-600);
-  background: var(--gray-800);
-  color: #fff;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
   font-size: var(--text-xs);
 }
 .crm-layout {
@@ -1801,6 +1802,8 @@ input[type='radio'] {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   cursor: pointer;
+  background: var(--surface);
+  box-shadow: var(--shadow-xs);
 }
 .contact-card.selected {
   border-color: var(--brand-500);
@@ -2528,6 +2531,85 @@ input[type='radio'] {
 }
 
 /* Selección de contactos */
+.contacts-controls {
+  margin-bottom: var(--s5);
+}
+.contacts-controls .selection-tools,
+.contacts-controls .bulk-bar {
+  margin-bottom: 0;
+}
+.contacts-controls .toolbar {
+  flex-wrap: wrap;
+}
+.contacts-controls .search-box {
+  flex: 1 1 240px;
+}
+.action-dialog {
+  margin: auto;
+  border: 1px solid var(--border);
+  width: min(460px, calc(100vw - 32px));
+}
+.action-dialog::backdrop {
+  background: rgba(16, 24, 40, 0.5);
+  backdrop-filter: blur(2px);
+}
+.dialog-copy {
+  color: var(--text-muted);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.identity-upload {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s3);
+  margin-top: var(--s5);
+}
+.identity-upload small {
+  color: var(--text-muted);
+  width: 100%;
+}
+.identity-preview {
+  width: 80px;
+  height: 80px;
+  object-fit: contain;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+.profile-preview {
+  border-radius: 50%;
+  object-fit: cover;
+}
+.operator {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  color: var(--text);
+}
+.operator-avatar {
+  overflow: hidden;
+}
+.operator-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+#profile-section {
+  scroll-margin-top: calc(var(--topbar-h) + 20px);
+}
+@media (max-width: 600px) {
+  .contacts-controls {
+    padding: var(--s3);
+  }
+  .contacts-controls .search-box {
+    flex-basis: 100%;
+  }
+  .identity-upload .button {
+    min-height: 44px;
+  }
+}
 .group-select {
   min-height: 34px;
   padding: 4px 10px;

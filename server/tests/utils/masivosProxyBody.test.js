@@ -20,7 +20,10 @@ async function run() {
   const proxyMasivos = require('../../utils/masivosProxy');
   const app = express();
   const upstreamUrl = `http://127.0.0.1:${upstream.address().port}`;
-  app.use('/masivos', (req, res) => proxyMasivos(req, res, upstreamUrl, 'token-proxy'));
+  app.use('/masivos', (req, res) => {
+    req.user = { id: 7 };
+    return proxyMasivos(req, res, upstreamUrl, 'token-proxy');
+  });
   app.use(express.json({ limit: '10mb' }));
   app.use(sanitizeMiddleware);
   const panel = await new Promise((resolve) => {
@@ -33,13 +36,22 @@ async function run() {
     const cuerpo = JSON.stringify({ texto: 'Milanesa & papas <3', data: imagen });
     const respuesta = await fetch(`http://127.0.0.1:${panel.address().port}/masivos/api/imagen`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: 'Bearer jwt-del-usuario' },
+      headers: {
+        'content-type': 'application/json',
+        authorization: 'Bearer jwt-del-usuario',
+        'x-masivos-user-id': '999',
+      },
       body: cuerpo,
     });
 
     assert.equal(respuesta.status, 200);
     assert.equal(recibido.body, cuerpo, 'el cuerpo llega intacto: sin escapar & ni truncar');
     assert.equal(recibido.headers['x-masivos-proxy-token'], 'token-proxy');
+    assert.equal(
+      recibido.headers['x-masivos-user-id'],
+      '7',
+      'el usuario del perfil viene de la sesión, nunca del navegador'
+    );
     assert.equal(recibido.headers.authorization, undefined, 'no reenvía el JWT del usuario');
     assert.equal(recibido.headers['content-type'], 'application/json');
   } finally {

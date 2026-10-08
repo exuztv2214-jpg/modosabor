@@ -842,7 +842,7 @@ class ModoSaborLauncher:
             "server",
             ["node", str(SERVER_DIR / "index.js")],
             SERVER_DIR,
-            extra_env={"WHATSAPP_DISABLE_STARTUP": "1"},
+            extra_env={"WHATSAPP_DISABLE_STARTUP": "1", "MASIVOS_LOCAL": "1"},
             metadata={"whatsapp_disabled": True},
         )
 
@@ -882,7 +882,7 @@ class ModoSaborLauncher:
             "stitch",
             node_command(PROMO_SERVER),
             PROMO_ROOT,
-            extra_env={"MASIVOS_BASE_PATH": "/masivos"},
+            extra_env={"MASIVOS_BASE_PATH": "/masivos", "MASIVOS_LOCAL": "1"},
         )
 
         if self.wait_for(lambda: self.url_available(STITCH_STATUS_URL), timeout=45):

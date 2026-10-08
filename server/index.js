@@ -1,4 +1,5 @@
 require('dotenv').config({ path: require('path').join(__dirname, '.env') });
+require('./utils/masivosLocalConfig')();
 const http = require('http');
 const fs = require('fs');
 const path = require('path');

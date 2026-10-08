@@ -28,6 +28,7 @@ Follow-up complete: Conversations now adds instant local search by name/identifi
 Follow-up complete: Conversations now listens to the existing SSE `respuesta` event, moves incoming chats to the top, updates the preview, shows unread counters per chat and refreshes unknown new chats without losing the selected view.
 Follow-up complete: The conversation composer now accepts image/PDF/audio files up to 16 MB, renders a WhatsApp-style outgoing preview bubble with media, filename, size and caption, supports removing the pending attachment, and sends only after the explicit Enviar action through `/api/conversacion/adjunto`.
 Follow-up complete: Incoming messages now receive automatic CRM states from the existing classifier (`pedido_probable`, `consulta`, `problema`, `baja` or `respondido`), persist their type/state, and publish that classification over SSE so chat filters update without fabricating states for chats with no readable history.
+
 Follow-up complete: Contact detail and contact-card WhatsApp actions now open the panel's internal conversation for the exact selected identifier, including private `@lid` IDs, instead of opening a generic `wa.me` page; this is navigation only and does not send messages.
 Verification: `npm run verify`, `node --check public/app.js`, `node --check server.js`, fresh browser load, and clicking the real contact action reached the internal conversation with its WhatsApp history and message composer. No message was sent.
 Follow-up complete: Conversation refresh now incorporates chat IDs missing from the CRM without overwriting existing contact enrichment; the campaign audience cards now use real enriched segment counts instead of the demo cap/placeholders.
@@ -64,3 +65,30 @@ Follow-up complete: CRM classification now persists per chat in `data/chat-estad
 Follow-up complete: Campaign preparation now persists the editor text through `/api/mensaje` before creating a plan; the live preview uses that text, and the action label now says “Preparar y revisar envío” instead of implying immediate dispatch.
 Follow-up complete: Removed misleading visible latency/battery/cold-data placeholders from the Inicio presentation where no backend value exists; the header now shows configured batch size and the warming state is derived from `/api/status`.
 Follow-up complete: Incoming messages now receive automatic CRM states from the existing classifier (`pedido_probable`, `consulta`, `problema`, `baja` or `respondido`), persist their type/state, and publish that classification over SSE so chat filters update without fabricating states for chats with no readable history.
+
+## Correcciones de auditoría — 2026-10-08
+
+Se corrigieron los diez problemas comprobados en la auditoría del estado real:
+
+- Teléfono y LID comparten exclusiones, pausas, grupos, etiquetas, historial y reintentos. La audiencia se deduplica al leer contactos, incluso después de importar el teléfono de un LID; se conserva la fecha más reciente de conversación.
+- El motor vuelve a comprobar BAJA y pausa antes de cada envío, reintento y adjunto; Detener interrumpe las esperas y evita iniciar otro mensaje.
+- La confirmación verifica audiencia, destinatarios, configuración, plantillas, etiquetas y archivos adjuntos. Si el plan cambió, devuelve 409 y exige prepararlo nuevamente.
+- Las respuestas tardías de conversaciones no reemplazan el chat seleccionado. Refrescar, cargar plantillas o terminar de guardar no sobrescribe texto editado durante la petición.
+- El reemplazo JSON conserva el archivo original si falla el rename; sincronizar conserva los contactos históricos ausentes de la lectura nueva.
+- El programador respeta el bloqueo por salud roja y el registro de cupo conserva toda la ventana configurada.
+
+Verificación local: `npm --prefix masivos run verify` pasó las comprobaciones existentes y 18 regresiones nuevas; `npm --prefix server test` pasó 145 archivos, 0 fallados, con base temporal y dependencias ya instaladas en el checkout principal. Pasaron `node scripts/verify-masivos-cutover.cjs`, las comprobaciones de sintaxis y `git diff --check`. El CI ahora incluye la verificación de Masivos y del proxy.
+
+Alcance: cambios en este worktree; no se desplegó ni se enviaron mensajes reales. Las pruebas del motor usan WhatsApp simulado y archivos temporales. Pendientes de verificar: sesión real de WhatsApp, comportamiento visual en navegador y ejecución del CI remoto.
+
+## Mejoras de Masivos — 2026-10-08
+
+- Contactos comparte tarjetas, bordes, colores y controles con el resto del panel; filtros y acciones de selección se adaptan al móvil.
+- Las confirmaciones y los formularios breves usan modales del panel, con Cancelar, cierre con Escape y restauración del foco. Incluye envío, prueba, exclusión, pausa, reactivación, eliminación de adjuntos y cambio de logo.
+- Configuración permite subir el logo y guardar nombre/foto del usuario del panel. Se aceptan PNG/JPG/WebP hasta 2 MB; los perfiles se separan por el usuario autenticado del proxy. El acceso local directo conserva un perfil local.
+- El bloqueo por turno persiste en disco y deduplica teléfono/LID, incluso si la relación se descubre durante una campaña. La noche conserva la fecha en que empezó; fuera de los turnos configurados se aplica un bloqueo diario. El arranque local comparte conexión y token con el sistema; si está configurado el backend y faltan horarios sincronizados se impide preparar/enviar/programar campañas hasta cargarlos.
+- Confirmar no puede enviar un plan reemplazado durante el modal, y guardar un perfil no borra ediciones nuevas hechas mientras responde la petición.
+
+Verificación: `npm --prefix masivos run verify` pasó sus comprobaciones y 30 regresiones; `npm --prefix server test` pasó 146 archivos, 0 fallados. Cutover estático, sintaxis JavaScript/Python y `git diff --check` correctos. Revisión independiente final sin nuevos P1/P2. Navegador aislado con contactos ficticios: foto/nombre persistentes después de recargar, logo guardado tras modal, cancelar pausa conserva habilitados, Escape cierra y móvil de 390 px sin desbordamiento horizontal. Consola sin errores en la comprobación.
+
+Pendiente: botones interactivos reales, documentados en `../botones-interactivos.md`; la biblioteca QR actual no los admite. Se necesita definir/conectar la cuenta Business Platform y sus plantillas. No se reinició el entorno operativo, no se desplegó, ni se enviaron mensajes reales. El launcher y la sesión de WhatsApp reales siguen sin verificación en ejecución.
