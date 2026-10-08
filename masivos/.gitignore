@@ -10,3 +10,4 @@ logs/
 *.log
 local.env
 data.local-anterior/
+sesion.vieja-*/

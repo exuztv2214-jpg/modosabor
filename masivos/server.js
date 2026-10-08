@@ -5796,6 +5796,15 @@ async function cerrarOrdenado(senal) {
   process.exit(0);
 }
 
+// En la PC nadie levanta el panel si se cae. Un error suelto (por ejemplo, Windows
+// que no deja borrar la carpeta de una sesión cerrada) se registra y el panel sigue.
+process.on('unhandledRejection', (error) => {
+  registrarLog(`⚠️ Error no controlado: ${error && error.message ? error.message : error}`);
+});
+process.on('uncaughtException', (error) => {
+  registrarLog(`⚠️ Error no controlado: ${error && error.message ? error.message : error}`);
+});
+
 process.on('SIGINT', () => cerrarOrdenado('SIGINT'));
 process.on('SIGTERM', () => cerrarOrdenado('SIGTERM'));
 
