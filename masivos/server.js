@@ -2497,8 +2497,7 @@ async function obtenerFotoPerfil(numero, telefono) {
   return null;
 }
 
-async function correrFotos() {
-  if (fotosJob.corriendo) return;
+function vincularFotosCache() {
   const clientes = leerJsonSeguro(ARCHIVO_CLIENTES, []);
   const chats = leerJsonSeguro(ARCHIVO_CHATS, []);
   fs.mkdirSync(DIR_FOTOS, { recursive: true });
@@ -2508,6 +2507,12 @@ async function correrFotos() {
   escribirJsonSeguro(ARCHIVO_CHATS, chats);
   if (fotosClientes || fotosChats)
     registrarLog(`📸 Caché recuperada: ${fotosClientes} contactos y ${fotosChats} chats.`);
+  return { clientes, chats };
+}
+
+async function correrFotos() {
+  if (fotosJob.corriendo) return;
+  const { clientes, chats } = vincularFotosCache();
   const contactosPorNumero = new Map(clientes.map((c) => [c.numero, c]));
   const pendientes = [
     ...chats
@@ -3461,7 +3466,7 @@ app.post('/api/listar', async (req, res) => {
           grupos,
           agenda: contactos.length,
         });
-        if (!analisis.corriendo) void correrFotos();
+        if (!analisis.corriendo) vincularFotosCache();
       } catch (error) {
         registrarLog(`❌ Error completando la sincronización: ${error.message}`);
         emit('lista', { tipo: 'error', error: error.message });

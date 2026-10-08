@@ -178,6 +178,7 @@ function verifyFrontendContract() {
   assert.match(server, /app\.post\(["']\/api\/contactos["']/);
   assert.match(server, /mergeSyncedContacts\(chatsRaw, \[\], previos, lidMappings\)/);
   assert.match(server, /const actualizados = mergeSyncedContacts\(/);
+  assert.match(server, /if \(!analisis\.corriendo\) vincularFotosCache\(\)/);
   assert.match(server, /ARCHIVO_CHATS/);
   assert.match(server, /listaJob\.corriendo/);
   assert.match(server, /enforceLidAndPnRetrieval/);
