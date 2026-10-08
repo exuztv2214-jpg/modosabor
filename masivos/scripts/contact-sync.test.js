@@ -75,6 +75,18 @@ void (async () => {
     1,
     'no agrega participantes de grupos como contactos'
   );
+  const lidSinTelefono = sync.mergeSyncedContacts(
+    [],
+    sync.normalizarContactosLivianos([
+      { id: { _serialized: '155873238364376@lid' }, userid: '155873238364376@lid' },
+    ]),
+    []
+  )[0];
+  assert.equal(
+    lidSinTelefono.telefono,
+    undefined,
+    'no presenta el identificador LID como teléfono'
+  );
   console.log('contact and chat sync: OK');
 })().catch((error) => {
   console.error(error);

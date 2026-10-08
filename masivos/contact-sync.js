@@ -8,6 +8,7 @@ function serializedId(value) {
 function phoneDigits(value) {
   const raw = serializedId(value) || String(value || '').trim();
   if (!raw) return '';
+  if (/@lid$/i.test(raw)) return '';
   const withoutServer = raw.replace(/@(?:c\.us|lid)$/i, '');
   const digits = withoutServer.replace(/\D/g, '');
   return digits.length >= 8 && digits.length <= 16 ? digits : '';
