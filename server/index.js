@@ -286,6 +286,29 @@ app.use((req, res, next) => {
   next();
 });
 
+const MASIVOS_UPSTREAM_URL = String(
+  process.env.MASIVOS_UPSTREAM_URL || 'http://127.0.0.1:3867'
+).replace(/\/+$/, '');
+const MASIVOS_PROXY_TOKEN = String(process.env.MASIVOS_PROXY_TOKEN || '').trim();
+
+/*
+ * Masivos va ANTES de express.json y de sanitize a propósito: el cuerpo se
+ * reenvía crudo. Parsearlo acá cortaba los adjuntos en 10 MB, y sanitize
+ * escapaba "&" en los mensajes a clientes y truncaba en 5000 caracteres las
+ * imágenes en base64. Masivos valida sus propias entradas.
+ */
+app.use('/masivos', (req, res, next) => {
+  // La pantalla de login sigue perteneciendo al cliente principal.
+  if (req.path === '/admin' || req.path.startsWith('/admin/')) return next();
+  const credential = req.cookies?.auth_token || req.headers.authorization;
+  if (req.path === '/' && !credential) return res.redirect('/masivos/admin');
+  return auth(req, res, () =>
+    requirePermission('marketing.edit')(req, res, () =>
+      proxyMasivos(req, res, MASIVOS_UPSTREAM_URL, MASIVOS_PROXY_TOKEN)
+    )
+  );
+});
+
 app.use(
   express.json({
     limit: '10mb',
@@ -317,23 +340,6 @@ try {
 }
 
 app.set('io', io);
-
-const MASIVOS_UPSTREAM_URL = String(
-  process.env.MASIVOS_UPSTREAM_URL || 'http://127.0.0.1:3867'
-).replace(/\/+$/, '');
-const MASIVOS_PROXY_TOKEN = String(process.env.MASIVOS_PROXY_TOKEN || '').trim();
-
-app.use('/masivos', (req, res, next) => {
-  // La pantalla de login sigue perteneciendo al cliente principal.
-  if (req.path === '/admin' || req.path.startsWith('/admin/')) return next();
-  const credential = req.cookies?.auth_token || req.headers.authorization;
-  if (req.path === '/' && !credential) return res.redirect('/masivos/admin');
-  return auth(req, res, () =>
-    requirePermission('marketing.edit')(req, res, () =>
-      proxyMasivos(req, res, MASIVOS_UPSTREAM_URL, MASIVOS_PROXY_TOKEN)
-    )
-  );
-});
 
 app.use(moneyResponseMiddleware);
 

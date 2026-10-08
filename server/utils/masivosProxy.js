@@ -7,17 +7,32 @@ async function proxyMasivos(req, res, upstreamUrl, proxyToken) {
   const headers = { ...req.headers, 'x-masivos-proxy-token': proxyToken };
   delete headers.host;
   delete headers.cookie;
-  delete headers.connection;
+  // La sesión del usuario se valida acá; Masivos confía en el token del proxy.
+  delete headers.authorization;
+  for (const salto of ['connection', 'keep-alive', 'upgrade', 'transfer-encoding', 'expect']) {
+    delete headers[salto];
+  }
   delete headers['content-length'];
 
+  const conCuerpo = !['GET', 'HEAD'].includes(req.method);
   let body;
-  if (!['GET', 'HEAD'].includes(req.method) && req.body !== undefined) {
+  let duplex;
+  if (conCuerpo && req.body !== undefined) {
     body = JSON.stringify(req.body);
     headers['content-type'] = 'application/json';
+  } else if (conCuerpo && typeof req.pipe === 'function') {
+    // Cuerpo crudo, sin parsear ni sanear: llega a Masivos byte por byte.
+    body = req;
+    duplex = 'half';
   }
 
   try {
-    const upstream = await fetch(target, { method: req.method, headers, body });
+    const upstream = await fetch(target, {
+      method: req.method,
+      headers,
+      body,
+      ...(duplex ? { duplex } : {}),
+    });
     res.status(upstream.status);
     upstream.headers.forEach((value, key) => {
       if (
