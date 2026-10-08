@@ -87,6 +87,16 @@ void (async () => {
     undefined,
     'no presenta el identificador LID como teléfono'
   );
+  const lidAntesGuardadoComoTelefono = sync.mergeSyncedContacts(
+    [],
+    [],
+    [{ numero: '155873238364376@lid', telefono: '155873238364376' }]
+  )[0];
+  assert.equal(
+    lidAntesGuardadoComoTelefono.telefono,
+    undefined,
+    'limpia teléfonos históricos que eran el mismo identificador LID'
+  );
   console.log('contact and chat sync: OK');
 })().catch((error) => {
   console.error(error);

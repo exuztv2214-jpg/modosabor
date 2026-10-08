@@ -48,10 +48,12 @@ function mergeSyncedContacts(chats, contacts, previous, lidMappings = []) {
     const server = originalId.split('@')[1];
     if (!['c.us', 'lid'].includes(server)) return;
     const numero = canonical(originalId);
-    const telefono = phoneDigits(phone) || phoneByLid.get(numero) || '';
+    const digits = phoneDigits(phone);
+    const lidDigits = server === 'lid' ? originalId.replace(/\D/g, '') : '';
+    const telefono = phoneByLid.get(numero) || (digits !== lidDigits ? digits : '');
     const incomingName = String(name || '').trim();
     const record = records.get(numero);
-    records.set(numero, {
+    const merged = {
       ...(record || old || {}),
       ...(old || {}),
       numero,
@@ -62,7 +64,10 @@ function mergeSyncedContacts(chats, contacts, previous, lidMappings = []) {
           : incomingName || record?.nombre || old?.nombre || 'Sin nombre',
       ...(telefono ? { telefono } : {}),
       ...(lastMessage ? { ultimoMensaje: lastMessage } : {}),
-    });
+    };
+    if (telefono) merged.telefono = telefono;
+    else delete merged.telefono;
+    records.set(numero, merged);
   };
 
   for (const item of previous || [])
