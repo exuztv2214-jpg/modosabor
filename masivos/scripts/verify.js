@@ -49,15 +49,16 @@ function verifyFrontendContract() {
     server.indexOf('async function obtenerConversacion'),
     server.indexOf('async function obtenerConversacionesPanel')
   );
-  for (const label of [
-    '01. Inicio',
-    '02. Campaña',
-    '03. Contactos',
-    '04. Conversaciones',
-    '05. Resultados',
-    '06. Configuración',
+  // Menú: cada pantalla tiene su entrada en la barra lateral.
+  for (const ruta of [
+    'inicio',
+    'campana',
+    'contactos',
+    'conversaciones',
+    'resultados',
+    'configuracion',
   ]) {
-    assert.match(html, new RegExp(label.replace('.', '\\.'), 'i'));
+    assert.match(html, new RegExp(`class="nav-item[^"]*" data-route="${ruta}"`));
   }
   assert.match(html, /Escanear QR/i);
   assert.match(html, /Actualizar Contactos/i);
@@ -90,7 +91,7 @@ function verifyFrontendContract() {
   assert.match(app, /data-action="campaign-tab"/);
   assert.doesNotMatch(app, /data-action="preview-reply"/); // sin botones falsos en la vista previa
   assert.match(app, /data-route="contactos"/);
-  assert.match(app, /data-number="\$\{esc\(numero\)\}"/);
+  assert.match(app, /data-action="open-wa" data-number="\$\{esc\(c\.numero\)\}"/);
   assert.match(app, /state\.route = 'conversaciones'/);
   assert.doesNotMatch(app, /window\.open\('https:\/\/wa\.me\//);
   assert.match(app, /reactivar-selected/);
@@ -269,8 +270,14 @@ function verifyFrontendContract() {
     /process\.env\.TZ = process\.env\.TZ \|\| 'America\/Argentina\/Buenos_Aires'/
   );
   assert.match(server, /hour12: false/);
-  assert.match(css, /#181b1f/i);
-  assert.match(css, /#e03b24/i);
+  // Sistema de diseño: tokens de marca y paletas alternativas.
+  assert.match(css, /--brand-500: #e3242b/);
+  for (const tema of ['azul', 'verde', 'grafito'])
+    assert.match(css, new RegExp(`\\[data-theme='${tema}'\\]`));
+  assert.match(html, /localStorage\.getItem\('masivos-theme'\)/);
+  assert.match(app, /function waFormat\(/);
+  assert.match(app, /function saludoDuplicado\(/);
+  assert.match(app, /contactsLimit/);
   assert.match(css, /contact-card-grid/);
   assert.match(css, /conversation-body\s*\{[^}]*overflow-y\s*:\s*auto/);
   assert.match(css, /#075e54/);

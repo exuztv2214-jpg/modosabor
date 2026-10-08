@@ -40,6 +40,11 @@ const state = {
   tanda: null,
   campaignDetail: null,
   logs: [],
+  campaignStep: 1,
+  contactsLimit: 60,
+  campaignSegment: '',
+  campaignGroup: '',
+  chatOpen: false,
 };
 let qrRefreshTimer = null;
 let waitTimer = null;
@@ -164,11 +169,9 @@ function syncShell() {
   const branch = $('#shell-branch');
   if (branch) branch.textContent = businessLabel();
   document.body.dataset.connected = connected ? 'true' : 'false';
-  const dot = $('.channel-title .status-dot');
-  if (dot) dot.className = `status-dot ${connected ? '' : 'offline'}`;
   const title = $('.channel-title');
   if (title)
-    title.innerHTML = `<b class="status-dot ${connected ? '' : 'offline'}"></b> WHATSAPP <span>${statusLabel()}</span>`;
+    title.innerHTML = `<b class="status-dot ${connected ? '' : 'offline'}"></b> WhatsApp <strong>${connected ? 'conectado' : 'desconectado'}</strong>`;
   const phone = $('#channel-phone');
   if (phone)
     phone.textContent = connected
@@ -179,15 +182,21 @@ function syncShell() {
     n.textContent = state.contacts.length ? state.contacts.length.toLocaleString('es-AR') : '—';
   const unread = state.unreadChats || 0;
   const inbox = $('#nav-inbox');
-  if (inbox) inbox.textContent = unread;
+  if (inbox) {
+    inbox.textContent = unread;
+    inbox.classList.toggle('hot', unread > 0);
+  }
   document.querySelectorAll('[data-unread-chats]').forEach((item) => {
     item.textContent = unread;
   });
   const health = connected ? (state.health?.puntaje ?? state.health?.score) : null;
   const healthValue = $('#sidebar-health-value');
-  if (healthValue) healthValue.textContent = health == null ? '—' : `${health}%`;
+  if (healthValue) healthValue.textContent = health == null ? '—' : `${health}/100`;
   const bar = $('#sidebar-health-bar');
   if (bar) bar.style.width = `${Math.max(0, Math.min(100, health || 0))}%`;
+  const meter = $('#sidebar-health-meter');
+  if (meter)
+    meter.className = `meter ${state.health?.estado === 'rojo' ? 'bad' : state.health?.estado === 'amarillo' ? 'warn' : ''}`;
   const label = $('#sidebar-health-label');
   if (label) label.textContent = connected ? healthStateLabel(state.health) : 'Sin conexión';
   const batch = $('#shell-batch');
@@ -208,60 +217,104 @@ function motorLabel() {
   return `${s.simulacro ? 'simulando' : 'enviando'} · ${avance}`;
 }
 
-function card(title, content, className = '') {
+// =========================================================================
+// Vistas. Cada pantalla devuelve HTML armado con los componentes de styles.css
+// (card, stat, gauge, badge, button, table…). La lógica vive en action().
+// =========================================================================
+
+const icon = (name) => `<span class="material-symbols-outlined" aria-hidden="true">${name}</span>`;
+const fmt = (n) => Number(n || 0).toLocaleString('es-AR');
+
+function card(content, className = '') {
   return `<section class="card ${className}">${content}</section>`;
 }
-function empty(icon, title, copy) {
-  return `<div class="empty-state"><span class="material-symbols-outlined">${icon}</span><strong>${title}</strong>${copy}</div>`;
+
+function cardHead(title, subtitle = '', aside = '') {
+  return `<div class="card-head"><div><h2>${title}</h2>${subtitle ? `<p>${subtitle}</p>` : ''}</div>${aside}</div>`;
+}
+
+function empty(iconName, title, copy) {
+  return `<div class="empty-state">${icon(iconName)}<strong>${title}</strong><span>${copy}</span></div>`;
+}
+
+function pageHead(title, subtitle, actions = '') {
+  return `<div class="page-head"><div><h1>${title}</h1><p>${subtitle}</p></div>${actions ? `<div class="page-actions">${actions}</div>` : ''}</div>`;
+}
+
+function metric(label, value, iconName, foot, tone = '') {
+  return card(
+    `<div class="stat"><span class="stat-icon ${tone}">${icon(iconName)}</span><div><span class="stat-label">${label}</span><strong class="stat-value">${value}</strong></div>${foot ? `<span class="stat-foot">${foot}</span>` : ''}</div>`
+  );
+}
+
+// Medidor semicircular: pct de 0 a 100.
+function gauge(pct, tone, value, caption) {
+  const largo = Math.PI * 90;
+  const p = Math.max(0, Math.min(100, Number(pct) || 0));
+  return `<div class="gauge ${tone}"><svg viewBox="0 0 200 110" role="img" aria-label="${esc(caption)}: ${esc(value)}"><path class="track" d="M10 100 A90 90 0 0 1 190 100"/><path class="value" d="M10 100 A90 90 0 0 1 190 100" stroke-dasharray="${largo}" stroke-dashoffset="${largo * (1 - p / 100)}"/></svg><div class="gauge-label"><strong>${value}</strong><small>${caption}</small></div></div>`;
+}
+
+// ---------- Inicio ----------
+
+function greeting() {
+  const hora = new Date().getHours();
+  const saludo = hora < 13 ? 'Buen día' : hora < 20 ? 'Buenas tardes' : 'Buenas noches';
+  const nombre = state.identity?.nombre?.split(/\s+/)[0];
+  return nombre ? `${saludo}, ${nombre}` : saludo;
 }
 
 function renderInicio() {
   const connected = state.status?.whatsapp === 'listo';
   const segments = campaignSegmentCounts();
-  const total = segments.total;
-  const active = segments.recurrentes;
-  const nuevos = segments.nuevos;
-  const cold = segments.frios;
-  const health = state.health || {};
   const motor = state.motor || {};
-  const pendientes = motor.corriendo
-    ? Math.max(0, Number(motor.stats?.total || 0) - Number(motor.stats?.hechos || 0))
-    : 0;
+  const fecha = new Date().toLocaleDateString('es-AR', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+  });
+  const chip = connected
+    ? `<span class="connection-chip"><b class="status-dot"></b>WhatsApp conectado</span>`
+    : `<button class="connection-chip" data-action="qr"><b class="status-dot offline"></b>WhatsApp desconectado</button>`;
   return `
-    <div class="connection-row">
-      ${card('', `<div class="connection-top"><div class="connection-icon"><span class="material-symbols-outlined">phone_iphone</span></div><div><h2>WhatsApp Web<br>${connected ? 'Vinculado' : 'Sin vincular'}</h2><p>${esc(state.status?.whatsappDetalle || (connected ? 'Cuenta conectada y lista para operar' : 'Escaneá el QR para conectar tu cuenta'))}</p></div><span class="badge ${connected ? 'green' : 'red'}">${connected ? 'Sesión activa' : 'Esperando QR'}</span><button class="button ghost" data-action="qr"><span class="material-symbols-outlined">qr_code_2</span> Revisar conexión</button></div><div class="status-grid"><div><small>CHATS SINCRONIZADOS</small><strong>${state.conversations.length ? state.conversations.length.toLocaleString('es-AR') : '—'}</strong></div><div><small>ENVIADOS HOY</small><strong>${connected ? Number(health.enviadosHoy || 0).toLocaleString('es-AR') : '—'}</strong></div><div><small>EN COLA</small><strong class="good">${motor.corriendo ? `${pendientes} msgs` : 'Sin campaña'}</strong></div></div>`, 'connection-card')}
-      ${nextStepCard(connected)}
+    <div class="hero"><div><h1>${esc(greeting())}</h1><p>${esc(fecha.charAt(0).toUpperCase() + fecha.slice(1))} · ${esc(businessLabel())}</p></div>${chip}</div>
+    ${motor.corriendo ? liveCampaignCard() : nextStepCard(connected)}
+    <div class="grid stats section-gap">
+      ${metric('Habilitados', segments.loaded ? fmt(segments.total) : '—', 'groups', 'Reciben campañas', 'brand')}
+      ${metric('Ya compraron', segments.loaded && state.status?.pedidosReales?.configurado ? fmt(segments.clientes) : '—', 'shopping_bag', 'Con pedidos en Modo Sabor', 'green')}
+      ${metric('Activos', segments.loaded ? fmt(segments.recurrentes) : '—', 'local_fire_department', 'Respondieron en 14 días', 'amber')}
+      ${metric('Enviados hoy', connected ? fmt(state.health?.enviadosHoy) : '—', 'send', connected ? `${fmt(state.health?.respuestasHoy)} respuestas hoy` : 'Sin conexión', 'blue')}
     </div>
-    <div class="metric-grid">
-      ${metric('HABILITADOS', total ? total.toLocaleString('es-AR') : '—', 'contacts', total ? 'Reciben campañas' : 'Sin lista cargada', 'green')}
-      ${metric('ACTIVOS', segments.loaded ? active.toLocaleString('es-AR') : '—', 'local_fire_department', 'Respondieron en 14 días')}
-      ${metric('NUEVOS', segments.loaded ? nuevos.toLocaleString('es-AR') : '—', 'person_add', 'Chats de los últimos 7 días', 'red')}
-      ${metric('FRÍOS', segments.loaded ? cold.toLocaleString('es-AR') : '—', 'ac_unit', '3+ promos sin respuesta')}
-    </div>
-    <div class="card shortcuts"><strong><span class="material-symbols-outlined">bolt</span> ATAJOS:</strong><button class="shortcut" data-action="refresh"><span class="material-symbols-outlined">sync</span>Actualizar Contactos</button><button class="shortcut primary" data-route="campana"><span class="material-symbols-outlined">campaign</span>Preparar Campaña</button><button class="shortcut" data-action="test"><span class="material-symbols-outlined">send_to_mobile</span>Enviar Prueba Personal</button><button class="shortcut" data-route="conversaciones"><span class="material-symbols-outlined">chat</span>Revisar Chats <b data-unread-chats>0</b></button></div>
-    <div class="grid two" style="margin-top:18px">
-      ${motor.corriendo ? liveCampaignCard() : lastCampaignCard()}
-      <div>${healthCard(connected)}${activityCard()}</div>
+    <div class="grid main-side section-gap">
+      <div class="stack">${lastCampaignCard()}${activityCard()}</div>
+      <div class="stack">${healthCard(connected)}<div class="card"><div class="page-actions" style="flex-direction:column;align-items:stretch">
+        <button class="button secondary" data-action="test">${icon('send_to_mobile')}Enviar prueba a mi WhatsApp</button>
+        <button class="button secondary" data-route="conversaciones">${icon('chat')}Revisar chats <b class="badge" data-unread-chats>0</b></button>
+        <button class="button secondary" data-action="refresh">${icon('sync')}Actualizar contactos</button>
+      </div></div></div>
     </div>`;
 }
 
-// Próximo paso real: lo calcula el servidor (/api/operador) con pedidos, mensaje, prueba y salud.
+// Próximo paso real: lo calcula el servidor (/api/operador).
 function nextStepCard(connected) {
   const op = state.operador;
   const accion = connected
     ? op?.proximaAccion || 'Preparar campaña por prioridad'
     : 'Conectar WhatsApp';
   const destinos = {
-    'Responder pedidos probables': ['data-route="conversaciones"', 'Ver chats'],
-    'Conectar WhatsApp': ['data-action="qr"', 'Abrir conexión'],
-    'Bajar volumen y trabajar CRM': ['data-route="conversaciones"', 'Ver chats'],
+    'Responder pedidos probables': ['data-route="conversaciones"', 'Ver chats', 'forum'],
+    'Conectar WhatsApp': ['data-action="qr"', 'Abrir conexión', 'qr_code_2'],
+    'Bajar volumen y trabajar CRM': ['data-route="conversaciones"', 'Ver chats', 'forum'],
+    'Enviar prueba': ['data-action="test"', 'Enviar prueba', 'send_to_mobile'],
   };
-  const [boton, etiqueta] = destinos[accion] || ['data-route="campana"', 'Ir a Campaña'];
+  const [boton, etiqueta, iconName] = destinos[accion] || [
+    'data-route="campana"',
+    'Ir a Campaña',
+    'campaign',
+  ];
   const notas = connected ? (op?.notificaciones || []).slice(0, 3) : [];
   return card(
-    '',
-    `<div class="suggestion-top"><span><span class="material-symbols-outlined">auto_awesome</span> PRÓXIMO PASO</span></div><h3>${esc(accion)}</h3>${notas.length ? `<ul class="next-step-notes">${notas.map((nota) => `<li>${esc(nota)}</li>`).join('')}</ul>` : `<p>${connected ? 'Todo en orden para preparar la próxima campaña.' : 'Escaneá el código QR para habilitar contactos, chats y campañas.'}</p>`}<button class="button primary" ${boton}>${etiqueta} <span class="material-symbols-outlined">arrow_forward</span></button>`,
-    'suggestion'
+    `<span class="next-icon">${icon(iconName)}</span><div class="next-copy"><span class="stat-label">Próximo paso</span><h2>${esc(accion)}</h2>${notas.length ? `<ul>${notas.map((nota) => `<li>${esc(nota)}</li>`).join('')}</ul>` : `<p class="muted">${connected ? 'Todo en orden para la próxima campaña.' : 'Escaneá el código QR con tu teléfono para habilitar contactos, chats y campañas.'}</p>`}</div><button class="button primary" ${boton}>${etiqueta} ${icon('arrow_forward')}</button>`,
+    'next-step'
   );
 }
 
@@ -285,6 +338,12 @@ const CAMPAIGN_STATES = {
   detenida: 'Detenida',
 };
 
+function campaignBadge(c) {
+  if (c.simulacro) return '<span class="badge">Simulacro</span>';
+  const tono = c.estado === 'detenida' ? 'red' : c.estado === 'corriendo' ? 'brand' : 'green';
+  return `<span class="badge ${tono}">${esc(CAMPAIGN_STATES[c.estado] || c.estado || '—')}</span>`;
+}
+
 function segmentLabel(segmento) {
   const value = String(segmento || '');
   if (!value || value === 'todos') return 'Todos los habilitados';
@@ -306,45 +365,51 @@ const SEGMENT_NAMES = {
   cliente: 'Ya compraron',
   frecuente: 'Frecuentes',
   inactivo_30: 'No piden hace 30 días',
+  respondio: 'Respondieron',
+  sin_enviar: 'Sin envíos',
+  viejo: 'Sin actividad',
+  otro_pais: 'Otro país',
+  empresa: 'Empresa',
+  excluido: 'Excluido',
+  pausado: 'Pausado',
 };
 
 function lastCampaignCard() {
   const last = state.campaigns[0];
   const cfg = state.config || {};
   const programacion = cfg.PROGRAMACION_ACTIVA
-    ? `Automática ${esc(cfg.PROGRAMACION_HORA || '10:30')}`
+    ? `Automática a las ${esc(cfg.PROGRAMACION_HORA || '10:30')}`
     : 'Manual';
-  const resumen = last
-    ? `<div class="campaign-head"><div><div class="eyebrow">ÚLTIMA CAMPAÑA · ${esc(campaignTime(last.inicio))}</div><h2 class="campaign-title">${esc(segmentLabel(last.segmento))}</h2></div><span class="badge ${last.simulacro ? 'slate' : last.estado === 'detenida' ? 'red' : 'green'}">${last.simulacro ? 'Simulacro' : esc(CAMPAIGN_STATES[last.estado] || last.estado || '—')}</span></div><div class="mini-stats"><div class="mini-stat"><small>ENVIADOS</small><strong>${Number(last.stats?.ok || 0)}</strong></div><div class="mini-stat"><small>FALLIDOS</small><strong>${Number(last.stats?.fallidos || 0)}</strong></div><div class="mini-stat"><small>DESTINATARIOS</small><strong>${Number(last.stats?.total || 0)}</strong></div></div>`
-    : `<div class="campaign-head"><div><div class="eyebrow">CAMPAÑAS</div><h2 class="campaign-title">Todavía no hay campañas</h2></div></div><p class="muted-copy">Prepará la primera desde Campaña: elegís mensaje, flyer y a quién mandarlo.</p>`;
+  const cuerpo = last
+    ? `<div class="kv"><div><small>Enviados</small><strong>${fmt(last.stats?.ok)}</strong></div><div><small>Fallidos</small><strong>${fmt(last.stats?.fallidos)}</strong></div><div><small>Destinatarios</small><strong>${fmt(last.stats?.total)}</strong></div></div>`
+    : empty(
+        'campaign',
+        'Todavía no hay campañas',
+        'Prepará la primera: mensaje, flyer y a quién mandarlo.'
+      );
   return card(
-    '',
-    `${resumen}<div class="mini-stats"><div class="mini-stat"><small>PROGRAMACIÓN</small><strong>${programacion}</strong></div><div class="mini-stat"><small>MÁXIMO POR TANDA</small><strong>${Number(cfg.MAX_POR_CORRIDA || 50)}</strong></div><div class="mini-stat"><small>PAUSA ENTRE MENSAJES</small><strong>${Math.round(Number(cfg.DELAY_MIN_MS || 15000) / 1000)}–${Math.round(Number(cfg.DELAY_MAX_MS || 45000) / 1000)} s</strong></div></div><div class="campaign-actions">${last ? '<button class="button secondary" data-route="resultados"><span class="material-symbols-outlined">query_stats</span>Ver resultados</button>' : ''}<button class="button primary" data-route="campana"><span class="material-symbols-outlined">edit</span>Nueva campaña</button></div>`,
-    'campaign-card'
+    `${cardHead('Última campaña', last ? `${esc(campaignTime(last.inicio))} · ${esc(segmentLabel(last.segmento))}` : '', last ? campaignBadge(last) : '')}${cuerpo}<p class="stat-foot" style="margin-top:12px">Programación: ${programacion} · máximo ${fmt(cfg.MAX_POR_CORRIDA || 50)} por tanda · ${Math.round(Number(cfg.DELAY_MIN_MS || 15000) / 1000)}–${Math.round(Number(cfg.DELAY_MAX_MS || 45000) / 1000)} s entre mensajes</p><div class="card-foot">${last ? `<button class="button secondary" data-route="resultados">${icon('monitoring')}Ver resultados</button>` : ''}<button class="button primary" data-route="campana">${icon('add')}Nueva campaña</button></div>`
   );
 }
+
+const HEALTH_TONES = { verde: 'green', amarillo: 'amber', rojo: 'red' };
 
 function healthCard(connected) {
   const h = state.health || {};
   const cfg = state.config || {};
   const maxVentana = Number(cfg.MAX_POR_HORA || 0);
   const ventana = Number(h.enviadosVentana || 0);
-  const uso = maxVentana ? Math.min(100, Math.round((ventana / maxVentana) * 100)) : 0;
   const warmup = state.status?.calentamiento;
-  const tono = h.estado === 'rojo' ? 'red' : h.estado === 'amarillo' ? 'slate' : 'green';
+  const score = connected && h.score != null ? Number(h.score) : null;
   return card(
-    '',
-    `<div class="health-score"><div><div class="eyebrow">SALUD DEL NÚMERO</div><h2>${connected && h.score != null ? h.score : '—'}<small>/100</small></h2></div><span class="badge ${tono}">${connected ? healthStateLabel(h) : 'Sin conexión'}</span></div><div class="health-box"><div><small>ENVIADOS HOY</small><strong>${connected ? Number(h.enviadosHoy || 0) : '—'}</strong></div><div><small>RESPUESTA HOY</small><strong>${connected && h.enviadosHoy ? `${Math.round(Number(h.tasaRespuesta || 0) * 100)}%` : '—'}</strong></div><div><small>CALENTAMIENTO</small><strong>${warmup?.calentamiento ? `Día ${Number(warmup.diasPrevios || 0) + 1}` : 'Apagado'}</strong></div></div><div style="margin-top:15px;font-size:11px;color:var(--brown)">Cupo de los últimos ${Number(h.ventanaCupoMin || cfg.VENTANA_CUPO_MINUTOS || 60)} min: <b style="float:right">${maxVentana ? `${ventana} / ${maxVentana}` : `${ventana} · sin límite`}</b></div><div class="progress"><i style="width:${uso}%"></i></div>${connected && h.recomendaciones?.[0] ? `<p class="muted-copy">${esc(h.recomendaciones[0])}</p>` : ''}`,
-    'side-card'
+    `${cardHead('Salud del número', 'Cuida que WhatsApp no bloquee la cuenta')}${gauge(score ?? 0, HEALTH_TONES[h.estado] || '', score == null ? '—' : score, connected ? healthStateLabel(h) : 'Sin conexión')}<div class="kv section-gap"><div><small>Últimos ${fmt(h.ventanaCupoMin || cfg.VENTANA_CUPO_MINUTOS || 60)} min</small><strong>${maxVentana ? `${ventana}/${maxVentana}` : ventana}</strong></div><div><small>Respuesta hoy</small><strong>${connected && h.enviadosHoy ? `${Math.round(Number(h.tasaRespuesta || 0) * 100)}%` : '—'}</strong></div><div><small>Calentamiento</small><strong>${warmup?.calentamiento ? `Día ${Number(warmup.diasPrevios || 0) + 1}` : 'No'}</strong></div></div>${connected && h.recomendaciones?.[0] ? `<p class="notice section-gap">${icon('lightbulb')}<span>${esc(h.recomendaciones[0])}</span></p>` : ''}`
   );
 }
 
 function activityCard() {
-  const eventos = state.logs.slice(-5).reverse();
+  const eventos = state.logs.slice(-6).reverse();
   return card(
-    '',
-    `<div class="activity"><div style="display:flex;justify-content:space-between;align-items:center"><h3>Actividad del motor</h3><span class="eyebrow">En vivo</span></div>${eventos.length ? eventos.map(eventRow).join('') : empty('history', 'Todavía no hay actividad', 'Los envíos, sincronizaciones y bajas aparecen acá.')}</div>`,
-    'side-card'
+    `${cardHead('Actividad del motor', 'Envíos, sincronizaciones y bajas', '<span class="badge green"><span class="dot"></span>En vivo</span>')}<div class="activity">${eventos.length ? eventos.map(eventRow).join('') : empty('history', 'Todavía no hay actividad', 'Lo que haga el motor aparece acá.')}</div>`
   );
 }
 
@@ -355,6 +420,12 @@ function parseLogLine(linea) {
   return { hora, texto: match ? match[2] : String(linea || '') };
 }
 
+function eventRow(linea) {
+  const { hora, texto } = parseLogLine(linea);
+  const tono = /❌|ERROR|⛔|🚫/.test(texto) ? 'red' : /SIMULACRO|💾|📸/.test(texto) ? 'gray' : '';
+  return `<div class="activity-row ${tono}"><i></i><p>${esc(texto)}</p><time>${esc(hora)}</time></div>`;
+}
+
 function liveCampaignCard() {
   const m = state.motor || {};
   const s = m.stats || {};
@@ -362,10 +433,14 @@ function liveCampaignCard() {
   const hechos = Number(s.hechos || 0);
   const pct = total ? Math.round((hechos / total) * 100) : 0;
   const ultimo = state.progress;
+  const titulo = m.pausado
+    ? 'Campaña en pausa'
+    : s.simulacro
+      ? 'Simulacro en curso'
+      : 'Enviando campaña';
   return card(
-    '',
-    `<div class="campaign-head"><div><div class="eyebrow">CAMPAÑA EN CURSO${s.tandas > 1 ? ` · TANDA ${Number(state.tanda?.actual || 1)} DE ${Number(s.tandas)}` : ''}</div><h2 class="campaign-title">${m.pausado ? 'En pausa' : s.simulacro ? 'Simulacro en curso' : 'Enviando mensajes'}</h2></div><span class="badge ${m.pausado ? 'slate' : s.simulacro ? 'slate' : 'green'}">${s.simulacro ? 'Simulacro' : m.pausado ? 'Pausada' : 'En vivo'}</span></div><div class="live-progress" role="progressbar" aria-valuemin="0" aria-valuemax="${total}" aria-valuenow="${hechos}"><i style="width:${pct}%"></i></div><div class="mini-stats"><div class="mini-stat"><small>ENVIADOS</small><strong>${Number(s.ok || 0)}</strong></div><div class="mini-stat"><small>FALLIDOS</small><strong>${Number(s.fallidos || 0)}</strong></div><div class="mini-stat"><small>FALTAN</small><strong>${Math.max(0, total - hechos)}</strong></div></div>${ultimo ? `<p class="live-last ${ultimo.ok === false ? 'bad' : ''}">${ultimo.ok === false ? '✗' : '✓'} ${esc(ultimo.etiqueta || '')}${ultimo.error ? ` · ${esc(ultimo.error)}` : ''}</p>` : ''}<p class="live-wait" id="live-wait">${esc(waitLabel())}</p><div class="campaign-actions">${m.pausado ? '<button class="button primary" data-action="motor-reanudar"><span class="material-symbols-outlined">play_arrow</span>Reanudar</button>' : '<button class="button secondary" data-action="motor-pausar"><span class="material-symbols-outlined">pause</span>Pausar</button>'}<button class="button danger" data-action="motor-detener"><span class="material-symbols-outlined">stop</span>Detener</button></div>`,
-    'campaign-card live-campaign'
+    `${cardHead(titulo, s.tandas > 1 ? `Tanda ${Number(state.tanda?.actual || 1)} de ${Number(s.tandas)}` : '', `<span class="badge ${m.pausado ? 'amber' : 'brand'}"><span class="dot"></span>${s.simulacro ? 'Simulacro' : m.pausado ? 'Pausada' : 'En vivo'}</span>`)}<div class="live-grid">${gauge(pct, '', `${hechos}/${total}`, 'mensajes')}<div><div class="kv"><div><small>Enviados</small><strong>${fmt(s.ok)}</strong></div><div><small>Fallidos</small><strong>${fmt(s.fallidos)}</strong></div><div><small>Faltan</small><strong>${fmt(Math.max(0, total - hechos))}</strong></div></div>${ultimo ? `<p class="live-last ${ultimo.ok === false ? 'bad' : ''}">${ultimo.ok === false ? '✗' : '✓'} ${esc(ultimo.etiqueta || '')}${ultimo.error ? ` · ${esc(ultimo.error)}` : ''}</p>` : ''}<p class="live-wait" id="live-wait">${esc(waitLabel())}</p></div></div><div class="card-foot">${m.pausado ? `<button class="button primary" data-action="motor-reanudar">${icon('play_arrow')}Reanudar</button>` : `<button class="button secondary" data-action="motor-pausar">${icon('pause')}Pausar</button>`}<button class="button danger" data-action="motor-detener">${icon('stop')}Detener</button></div>`,
+    'live-campaign'
   );
 }
 
@@ -392,70 +467,103 @@ function tickWait() {
   if (el) el.textContent = waitLabel();
 }
 
-function metric(title, value, icon, foot, tone = '') {
-  return `<div class="card metric-card"><div class="metric-head"><span>${title}</span><span class="metric-icon material-symbols-outlined">${icon}</span></div><div class="metric-value">${value}</div><div class="metric-foot"><span class="${tone === 'green' ? 'positive' : tone === 'red' ? 'negative' : ''}">${foot}</span></div></div>`;
-}
-function eventRow(linea) {
-  const { hora, texto } = parseLogLine(linea);
-  const tono = /❌|ERROR|⛔|🚫/.test(texto) ? 'red' : /SIMULACRO|💾|📸/.test(texto) ? 'gray' : '';
-  return `<div class="activity-row ${tono}"><i></i><div><p>${esc(texto)}</p></div><time>${esc(hora)}</time></div>`;
+// ---------- Campaña (asistente de 4 pasos) ----------
+
+const CAMPAIGN_STEPS = [
+  ['Mensaje', 'Qué decís'],
+  ['Flyer', 'Imagen y menú'],
+  ['Destinatarios', 'A quién'],
+  ['Revisar y enviar', 'Chequeo final'],
+];
+
+function campaignStepDone(step) {
+  if (step === 1) return Boolean(state.message.trim());
+  if (step === 2) return state.media.length > 0 || Boolean(state.pdf);
+  if (step === 3) return Boolean(state.campaignGroup || state.campaignSegment);
+  return false;
 }
 
 function renderCampana() {
-  const segments = campaignSegmentCounts();
-  const total = segments.total;
-  return `<div class="page-head"><div class="page-title"><div class="page-icon"><span class="material-symbols-outlined">rocket_launch</span></div><div><div class="eyebrow">CENTRO OPERATIVO / CAMPAÑA</div><h1>Constructor y Simulacro de Campaña</h1><p>Mensaje, flyer y destinatarios. Primero se prepara y revisa; nada sale sin tu confirmación.</p></div></div><span class="badge green">Línea ${state.status?.whatsapp === 'listo' ? 'activa' : 'pendiente'}</span></div><div class="step-rail"><div class="step active"><b>1</b> Mensaje</div><div class="step-line"></div><div class="step"><b>2</b> Multimedia</div><div class="step-line"></div><div class="step"><b>3</b> Audiencia</div><div class="step-line"></div><div class="step"><b>4</b> Despacho</div></div><div class="studio"><div class="studio-main">${state.motor?.corriendo ? liveCampaignCard() : ''}
-    ${card('', `<div class="section-title"><span class="number">1</span><h2>Redacción de Mensaje & Variables</h2></div><div class="tabs"><button class="${state.campaignTab === 'general' ? 'active' : ''}" data-action="campaign-tab" data-tab="general">General</button><button class="${state.campaignTab === 'recurrentes' ? 'active' : ''}" data-action="campaign-tab" data-tab="recurrentes">Ya Pidieron (Recurrentes)</button><button class="${state.campaignTab === 'nuevos' ? 'active' : ''}" data-action="campaign-tab" data-tab="nuevos">Nuevos (Bienvenida)</button><button class="${state.campaignTab === 'frios' ? 'active' : ''}" data-action="campaign-tab" data-tab="frios">Recuperar Fríos</button></div><div class="eyebrow">INYECTAR VARIABLES PERSONALIZADAS</div><div class="var-pills"><button class="var-pill" data-insert="{SALUDO}">+ {SALUDO}</button><button class="var-pill" data-insert="{NOMBRE}">+ {NOMBRE}</button></div><textarea class="editor" id="campaign-message" placeholder="Escribí el mensaje de tu campaña...">${esc(state.message)}</textarea><div class="editor-note"><span>Variables simples y claras para personalizar cada conversación.</span><b id="message-count">0 caracteres</b></div><button class="button secondary" data-action="save-message"><span class="material-symbols-outlined">save</span>Guardar borrador</button>`, 'section-card')}
-    ${card('', `<div class="section-title"><span class="number">2</span><h2>Contenido Multimedia & Adjuntos</h2><small>Máx. 16 MB por archivo</small></div><div class="attachment-list">${state.media.length ? state.media.map((item) => `<div class="attachment"><div class="attachment-thumb" style="background-image:url('${esc(item.dataUrl || item.url || '')}');background-size:cover"><span class="material-symbols-outlined">image</span></div><div><strong>${esc(item.nombre || 'Imagen de campaña')}</strong><small>Imagen lista para usar</small></div><span class="material-symbols-outlined" data-remove-image="${esc(item.nombre || '')}">delete</span></div>`).join('') : '<div class="attachment"><div class="attachment-thumb"><span class="material-symbols-outlined">image</span></div><div><strong>Imagen de campaña</strong><small>JPG, PNG o WEBP</small></div></div>'}${state.pdf ? `<div class="attachment"><div class="attachment-thumb" style="background:#ffd8d2;color:#b51b07"><span class="material-symbols-outlined">picture_as_pdf</span></div><div><strong>${esc(state.pdf.nombre || 'Menú o promoción')}</strong><small>PDF listo para adjuntar</small></div><span class="material-symbols-outlined" data-remove-pdf="true">delete</span></div>` : '<div class="attachment"><div class="attachment-thumb" style="background:#ffd8d2;color:#b51b07"><span class="material-symbols-outlined">picture_as_pdf</span></div><div><strong>Menú o promoción</strong><small>PDF opcional</small></div></div>'}</div><label class="upload-row"><span class="material-symbols-outlined">upload_file</span> Agregar imágenes o PDF <input id="campaign-file" type="file" hidden multiple accept="image/*,.pdf"></label>`, 'section-card')}
-    ${card('', `<div class="section-title"><span class="number">3</span><h2>Selección de Segmento Objetivo</h2><button class="link-button" data-route="contactos" style="width:auto;margin-left:auto;color:var(--coral-dark)">Gestionar filtros CRM</button></div><div class="audience-grid"><label class="audience"><span><input type="radio" name="segment" value="activo" ${state.campaignSegment === 'activo' ? 'checked' : ''}> Clientes Activos</span><p>Respondieron en los últimos 14 días.</p><strong>${segments.loaded ? segments.recurrentes.toLocaleString('es-AR') : '—'} destinatarios</strong></label><label class="audience"><span><input type="radio" name="segment" value="nuevo" ${state.campaignSegment === 'nuevo' ? 'checked' : ''}> Clientes Nuevos</span><p>Chats nuevos de los últimos 7 días que todavía no recibieron promo.</p><strong>${segments.loaded ? segments.nuevos.toLocaleString('es-AR') : '—'} destinatarios</strong></label><label class="audience"><span><input type="radio" name="segment" value="frio" ${state.campaignSegment === 'frio' ? 'checked' : ''}> Contactos Fríos</span><p>Recibieron 3 o más promos y nunca respondieron.</p><strong>${segments.loaded ? segments.frios.toLocaleString('es-AR') : '—'} destinatarios</strong></label>${realOrderAudiences(segments)}<label class="audience"><span><input type="radio" name="segment" value="todos" ${state.campaignSegment === 'todos' ? 'checked' : ''}> Base Total Habilitada</span><p>Todos los contactos que no están excluidos ni pausados.</p><strong>${segments.loaded ? total.toLocaleString('es-AR') : '—'} contactos</strong></label></div>${state.groups.length ? `<div class="campaign-group-picker"><span class="material-symbols-outlined">bookmark</span><div><strong>Grupo guardado</strong><small>Usá una selección preparada desde Contactos.</small></div><select id="campaign-group" aria-label="Grupo guardado"><option value="">Elegir grupo...</option>${state.groups.map((group) => `<option value="${esc(group.id)}">${esc(group.nombre)} · ${group.numeros.length} contactos</option>`).join('')}</select></div>` : `<div class="campaign-group-hint"><span class="material-symbols-outlined">bookmark_add</span>Guardá una selección desde Contactos para reutilizarla como grupo de envío.</div>`}`, 'section-card')}
-    ${dispatchCard()}
-  </div><aside class="preview-dock">${renderWhatsappPreview()}</aside></div>`;
+  const step = state.campaignPlan ? 4 : state.campaignStep || 1;
+  const stepper = `<ol class="stepper">${CAMPAIGN_STEPS.map(([titulo, detalle], i) => {
+    const n = i + 1;
+    const clase = n === step ? 'active' : campaignStepDone(n) ? 'done' : '';
+    return `<li><button class="${clase}" data-action="campaign-step" data-id="${n}" aria-current="${n === step ? 'step' : 'false'}"><b>${clase === 'done' ? icon('check') : n}</b><span>${titulo}<small>${detalle}</small></span></button></li>`;
+  }).join('')}</ol>`;
+  const pasos = { 1: messageStep, 2: mediaStep, 3: audienceStep, 4: reviewStep };
+  const anterior =
+    step > 1 && !state.campaignPlan
+      ? `<button class="button secondary" data-action="campaign-step" data-id="${step - 1}">${icon('arrow_back')}Anterior</button>`
+      : '<span></span>';
+  const siguiente =
+    step < 4
+      ? `<button class="button primary" data-action="campaign-step" data-id="${step + 1}">Siguiente ${icon('arrow_forward')}</button>`
+      : '';
+  return `${pageHead('Nueva campaña', 'Prepará el mensaje, revisalo y recién ahí se envía. Nada sale sin tu confirmación.')}${state.motor?.corriendo ? `<div class="section-gap" style="margin:0 0 20px">${liveCampaignCard()}</div>` : ''}${stepper}<div class="studio"><div>${state.campaignPlan ? `<section class="card campaign-plan">${campaignPlanMarkup()}</section>` : ''}${card(pasos[step]())}<div class="wizard-nav">${anterior}${siguiente}</div></div><aside class="preview-dock">${renderWhatsappPreview()}</aside></div>`;
 }
 
-// Segmentos que salen de los pedidos reales del sistema (sólo si está conectado).
-function realOrderAudiences(segments) {
-  if (!state.status?.pedidosReales?.configurado) return '';
-  const opcion = (value, titulo, detalle, total) =>
-    `<label class="audience"><span><input type="radio" name="segment" value="${value}" ${state.campaignSegment === value ? 'checked' : ''}> ${titulo}</span><p>${detalle}</p><strong>${segments.loaded ? total.toLocaleString('es-AR') : '—'} destinatarios</strong></label>`;
-  return (
-    opcion(
-      'cliente',
-      'Ya compraron',
-      'Tienen al menos un pedido en Modo Sabor.',
-      segments.clientes
-    ) +
-    opcion('frecuente', 'Frecuentes', '4 o más pedidos en Modo Sabor.', segments.frecuentes) +
-    opcion(
-      'inactivo_30',
-      'No piden hace 30 días',
-      'Compraron antes pero no en el último mes.',
-      segments.inactivos
+function messageStep() {
+  const tabs = [
+    ['general', 'General'],
+    ['recurrentes', 'Ya pidieron'],
+    ['nuevos', 'Nuevos'],
+    ['frios', 'Recuperar fríos'],
+  ];
+  return `${cardHead('Mensaje', 'Podés tener un mensaje distinto para cada grupo; si uno queda vacío, ese grupo recibe el general.')}<div class="tabs" role="tablist">${tabs.map(([id, label]) => `<button role="tab" aria-selected="${state.campaignTab === id}" class="${state.campaignTab === id ? 'active' : ''}" data-action="campaign-tab" data-tab="${id}">${label}</button>`).join('')}</div><div class="editor-tools"><div class="tags"><span class="stat-foot">Insertar:</span><button class="var-pill" data-insert="{SALUDO}">{SALUDO}</button><button class="var-pill" data-insert="{NOMBRE}">{NOMBRE}</button></div><span class="stat-foot" id="message-count">0 caracteres</span></div><p class="notice warn" id="saludo-aviso" style="margin-bottom:12px" ${saludoDuplicado(state.message) ? '' : 'hidden'}>${icon('warning')}<span>Tu mensaje ya empieza saludando y el sistema agrega otro saludo automático: el cliente va a recibir dos. Borrá tu saludo o reemplazalo por <b>{SALUDO}</b>.</span></p><label class="sr-only" for="campaign-message">Mensaje de la campaña</label><textarea class="editor" id="campaign-message" placeholder="Ej: Hoy tenemos milanesa napolitana con papas a $8.500. ¡Hacé tu pedido!">${esc(state.message)}</textarea><div class="card-foot"><button class="button secondary" data-action="save-message">${icon('save')}Guardar borrador</button></div>`;
+}
+
+function mediaStep() {
+  const imagenes = state.media
+    .map(
+      (item) =>
+        `<figure class="media-item"><img src="${esc(assetUrl(item.dataUrl || item.url || ''))}" alt="${esc(item.nombre || 'Flyer')}"><footer><span>${esc(item.nombre || 'Imagen')}</span><button data-remove-image="${esc(item.nombre || '')}" aria-label="Quitar ${esc(item.nombre || 'imagen')}">${icon('delete')}</button></footer></figure>`
     )
-  );
+    .join('');
+  const pdf = state.pdf
+    ? `<figure class="media-item"><div class="doc">${icon('picture_as_pdf')}</div><footer><span>${esc(state.pdf.nombre || 'menu.pdf')}</span><button data-remove-pdf="true" aria-label="Quitar PDF">${icon('delete')}</button></footer></figure>`
+    : '';
+  return `${cardHead('Flyer y menú', 'Opcional. La primera imagen va con el texto; las demás y el PDF salen en mensajes aparte.')}<label class="dropzone">${icon('add_photo_alternate')}<strong>Subir imágenes o PDF</strong><span>JPG, PNG, WEBP o PDF · hasta 16 MB cada uno</span><input id="campaign-file" type="file" hidden multiple accept="image/*,.pdf"></label>${imagenes || pdf ? `<div class="media-list">${imagenes}${pdf}</div>` : `<p class="notice section-gap">${icon('info')}<span>Sin flyer se manda sólo el texto.</span></p>`}`;
 }
 
-function pedidosRealesBadge() {
-  const info = state.status?.pedidosReales;
-  if (!info?.configurado)
-    return '<span class="badge slate" title="Falta configurar MODOSABOR_API_URL en el servicio Masivos">Sin conexión con pedidos</span>';
-  if (info.error)
-    return `<span class="badge red" title="${esc(info.error)}">Pedidos de Modo Sabor: error</span>`;
-  return `<span class="badge green">${Number(info.contactosConPedidos || 0)} contactos con pedidos en Modo Sabor</span>`;
+function audienceOption(value, titulo, detalle, total) {
+  return `<label class="audience"><input type="radio" name="segment" value="${value}" ${state.campaignSegment === value && !state.campaignGroup ? 'checked' : ''}><div><strong>${titulo}</strong><p>${detalle}</p></div><span class="count">${total == null ? '—' : fmt(total)}</span></label>`;
 }
 
-function lastActivity(c) {
-  const m = c.metricas || {};
-  if (m.ultimoPedido) return `Pidió el ${m.ultimoPedido}`;
-  if (m.ultimaRespuestaFecha) return `Respondió el ${m.ultimaRespuestaFecha}`;
-  return 'Sin historial';
+function audienceStep() {
+  const s = campaignSegmentCounts();
+  const n = (v) => (s.loaded ? v : null);
+  const reales = state.status?.pedidosReales?.configurado
+    ? audienceOption(
+        'cliente',
+        'Ya compraron',
+        'Tienen al menos un pedido en Modo Sabor.',
+        n(s.clientes)
+      ) +
+      audienceOption('frecuente', 'Frecuentes', '4 o más pedidos en Modo Sabor.', n(s.frecuentes)) +
+      audienceOption(
+        'inactivo_30',
+        'No piden hace 30 días',
+        'Compraron antes, pero no en el último mes.',
+        n(s.inactivos)
+      )
+    : '';
+  const grupos = state.groups.length
+    ? `<label class="field section-gap"><span>O un grupo guardado</span><select id="campaign-group"><option value="">Ninguno</option>${state.groups.map((g) => `<option value="${esc(g.id)}" ${state.campaignGroup === g.id ? 'selected' : ''}>${esc(g.nombre)} · ${g.numeros.length} contactos</option>`).join('')}</select><small>Los grupos se arman en Contactos, seleccionando y tocando "Guardar grupo".</small></label>`
+    : `<p class="notice section-gap">${icon('bookmark_add')}<span>Para mandarle a pocos (por ejemplo una prueba), seleccioná contactos en <button class="link-button" data-route="contactos">Contactos</button> y guardalos como grupo.</span></p>`;
+  return `${cardHead('Destinatarios', 'Siempre quedan afuera los excluidos, los pausados y quienes ya recibieron hoy.')}<div class="audience-grid">${audienceOption('todos', 'Todos los habilitados', 'Todos los que no están excluidos ni pausados.', n(s.total))}${reales}${audienceOption('activo', 'Activos', 'Respondieron en los últimos 14 días.', n(s.recurrentes))}${audienceOption('nuevo', 'Nuevos', 'Chats de los últimos 7 días sin promo.', n(s.nuevos))}${audienceOption('frio', 'Fríos', '3 o más promos sin respuesta.', n(s.frios))}</div>${grupos}`;
 }
 
 // Paso 4: chequeos calculados con el estado real; nada está tildado de antemano.
-function dispatchCard() {
+function reviewStep() {
   const cfg = state.config || {};
   const connected = state.status?.whatsapp === 'listo';
   const hoy = new Date().getDay();
   const diaNoEnvio = Array.isArray(cfg.DIAS_NO_ENVIO) && cfg.DIAS_NO_ENVIO.includes(hoy);
+  const destino = state.campaignGroup
+    ? segmentLabel(`grupo:${state.campaignGroup}`)
+    : state.campaignSegment
+      ? segmentLabel(state.campaignSegment)
+      : '';
   const checks = [
     [
       connected,
@@ -464,10 +572,10 @@ function dispatchCard() {
     ],
     [
       Boolean(state.message.trim()),
-      'Mensaje cargado',
+      'Mensaje',
       state.message.trim()
         ? `${state.message.trim().length} caracteres.`
-        : 'Escribí el mensaje en el paso 1.',
+        : 'Falta escribirlo en el paso 1.',
     ],
     [
       state.media.length > 0,
@@ -477,6 +585,15 @@ function dispatchCard() {
         : 'Sin imagen: se manda sólo texto.',
       true,
     ],
+    [
+      !saludoDuplicado(state.message),
+      'Saludo',
+      saludoDuplicado(state.message)
+        ? 'El mensaje ya saluda y se suma el saludo automático: va a salir repetido.'
+        : 'Un solo saludo por mensaje.',
+      true,
+    ],
+    [Boolean(destino), 'Destinatarios', destino || 'Elegilos en el paso 3.'],
     [
       !cfg.MODO_SOLO_RESPUESTAS && !diaNoEnvio,
       'Día habilitado',
@@ -488,22 +605,34 @@ function dispatchCard() {
     ],
     [
       true,
-      'Ritmo de envío',
-      `${Math.round(Number(cfg.DELAY_MIN_MS || 15000) / 1000)}–${Math.round(Number(cfg.DELAY_MAX_MS || 45000) / 1000)} s entre mensajes · ${Number(cfg.MAX_POR_HORA || 0) || 'sin'} límite por hora · máximo ${Number(cfg.MAX_POR_CORRIDA || 50)} por tanda.`,
+      'Ritmo',
+      `${Math.round(Number(cfg.DELAY_MIN_MS || 15000) / 1000)}–${Math.round(Number(cfg.DELAY_MAX_MS || 45000) / 1000)} s entre mensajes · ${Number(cfg.MAX_POR_HORA || 0) ? `${cfg.MAX_POR_HORA} por hora` : 'sin límite por hora'} · máximo ${fmt(cfg.MAX_POR_CORRIDA || 50)} por tanda.`,
     ],
   ];
   const rows = checks
     .map(
       ([ok, titulo, detalle, opcional]) =>
-        `<div class="check-row ${ok ? '' : opcional ? 'warn' : 'bad'}"><span class="material-symbols-outlined">${ok ? 'check_circle' : opcional ? 'info' : 'cancel'}</span><div><strong>${esc(titulo)}</strong><small>${esc(detalle)}</small></div></div>`
+        `<div class="check ${ok ? '' : opcional ? 'warn' : 'bad'}">${icon(ok ? 'check_circle' : opcional ? 'info' : 'cancel')}<div><strong>${esc(titulo)}</strong><small>${esc(detalle)}</small></div></div>`
     )
     .join('');
   const ocupado = state.motor?.corriendo;
-  return card(
-    '',
-    `<div class="section-title"><span class="number">4</span><h2>Revisión y envío</h2></div><div class="check-list">${rows}</div><div class="campaign-actions"><button class="button secondary" data-action="simulate" ${ocupado ? 'disabled' : ''}><span class="material-symbols-outlined">play_circle</span>Hacer Simulacro</button><button class="button secondary" data-action="test" ${ocupado ? 'disabled' : ''}><span class="material-symbols-outlined">send_to_mobile</span>Enviar Prueba Personal</button><button class="button primary" data-action="dispatch" ${ocupado ? 'disabled' : ''}><span class="material-symbols-outlined">schedule_send</span>Preparar y revisar envío</button></div>${ocupado ? '<small>Hay una campaña en curso: esperá a que termine o detenela.</small>' : ''}`,
-    'section-card'
-  );
+  return `${cardHead('Revisar y enviar', 'Primero hacé un simulacro o mandate una prueba; el envío real pide confirmación.')}<div class="checks">${rows}</div><div class="card-foot"><button class="button secondary" data-action="test" ${ocupado ? 'disabled' : ''}>${icon('send_to_mobile')}Enviar prueba a mi WhatsApp</button><button class="button secondary" data-action="simulate" ${ocupado ? 'disabled' : ''}>${icon('play_circle')}Hacer simulacro</button><button class="button primary" data-action="dispatch" ${ocupado ? 'disabled' : ''}>${icon('fact_check')}Preparar y revisar envío</button></div>${ocupado ? `<p class="notice warn section-gap">${icon('hourglass_top')}<span>Hay una campaña en curso: esperá a que termine o detenela.</span></p>` : ''}`;
+}
+
+function pedidosRealesBadge() {
+  const info = state.status?.pedidosReales;
+  if (!info?.configurado)
+    return '<span class="badge" title="Falta configurar MODOSABOR_API_URL en el servicio Masivos">Sin conexión con pedidos</span>';
+  if (info.error)
+    return `<span class="badge red" title="${esc(info.error)}">Pedidos de Modo Sabor: error</span>`;
+  return `<span class="badge green"><span class="dot"></span>${fmt(info.contactosConPedidos)} con pedidos en Modo Sabor</span>`;
+}
+
+function lastActivity(c) {
+  const m = c.metricas || {};
+  if (m.ultimoPedido) return `Pidió el ${m.ultimoPedido}`;
+  if (m.ultimaRespuestaFecha) return `Respondió el ${m.ultimaRespuestaFecha}`;
+  return 'Sin historial';
 }
 
 // Cada pestaña del editor guarda su propia plantilla en el servidor (mensaje-<tag>.txt).
@@ -516,9 +645,8 @@ function campaignTemplateTag() {
 function campaignPlanMarkup() {
   const plan = state.campaignPlan;
   if (!plan) return '';
-  const mode = plan.simulacro ? 'SIMULACRO' : 'ENVÍO REAL';
   const executeAction = plan.simulacro ? 'run-simulation' : 'run-campaign';
-  return `<div class="section-title"><span class="material-symbols-outlined">fact_check</span><h2>Plan listo para revisión</h2><span class="badge ${plan.simulacro ? 'slate' : 'red'}">${mode}</span></div><p>Se prepararon <strong>${Number(plan.total || plan.candidatos || 0).toLocaleString('es-AR')}</strong> destinatarios para el segmento <strong>${esc(plan.segmento || 'seleccionado')}</strong>. Todavía no se envió ningún mensaje.</p><div class="campaign-actions"><button class="button secondary" data-action="clear-plan">Cancelar plan</button><button class="button ${plan.simulacro ? 'secondary' : 'primary'}" data-action="${executeAction}">${plan.simulacro ? 'Ejecutar simulacro' : 'Ejecutar envío real'}</button></div>${plan.simulacro ? '' : '<small>El envío real tiene efecto externo y sólo comienza al pulsar este botón.</small>'}`;
+  return `${cardHead(plan.simulacro ? 'Simulacro listo' : 'Envío listo para confirmar', `${esc(segmentLabel(plan.segmento))}. Todavía no salió ningún mensaje.`, `<span class="badge ${plan.simulacro ? '' : 'red'}">${plan.simulacro ? 'Simulacro' : 'Envío real'}</span>`)}<div class="kv"><div><small>Destinatarios</small><strong>${fmt(plan.total || 0)}</strong></div><div><small>Tandas</small><strong>${fmt(plan.config?.tandas || 1)}</strong></div><div><small>Pausa</small><strong>${fmt(plan.config?.delayMinSeg)}–${fmt(plan.config?.delayMaxSeg)} s</strong></div></div><div class="card-foot"><button class="button ghost" data-action="clear-plan">Cancelar</button><button class="button ${plan.simulacro ? 'secondary' : 'primary'}" data-action="${executeAction}">${icon(plan.simulacro ? 'play_circle' : 'send')}${plan.simulacro ? 'Ejecutar simulacro' : 'Enviar ahora'}</button></div>`;
 }
 
 function contactMatchesFilter(contact, filter) {
@@ -532,6 +660,7 @@ function contactMatchesFilter(contact, filter) {
   if (filter === 'activos') return true;
   if (filter === 'nuevos') return segments.includes('nuevo');
   if (filter === 'frios') return segments.includes('frio') || segments.includes('frío');
+  if (filter === 'clientes') return segments.includes('cliente');
   return true;
 }
 
@@ -552,6 +681,8 @@ function campaignSegmentCounts() {
   };
 }
 
+// ---------- Contactos ----------
+
 function visibleContactNumbers() {
   const query = state.contactQuery.trim().toLocaleLowerCase('es-AR');
   return state.contacts
@@ -567,23 +698,24 @@ function visibleContactNumbers() {
     )
     .map((c) => String(c.numero));
 }
+
 function contactOperations() {
   const selected = state.selectedContacts.length;
   const options = state.groups
-    .map(
-      (group) =>
-        `<option value="${esc(group.id)}">${esc(group.nombre)} · ${group.numeros.length}</option>`
-    )
+    .map((g) => `<option value="${esc(g.id)}">${esc(g.nombre)} · ${g.numeros.length}</option>`)
     .join('');
-  const deleteGroup = state.groups.length
-    ? `<button class="button ghost icon-button" data-action="delete-group" title="Eliminar grupo seleccionado" aria-label="Eliminar grupo seleccionado"><span class="material-symbols-outlined">delete</span></button>`
+  const grupos = state.groups.length
+    ? `<select id="contact-group-select" class="group-select" aria-label="Grupo guardado"><option value="">Grupos guardados</option>${options}</select><button class="button secondary small" data-action="apply-group">Seleccionar grupo</button><button class="button ghost small icon" data-action="delete-group" title="Eliminar grupo" aria-label="Eliminar grupo seleccionado">${icon('delete')}</button>`
     : '';
+  if (!selected)
+    return `<div class="toolbar selection-tools"><button class="button secondary small" data-action="select-visible">${icon('select_all')}Seleccionar visibles</button>${grupos}<span class="stat-foot">Seleccioná contactos para guardarlos como grupo, pausarlos o excluirlos.</span></div>`;
   const restore =
     state.contactsFilter === 'excluidos'
-      ? `<button class="button secondary" data-action="reactivar-selected">Reactivar seleccionados</button>`
-      : `<button class="button danger" data-action="exclude-selected">Ocultar y excluir</button>`;
-  return `<div class="contact-operations"><div class="selection-summary"><span class="material-symbols-outlined">checklist</span><strong>${selected} seleccionados</strong><button class="button ghost" data-action="select-visible">Seleccionar visibles</button><button class="button ghost" data-action="clear-selection">Limpiar</button></div><div class="group-tools"><select id="contact-group-select" aria-label="Grupo de envío"><option value="">Grupos de envío</option>${options}</select>${deleteGroup}<button class="button secondary" data-action="apply-group" ${state.groups.length ? '' : 'disabled'}>Usar grupo</button><button class="button secondary" data-action="save-group" ${selected ? '' : 'disabled'}><span class="material-symbols-outlined">bookmark_add</span>Guardar grupo</button></div>${selected ? `<div class="bulk-actions"><button class="button secondary" data-action="pause-selected">Pausar 7 días</button>${restore}</div>` : ''}</div>`;
+      ? `<button class="button secondary small" data-action="reactivar-selected">${icon('undo')}Reactivar</button>`
+      : `<button class="button danger small" data-action="exclude-selected">${icon('block')}Excluir</button>`;
+  return `<div class="bulk-bar" role="region" aria-label="Acciones sobre la selección"><strong>${selected} seleccionado${selected === 1 ? '' : 's'}</strong>${grupos}<button class="button secondary small" data-action="save-group">${icon('bookmark_add')}Guardar grupo</button><button class="button secondary small" data-action="pause-selected">${icon('pause_circle')}Pausar 7 días</button>${restore}<button class="button ghost small" data-action="clear-selection">Limpiar</button></div>`;
 }
+
 function parseCsvLine(line, separator) {
   const values = [];
   let value = '';
@@ -599,6 +731,7 @@ function parseCsvLine(line, separator) {
   values.push(value.trim());
   return values.map((item) => item.replace(/^"|"$/g, '').replace(/""/g, '"'));
 }
+
 function parseImportedContacts(text, fileName = '') {
   if (/\.vcf$/i.test(fileName) || /BEGIN:VCARD/i.test(text)) {
     return text
@@ -618,10 +751,7 @@ function parseImportedContacts(text, fileName = '') {
   if (!lines.length) return [];
   const separator = lines[0].includes(';') ? ';' : ',';
   const first = parseCsvLine(lines[0], separator).map((item) =>
-    item
-      .toLocaleLowerCase('es-AR')
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
+    item.toLocaleLowerCase('es-AR').normalize('NFD').replace(/[̀-ͯ]/g, '')
   );
   const hasHeader = first.some((item) =>
     /^(nombre|name|telefono|tel|phone|numero|mobile)$/.test(item)
@@ -645,11 +775,13 @@ function parseImportedContacts(text, fileName = '') {
     })
     .filter((item) => item.telefono);
 }
+
 function openContactModal() {
   $('#modal-root').innerHTML =
-    `<div class="modal-backdrop" data-action="close-modal"><div class="modal contact-modal"><div class="modal-head"><h2>Agregar contacto</h2><button class="close" data-action="close-modal">×</button></div><p class="modal-copy">Guardalo en el CRM local sin tocar WhatsApp ni enviar mensajes.</p><label class="stack-field"><span>Nombre</span><input id="contact-modal-name" type="text" maxlength="120" placeholder="Ej. Juan Pérez"></label><label class="stack-field"><span>Teléfono</span><input id="contact-modal-phone" type="tel" maxlength="40" placeholder="+54 9 381 ..." autofocus></label><div class="modal-actions"><button class="button ghost" data-action="close-modal">Cancelar</button><button class="button primary" data-action="save-contact"><span class="material-symbols-outlined">person_add</span>Guardar contacto</button></div></div></div>`;
-  $('#contact-modal-phone')?.focus();
+    `<div class="modal-backdrop" data-action="close-modal"><div class="modal contact-modal" role="dialog" aria-modal="true" aria-labelledby="contact-modal-title"><div class="modal-head"><h2 id="contact-modal-title">Agregar contacto</h2><button class="button ghost icon" data-action="close-modal" aria-label="Cerrar">${icon('close')}</button></div><p class="muted">Se guarda en tu lista. No envía ningún mensaje.</p><label class="field section-gap"><span>Nombre</span><input id="contact-modal-name" type="text" maxlength="120" placeholder="Ej. Juan Pérez"></label><label class="field"><span>Teléfono</span><input id="contact-modal-phone" type="tel" maxlength="40" placeholder="+54 9 3863 ..."></label><div class="modal-actions"><button class="button secondary" data-action="close-modal">Cancelar</button><button class="button primary" data-action="save-contact">${icon('person_add')}Guardar</button></div></div></div>`;
+  $('#contact-modal-name')?.focus();
 }
+
 function openContactImport() {
   let input = $('#contact-import-input');
   if (!input) {
@@ -683,90 +815,109 @@ function openContactImport() {
   }
   input.click();
 }
+
+function contactBadges(c, max = 2) {
+  const tags = [...(c.segmentosAuto || []), ...(c.tags || [])]
+    .filter((t) => !['excluido', 'pausado', 'sin_enviar'].includes(t))
+    .slice(0, max);
+  return tags.length
+    ? tags
+        .map(
+          (t) =>
+            `<span class="badge ${['cliente', 'frecuente', 'pidio', 'pidio_ayer'].includes(t) ? 'green' : t === 'activo' ? 'brand' : ''}">${esc(SEGMENT_NAMES[t] || t)}</span>`
+        )
+        .join('')
+    : '<span class="stat-foot">—</span>';
+}
+
+function contactStatus(c) {
+  return `<span class="badge ${c.excluido ? 'red' : c.pausado ? 'amber' : 'green'}">${c.excluido ? 'Excluido' : c.pausado ? 'Pausado' : 'Habilitado'}</span>`;
+}
+
 function renderContactos() {
   const filter = state.contactsFilter;
   const filteredContacts = state.contacts.filter((c) => contactMatchesFilter(c, filter));
-  const query = state.contactQuery.trim().toLocaleLowerCase('es-AR');
-  const visible = filteredContacts.filter(
-    (c) =>
-      !query ||
-      [c.nombre, c.telefono, c.numero, c.segmento, ...(c.tags || []), ...(c.segmentosAuto || [])]
-        .filter(Boolean)
-        .join(' ')
-        .toLocaleLowerCase('es-AR')
-        .includes(query)
-  );
+  const visibles = new Set(visibleContactNumbers());
+  const todosVisibles = filteredContacts.filter((c) => visibles.has(String(c.numero)));
+  const visible = todosVisibles.slice(0, state.contactsLimit);
   const selected = state.selectedDetail?.cliente || state.selectedContact || visible[0];
-  const counts = {
-    todos: state.contacts.filter((c) => contactMatchesFilter(c, 'todos')).length,
-    activos: state.contacts.filter((c) => contactMatchesFilter(c, 'activos')).length,
-    nuevos: state.contacts.filter((c) => contactMatchesFilter(c, 'nuevos')).length,
-    frios: state.contacts.filter((c) => contactMatchesFilter(c, 'frios')).length,
-    excluidos: state.contacts.filter((c) => contactMatchesFilter(c, 'excluidos')).length,
-  };
-  const content = visible.length
+  const counts = Object.fromEntries(
+    ['todos', 'activos', 'clientes', 'nuevos', 'frios', 'excluidos'].map((f) => [
+      f,
+      state.contacts.filter((c) => contactMatchesFilter(c, f)).length,
+    ])
+  );
+  const chips = [
+    ['todos', 'Todos'],
+    ['activos', 'Habilitados'],
+    ...(state.status?.pedidosReales?.configurado ? [['clientes', 'Ya compraron']] : []),
+    ['nuevos', 'Nuevos'],
+    ['frios', 'Fríos'],
+    ['excluidos', 'Excluidos / pausados'],
+  ];
+  const lista = visible.length
     ? state.contactsView === 'cards'
       ? `<div class="contact-card-grid">${visible.map((c) => contactCard(c, selected)).join('')}</div>`
-      : `<div class="table-head"><span>CLIENTE / TELÉFONO</span><span>SEGMENTO / ETIQUETAS</span><span>ÚLTIMA ACTIVIDAD</span><span>ESTADO</span></div><div class="contact-table-scroll">${visible.map((c) => contactRow(c, selected)).join('')}</div>`
+      : `<div class="table-wrap"><table class="table"><thead><tr><th style="width:36px"><span class="sr-only">Seleccionar</span></th><th>Cliente</th><th class="hide-sm">Segmentos</th><th class="hide-sm">Actividad</th><th class="hide-sm">Estado</th></tr></thead><tbody>${visible.map((c) => contactRow(c, selected)).join('')}</tbody></table></div>`
     : empty(
         'group_off',
-        query
-          ? 'No encontramos contactos'
-          : filter !== 'todos'
-            ? 'No hay contactos en este filtro'
-            : 'Todavía no hay contactos cargados',
-        query
-          ? 'Probá con otro nombre, teléfono o etiqueta.'
-          : filter !== 'todos'
-            ? 'Elegí otro segmento para seguir explorando la base.'
-            : 'Conectá WhatsApp y usá “Actualizar Contactos” para traer la agenda disponible.'
+        state.contactQuery ? 'No encontramos contactos' : 'No hay contactos en este filtro',
+        state.contactQuery
+          ? 'Probá con otro nombre o teléfono.'
+          : 'Conectá WhatsApp y tocá "Actualizar contactos".'
       );
-  return `<div class="page-head"><div class="page-title"><div class="page-icon"><span class="material-symbols-outlined">groups</span></div><div><div class="eyebrow">CENTRO OPERATIVO / CONTACTOS</div><h1>Contactos y clientes</h1><p>Tus contactos de WhatsApp con su historial de envíos, respuestas y pedidos.</p></div></div><div class="page-actions">${pedidosRealesBadge()}<button class="button secondary" data-action="photos"><span class="material-symbols-outlined">account_circle</span>Actualizar fotos</button><button class="button secondary" data-action="import"><span class="material-symbols-outlined">upload_file</span>Importar Excel / VCF</button><button class="button primary" data-action="add-contact"><span class="material-symbols-outlined">person_add</span>Agregar Contacto</button></div></div><div class="card toolbar"><span class="material-symbols-outlined">search</span><input class="search" id="contact-search" placeholder="Buscar por nombre, teléfono o etiqueta..." value="${esc(state.contactQuery)}"><span class="result-count">${visible.length} de ${filteredContacts.length} contactos</span><div class="view-toggle" aria-label="Vista de contactos"><button class="view-button ${state.contactsView === 'list' ? 'active' : ''}" data-action="contacts-view" data-view="list" aria-pressed="${state.contactsView === 'list'}"><span class="material-symbols-outlined">view_list</span>Lista</button><button class="view-button ${state.contactsView === 'cards' ? 'active' : ''}" data-action="contacts-view" data-view="cards" aria-pressed="${state.contactsView === 'cards'}"><span class="material-symbols-outlined">grid_view</span>Tarjetas</button></div><button class="button ghost" data-action="refresh"><span class="material-symbols-outlined">sync</span>Actualizar</button></div><div class="filter-chips"><button class="filter-chip ${filter === 'todos' ? 'active' : ''}" data-action="contacts-filter" data-filter="todos">Todos ${counts.todos}</button><button class="filter-chip ${filter === 'activos' ? 'active' : ''}" data-action="contacts-filter" data-filter="activos"><b class="status-dot"></b> Habilitados ${counts.activos}</button><button class="filter-chip ${filter === 'nuevos' ? 'active' : ''}" data-action="contacts-filter" data-filter="nuevos"><b class="status-dot warn"></b> Nuevos ${counts.nuevos}</button><button class="filter-chip ${filter === 'frios' ? 'active' : ''}" data-action="contacts-filter" data-filter="frios">Fríos ${counts.frios}</button><button class="filter-chip ${filter === 'excluidos' ? 'active' : ''}" data-action="contacts-filter" data-filter="excluidos">Excluidos / Pausados ${counts.excluidos}</button></div>${contactOperations()}<div class="crm-layout"><section class="card table-card">${content}</section>${detailCard(selected)}</div>`;
+  return `${pageHead('Contactos', 'Tus contactos de WhatsApp con su historial de envíos, respuestas y pedidos.', `${pedidosRealesBadge()}<button class="button secondary" data-action="import">${icon('upload_file')}Importar</button><button class="button primary" data-action="add-contact">${icon('person_add')}Agregar</button>`)}
+    <div class="toolbar"><label class="search-box"><span class="sr-only">Buscar contactos</span>${icon('search')}<input class="input" id="contact-search" placeholder="Buscar por nombre, teléfono o segmento" value="${esc(state.contactQuery)}"></label><div class="tabs contacts-view" role="group" aria-label="Vista"><button class="${state.contactsView === 'list' ? 'active' : ''}" data-action="contacts-view" data-view="list" aria-pressed="${state.contactsView === 'list'}">${icon('view_list')}</button><button class="${state.contactsView === 'cards' ? 'active' : ''}" data-action="contacts-view" data-view="cards" aria-pressed="${state.contactsView === 'cards'}">${icon('grid_view')}</button></div><button class="button secondary" data-action="photos">${icon('account_circle')}Fotos</button></div>
+    <div class="filter-chips contacts-filter" style="margin-bottom:16px">${chips.map(([f, label]) => `<button class="filter-chip ${filter === f ? 'active' : ''}" data-action="contacts-filter" data-filter="${f}">${label} <b>${fmt(counts[f])}</b></button>`).join('')}</div>
+    ${contactOperations()}
+    <div class="crm-layout">${card(`<p class="stat-foot" style="margin-bottom:8px">${fmt(todosVisibles.length)} de ${fmt(filteredContacts.length)} contactos</p>${lista}${todosVisibles.length > visible.length ? `<div class="card-foot" style="justify-content:center"><button class="button secondary" data-action="contacts-more">Ver ${fmt(Math.min(60, todosVisibles.length - visible.length))} más</button></div>` : ''}`)}${detailCard(selected)}</div>`;
 }
+
 function contactRow(c, selected) {
   const numero = String(c.numero || '');
-  return `<div class="contact-row ${selected?.numero === c.numero ? 'selected' : ''}" data-contact="${esc(numero)}"><div class="person"><input class="contact-select" type="checkbox" data-contact-select="${esc(numero)}" aria-label="Seleccionar ${esc(c.nombre || numero)}" ${state.selectedContacts.includes(numero) ? 'checked' : ''}><span class="select-avatar">${avatarMarkup(c)}</span><div><strong>${esc(c.nombre || 'Sin nombre')}</strong><small>${esc(c.telefono || c.numero || 'Sin teléfono')}</small></div></div><div class="tags"><span class="tag">${esc(c.segmentosAuto?.[0] || c.segmento || 'Contacto')}</span>${c.tags?.[0] ? `<span class="tag green">${esc(c.tags[0])}</span>` : ''}</div><div class="contact-meta">${esc(lastActivity(c))}<small>${c.metricas?.pedidosReales ? `${c.metricas.pedidosReales} pedidos` : c.metricas?.respondioTotal ? `${c.metricas.respondioTotal} respuestas` : 'Sin respuestas'}</small></div><span class="badge ${c.excluido || c.pausado ? 'red' : 'green'}">${c.excluido ? 'Excluido' : c.pausado ? 'Pausado' : 'Habilitado'}</span></div>`;
+  const m = c.metricas || {};
+  return `<tr class="${selected?.numero === c.numero ? 'selected' : ''}" data-contact="${esc(numero)}"><td><input class="contact-select" type="checkbox" data-contact-select="${esc(numero)}" aria-label="Seleccionar ${esc(c.nombre || numero)}" ${state.selectedContacts.includes(numero) ? 'checked' : ''}></td><td><div class="person">${avatarMarkup(c)}<div style="min-width:0"><strong>${esc(c.nombre || 'Sin nombre')}</strong><small>${esc(c.telefono || 'Sin teléfono visible')}</small><span class="show-sm">${contactStatus(c)}</span></div></div></td><td class="hide-sm"><div class="tags">${contactBadges(c)}</div></td><td class="hide-sm"><span>${esc(lastActivity(c))}</span><br><small class="stat-foot">${m.pedidosReales ? `${m.pedidosReales} pedidos` : m.respondioTotal ? `${m.respondioTotal} respuestas` : 'Sin respuestas'}</small></td><td class="hide-sm">${contactStatus(c)}</td></tr>`;
 }
+
 function contactCard(c, selected) {
-  const metrics = c.metricas || {};
   const numero = String(c.numero || '');
-  const tags = [...(c.segmentosAuto || []), ...(c.tags || [])].filter(Boolean).slice(0, 3);
-  return `<article class="contact-card ${selected?.numero === c.numero ? 'selected' : ''}" data-contact="${esc(numero)}"><div class="contact-card-top"><label class="card-select"><input class="contact-select" type="checkbox" data-contact-select="${esc(numero)}" aria-label="Seleccionar ${esc(c.nombre || numero)}" ${state.selectedContacts.includes(numero) ? 'checked' : ''}><span>Seleccionar</span></label>${avatarMarkup(c, 'avatar contact-card-avatar')}<span class="badge ${c.excluido || c.pausado ? 'red' : 'green'}">${c.excluido ? 'Excluido' : c.pausado ? 'Pausado' : 'Habilitado'}</span></div><h3>${esc(c.nombre || 'Sin nombre')}</h3><p class="contact-handle">${esc(c.telefono || c.numero || 'Sin teléfono')}</p><div class="tags">${(tags.length ? tags : ['Contacto']).map((tag, i) => `<span class="tag ${i === 1 ? 'green' : ''}">${esc(tag)}</span>`).join('')}</div><div class="contact-card-meta"><span><small>Última actividad</small><strong>${esc(lastActivity(c))}</strong></span><span><small>Respuestas</small><strong>${metrics.respondioTotal ?? '—'}</strong></span></div><div class="contact-card-actions"><button class="button ghost" data-action="open-wa" data-number="${esc(numero)}"><span class="material-symbols-outlined">chat</span>WhatsApp</button><span class="material-symbols-outlined">arrow_forward</span></div></article>`;
+  return `<article class="contact-card ${selected?.numero === c.numero ? 'selected' : ''}" data-contact="${esc(numero)}"><div class="contact-card-top">${avatarMarkup(c)}<div class="person" style="min-width:0"><div style="min-width:0"><strong>${esc(c.nombre || 'Sin nombre')}</strong><small>${esc(c.telefono || 'Sin teléfono')}</small></div></div><input class="contact-select" type="checkbox" data-contact-select="${esc(numero)}" aria-label="Seleccionar ${esc(c.nombre || numero)}" ${state.selectedContacts.includes(numero) ? 'checked' : ''}></div><div class="tags">${contactBadges(c, 3)}</div><div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><small class="stat-foot">${esc(lastActivity(c))}</small>${contactStatus(c)}</div></article>`;
 }
+
 function detailActivity(detail) {
   const responses = Array.isArray(detail.respuestas)
     ? detail.respuestas.map((item) => ({
         date: `${item.fecha || ''} ${item.hora || ''}`.trim(),
-        label: item.posiblePedido ? 'Pedido detectado' : 'Respuesta recibida',
-        text: item.texto || 'Respuesta sin texto',
+        label: item.posiblePedido ? 'Posible pedido' : 'Respondió',
+        text: item.texto || '',
         tone: item.posiblePedido ? 'green' : '',
       }))
     : [];
   const sends = Array.isArray(detail.enviados)
     ? detail.enviados.map((date) => ({
         date,
-        label: 'Envío registrado',
-        text: 'Campaña enviada a este contacto',
-        tone: 'red',
+        label: 'Recibió una campaña',
+        text: '',
+        tone: 'brand',
       }))
     : [];
   const activity = [...responses, ...sends]
     .sort((a, b) => b.date.localeCompare(a.date))
     .slice(0, 6);
-  if (!activity.length)
-    return `<div class="detail-empty">Todavía no hay mensajes ni envíos registrados.</div>`;
-  return `<div class="detail-timeline">${activity.map((item) => `<div class="detail-event ${item.tone}"><span class="detail-event-dot"></span><div><strong>${esc(item.label)}</strong><small>${esc(item.date || 'Sin fecha')}</small><p>${esc(item.text)}</p></div></div>`).join('')}</div>`;
+  if (!activity.length) return '<p class="stat-foot">Todavía no hay envíos ni respuestas.</p>';
+  return `<div class="timeline">${activity.map((item) => `<div class="timeline-item ${item.tone}"><strong>${esc(item.label)}</strong><small>${esc(item.date || 'Sin fecha')}</small>${item.text ? `<p class="muted">${esc(item.text)}</p>` : ''}</div>`).join('')}</div>`;
 }
+
 function detailCard(c) {
   if (!c)
-    return `<aside class="card detail-card">${empty('person_search', 'Elegí un contacto', 'El detalle aparecerá al seleccionar un registro.')}</aside>`;
+    return `<aside class="card detail-card">${empty('person_search', 'Elegí un contacto', 'Su detalle aparece acá.')}</aside>`;
   const detail = state.selectedDetail || {};
-  const metrics = detail.metricas || c.metricas || {};
-  const tags = [...(detail.tags || c.tags || []), ...(c.segmentosAuto || [])]
-    .filter(Boolean)
-    .slice(0, 4);
-  return `<aside class="card detail-card"><div class="detail-head">${avatarMarkup(c)}<div><h2>${esc(c.nombre || 'Sin nombre')}</h2><p>${esc(c.telefono || c.numero || 'Sin teléfono')}</p></div><span class="badge ${c.excluido || c.pausado ? 'red' : 'green'}" style="margin-left:auto">${c.excluido ? 'Excluido' : c.pausado ? 'Pausado' : 'Cliente'}</span></div><div class="detail-actions"><button class="button primary" data-action="open-wa" data-number="${esc(c.numero)}"><span class="material-symbols-outlined">chat</span>Abrir WhatsApp</button><button class="button ghost" data-action="note"><span class="material-symbols-outlined">edit_note</span></button></div><div class="detail-kpis"><div><small>Pedidos</small><strong>${c.metricas?.pedidosReales ?? '—'}</strong></div><div><small>Respuestas</small><strong>${metrics.respuestasTotal ?? metrics.respondioTotal ?? '—'}</strong></div><div><small>Envíos</small><strong>${metrics.enviadosTotal ?? '—'}</strong></div></div><div class="detail-block"><h4>SEGMENTOS Y ETIQUETAS</h4><div class="tags">${(tags.length ? tags : ['Sin segmento']).map((tag) => `<span class="tag">${esc(tag)}</span>`).join('')}</div><p class="detail-last-contact">Último mensaje: ${esc(c.ultimoMensaje || 'Sin fecha registrada')}</p></div><div class="detail-block"><h4>HISTORIAL REAL</h4>${detailActivity(detail)}</div><div class="detail-block"><h4>NOTAS</h4><div class="note-box">${esc(detail.nota?.texto || 'Sin notas. Usá el lápiz para agregar una.')}</div></div></aside>`;
+  const m = c.metricas || {};
+  const dm = detail.metricas || {};
+  return `<aside class="card detail-card"><div class="detail-head">${avatarMarkup(c, 'avatar lg')}<div style="min-width:0"><h2>${esc(c.nombre || 'Sin nombre')}</h2><p>${esc(c.telefono || 'Sin teléfono visible')}</p></div></div><div class="page-actions section-gap"><button class="button primary" data-action="open-wa" data-number="${esc(c.numero)}">${icon('chat')}Abrir chat</button><button class="button secondary" data-action="note">${icon('edit_note')}Nota</button>${contactStatus(c)}</div><div class="kv section-gap"><div><small>Pedidos</small><strong>${m.pedidosReales ?? '—'}</strong></div><div><small>Respuestas</small><strong>${dm.respuestasTotal ?? m.respondioTotal ?? '—'}</strong></div><div><small>Envíos</small><strong>${dm.enviadosTotal ?? m.enviadosTotal ?? '—'}</strong></div></div><div class="detail-block"><h3>Segmentos</h3><div class="tags">${contactBadges(c, 6)}</div>${m.ultimoPedido ? `<p class="stat-foot" style="margin-top:8px">Último pedido: ${esc(m.ultimoPedido)}</p>` : ''}</div><div class="detail-block"><h3>Historial real</h3>${detailActivity(detail)}</div><div class="detail-block"><h3>Notas</h3><div class="note-box">${esc(detail.nota?.texto || 'Sin notas. Tocá "Nota" para agregar una.')}</div></div></aside>`;
 }
+
+// ---------- Chats ----------
 
 function messageTime(timestamp) {
   if (!timestamp) return '—';
@@ -778,17 +929,20 @@ function messageTime(timestamp) {
         month: '2-digit',
         hour: '2-digit',
         minute: '2-digit',
+        hour12: false,
       });
 }
+
 function chatContactLabel(contact) {
   if (contact?.grupo) return 'Grupo de WhatsApp';
   return (
     contact?.telefono ||
     (String(contact?.numero || '').endsWith('@lid')
-      ? 'Identificador privado de WhatsApp'
+      ? 'Número privado de WhatsApp'
       : contact?.numero || 'Contacto sin identificador')
   );
 }
+
 function messageLabel(message) {
   const labels = {
     image: 'Imagen adjunta',
@@ -803,39 +957,47 @@ function messageLabel(message) {
     (message.hasMedia ? 'Archivo multimedia' : 'Mensaje sin texto')
   );
 }
+
 function formatBytes(bytes) {
   if (!bytes) return '—';
   if (bytes < 1024 * 1024) return `${Math.ceil(bytes / 1024)} KB`;
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
+
 function chatAttachmentVisual(file) {
   if (file.kind === 'image')
     return `<img src="${esc(file.data)}" alt="Vista previa de ${esc(file.name)}">`;
   if (file.kind === 'audio')
-    return `<span class="material-symbols-outlined">graphic_eq</span><audio controls src="${esc(file.data)}"></audio>`;
-  return `<span class="material-symbols-outlined">picture_as_pdf</span>`;
+    return `${icon('graphic_eq')}<audio controls src="${esc(file.data)}"></audio>`;
+  return icon('picture_as_pdf');
 }
+
 function pendingChatBubble() {
   const file = state.chatAttachment;
   if (!file) return '';
-  return `<div class="wa-bubble outbound pending-media"><div class="pending-media-visual kind-${file.kind}">${chatAttachmentVisual(file)}</div><strong>${esc(file.name)}</strong><small>${esc(file.kind === 'pdf' ? 'PDF' : file.kind === 'audio' ? 'Audio' : 'Imagen')} · ${formatBytes(file.size)}</small>${state.chatDraft.trim() ? `<p>${esc(state.chatDraft.trim())}</p>` : ''}<time>Vista previa · no enviado</time></div>`;
+  return `<div class="wa-bubble pending-media"><div class="pending-media-visual">${chatAttachmentVisual(file)}</div><strong>${esc(file.name)}</strong> · ${formatBytes(file.size)}${state.chatDraft.trim() ? `<p>${esc(state.chatDraft.trim())}</p>` : ''}<time>Vista previa · sin enviar</time></div>`;
 }
+
 function conversationMessages(chat) {
   const messages = state.conversation?.mensajes || [];
   if (state.conversation?.disponible && messages.length)
-    return `<div class="conversation-messages">${messages.map((message) => `<div class="wa-bubble ${message.fromMe ? 'outbound' : 'inbound'}">${esc(messageLabel(message))}<time>${messageTime(message.timestamp)}${message.fromMe ? ' ✓✓' : ''}</time></div>`).join('')}</div>`;
+    return `<div class="conversation-messages">${messages.map((message) => `<div class="wa-bubble ${message.fromMe ? '' : 'inbound'}">${esc(messageLabel(message))}<time>${messageTime(message.timestamp)}${message.fromMe ? ' ✓✓' : ''}</time></div>`).join('')}</div>`;
   if (state.conversation && !messages.length)
     return empty(
       'chat_bubble_outline',
-      'No hay mensajes visibles',
-      esc(state.conversation.motivo || 'WhatsApp no devolvió mensajes recientes para este chat.')
+      'No hay mensajes guardados',
+      esc(state.conversation.motivo || 'Todavía no hay mensajes registrados para este chat.')
     );
-  return `<div class="conversation-messages"><div class="wa-bubble inbound">${esc(chat.texto || chat.mensaje || 'Seleccioná un contacto para cargar su conversación.')}<time>${esc(chat.hora || '—')}</time></div></div>`;
+  return chat.numero
+    ? empty('hourglass_top', 'Cargando conversación…', '')
+    : empty('forum', 'Elegí un chat', 'Los mensajes aparecen acá.');
 }
+
 function scrollConversationToBottom() {
   const body = $('.conversation-body');
   if (body) body.scrollTop = body.scrollHeight;
 }
+
 function loadConversation(numero) {
   if (!numero) return Promise.resolve();
   return api(`/api/conversacion?numero=${encodeURIComponent(numero)}`, {
@@ -852,6 +1014,7 @@ function loadConversation(numero) {
       scrollConversationToBottom();
     });
 }
+
 function chatMatchesFilter(chat, filter) {
   if (filter === 'pedidos')
     return (
@@ -862,6 +1025,7 @@ function chatMatchesFilter(chat, filter) {
   if (filter === 'nuevos') return !chat.estado || chat.estado === 'nuevo';
   return true;
 }
+
 function renderConversaciones() {
   const allChats = state.conversations.length ? state.conversations : state.crm;
   const query = state.chatQuery.trim().toLocaleLowerCase('es-AR');
@@ -875,16 +1039,14 @@ function renderConversaciones() {
           .toLocaleLowerCase('es-AR')
           .includes(query))
   );
-  const chat = allChats.find((item) => item.numero === state.selectedChatNumber) ||
-    chats[0] || {
-      nombre: 'Sin conversación seleccionada',
-      numero: '',
-      texto: 'Los mensajes nuevos aparecerán cuando WhatsApp esté conectado.',
-      estado: 'consulta',
-    };
+  const chat = allChats.find((item) => item.numero === state.selectedChatNumber) || {
+    nombre: 'Ningún chat seleccionado',
+    numero: '',
+    estado: 'nuevo',
+  };
   const estados = [
     ['nuevo', 'Nuevo'],
-    ['pedido_probable', 'Pedido / Reserva'],
+    ['pedido_probable', 'Pedido'],
     ['consulta', 'Consulta'],
     ['respondido', 'Respondido'],
     ['problema', 'Problema'],
@@ -892,36 +1054,30 @@ function renderConversaciones() {
     ['cerrado', 'Cerrado'],
   ];
   const estadoActual = estados.some(([value]) => value === chat.estado) ? chat.estado : 'nuevo';
-  const estadoSelect = `<select id="conversation-status" aria-label="Clasificar conversación">${estados.map(([value, label]) => `<option value="${value}" ${value === estadoActual ? 'selected' : ''}>${label}</option>`).join('')}</select>`;
-  const counts = {
-    todos: allChats.length,
-    pedidos: allChats.filter((item) => chatMatchesFilter(item, 'pedidos')).length,
-    consultas: allChats.filter((item) => chatMatchesFilter(item, 'consultas')).length,
-    problemas: allChats.filter((item) => chatMatchesFilter(item, 'problemas')).length,
-    nuevos: allChats.filter((item) => chatMatchesFilter(item, 'nuevos')).length,
-  };
-  return `<div class="page-head"><div class="page-title"><div class="page-icon"><span class="material-symbols-outlined">forum</span></div><div><div class="eyebrow">CENTRO OPERATIVO / WHATSAPP</div><h1>Chats y conversaciones</h1><p>Todos tus chats disponibles, con fotos y respuesta directa desde el panel.</p></div></div><div class="page-actions"><span class="badge ${state.status?.whatsapp === 'listo' ? 'green' : 'red'}">${state.status?.whatsapp === 'listo' ? 'WhatsApp conectado' : 'Esperando conexión'}</span><button class="button secondary" data-action="refresh"><span class="material-symbols-outlined">sync</span>Actualizar chats</button></div></div><div class="inbox-grid"><aside class="card inbox-rail"><div class="inbox-stat"><div><small>CHATS VISIBLES</small><strong>${chats.length}</strong></div><div><small>SINCRONIZADOS</small><strong class="good">✓</strong></div></div><div class="folder-list"><div class="folder active"><span class="material-symbols-outlined">chat</span>Todos los chats <em>${allChats.length}</em></div><div class="folder"><span class="material-symbols-outlined">fiber_new</span>Nuevos sin clasificar <em>${counts.nuevos}</em></div><div class="folder"><span class="material-symbols-outlined">local_fire_department</span>Pedidos y reservas <em>${counts.pedidos}</em></div><div class="folder"><span class="material-symbols-outlined">help</span>Consultas <em>${counts.consultas}</em></div><div class="folder"><span class="material-symbols-outlined">warning</span>Problemas <em>${counts.problemas}</em></div></div></aside><section class="card message-list"><div class="list-head"><h2>WhatsApp</h2><span class="badge slate">${chats.length} chats</span></div><div class="chat-tools"><label class="chat-search-wrap"><span class="material-symbols-outlined">search</span><input id="chat-search" placeholder="Buscar chats..." value="${esc(state.chatQuery)}" aria-label="Buscar chats"></label><div class="chat-filters"><button class="chat-filter ${state.chatFilter === 'todos' ? 'active' : ''}" data-action="chat-filter" data-filter="todos">Todos</button><button class="chat-filter ${state.chatFilter === 'nuevos' ? 'active' : ''}" data-action="chat-filter" data-filter="nuevos">Nuevos</button><button class="chat-filter ${state.chatFilter === 'pedidos' ? 'active' : ''}" data-action="chat-filter" data-filter="pedidos">Pedidos</button><button class="chat-filter ${state.chatFilter === 'consultas' ? 'active' : ''}" data-action="chat-filter" data-filter="consultas">Consultas</button><button class="chat-filter ${state.chatFilter === 'problemas' ? 'active' : ''}" data-action="chat-filter" data-filter="problemas">Problemas</button></div></div>${chats.length ? chats.map((item) => chatRow(item)).join('') : empty('search_off', 'No encontramos chats', 'Probá con otro nombre o filtro.')}</section><section class="card conversation"><div class="conversation-head">${avatarMarkup(chat)}<div><h2>${esc(chat.nombre)}</h2><p>${esc(chatContactLabel(chat))} · ${esc(chat.estado || 'Consulta general')}</p></div><span class="badge slate" style="margin-left:auto">${state.conversation?.disponible ? 'Chat real' : 'Seleccionar chat'}</span></div><div class="conversation-toolbar"><label>Clasificación ${estadoSelect}</label></div><div class="conversation-body"><span class="date-chip">${state.conversation?.disponible ? 'Historial de WhatsApp' : 'Elegí un chat'}</span>${conversationMessages(chat)}${pendingChatBubble()}</div><div class="composer"><label class="chat-attach-button" title="Adjuntar imagen, PDF o audio"><span class="material-symbols-outlined">attach_file</span><input id="chat-file" type="file" hidden accept="image/*,application/pdf,audio/*"></label><input id="chat-message" value="${esc(state.chatDraft)}" placeholder="Escribí un mensaje de WhatsApp..." aria-label="Mensaje"><button class="button secondary" data-action="remove-chat-attachment" ${state.chatAttachment ? '' : 'disabled'}><span class="material-symbols-outlined">close</span></button><button class="button primary" data-action="send-chat"><span class="material-symbols-outlined">send</span>Enviar</button></div></section></div>`;
-}
-function chatRow(item) {
-  const unread = state.unreadByChat[item.numero] || 0;
-  return `<div class="inbox-item ${item.numero === state.selectedChatNumber ? 'selected' : ''}" data-chat-number="${esc(item.numero || '')}">${avatarMarkup(item)}<div class="chat-row-copy"><div class="chat-row-top"><strong>${esc(item.nombre || 'Sin nombre')}</strong><time>${esc(item.hora || 'Hoy')}</time>${unread ? `<b class="chat-unread">${unread > 9 ? '9+' : unread}</b>` : ''}</div><small>${esc(chatContactLabel(item))}</small><p>${esc(item.texto || item.mensaje || 'Sin mensajes registrados')}</p></div></div>`;
+  const filtros = [
+    ['todos', 'Todos', allChats.length],
+    ['nuevos', 'Nuevos'],
+    ['pedidos', 'Pedidos'],
+    ['consultas', 'Consultas'],
+    ['problemas', 'Problemas'],
+  ].map(([f, label]) => {
+    const n = allChats.filter((item) => chatMatchesFilter(item, f)).length;
+    return `<button class="chat-filter ${state.chatFilter === f ? 'active' : ''}" data-action="chat-filter" data-filter="${f}">${label} ${n}</button>`;
+  });
+  const conectado = state.status?.whatsapp === 'listo';
+  return `${pageHead('Chats', 'Tus conversaciones de WhatsApp: respondé, adjuntá y clasificá.', `<span class="badge ${conectado ? 'green' : 'red'}"><span class="dot"></span>${conectado ? 'WhatsApp conectado' : 'Sin conexión'}</span><button class="button secondary" data-action="refresh">${icon('sync')}Actualizar</button>`)}
+  <div class="inbox-grid ${state.chatOpen && chat.numero ? 'chat-open' : ''}">
+    <section class="card message-list"><div class="message-list-head"><label class="chat-search-wrap"><span class="sr-only">Buscar chats</span>${icon('search')}<input class="input" id="chat-search" placeholder="Buscar chats" value="${esc(state.chatQuery)}"></label><div class="chat-filters">${filtros.join('')}</div></div><div class="chat-scroll">${chats.length ? chats.map((item) => chatRow(item)).join('') : empty('search_off', 'No hay chats', 'Probá con otro nombre o filtro.')}</div></section>
+    <section class="card conversation">${chat.numero ? `<div class="conversation-head"><button class="button ghost icon back-to-list" data-action="chat-back" aria-label="Volver a la lista">${icon('arrow_back')}</button>${avatarMarkup(chat)}<div style="min-width:0"><h2>${esc(chat.nombre)}</h2><p>${esc(chatContactLabel(chat))}</p></div>${chat.numero ? `<label class="sr-only" for="conversation-status">Clasificación</label><select class="input" id="conversation-status">${estados.map(([value, label]) => `<option value="${value}" ${value === estadoActual ? 'selected' : ''}>${label}</option>`).join('')}</select>` : ''}</div>` : ''}<div class="conversation-body">${conversationMessages(chat)}${pendingChatBubble()}</div>${chat.numero ? `<div class="composer"><label class="chat-attach-button" title="Adjuntar imagen, PDF o audio">${icon('attach_file')}<input id="chat-file" type="file" hidden accept="image/*,application/pdf,audio/*"></label>${state.chatAttachment ? `<button class="button ghost icon" data-action="remove-chat-attachment" aria-label="Quitar adjunto">${icon('close')}</button>` : ''}<label class="sr-only" for="chat-message">Mensaje</label><input id="chat-message" type="text" value="${esc(state.chatDraft)}" placeholder="Escribí un mensaje"><button class="button primary icon" data-action="send-chat" aria-label="Enviar">${icon('send')}</button></div>` : ''}</section>
+  </div>`;
 }
 
-function campaignsTable() {
-  if (!state.campaigns.length)
-    return empty(
-      'campaign',
-      'Sin campañas todavía',
-      'Cada campaña o simulacro queda registrado acá.'
-    );
-  const filas = state.campaigns
-    .map((c) => {
-      const s = c.stats || {};
-      return `<button class="campaign-row" data-action="campaign-detail" data-id="${esc(c.id)}"><span><strong>${esc(campaignTime(c.inicio))}</strong><small>${esc(segmentLabel(c.segmento))}</small></span><span class="badge ${c.simulacro ? 'slate' : c.estado === 'detenida' ? 'red' : 'green'}">${c.simulacro ? 'Simulacro' : esc(CAMPAIGN_STATES[c.estado] || c.estado || '—')}</span><span class="campaign-row-stats">${Number(s.ok || 0)} ok · ${Number(s.fallidos || 0)} fallidos · ${Number(s.total || 0)} total</span></button>`;
-    })
-    .join('');
-  return `<div class="campaign-rows">${filas}</div>`;
+function chatRow(item) {
+  const unread = state.unreadByChat[item.numero] || 0;
+  return `<div class="inbox-item ${item.numero === state.selectedChatNumber ? 'selected' : ''}" data-chat-number="${esc(item.numero || '')}">${avatarMarkup(item)}<div class="chat-row-copy"><div class="chat-row-top"><strong>${esc(item.nombre || 'Sin nombre')}</strong><time>${esc(item.hora || '')}</time>${unread ? `<b class="chat-unread">${unread > 9 ? '9+' : unread}</b>` : ''}</div><p>${esc(item.texto || item.mensaje || chatContactLabel(item))}</p></div></div>`;
 }
+
+// ---------- Resultados ----------
 
 const DESTINATARIO_ESTADOS = {
   enviado: 'Enviado',
@@ -931,49 +1087,69 @@ const DESTINATARIO_ESTADOS = {
   pendiente: 'No se envió',
 };
 
+function campaignsTable() {
+  if (!state.campaigns.length)
+    return empty(
+      'campaign',
+      'Sin campañas todavía',
+      'Cada campaña o simulacro queda registrado acá.'
+    );
+  return `<div class="table-wrap"><table class="table"><thead><tr><th>Fecha</th><th class="hide-sm">Destinatarios</th><th>Resultado</th><th>Estado</th></tr></thead><tbody>${state.campaigns
+    .map((c) => {
+      const s = c.stats || {};
+      return `<tr data-action="campaign-detail" data-id="${esc(c.id)}"><td><strong>${esc(campaignTime(c.inicio))}</strong></td><td class="hide-sm">${esc(segmentLabel(c.segmento))}</td><td class="num">${fmt(s.ok)} / ${fmt(s.total)}${s.fallidos ? ` · <span style="color:var(--error-700)">${fmt(s.fallidos)} fallidos</span>` : ''}</td><td>${campaignBadge(c)}</td></tr>`;
+    })
+    .join('')}</tbody></table></div>`;
+}
+
 function campaignDetailCard() {
   const c = state.campaignDetail;
   if (!c) return '';
   const destinatarios = Array.isArray(c.destinatarios) ? c.destinatarios : [];
   const fallidos = destinatarios.filter((d) => d.estado === 'fallido' || d.estado === 'detenido');
-  const filas = destinatarios
-    .map(
-      (d) =>
-        `<div class="recipient-row ${d.estado === 'enviado' || d.estado === 'simulado' ? '' : 'bad'}"><span><strong>${esc(d.nombre || 'Sin nombre')}</strong><small>${esc(d.numero)}</small></span><span>${esc(DESTINATARIO_ESTADOS[d.estado] || d.estado)}</span><small>${esc(d.error || '')}</small></div>`
-    )
-    .join('');
   const reintento =
     !c.simulacro && fallidos.length && c.estado !== 'corriendo'
-      ? `<button class="button primary" data-action="retry-failed" data-id="${esc(c.id)}"><span class="material-symbols-outlined">replay</span>Reintentar ${fallidos.length} fallidos</button>`
+      ? `<button class="button primary" data-action="retry-failed" data-id="${esc(c.id)}">${icon('replay')}Reintentar ${fallidos.length} fallidos</button>`
       : '';
   return card(
-    '',
-    `<div class="section-title"><h2>Campaña del ${esc(campaignTime(c.inicio))}</h2><button class="button ghost" data-action="close-campaign-detail">Cerrar</button></div><p class="muted-copy">${esc(segmentLabel(c.segmento))} · ${c.simulacro ? 'Simulacro' : esc(CAMPAIGN_STATES[c.estado] || c.estado)} · pausa ${Math.round(Number(c.config?.delayMinMs || 0) / 1000)}–${Math.round(Number(c.config?.delayMaxMs || 0) / 1000)} s</p><div class="recipient-list">${filas || empty('group_off', 'Sin destinatarios', 'La campaña no tenía a nadie pendiente.')}</div><div class="campaign-actions">${reintento}</div>`,
-    'section-card campaign-detail'
+    `${cardHead(`Campaña del ${esc(campaignTime(c.inicio))}`, `${esc(segmentLabel(c.segmento))} · pausa ${Math.round(Number(c.config?.delayMinMs || 0) / 1000)}–${Math.round(Number(c.config?.delayMaxMs || 0) / 1000)} s`, `<button class="button ghost icon" data-action="close-campaign-detail" aria-label="Cerrar detalle">${icon('close')}</button>`)}<div class="recipient-list">${destinatarios.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Contacto</th><th>Estado</th><th class="hide-sm">Motivo</th></tr></thead><tbody>${destinatarios.map((d) => `<tr><td><div class="person"><div><strong>${esc(d.nombre || 'Sin nombre')}</strong><small>${esc(d.numero)}</small></div></div></td><td><span class="badge ${d.estado === 'enviado' || d.estado === 'simulado' ? 'green' : d.estado === 'pendiente' ? '' : 'red'}">${esc(DESTINATARIO_ESTADOS[d.estado] || d.estado)}</span></td><td class="hide-sm"><small class="stat-foot">${esc(d.error || '')}</small></td></tr>`).join('')}</tbody></table></div>` : empty('group_off', 'Sin destinatarios', 'No había nadie pendiente.')}</div>${reintento ? `<div class="card-foot">${reintento}</div>` : ''}`,
+    'section-gap'
   );
 }
 
 function renderResultados() {
   const stats = state.analytics || {};
   const totals = stats.totales || {};
-  const dias = Array.isArray(stats.dias) ? stats.dias.slice(0, 7) : [];
+  const dias = Array.isArray(stats.dias) ? stats.dias.slice(0, 7).reverse() : [];
   const enviados = Number(totals.enviados || 0);
   const leidos = Number(totals.leidos || 0);
-  const respondieron = Number(totals.respondieron || 0);
   const tasaLectura = enviados ? `${Math.round((leidos / enviados) * 100)}%` : '—';
   const maxDia = Math.max(1, ...dias.map((dia) => Number(dia.enviados || 0)));
   const barras = dias.length
-    ? dias
-        .slice()
-        .reverse()
-        .map(
-          (dia) =>
-            `<i title="${esc(dia.fecha)}: ${Number(dia.enviados || 0)} enviados" style="height:${Math.max(6, Math.round((Number(dia.enviados || 0) / maxDia) * 100))}%"></i>`
-        )
-        .join('')
-    : '<span class="result-empty">Sin despachos registrados</span>';
-  const logs = state.logs.slice(-60).reverse();
-  return `<div class="page-head"><div class="page-title"><div class="page-icon"><span class="material-symbols-outlined">query_stats</span></div><div><div class="eyebrow">CENTRO OPERATIVO / RESULTADOS</div><h1>Resultados de campañas</h1><p>Lo que registró el motor de envío: campañas, entregas, lecturas y respuestas.</p></div></div><button class="button secondary" data-action="refresh"><span class="material-symbols-outlined">sync</span>Actualizar</button></div><div class="metric-grid">${metric('CAMPAÑAS', state.campaigns.length.toLocaleString('es-AR'), 'campaign', `${state.campaigns.filter((campana) => campana.estado === 'finalizada' && !campana.simulacro).length} enviadas de verdad`)}${metric('MENSAJES ENVIADOS', enviados.toLocaleString('es-AR'), 'send', 'Histórico registrado')}${metric('LECTURAS', leidos.toLocaleString('es-AR'), 'done_all', `Tasa de lectura: ${tasaLectura}`)}${metric('RESPUESTAS', respondieron.toLocaleString('es-AR'), 'reply', 'Personas que escribieron')}</div>${campaignDetailCard()}<div class="grid two" style="margin-top:18px">${card('', `<div class="section-title"><h2>Campañas</h2><span class="badge slate">Últimas ${state.campaigns.length}</span></div>${campaignsTable()}`, 'section-card')}${card('', `<div class="section-title"><h2>Enviados por día</h2></div><div class="result-chart"><div class="bars">${barras}</div></div><div class="section-title" style="margin-top:18px"><h2>Log del motor</h2></div><div class="log-list">${logs.length ? logs.map((linea) => `<div>${esc(linea)}</div>`).join('') : '<span class="result-empty">Sin registros</span>'}</div>`, 'section-card')}</div>`;
+    ? `<div class="chart-bars">${dias.map((dia) => `<div class="bar" title="${esc(dia.fecha)}: ${fmt(dia.enviados)} enviados"><b>${fmt(dia.enviados)}</b><i class="${Number(dia.enviados || 0) ? '' : 'zero'}" style="height:${Number(dia.enviados || 0) ? Math.max(3, Math.round((Number(dia.enviados || 0) / maxDia) * 100)) : 0}%"></i><small>${esc(String(dia.fecha || '').slice(5))}</small></div>`).join('')}</div>`
+    : empty(
+        'bar_chart',
+        'Sin envíos registrados',
+        'El gráfico aparece después de la primera campaña.'
+      );
+  const logs = state.logs.slice(-80).reverse();
+  return `${pageHead('Resultados', 'Lo que registró el motor de envío: campañas, entregas, lecturas y respuestas.', `<button class="button secondary" data-action="refresh">${icon('sync')}Actualizar</button>`)}
+    <div class="grid stats">${metric('Campañas', fmt(state.campaigns.length), 'campaign', `${state.campaigns.filter((c) => c.estado === 'finalizada' && !c.simulacro).length} reales`, 'brand')}${metric('Mensajes enviados', fmt(enviados), 'send', 'Histórico', 'blue')}${metric('Lecturas', fmt(leidos), 'done_all', `Tasa de lectura ${tasaLectura}`, 'green')}${metric('Respuestas', fmt(totals.respondieron), 'reply', 'Personas que escribieron', 'amber')}</div>
+    ${campaignDetailCard()}
+    <div class="grid halves section-gap">${card(`${cardHead('Campañas', 'Tocá una para ver a quién le llegó')}${campaignsTable()}`)}<div class="stack">${card(`${cardHead('Enviados por día', 'Últimos 7 días con actividad')}${barras}`)}${card(`${cardHead('Log del motor', 'Últimos registros')}<div class="log-list">${logs.length ? logs.map((linea) => `<div>${esc(linea)}</div>`).join('') : 'Sin registros'}</div>`)}</div></div>`;
+}
+
+// ---------- Configuración ----------
+
+const THEMES = [
+  ['rojo', 'Rojo Modo Sabor', ['#fef3f2', '#e3242b', '#a11017']],
+  ['azul', 'Azul', ['#ecf3ff', '#465fff', '#2a31d8']],
+  ['verde', 'Verde', ['#ecfdf3', '#12b76a', '#027a48']],
+  ['grafito', 'Grafito', ['#f2f4f7', '#344054', '#101828']],
+];
+
+function currentTheme() {
+  return document.documentElement.dataset.theme || 'rojo';
 }
 
 function scheduleSegmentSelect(actual) {
@@ -990,22 +1166,52 @@ function scheduleSegmentSelect(actual) {
   return `<select id="config-schedule-segment" aria-label="Destinatarios de la corrida programada">${opciones.map(([v, label]) => `<option value="${esc(v)}" ${v === valor ? 'selected' : ''}>${esc(label)}</option>`).join('')}</select>`;
 }
 
+const switchMarkup = (setting, label, on) =>
+  `<button class="switch ${on ? 'on' : ''}" data-setting="${setting}" role="switch" aria-label="${label}" aria-checked="${on ? 'true' : 'false'}" aria-pressed="${on ? 'true' : 'false'}"><i></i></button>`;
+
+function settingRow(titulo, detalle, control) {
+  return `<div class="setting-row"><div><strong>${titulo}</strong>${detalle ? `<small>${detalle}</small>` : ''}</div>${control}</div>`;
+}
+
 function renderConfiguracionCompleta() {
   const c = state.config || {};
   const seconds = (ms, fallback) => Math.max(0, Math.round(Number(ms || fallback) / 1000));
   const active = (key, fallback = false) => (c[key] == null ? fallback : Boolean(c[key]));
-  const switchMarkup = (setting, label, on) =>
-    `<button class="switch ${on ? 'on' : ''}" data-setting="${setting}" aria-label="${label}" aria-pressed="${on ? 'true' : 'false'}"><i></i></button>`;
   const days = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
   const selectedDays = Array.isArray(c.DIAS_NO_ENVIO) ? c.DIAS_NO_ENVIO : [];
-  const dayMarkup = days
-    .map(
-      (label, index) =>
-        `<label class="day-chip"><input class="config-day" type="checkbox" value="${index}" ${selectedDays.includes(index) ? 'checked' : ''}>${label}</label>`
-    )
-    .join('');
   const lines = (items) => esc((Array.isArray(items) ? items : []).join('\n'));
-  return `<div class="page-head"><div class="page-title"><div class="page-icon"><span class="material-symbols-outlined">settings</span></div><div><div class="eyebrow">CENTRO OPERATIVO / CONFIGURACIÓN</div><h1>Configuración completa</h1><p>Todo lo que el motor puede modificar, agrupado por tarea y guardado en este proyecto.</p></div></div><button class="button primary" data-action="save-settings"><span class="material-symbols-outlined">save</span>Guardar cambios</button></div><div class="settings-grid full-settings"><section class="card section-card"><div class="section-title"><span class="number"><span class="material-symbols-outlined">storefront</span></span><h2>Identidad del delivery</h2></div><div class="setting-row"><div><strong>Nombre que verá el cliente</strong><small>Aparece en la vista previa de WhatsApp.</small></div><input id="config-business-name" type="text" value="${esc(c.NEGOCIO_NOMBRE || businessLabel())}" maxlength="80"></div><div class="setting-row"><div><strong>Descripción de la cuenta</strong><small>Texto corto debajo del nombre.</small></div><input id="config-business-status" type="text" value="${esc(c.NEGOCIO_ESTADO || 'Cuenta oficial del delivery')}" maxlength="80"></div><div class="setting-row"><div><strong>Logo vinculado</strong><small>Ruta actual usada por la previsualización.</small></div><input id="config-logo-path" type="text" value="${esc(c.NEGOCIO_LOGO || '/assets/logo.png')}" maxlength="300"></div><div class="brand-preview"><img class="whatsapp-brand-logo" src="${esc(c.NEGOCIO_LOGO || '/assets/logo.png')}" alt="Logo del delivery"><span>Logo activo en la previsualización</span></div></section><section class="card section-card"><div class="section-title"><span class="number"><span class="material-symbols-outlined">speed</span></span><h2>Ritmo y límites</h2></div><div class="setting-row"><div><strong>Pausa mínima / máxima</strong><small>Segundos entre mensajes.</small></div><span class="inline-inputs"><input id="config-delay-min" type="number" value="${seconds(c.DELAY_MIN_MS, 15000)}" min="0" max="300"><input id="config-delay-max" type="number" value="${seconds(c.DELAY_MAX_MS, 45000)}" min="0" max="300"></span></div><div class="setting-row"><div><strong>Máximo por tanda</strong><small>Mensajes en una corrida.</small></div><input id="config-max-run" type="number" value="${Number(c.MAX_POR_CORRIDA || 50)}" min="1" max="100"></div><div class="setting-row"><div><strong>Máximo por ventana</strong><small>Mensajes cada ${Number(c.VENTANA_CUPO_MINUTOS || 60)} minutos.</small></div><span class="inline-inputs"><input id="config-max-hour" type="number" value="${Number(c.MAX_POR_HORA || 0)}" min="0" max="1000"><input id="config-window-minutes" type="number" value="${Number(c.VENTANA_CUPO_MINUTOS || 60)}" min="1" max="240"></span></div><div class="setting-row"><div><strong>Reintentos</strong><small>Si falla un envío individual.</small></div><input id="config-retries" type="number" value="${Number(c.REINTENTOS || 0)}" min="0" max="3"></div><div class="setting-row"><div><strong>Pausa larga</strong><small>Cada tantos mensajes, durante tantos segundos.</small></div><span class="inline-inputs"><input id="config-pause-long" type="number" value="${Number(c.PAUSA_LARGA_CADA || 0)}" min="0" max="500"><input id="config-pause-long-seconds" type="number" value="${Number(c.PAUSA_LARGA_SEGUNDOS || 120)}" min="30" max="3600"></span></div></section><section class="card section-card"><div class="section-title"><span class="number"><span class="material-symbols-outlined">shield</span></span><h2>Protecciones</h2></div><div class="setting-row"><div><strong>No repetir el mismo día</strong><small>Evita duplicados.</small></div>${switchMarkup('no-repetir', 'No repetir el mismo día', active('NO_REPETIR_MISMO_DIA', true))}</div><div class="setting-row"><div><strong>Adjuntar PDF</strong><small>Incluye el menú si existe.</small></div>${switchMarkup('attach-pdf', 'Adjuntar PDF', active('ADJUNTAR_PDF', true))}</div><div class="setting-row"><div><strong>Baja automática</strong><small>Excluye a quien responde BAJA.</small></div>${switchMarkup('auto-optout', 'Baja automática', active('BAJA_AUTOMATICA', true))}</div><label class="stack-field"><span>Respuesta de baja</span><textarea id="config-baja-response" rows="2">${esc(c.BAJA_RESPUESTA || '')}</textarea></label><label class="stack-field"><span>Footer de baja</span><textarea id="config-optout-footer" rows="2">${esc(c.FOOTER_BAJA || '')}</textarea></label></section><section class="card section-card"><div class="section-title"><span class="number"><span class="material-symbols-outlined">model_training</span></span><h2>Calentamiento y tandas</h2></div><div class="setting-row"><div><strong>Calentamiento progresivo</strong><small>Sube el límite gradualmente según días con envíos reales.</small></div>${switchMarkup('warmup', 'Calentamiento progresivo', active('CALENTAMIENTO_ACTIVO'))}</div><div class="setting-row"><div><strong>Inicio / incremento</strong><small>Mensajes del primer día y aumento diario.</small></div><span class="inline-inputs"><input id="config-warmup-start" type="number" value="${Number(c.CALENTAMIENTO_INICIO || 20)}" min="1" max="100"><input id="config-warmup-increment" type="number" value="${Number(c.CALENTAMIENTO_INCREMENTO || 10)}" min="1" max="100"></span></div><div class="setting-row"><div><strong>Modo tandas automáticas</strong><small>Sigue sola con pausas entre tandas hasta cubrir la lista.</small></div>${switchMarkup('batch-mode', 'Modo tandas automáticas', active('MODO_TANDAS'))}</div><div class="setting-row"><div><strong>Espera entre tandas</strong><small>Minutos.</small></div><input id="config-batch-wait" type="number" value="${Number(c.ESPERA_ENTRE_TANDAS_MINUTOS || 20)}" min="5" max="240"></div><div class="warning-note"><span class="material-symbols-outlined">warning</span>Estas protecciones reducen ráfagas, pero no garantizan evitar bloqueos. La API oficial sigue siendo el camino de producción.</div></section><section class="card section-card"><div class="section-title"><span class="number"><span class="material-symbols-outlined">schedule</span></span><h2>Programación y días</h2></div><div class="setting-row"><div><strong>Programación automática</strong><small>Sale sola todos los días a esa hora. No hace falta tener el panel abierto.</small></div>${switchMarkup('programacion', 'Programación automática', active('PROGRAMACION_ACTIVA'))}</div><div class="setting-row"><div><strong>Hora programada</strong><small>Formato de 24 horas.</small></div><input id="config-schedule-time" type="time" value="${esc(c.PROGRAMACION_HORA || '10:30')}"></div><div class="setting-row"><div><strong>A quién manda</strong><small>Segmento o grupo de la corrida programada.</small></div>${scheduleSegmentSelect(c.PROGRAMACION_SEGMENTO)}</div><div class="setting-row"><div><strong>Modo sólo respuestas</strong><small>Bloquea promociones.</small></div>${switchMarkup('solo-respuestas', 'Modo sólo respuestas', active('MODO_SOLO_RESPUESTAS'))}</div><div class="day-selector"><strong>Días sin envío</strong><div id="config-days-no-send">${dayMarkup}</div></div></section><section class="card section-card"><div class="section-title"><span class="number"><span class="material-symbols-outlined">forum</span></span><h2>Mensajes y objetivos</h2></div><label class="stack-field"><span>Saludos rotativos</span><textarea id="config-greetings" rows="4">${lines(c.SALUDOS)}</textarea></label><label class="stack-field"><span>Cierres rotativos</span><textarea id="config-closures" rows="4">${lines(c.CIERRES)}</textarea></label><div class="setting-row"><div><strong>Meta de pedidos diarios</strong><small>Se usa como referencia del panel.</small></div><input id="config-daily-target" type="number" value="${Number(c.META_PEDIDOS_DIA || 20)}" min="1" max="10000"></div><p class="settings-help">Una línea por saludo o cierre. Guardar cambios aplica estas opciones al motor local.</p></section></div>`;
+  const temaActual = currentTheme();
+  const apariencia = card(
+    `${cardHead('Apariencia', 'Color del panel. Se guarda en este navegador y no cambia los mensajes.')}<div class="theme-options">${THEMES.map(([id, nombre, colores]) => `<button class="theme-option ${temaActual === id ? 'active' : ''}" data-action="set-theme" data-id="${id}" aria-pressed="${temaActual === id}"><span class="theme-swatch">${colores.map((color) => `<i style="background:${color}"></i>`).join('')}</span>${nombre}</button>`).join('')}</div>`
+  );
+  return `${pageHead('Configuración', 'Ritmo de envío, protecciones del número y mensajes. Se aplica al motor al guardar.', `<button class="button primary" data-action="save-settings">${icon('save')}Guardar cambios</button>`)}
+  ${apariencia}
+  <div class="settings-grid section-gap">
+    ${card(`${cardHead('Identidad', 'Cómo te ve el cliente en la vista previa')}${settingRow('Nombre', 'Aparece arriba del chat.', `<input id="config-business-name" type="text" value="${esc(c.NEGOCIO_NOMBRE || businessLabel())}" maxlength="80">`)}${settingRow('Descripción', 'Texto corto debajo del nombre.', `<input id="config-business-status" type="text" value="${esc(c.NEGOCIO_ESTADO || '')}" maxlength="80">`)}${settingRow('Logo', 'Ruta del logo de la vista previa.', `<input id="config-logo-path" type="text" value="${esc(c.NEGOCIO_LOGO || '/assets/logo.png')}" maxlength="300">`)}<div class="brand-preview"><img class="whatsapp-brand-logo" src="${esc(previewLogo())}" alt="">Logo actual</div>`)}
+    ${card(`${cardHead('Ritmo y límites', 'Cuanto más lento, menos riesgo de bloqueo')}${settingRow('Pausa entre mensajes', 'Mínimo y máximo, en segundos.', `<span class="inline-inputs"><input id="config-delay-min" type="number" value="${seconds(c.DELAY_MIN_MS, 15000)}" min="0" max="300" aria-label="Pausa mínima"><input id="config-delay-max" type="number" value="${seconds(c.DELAY_MAX_MS, 45000)}" min="0" max="300" aria-label="Pausa máxima"></span>`)}${settingRow('Máximo por tanda', 'Mensajes en una corrida.', `<input id="config-max-run" type="number" value="${Number(c.MAX_POR_CORRIDA || 50)}" min="1" max="100">`)}${settingRow('Máximo por ventana', `Mensajes cada ${Number(c.VENTANA_CUPO_MINUTOS || 60)} minutos (0 = sin límite).`, `<span class="inline-inputs"><input id="config-max-hour" type="number" value="${Number(c.MAX_POR_HORA || 0)}" min="0" max="1000" aria-label="Mensajes"><input id="config-window-minutes" type="number" value="${Number(c.VENTANA_CUPO_MINUTOS || 60)}" min="1" max="240" aria-label="Minutos"></span>`)}${settingRow('Reintentos', 'Si falla un envío.', `<input id="config-retries" type="number" value="${Number(c.REINTENTOS || 0)}" min="0" max="3">`)}${settingRow('Pausa larga', 'Cada cuántos mensajes y cuántos segundos.', `<span class="inline-inputs"><input id="config-pause-long" type="number" value="${Number(c.PAUSA_LARGA_CADA || 0)}" min="0" max="500" aria-label="Cada cuántos mensajes"><input id="config-pause-long-seconds" type="number" value="${Number(c.PAUSA_LARGA_SEGUNDOS || 120)}" min="30" max="3600" aria-label="Segundos"></span>`)}`)}
+    ${card(`${cardHead('Protecciones', 'Cuidan a tus clientes y al número')}${settingRow('No repetir el mismo día', 'Nadie recibe dos promos el mismo día.', switchMarkup('no-repetir', 'No repetir el mismo día', active('NO_REPETIR_MISMO_DIA', true)))}${settingRow('Adjuntar PDF', 'Manda el menú si lo subiste.', switchMarkup('attach-pdf', 'Adjuntar PDF', active('ADJUNTAR_PDF', true)))}${settingRow('Baja automática', 'Quien responde BAJA queda excluido.', switchMarkup('auto-optout', 'Baja automática', active('BAJA_AUTOMATICA', true)))}<label class="field section-gap"><span>Respuesta a la baja</span><textarea id="config-baja-response" rows="2">${esc(c.BAJA_RESPUESTA || '')}</textarea></label><label class="field section-gap"><span>Pie de cada promo</span><textarea id="config-optout-footer" rows="2">${esc(c.FOOTER_BAJA || '')}</textarea><small>Se agrega al final de cada mensaje. Vacío = sin pie.</small></label>`)}
+    ${card(`${cardHead('Calentamiento y tandas', 'Para números nuevos o listas grandes')}${settingRow('Calentamiento progresivo', 'Sube el límite de a poco, día a día.', switchMarkup('warmup', 'Calentamiento progresivo', active('CALENTAMIENTO_ACTIVO')))}${settingRow('Inicio / aumento diario', 'Mensajes el primer día y cuánto sube.', `<span class="inline-inputs"><input id="config-warmup-start" type="number" value="${Number(c.CALENTAMIENTO_INICIO || 20)}" min="1" max="100" aria-label="Inicio"><input id="config-warmup-increment" type="number" value="${Number(c.CALENTAMIENTO_INCREMENTO || 10)}" min="1" max="100" aria-label="Aumento diario"></span>`)}${settingRow('Tandas automáticas', 'Sigue sola con pausas hasta cubrir la lista.', switchMarkup('batch-mode', 'Tandas automáticas', active('MODO_TANDAS')))}${settingRow('Espera entre tandas', 'Minutos.', `<input id="config-batch-wait" type="number" value="${Number(c.ESPERA_ENTRE_TANDAS_MINUTOS || 20)}" min="5" max="240">`)}<p class="notice warn section-gap">${icon('warning')}<span>Estas protecciones bajan el riesgo, pero no garantizan que WhatsApp no bloquee el número.</span></p>`)}
+    ${card(`${cardHead('Programación', 'Envío automático diario')}${settingRow('Programación automática', 'No hace falta tener el panel abierto.', switchMarkup('programacion', 'Programación automática', active('PROGRAMACION_ACTIVA')))}${settingRow('Hora', 'Formato 24 h.', `<input id="config-schedule-time" type="time" value="${esc(c.PROGRAMACION_HORA || '10:30')}">`)}${settingRow('A quién manda', 'Segmento o grupo.', scheduleSegmentSelect(c.PROGRAMACION_SEGMENTO))}${settingRow('Modo sólo respuestas', 'Frena todas las promos; los chats siguen.', switchMarkup('solo-respuestas', 'Modo sólo respuestas', active('MODO_SOLO_RESPUESTAS')))}<div class="detail-block"><h3>Días sin envío</h3><div class="day-selector" id="config-days-no-send">${days.map((label, index) => `<label class="day-chip"><input class="config-day" type="checkbox" value="${index}" ${selectedDays.includes(index) ? 'checked' : ''}>${label}</label>`).join('')}</div></div>`)}
+    ${card(`${cardHead('Saludos y cierres', 'Rotan al azar en cada mensaje')}<label class="field"><span>Saludos</span><textarea id="config-greetings" rows="4">${lines(c.SALUDOS)}</textarea><small>Uno por línea. {NOMBRE} pone el nombre del contacto.</small></label><label class="field section-gap"><span>Cierres</span><textarea id="config-closures" rows="4">${lines(c.CIERRES)}</textarea></label>${settingRow('Meta de pedidos por día', 'Referencia para el panel.', `<input id="config-daily-target" type="number" value="${Number(c.META_PEDIDOS_DIA || 20)}" min="1" max="10000">`)}`)}
+  </div>`;
+}
+
+// ---------- Vista previa de WhatsApp ----------
+
+// El motor agrega un saludo al principio si el mensaje no usa {SALUDO}: si el texto
+// ya arranca saludando, el cliente recibe "¡Hola Ana! ¡Hola Ana!".
+function saludoDuplicado(texto) {
+  const t = String(texto || '').trim();
+  return !/\{SALUDO\}/i.test(t) && /^[^\p{L}]*(hola|buenas|buen d[ií]a|qu[eé] tal)/iu.test(t);
+}
+
+// Formato de WhatsApp sobre texto ya escapado: *negrita*, _cursiva_, ~tachado~.
+function waFormat(html) {
+  return html
+    .replace(/\*([^*\n]+)\*/g, '<strong>$1</strong>')
+    .replace(/(^|[\s>(])_([^_\n]+)_(?=$|[\s<.,!?)])/g, '$1<em>$2</em>')
+    .replace(/~([^~\n]+)~/g, '<s>$1</s>')
+    .replace(/\n/g, '<br>');
 }
 
 // Arma el texto igual que el servidor (mensaje.js): saludo + cuerpo + cierre + pie de baja.
@@ -1040,18 +1246,18 @@ function renderWhatsappPreview() {
     minute: '2-digit',
     hour12: false,
   });
-  const message = texto
-    ? esc(texto).replace(/\n/g, '<br>')
-    : '<em>Escribí el mensaje en el paso 1 para ver cómo llega.</em>';
+  const message = texto ? waFormat(esc(texto)) : '<em>Escribí el mensaje para ver cómo llega.</em>';
   const extras =
     state.media.length > 1
       ? `<small class="wa-extra">+ ${state.media.length - 1} imagen(es) más, en mensajes aparte</small>`
       : '';
   const documentMarkup = pdf
-    ? `<div class="wa-document"><span class="material-symbols-outlined">picture_as_pdf</span><div><strong>${esc(pdf)}</strong><small>PDF · se manda aparte</small></div></div>`
+    ? `<div class="wa-document">${icon('picture_as_pdf')}<div><strong>${esc(pdf)}</strong><small>PDF · se manda aparte</small></div></div>`
     : '';
-  return `<div class="card phone-card wa-preview"><div class="phone-head"><h3><span class="status-dot"></span> Vista previa de WhatsApp</h3><small>Así llega · no envía nada</small></div><div class="phone wa-phone"><div class="wa-status-bar"><span>WhatsApp</span><span>${esc(ahora)}</span></div><div class="phone-bar"><span class="material-symbols-outlined">arrow_back</span><img class="whatsapp-brand-logo phone-brand-logo" src="${esc(previewLogo())}" alt="Logo de ${esc(name)}"><div class="phone-identity"><strong>${esc(name)}</strong>${status ? `<small>${esc(status)}</small>` : ''}</div></div><div class="phone-body"><span class="date-chip">HOY</span><div class="wa-bubble outgoing">${imagen ? `<img class="wa-media-image" src="${esc(assetUrl(imagen))}" alt="Flyer de la campaña">` : ''}<div class="wa-message-copy">${message}</div><time>${esc(ahora)}</time></div>${extras}${documentMarkup}</div></div><p class="preview-disclaimer">El saludo y el cierre rotan al azar entre los que configuraste; {NOMBRE} usa el nombre de cada contacto.</p></div>`;
+  return `<div class="card wa-preview">${cardHead('Vista previa', 'Así llega a cada cliente')}<div class="phone"><div class="wa-status-bar"><span>WhatsApp</span><span>${esc(ahora)}</span></div><div class="phone-bar"><img class="whatsapp-brand-logo" src="${esc(previewLogo())}" alt=""><div class="phone-identity"><strong>${esc(name)}</strong>${status ? `<small>${esc(status)}</small>` : ''}</div></div><div class="phone-body"><span class="date-chip">HOY</span><div class="wa-bubble">${imagen ? `<img class="wa-media-image" src="${esc(assetUrl(imagen))}" alt="Flyer de la campaña">` : ''}<div class="wa-message-copy">${message}</div><time>${esc(ahora)} ✓✓</time></div>${extras}${documentMarkup}</div></div><p class="preview-disclaimer">El saludo y el cierre rotan entre los que configuraste. {NOMBRE} usa el nombre de cada contacto.</p></div>`;
 }
+
+// ---------- Render ----------
 
 function render() {
   const views = {
@@ -1063,21 +1269,13 @@ function render() {
     configuracion: renderConfiguracionCompleta,
   };
   const app = $('#app');
-  const rendered = views[state.route]();
-  app.innerHTML = rendered;
-  if (state.route === 'campana' && state.campaignPlan) {
-    const plan = document.createElement('section');
-    plan.className = 'card campaign-plan';
-    plan.innerHTML = campaignPlanMarkup();
-    app.querySelector('.studio-main')?.prepend(plan);
-  }
-  app.focus({ preventScroll: true });
-  document
-    .querySelectorAll('[data-route]')
-    .forEach((button) => button.classList.toggle('active', button.dataset.route === state.route));
+  app.innerHTML = views[state.route]();
   document
     .querySelectorAll('.nav-item, .mobile-nav button')
     .forEach((button) => button.classList.toggle('active', button.dataset.route === state.route));
+  document.querySelectorAll('[data-unread-chats]').forEach((item) => {
+    item.textContent = state.unreadChats || 0;
+  });
   if ($('#campaign-message')) updateMessageCount();
 }
 
@@ -1121,16 +1319,16 @@ function openQr() {
   else if (!qrRefreshTimer) qrRefreshTimer = setInterval(refreshQrStatus, 3000);
   const qr = state.status?.qr;
   const qrMarkup = connected
-    ? '<div class="qr-box"><b style="font:700 72px/1 sans-serif;color:var(--green)">✓</b></div>'
+    ? `<div class="qr-box">${icon('check_circle').replace('material-symbols-outlined', 'material-symbols-outlined ok')}</div>`
     : qr
       ? `<div class="qr-box real"><img src="${esc(qr)}" alt="Código QR de WhatsApp"></div>`
-      : '<div class="qr-box"><span>Esperando QR del servidor</span></div>';
+      : '<div class="qr-box"><span>Generando el código QR…</span></div>';
   const detail = connected
     ? 'WhatsApp ya está vinculado. No necesitás escanear otro código.'
     : state.status?.whatsappDetalle ||
-      (qr ? 'QR disponible para escanear' : 'El backend todavía no generó un QR');
+      (qr ? 'El código se renueva solo cada pocos segundos.' : 'Esperá unos segundos.');
   $('#modal-root').innerHTML =
-    `<div class="modal-backdrop" data-action="close-modal"><div class="modal"><div class="modal-head"><h2>${connected ? 'WhatsApp vinculado' : 'Conectar WhatsApp Web'}</h2><button class="close" data-action="close-modal">×</button></div><p style="color:var(--brown);font-size:12px;line-height:18px">${connected ? 'La sesión queda guardada en el servidor.' : 'Abrí WhatsApp en tu teléfono, entrá a Dispositivos vinculados y escaneá este código. La sesión queda guardada en el servidor.'}</p>${qrMarkup}<div class="empty-state" style="padding:12px"><strong>${esc(detail)}</strong>${connected ? ' Ya podés cerrar esta ventana y usar el panel.' : ' Podés cerrar esta ventana y volver a revisar el estado.'}</div></div></div>`;
+    `<div class="modal-backdrop" data-action="close-modal"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="qr-title"><div class="modal-head"><h2 id="qr-title">${connected ? 'WhatsApp vinculado' : 'Conectar WhatsApp'}</h2><button class="button ghost icon" data-action="close-modal" aria-label="Cerrar">${icon('close')}</button></div><p class="muted">${connected ? 'La sesión queda guardada en el servidor.' : 'En tu teléfono: WhatsApp → Dispositivos vinculados → Vincular un dispositivo, y escaneá este código.'}</p>${qrMarkup}<p class="notice">${icon('info')}<span>${esc(detail)}</span></p></div></div>`;
 }
 
 async function refresh() {
@@ -1410,6 +1608,32 @@ async function saveSettings() {
 async function action(name, value) {
   try {
     if (name === 'save-settings') return saveSettings();
+    if (name === 'campaign-step') {
+      state.campaignStep = Math.min(4, Math.max(1, Number(value) || 1));
+      state.campaignPlan = null;
+      render();
+      return window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+    if (name === 'set-theme') {
+      if (value === 'rojo') delete document.documentElement.dataset.theme;
+      else document.documentElement.dataset.theme = value;
+      try {
+        localStorage.setItem('masivos-theme', value);
+      } catch (e) {
+        /* sin almacenamiento: dura hasta recargar */
+      }
+      return render();
+    }
+    if (name === 'contacts-more') {
+      state.contactsLimit += 60;
+      return render();
+    }
+    if (name === 'toggle-nav') return document.body.classList.toggle('nav-open');
+    if (name === 'close-nav') return document.body.classList.remove('nav-open');
+    if (name === 'chat-back') {
+      state.chatOpen = false;
+      return render();
+    }
     if (name === 'qr') return openQr();
     if (name === 'close-modal') return closeQrModal();
     if (name === 'campaign-tab') {
@@ -1455,6 +1679,7 @@ async function action(name, value) {
         : 'todos';
       state.selectedContact = null;
       state.selectedDetail = null;
+      state.contactsLimit = 60;
       return render();
     }
     if (name === 'select-visible') {
@@ -1546,10 +1771,10 @@ async function action(name, value) {
     }
     if (name === 'simulate' || name === 'dispatch') {
       const simulacro = name === 'simulate';
-      const groupId = $('#campaign-group')?.value || '';
-      const segmento = groupId
-        ? `grupo:${groupId}`
-        : document.querySelector('input[name="segment"]:checked')?.value || '';
+      // El paso 3 puede no estar en pantalla: los destinatarios viven en el estado.
+      const segmento = state.campaignGroup
+        ? `grupo:${state.campaignGroup}`
+        : state.campaignSegment || '';
       if (!segmento) return showToast('Elegí a quién enviar: un segmento o un grupo guardado.');
       const texto = $('#campaign-message')?.value?.trim() || state.message.trim();
       if (!texto) return showToast('Escribí un mensaje antes de preparar la campaña.');
@@ -1640,6 +1865,7 @@ async function action(name, value) {
     if (name === 'open-wa') {
       if (!value) return showToast('Elegí un contacto para abrir su conversación.');
       state.selectedChatNumber = value;
+      state.chatOpen = true;
       state.route = 'conversaciones';
       state.conversation = null;
       render();
@@ -1756,7 +1982,10 @@ document.addEventListener('click', (event) => {
   const route = event.target.closest('[data-route]')?.dataset.route;
   if (route) {
     state.route = route;
+    document.body.classList.remove('nav-open');
+    if (location.hash !== `#${route}`) history.pushState(null, '', `#${route}`);
     render();
+    window.scrollTo({ top: 0 });
     if (route === 'conversaciones' && state.conversations.length) {
       const numero = state.selectedChatNumber || state.conversations[0].numero;
       state.selectedChatNumber = numero;
@@ -1767,6 +1996,13 @@ document.addEventListener('click', (event) => {
   if (event.target.closest('.contact-select')) return;
   const actionButton = event.target.closest('[data-action]');
   const actionName = actionButton?.dataset.action;
+  // El fondo del modal cierra sólo si se toca el fondo, no lo que está adentro.
+  if (
+    actionName === 'close-modal' &&
+    actionButton.classList.contains('modal-backdrop') &&
+    event.target !== actionButton
+  )
+    return;
   if (actionName) {
     action(
       actionName,
@@ -1794,6 +2030,7 @@ document.addEventListener('click', (event) => {
   const chatNumber = event.target.closest('[data-chat-number]')?.dataset.chatNumber;
   if (chatNumber) {
     state.selectedChatNumber = chatNumber;
+    state.chatOpen = true;
     state.unreadChats = Math.max(0, state.unreadChats - (state.unreadByChat[chatNumber] || 0));
     state.unreadByChat[chatNumber] = 0;
     state.conversation = null;
@@ -1816,10 +2053,13 @@ document.addEventListener('input', (event) => {
     state.message = event.target.value;
     updateMessageCount();
     const copy = $('.wa-message-copy');
-    if (copy) copy.innerHTML = esc(previewMessage()).replace(/\n/g, '<br>');
+    if (copy) copy.innerHTML = waFormat(esc(previewMessage()));
+    const aviso = $('#saludo-aviso');
+    if (aviso) aviso.hidden = !saludoDuplicado(state.message);
   }
   if (event.target.id === 'contact-search') {
     state.contactQuery = event.target.value;
+    state.contactsLimit = 60;
     const cursor = event.target.selectionStart;
     render();
     const search = $('#contact-search');
@@ -1843,6 +2083,17 @@ document.addEventListener('input', (event) => {
 document.addEventListener('change', async (event) => {
   if (event.target.name === 'segment') {
     state.campaignSegment = event.target.value;
+    state.campaignGroup = '';
+    const grupo = $('#campaign-group');
+    if (grupo) grupo.value = '';
+    return;
+  }
+  if (event.target.id === 'campaign-group') {
+    state.campaignGroup = event.target.value;
+    if (state.campaignGroup)
+      document.querySelectorAll('input[name="segment"]').forEach((radio) => {
+        radio.checked = false;
+      });
     return;
   }
   if (event.target.matches('.contact-select')) {
@@ -1925,6 +2176,18 @@ document.addEventListener('change', async (event) => {
     showToast(error.message);
   }
 });
+
+// Cada pantalla tiene su dirección (#campana, #contactos…): sirve el botón "atrás".
+const RUTAS = ['inicio', 'campana', 'contactos', 'conversaciones', 'resultados', 'configuracion'];
+function routeFromHash() {
+  const ruta = location.hash.slice(1);
+  return RUTAS.includes(ruta) ? ruta : 'inicio';
+}
+window.addEventListener('popstate', () => {
+  state.route = routeFromHash();
+  render();
+});
+state.route = routeFromHash();
 
 syncShell();
 render();

@@ -2,127 +2,131 @@
 <html lang="es">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#181b1f" />
-    <title>Modo Sabor · Centro Operativo</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#ffffff" />
+    <title>Masivos · Modo Sabor</title>
+    <script>
+      // Paleta elegida en Configuración → Apariencia (preferencia de este navegador).
+      try {
+        var tema = localStorage.getItem('masivos-theme');
+        if (tema) document.documentElement.dataset.theme = tema;
+      } catch (e) {}
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
     <link
-      href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,400,0..1,0..200"
+      href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,400,0..1,0&display=block"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="__MASIVOS_BASE__/styles.css" />
-    <link rel="stylesheet" href="__MASIVOS_BASE__/overrides.css" />
+    <link rel="manifest" href="__MASIVOS_BASE__/manifest.webmanifest" />
   </head>
   <body>
     <div class="app-shell">
-      <aside class="sidebar" aria-label="Navegación principal">
+      <aside class="sidebar" id="sidebar" aria-label="Navegación principal">
         <div class="brand">
-          <span class="brand-mark"><i></i><i></i><i></i></span
-          ><span><strong>Modo Sabor</strong><small>PROMO PRO</small></span>
+          <img src="__MASIVOS_BASE__/assets/logo.png" alt="" />
+          <span
+            ><strong id="shell-branch">Modo Sabor</strong><small>Masivos por WhatsApp</small></span
+          >
         </div>
-        <div class="branch-select">
-          <span><b class="status-dot"></b><span id="shell-branch">Modo Sabor</span></span
-          ><span class="material-symbols-outlined">storefront</span>
-        </div>
-        <section class="channel-card">
-          <div class="channel-title">
-            <b class="status-dot"></b> WHATSAPP <span>DESCONECTADO</span>
-          </div>
-          <strong id="channel-phone">Conectá tu cuenta para comenzar</strong>
-          <button class="link-button" data-action="qr" type="button">
-            Ver QR / Estado <span class="material-symbols-outlined">qr_code_2</span>
-          </button>
-        </section>
+        <span class="nav-label">Menú</span>
         <nav class="primary-nav">
-          <button class="nav-item active" aria-label="01. Inicio" data-route="inicio">
-            <span class="nav-number">01.</span
-            ><span class="material-symbols-outlined">storefront</span><span>Inicio</span>
+          <button class="nav-item active" data-route="inicio">
+            <span class="material-symbols-outlined">home</span>Inicio
           </button>
-          <button class="nav-item" aria-label="02. Campaña" data-route="campana">
-            <span class="nav-number">02.</span
-            ><span class="material-symbols-outlined">campaign</span><span>Campaña</span
-            ><em>Borrador</em>
+          <button class="nav-item" data-route="campana">
+            <span class="material-symbols-outlined">campaign</span>Campaña
           </button>
-          <button class="nav-item" aria-label="03. Contactos" data-route="contactos">
-            <span class="nav-number">03.</span><span class="material-symbols-outlined">group</span
-            ><span>Contactos</span><em id="nav-contacts">—</em>
+          <button class="nav-item" data-route="contactos">
+            <span class="material-symbols-outlined">group</span>Contactos<em id="nav-contacts"
+              >—</em
+            >
           </button>
-          <button class="nav-item" aria-label="04. Conversaciones" data-route="conversaciones">
-            <span class="nav-number">04.</span><span class="material-symbols-outlined">chat</span
-            ><span>Conversaciones</span><em id="nav-inbox">0</em>
+          <button class="nav-item" data-route="conversaciones">
+            <span class="material-symbols-outlined">chat</span>Chats<em id="nav-inbox">0</em>
           </button>
-          <button class="nav-item" aria-label="05. Resultados" data-route="resultados">
-            <span class="nav-number">05.</span
-            ><span class="material-symbols-outlined">query_stats</span><span>Resultados</span>
+          <button class="nav-item" data-route="resultados">
+            <span class="material-symbols-outlined">monitoring</span>Resultados
           </button>
-          <button class="nav-item" aria-label="06. Configuración" data-route="configuracion">
-            <span class="nav-number">06.</span><span class="material-symbols-outlined">shield</span
-            ><span>Configuración</span>
+          <button class="nav-item" data-route="configuracion">
+            <span class="material-symbols-outlined">settings</span>Configuración
           </button>
         </nav>
-        <div class="sidebar-health">
-          <div><span>SALUD DE LÍNEA</span><strong id="sidebar-health-value">—</strong></div>
-          <div class="health-meter"><i id="sidebar-health-bar"></i></div>
-          <div class="health-footer">
-            <span class="material-symbols-outlined">verified_user</span
-            ><span id="sidebar-health-label">Sin conexión</span>
+        <section class="sidebar-status" aria-live="polite">
+          <span class="channel-title"
+            ><b class="status-dot offline"></b> WhatsApp <strong>desconectado</strong></span
+          >
+          <div class="row">
+            <small id="channel-phone">Conectá tu cuenta para comenzar</small>
+            <button class="link-button" data-action="qr" type="button">Ver QR</button>
           </div>
-        </div>
+          <div class="row">
+            <span>Salud del número</span><strong id="sidebar-health-value" class="num">—</strong>
+          </div>
+          <div class="meter" id="sidebar-health-meter"><i id="sidebar-health-bar"></i></div>
+          <small id="sidebar-health-label">Sin conexión</small>
+        </section>
       </aside>
+      <div class="scrim" data-action="close-nav"></div>
 
       <div class="workspace">
         <header class="topbar">
-          <div class="crumbs">
-            <span>Centro<br />Operativo</span><b>/</b
-            ><strong id="shell-business">Modo Sabor</strong>
-          </div>
-          <div class="operation-pill">
-            <b class="status-dot"></b
-            ><span id="shell-operation">Motor: <strong id="shell-batch">en espera</strong></span>
+          <button
+            class="button ghost icon menu-toggle"
+            data-action="toggle-nav"
+            aria-label="Abrir menú"
+            aria-controls="sidebar"
+          >
+            <span class="material-symbols-outlined">menu</span>
+          </button>
+          <div class="topbar-title">
+            <strong id="shell-business">Modo Sabor</strong>
+            <small id="shell-operation">Motor: <span id="shell-batch">en espera</span></small>
           </div>
           <div class="top-actions">
-            <button class="button secondary compact" data-action="qr">
+            <button class="button secondary" data-action="qr">
               <span class="material-symbols-outlined">qr_code_2</span>Escanear QR
             </button>
-            <button class="button secondary compact" data-action="refresh">
+            <button class="button secondary" data-action="refresh">
               <span class="material-symbols-outlined">sync</span>Actualizar Contactos
             </button>
-            <button class="button primary compact" data-route="campana">
-              <span class="material-symbols-outlined">add</span>Nueva Campaña
+            <button class="button primary" data-route="campana" aria-label="Nueva Campaña">
+              <span class="material-symbols-outlined">add</span
+              ><span class="label">Nueva Campaña</span>
             </button>
-          </div>
-          <div class="operator">
-            <span><strong id="shell-user">—</strong><small id="shell-role">Panel local</small></span
-            ><b class="operator-avatar" id="shell-avatar">·</b>
+            <div class="operator">
+              <span
+                ><strong id="shell-user">—</strong><small id="shell-role">Panel local</small></span
+              >
+              <b class="operator-avatar" id="shell-avatar">·</b>
+            </div>
           </div>
         </header>
         <main id="app" tabindex="-1"></main>
       </div>
     </div>
     <nav class="mobile-nav" aria-label="Navegación móvil">
-      <button data-route="inicio">
-        <span class="material-symbols-outlined">storefront</span>Inicio
-      </button>
+      <button data-route="inicio"><span class="material-symbols-outlined">home</span>Inicio</button>
       <button data-route="campana">
         <span class="material-symbols-outlined">campaign</span>Campaña
       </button>
       <button data-route="contactos">
-        <span class="material-symbols-outlined">group</span>CRM
+        <span class="material-symbols-outlined">group</span>Contactos
       </button>
       <button data-route="conversaciones">
         <span class="material-symbols-outlined">chat</span>Chats
       </button>
-      <button data-route="configuracion">
-        <span class="material-symbols-outlined">more_horiz</span>Más
+      <button data-route="resultados">
+        <span class="material-symbols-outlined">monitoring</span>Resultados
       </button>
     </nav>
     <div id="modal-root"></div>
-    <div id="toast" class="toast" role="status"></div>
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
     <script>
       window.__MODO_SABOR_MASIVOS_BASE_PATH__ = '__MASIVOS_BASE__';
     </script>
