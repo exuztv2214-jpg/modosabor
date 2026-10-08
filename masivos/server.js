@@ -2550,12 +2550,42 @@ async function descargarBuffer(url, destino) {
   fs.writeFileSync(destino, buf);
 }
 
+// Foto de perfil, del camino más rápido al más lento:
+// 1) la que WhatsApp Web ya tiene en memoria (las miniaturas de la lista de chats);
+// 2) pedirla al servidor usando el chat que ya existe (por su id real, casi siempre LID);
+// 3) el método de la librería, que antes se usaba primero con el número @c.us y se
+//    colgaba buscando un chat que no existe con ese id.
 async function obtenerFotoPerfil(numero, telefono) {
   const ids = [
     ...new Set(
-      [telefono ? `${String(telefono).replace(/\D/g, '')}@c.us` : '', numero].filter(Boolean)
+      [numero, telefono ? `${String(telefono).replace(/\D/g, '')}@c.us` : ''].filter(Boolean)
     ),
   ];
+  try {
+    const url = await client.pupPage.evaluate(async (ids) => {
+      const C = window.require('WAWebCollections');
+      for (const id of ids) {
+        const thumb = C.ProfilePicThumb && C.ProfilePicThumb.get(id);
+        const local = thumb && (thumb.eurl || thumb.imgFull || thumb.img);
+        if (local) return local;
+      }
+      const bridge = window.require('WAWebContactProfilePicThumbBridge');
+      for (const id of ids) {
+        const chat = C.Chat.get(id);
+        if (!chat) continue;
+        try {
+          const pic = await bridge.requestProfilePicFromServer(chat);
+          if (pic && pic.eurl) return pic.eurl;
+        } catch (e) {
+          /* sin foto visible por privacidad */
+        }
+      }
+      return null;
+    }, ids);
+    if (url) return url;
+  } catch (e) {
+    /* la página de WhatsApp cambió: se prueba con la librería */
+  }
   for (const id of ids) {
     try {
       const url = await client.getProfilePicUrl(id);
@@ -2605,7 +2635,7 @@ async function correrFotos() {
     try {
       const url = await conTiempoLimite(
         obtenerFotoPerfil(c.numero, c.telefono),
-        5000,
+        12000,
         'Foto de perfil'
       );
       if (url) {
@@ -3441,7 +3471,8 @@ app.post('/api/listar', async (req, res) => {
               })
               .filter((chat) => chat.id)
           ),
-          15000,
+          // Con cientos de chats y WhatsApp recién abierto, 15 s no alcanzaba.
+          45000,
           'Colección de chats'
         ),
       async () =>
