@@ -2990,9 +2990,105 @@ async function obtenerConversacion(numero, limite = 60) {
   const id = String(numero || '').trim();
   if (!id) throw new Error('Falta número de contacto.');
   const limiteSeguro = Math.max(1, Math.min(100, Number(limite) || 60));
-  const chat = normalizeChats(leerJsonSeguro(ARCHIVO_CHATS, [])).find((item) => item.numero === id);
+  const chatsGuardados = leerJsonSeguro(ARCHIVO_CHATS, []);
+  const chats = normalizeChats(chatsGuardados);
+  const chat = chats.find((item) => item.numero === id);
   if (!chat)
     return { numero: id, disponible: false, mensajes: [], motivo: 'Chat no sincronizado.' };
+  if (client && estadoWA.estado === 'listo' && chat.mensajes.length < limiteSeguro) {
+    try {
+      const historial = await conTiempoLimite(
+        client.pupPage.evaluate(
+          async (chatId, count) => {
+            const collections = window.require('WAWebCollections');
+            const model =
+              collections.Chat.get(chatId) ||
+              collections.Chat.getModelsArray().find(
+                (item) => (item.id?._serialized || String(item.id || '')) === chatId
+              );
+            const anchorRaw = model?.lastReceivedKey || model?.msgs?.getModelsArray?.().at(-1)?.id;
+            if (!model || !anchorRaw) return [];
+            const findLocal = window.require('WAWebDBMessageFindLocal');
+            const MsgKey = window.require('WAWebMsgKey');
+            const MsgStore = collections.Msg;
+            const serialized =
+              typeof anchorRaw === 'string'
+                ? anchorRaw
+                : anchorRaw._serialized || anchorRaw.toString?.();
+            const anchor = anchorRaw instanceof MsgKey ? anchorRaw : MsgKey.fromString(serialized);
+            const query =
+              typeof findLocal.msgFindByDirection === 'function'
+                ? findLocal.msgFindByDirection({ anchor, count, direction: 'before' })
+                : findLocal.msgFindBefore({ anchor, count });
+            const result = await Promise.race([
+              query,
+              new Promise((resolve) => setTimeout(() => resolve(null), 3000)),
+            ]);
+            const raw = Array.isArray(result) ? result : result?.messages || [];
+            const anchorModel = serialized ? MsgStore.get(serialized) : null;
+            return [...raw, ...(anchorModel ? [anchorModel] : [])]
+              .map((item) => {
+                const itemId = item?.id?._serialized || item?.id;
+                let message = item?.serialize ? item : MsgStore.get(itemId) || item;
+                if (!message?.serialize && MsgStore.modelClass) {
+                  try {
+                    message = new MsgStore.modelClass(message);
+                  } catch {
+                    // El registro local puede haber sido eliminado por WhatsApp.
+                  }
+                }
+                if (
+                  !message ||
+                  message.isNotification ||
+                  ['call_log', 'e2e_notification', 'notification_template'].includes(message.type)
+                )
+                  return null;
+                return {
+                  id: message.id?._serialized || message.id?.id || null,
+                  fromMe: Boolean(message.id?.fromMe),
+                  body: String(message.body || message.caption || ''),
+                  type: message.type || 'chat',
+                  hasMedia: Boolean(message.mediaData || message.hasMedia),
+                  timestamp: Number(message.t || message.timestamp || 0) || null,
+                  ack: message.ack ?? null,
+                };
+              })
+              .filter(Boolean);
+          },
+          id,
+          limiteSeguro
+        ),
+        5000,
+        'Historial local del chat'
+      );
+      const mensajes = [...chat.mensajes, ...historial]
+        .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0))
+        .filter(
+          (mensaje, index, todos) =>
+            todos.findIndex(
+              (otro) =>
+                (mensaje.id && otro.id === mensaje.id) ||
+                (!mensaje.id &&
+                  otro.timestamp === mensaje.timestamp &&
+                  otro.fromMe === mensaje.fromMe &&
+                  otro.body === mensaje.body)
+            ) === index
+        )
+        .slice(-100);
+      if (mensajes.length > chat.mensajes.length) {
+        chat.mensajes = mensajes;
+        const chatGuardado = chatsGuardados.find(
+          (item) => String(item?.numero || item?.id?._serialized || item?.id || '') === id
+        );
+        if (chatGuardado) {
+          chatGuardado.mensajes = mensajes;
+          escribirJsonSeguro(ARCHIVO_CHATS, chatsGuardados);
+        }
+      }
+    } catch (error) {
+      registrarLog(`⚠️ Historial local no disponible para ${id}: ${error.message}`);
+    }
+  }
   return {
     numero: id,
     disponible: true,

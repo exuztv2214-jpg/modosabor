@@ -187,6 +187,10 @@ function verifyFrontendContract() {
   assert.match(server, /const actualizados = mergeSyncedContacts\(/);
   assert.match(server, /if \(!analisis\.corriendo\) vincularFotosCache\(\)/);
   assert.match(server, /ARCHIVO_CHATS/);
+  assert.match(conversationSource, /WAWebDBMessageFindLocal/);
+  assert.match(conversationSource, /msgFindByDirection|msgFindBefore/);
+  assert.match(conversationSource, /Promise\.race/);
+  assert.doesNotMatch(conversationSource, /WAWebChatLoadMessages/);
   assert.match(server, /listaJob\.corriendo/);
   assert.match(server, /enforceLidAndPnRetrieval/);
   assert.match(server, /listaJob\.enriqueciendo/);
@@ -200,7 +204,6 @@ function verifyFrontendContract() {
   assert.match(server, /mensajes:\s*lastMessage/);
   assert.doesNotMatch(server, /WAWebChatLoadMessages/);
   assert.match(conversationSource, /leerJsonSeguro\(ARCHIVO_CHATS/);
-  assert.doesNotMatch(conversationSource, /pupPage\.evaluate/);
   assert.match(server, /path\.join\(DIR_DATA, ['"]mensaje-general\.txt['"]\)/);
   assert.match(server, /estadoAutomaticoDesdeTipo/);
   assert.match(server, /clasificarRespuestaTexto\(msg\.body\)/);
