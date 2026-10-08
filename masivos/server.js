@@ -2642,6 +2642,7 @@ app.get('/api/status', (req, res) => {
   res.json({
     whatsapp: estadoWA.estado,
     whatsappDetalle: estadoWA.detalle || null,
+    qr: estadoWA.qr || null,
     motor: { corriendo: motor.corriendo, pausado: motor.pausado },
     stats: motor.stats,
     imagen: !!img,

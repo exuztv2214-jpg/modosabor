@@ -146,6 +146,11 @@ function verifyFrontendContract() {
   assert.match(server, /numero.*estado|estado.*numero/s);
   assert.match(server, /app\.get\(["']\/api\/conversacion["']/);
   assert.match(server, /app\.get\(["']\/api\/conversaciones["']/);
+  assert.match(
+    server,
+    /app\.get\(["']\/api\/status["'][\s\S]*?qr:\s*estadoWA\.qr/,
+    'el estado debe incluir el QR para que el panel remoto pueda mostrarlo'
+  );
   assert.match(server, /app\.post\(["']\/api\/conversacion\/mensaje["']/);
   assert.match(server, /app\.post\(["']\/api\/conversacion\/adjunto["']/);
   assert.match(server, /MessageMedia/);
