@@ -130,6 +130,19 @@ function grupoEnvioPorId(id) {
 // ---------- Utilidades ----------
 
 const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
+async function conTiempoLimite(promise, ms, etiqueta) {
+  let timer;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`${etiqueta} excedió ${ms / 1000}s`)), ms);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 const azar = (arr) => arr[Math.floor(Math.random() * arr.length)];
 const ERRORES_SESION_FATAL = [
   'detached frame',
@@ -3286,7 +3299,7 @@ app.post('/api/listar', async (req, res) => {
     let fuente = 'getChats';
     try {
       registrarLog('📥 Leyendo conversaciones desde WhatsApp…');
-      chatsRaw = (await client.getChats()).map((chat) => ({
+      chatsRaw = (await conTiempoLimite(client.getChats(), 15000, 'getChats')).map((chat) => ({
         id: chat.id?._serialized,
         name: chat.name || chat.formattedTitle || '',
         timestamp: Number(chat.timestamp || 0),
@@ -3295,24 +3308,31 @@ app.post('/api/listar', async (req, res) => {
         unreadCount: Number(chat.unreadCount || 0),
       }));
       if (!chatsRaw.length) throw new Error('getChats no devolvió resultados.');
+      registrarLog(`📥 getChats devolvió ${chatsRaw.length} conversaciones.`);
     } catch (error) {
       try {
         registrarLog(`⚠️ getChats falló (${error.message}); usando colección directa.`);
-        chatsRaw = await client.pupPage.evaluate(() =>
-          window
-            .require('WAWebCollections')
-            .Chat.getModelsArray()
-            .map((chat) => ({
-              id: chat.id?._serialized || null,
-              name: chat.formattedTitle || chat.name || '',
-              timestamp: Number(chat.t || 0),
-              isGroup: Boolean(chat.groupMetadata),
-              isChannel: Boolean(chat.newsletterMetadata),
-              unreadCount: Number(chat.unreadCount || 0),
-            }))
-            .filter((chat) => chat.id)
+        chatsRaw = await conTiempoLimite(
+          client.pupPage.evaluate(() =>
+            window
+              .require('WAWebCollections')
+              .Chat.getModelsArray()
+              .map((chat) => ({
+                id: chat.id?._serialized || null,
+                name: chat.formattedTitle || chat.name || '',
+                timestamp: Number(chat.t || 0),
+                isGroup: Boolean(chat.groupMetadata),
+                isChannel: Boolean(chat.newsletterMetadata),
+                unreadCount: Number(chat.unreadCount || 0),
+              }))
+              .filter((chat) => chat.id)
+          ),
+          15000,
+          'Colección de chats'
         );
+        if (!chatsRaw.length) throw new Error('La colección no devolvió chats.');
         fuente = 'colección de chats';
+        registrarLog(`📥 La colección directa devolvió ${chatsRaw.length} conversaciones.`);
       } catch (fallbackError) {
         throw new Error(`No se pudieron leer los chats: ${fallbackError.message || error.message}`);
       }
@@ -3336,7 +3356,7 @@ app.post('/api/listar', async (req, res) => {
       try {
         let contactos = [];
         try {
-          contactos = await client.getContacts();
+          contactos = await conTiempoLimite(client.getContacts(), 15000, 'getContacts');
         } catch (error) {
           registrarLog(`⚠️ No se pudo leer la agenda de WhatsApp: ${error.message}`);
         }
