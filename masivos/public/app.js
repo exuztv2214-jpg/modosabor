@@ -716,7 +716,7 @@ function openQr() {
   const connected = state.status?.whatsapp === 'listo';
   const qr = state.status?.qr;
   const qrMarkup = connected
-    ? '<div class="qr-box"><span class="material-symbols-outlined" style="font-size:52px;color:var(--green)">check_circle</span></div>'
+    ? '<div class="qr-box"><b style="font:700 72px/1 sans-serif;color:var(--green)">✓</b></div>'
     : qr
       ? `<div class="qr-box real"><img src="${esc(qr)}" alt="Código QR de WhatsApp"></div>`
       : '<div class="qr-box"><span>Esperando QR del servidor</span></div>';
@@ -812,6 +812,7 @@ function connectLive() {
   stream.addEventListener('estado', (event) => {
     const live = JSON.parse(event.data || '{}');
     const liveWhatsapp = live.estado || live.whatsapp || state.status?.whatsapp;
+    const wasConnected = state.status?.whatsapp === 'listo';
     state.status = {
       ...(state.status || {}),
       whatsapp: liveWhatsapp,
@@ -821,12 +822,20 @@ function connectLive() {
           : (live.detalle ?? live.whatsappDetalle ?? state.status?.whatsappDetalle),
       qr: live.qr || state.status?.qr,
     };
+    const modal = $('#modal-root');
+    if (!wasConnected && liveWhatsapp === 'listo') {
+      modal.innerHTML = '';
+      showToast('WhatsApp vinculado correctamente.');
+    } else if (modal?.innerHTML) {
+      openQr();
+    }
     syncShell();
     if (state.route === 'inicio' || state.route === 'configuracion') render();
   });
   stream.addEventListener('qr', (event) => {
     state.status = { ...(state.status || {}), qr: event.data };
     syncShell();
+    if ($('#modal-root')?.innerHTML) openQr();
   });
   stream.addEventListener('fotos', (event) => {
     const info = JSON.parse(event.data || '{}');

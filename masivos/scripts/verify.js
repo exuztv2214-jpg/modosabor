@@ -130,6 +130,8 @@ function verifyFrontendContract() {
   assert.match(app, /renderWhatsappPreview/);
   assert.match(app, /WhatsApp ya está vinculado/);
   assert.match(app, /const connected = state\.status\?\.whatsapp === 'listo';/);
+  assert.match(app, /const wasConnected = state\.status\?\.whatsapp === 'listo';/);
+  assert.match(app, /WhatsApp vinculado correctamente/);
   assert.match(app, /wa-preview/);
   assert.match(app, /whatsapp-brand-logo/);
   assert.match(app, /wa-status-bar/);
