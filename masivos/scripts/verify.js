@@ -231,6 +231,14 @@ function verifyFrontendContract() {
   assert.match(app, /CAMPAIGN_TAB_TAGS/);
   // Reactivar también saca la exclusión.
   assert.match(app, /reactivar-selected'[\s\S]{0,600}excluir: false/);
+  // Medios en el volumen, historial de chats unido y mensajes salientes registrados.
+  assert.match(server, /const DIR_MEDIA = path\.join\(DIR_DATA, 'media'\)/);
+  assert.doesNotMatch(server, /path\.join\(ROOT, ['"]menu\.pdf['"]\)/);
+  assert.match(server, /mergeChats\(leerJsonSeguro\(ARCHIVO_CHATS, \[\]\), chatsRaw\)/);
+  assert.match(
+    server,
+    /client\.on\('message_create'[\s\S]{0,200}guardarMensajeConversacion\(msg, msg\.to\)/
+  );
   // Hora argentina aunque el contenedor arranque en UTC.
   assert.match(
     server,

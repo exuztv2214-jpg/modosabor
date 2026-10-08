@@ -89,6 +89,46 @@ assert.equal(
   'no duplica un mensaje ya guardado'
 );
 
+// Sincronizar no borra el historial guardado ni los chats que WhatsApp no devolvió.
+const guardados = [
+  {
+    numero: 'cliente@lid',
+    nombre: 'Cliente',
+    foto: 'cliente.jpg',
+    timestamp: 20,
+    mensajes: [
+      { id: 'viejo-1', body: 'Pedido de ayer', timestamp: 10 },
+      { id: 'viejo-2', body: 'Gracias', timestamp: 20 },
+    ],
+  },
+  { numero: 'archivado@lid', nombre: 'Archivado', mensajes: [{ id: 'a1', body: 'Hola' }] },
+];
+const lecturaNueva = [
+  {
+    id: { _serialized: 'cliente@lid' },
+    name: '',
+    timestamp: 30,
+    mensajes: [
+      { id: 'viejo-2', body: 'Gracias', timestamp: 20 },
+      { id: 'nuevo-1', body: 'Hoy quiero milanesa', timestamp: 30 },
+    ],
+  },
+];
+const unidos = sync.mergeChats(guardados, lecturaNueva);
+const cliente = unidos.find((chat) => chat.numero === 'cliente@lid');
+assert.deepEqual(
+  cliente.mensajes.map((m) => m.id),
+  ['viejo-1', 'viejo-2', 'nuevo-1'],
+  'une historial guardado y lectura nueva sin duplicar, en orden'
+);
+assert.equal(cliente.nombre, 'Cliente', 'no pisa el nombre con "Sin nombre"');
+assert.equal(cliente.foto, 'cliente.jpg', 'conserva la foto');
+assert.equal(cliente.timestamp, 30);
+assert.ok(
+  unidos.some((chat) => chat.numero === 'archivado@lid'),
+  'conserva chats que no vinieron en la lectura'
+);
+
 void (async () => {
   await assert.rejects(
     sync.conTiempoLimite(new Promise(() => {}), 5, 'foto de perfil'),

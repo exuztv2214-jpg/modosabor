@@ -147,10 +147,40 @@ function normalizeChats(chats) {
         texto: String(chat?.texto || chat?.lastMessageBody || '').trim(),
         tipo: String(chat?.tipo || chat?.lastMessageType || ''),
         fromMe: Boolean(chat?.fromMe || chat?.lastMessageFromMe),
+        ...(chat?.foto ? { foto: String(chat.foto) } : {}),
         mensajes,
       };
     })
     .filter(Boolean);
+}
+
+// Une la lectura nueva de WhatsApp con lo ya guardado: WhatsApp Web sólo tiene en
+// memoria los últimos mensajes de cada chat, así que reemplazar el archivo borraba
+// el historial acumulado. Los chats que no vinieron en la lectura se conservan.
+function mergeChats(previos, nuevos) {
+  const guardados = new Map(normalizeChats(previos).map((chat) => [chat.numero, chat]));
+  const resultado = normalizeChats(nuevos).map((chat) => {
+    const previo = guardados.get(chat.numero);
+    guardados.delete(chat.numero);
+    if (!previo) return chat;
+    const porId = new Map();
+    const sinId = [];
+    for (const mensaje of [...previo.mensajes, ...chat.mensajes]) {
+      if (mensaje.id) porId.set(mensaje.id, mensaje);
+      else sinId.push(mensaje);
+    }
+    const mensajes = [...porId.values(), ...sinId]
+      .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0))
+      .slice(-100);
+    return {
+      ...chat,
+      nombre: chat.nombre === 'Sin nombre' ? previo.nombre : chat.nombre,
+      foto: chat.foto || previo.foto,
+      timestamp: Math.max(chat.timestamp || 0, previo.timestamp || 0),
+      mensajes,
+    };
+  });
+  return [...resultado, ...guardados.values()];
 }
 
 function appendChatMessage(chats, message, numero) {
@@ -210,6 +240,7 @@ function normalizarMapeosLid(items) {
 module.exports = {
   mergeSyncedContacts,
   normalizeChats,
+  mergeChats,
   appendChatMessage,
   leerChatsConRespaldo,
   normalizarContactosLivianos,

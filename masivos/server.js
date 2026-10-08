@@ -21,6 +21,7 @@ const { liberarSesionWhatsApp } = require('./session-utils');
 const {
   mergeSyncedContacts,
   normalizeChats,
+  mergeChats,
   appendChatMessage,
   leerChatsConRespaldo,
   normalizarContactosLivianos,
@@ -29,6 +30,7 @@ const {
 } = require('./contact-sync');
 const { nombreArchivoFoto, vincularFotosExistentes } = require('./photo-cache');
 const { armarMensaje, normalizarSegmento } = require('./mensaje');
+const { moverMediosAlVolumen } = require('./media');
 
 const PORT = Number(process.env.PORT || 3867);
 const HOST = process.env.HOST || '127.0.0.1';
@@ -64,8 +66,12 @@ const ARCHIVO_RECORDATORIOS = path.join(DIR_DATA, 'recordatorios.json');
 const ARCHIVO_CIERRES_DIA = path.join(DIR_DATA, 'cierres-dia.json');
 const ARCHIVO_CHAT_ESTADOS = path.join(DIR_DATA, 'chat-estados.json');
 const ARCHIVO_GRUPOS_ENVIO = path.join(DIR_DATA, 'grupos-envio.json');
+// Flyers y menú viven dentro de data/ para sobrevivir a los redeploys (volumen en Railway).
+const DIR_MEDIA = path.join(DIR_DATA, 'media');
+const ARCHIVO_PDF = path.join(DIR_MEDIA, 'menu.pdf');
 
 fs.mkdirSync(DIR_DATA, { recursive: true });
+moverMediosAlVolumen(ROOT, DIR_MEDIA);
 if (!fs.existsSync(ARCHIVO_MENSAJE) && fs.existsSync(ARCHIVO_MENSAJE_INICIAL))
   fs.copyFileSync(ARCHIVO_MENSAJE_INICIAL, ARCHIVO_MENSAJE);
 
@@ -240,7 +246,7 @@ const MAX_IMAGENES_PROMO = 10;
 
 // Ruta del "slot" de imagen: slot 1 => promo.ext, slot 2 => promo-2.ext, etc.
 function rutaImagenPromo(slot, ext) {
-  return path.join(ROOT, slot <= 1 ? `promo.${ext}` : `promo-${slot}.${ext}`);
+  return path.join(DIR_MEDIA, slot <= 1 ? `promo.${ext}` : `promo-${slot}.${ext}`);
 }
 
 // Ruta existente de un slot (probando cada extensión) o null.
@@ -1946,6 +1952,13 @@ function iniciarWhatsApp() {
     );
   });
 
+  // 'message' sólo trae los entrantes. Lo que se manda desde el celular, desde el
+  // panel o desde una campaña llega por 'message_create'.
+  client.on('message_create', (msg) => {
+    if (!msg.fromMe || !msg.to || msg.to === 'status@broadcast' || msg.isStatus) return;
+    guardarMensajeConversacion(msg, msg.to);
+  });
+
   client.on('message_ack', (msg, ack) => {
     const destino = msg.to || msg.from;
     const estado = ack >= 3 ? 'leido' : ack >= 2 ? 'entregado' : 'enviado';
@@ -2113,7 +2126,7 @@ async function correrEnvio(simulacro, opciones = {}) {
       }
     }
     if (medias.length > 1) registrarLog(`🖼️ Se enviarán ${medias.length} imágenes por contacto.`);
-    const pdfPath = path.join(ROOT, 'menu.pdf');
+    const pdfPath = ARCHIVO_PDF;
     if (config.ADJUNTAR_PDF !== false && fs.existsSync(pdfPath)) {
       try {
         pdfMedia = MessageMedia.fromFilePath(pdfPath);
@@ -2714,7 +2727,7 @@ app.get('/api/status', (req, res) => {
     imagen: !!img,
     imagenNombre: img ? path.basename(img) : null,
     imagenes: buscarImagenesPromo().length,
-    pdf: fs.existsSync(path.join(ROOT, 'menu.pdf')),
+    pdf: fs.existsSync(ARCHIVO_PDF),
     calentamiento: limiteHoy(config),
     programacion: {
       activa: !!config.PROGRAMACION_ACTIVA,
@@ -3416,7 +3429,7 @@ app.post('/api/listar', async (req, res) => {
     } catch (error) {
       registrarLog(`⚠️ No se pudo leer el mapa local LID/teléfono: ${error.message}`);
     }
-    const chats = normalizeChats(chatsRaw);
+    const chats = mergeChats(leerJsonSeguro(ARCHIVO_CHATS, []), chatsRaw);
     const previos = leerJsonSeguro(ARCHIVO_CLIENTES, []);
     const listaSincronizada = mergeSyncedContacts(chatsRaw, [], previos, lidMappings);
     hacerBackup('lista actualizada');
@@ -3601,7 +3614,7 @@ app.delete('/api/imagen', (req, res) => {
     return res.json({ ok: true, borradas: 'todas' });
   }
   if (!RE_NOMBRE_PROMO.test(nombre)) return res.status(400).json({ error: 'Nombre inválido.' });
-  const p = path.join(ROOT, nombre);
+  const p = path.join(DIR_MEDIA, nombre);
   if (fs.existsSync(p)) fs.unlinkSync(p);
   res.json({ ok: true, cantidad: buscarImagenesPromo().length });
 });
@@ -3609,7 +3622,7 @@ app.delete('/api/imagen', (req, res) => {
 // ---------- PDF del menú ----------
 
 app.get('/api/pdf', (req, res) => {
-  const p = path.join(ROOT, 'menu.pdf');
+  const p = ARCHIVO_PDF;
   res.json({ existe: fs.existsSync(p), nombre: fs.existsSync(p) ? 'menu.pdf' : null });
 });
 
@@ -3619,13 +3632,13 @@ app.post('/api/pdf', (req, res) => {
     return res.status(400).json({ error: 'Solo se acepta PDF.' });
   }
   const base64 = data.split(',')[1];
-  fs.writeFileSync(path.join(ROOT, 'menu.pdf'), Buffer.from(base64, 'base64'));
+  fs.writeFileSync(ARCHIVO_PDF, Buffer.from(base64, 'base64'));
   registrarLog('📄 Nuevo menú PDF cargado (menu.pdf).');
   res.json({ ok: true, nombre: 'menu.pdf' });
 });
 
 app.delete('/api/pdf', (req, res) => {
-  const p = path.join(ROOT, 'menu.pdf');
+  const p = ARCHIVO_PDF;
   if (fs.existsSync(p)) fs.unlinkSync(p);
   res.json({ ok: true });
 });
@@ -3777,7 +3790,7 @@ app.post('/api/enviar-prueba', async (req, res) => {
     } else {
       await client.sendMessage(destino, `[PRUEBA MODO SABOR]\n\n${mensaje}`);
     }
-    const pdfPath = path.join(ROOT, 'menu.pdf');
+    const pdfPath = ARCHIVO_PDF;
     if (config.ADJUNTAR_PDF !== false && fs.existsSync(pdfPath)) {
       await esperar(2000);
       await client.sendMessage(destino, MessageMedia.fromFilePath(pdfPath));
