@@ -19,6 +19,21 @@ Function PanelReady()
   On Error GoTo 0
 End Function
 
+' Configuración local (dirección del sistema y token para pedidos y turnos).
+Dim envFile, envStream, linea, pos
+envFile = root & "\local.env"
+If files.FileExists(envFile) Then
+  Set envStream = files.OpenTextFile(envFile, 1)
+  Do While Not envStream.AtEndOfStream
+    linea = Trim(envStream.ReadLine)
+    pos = InStr(linea, "=")
+    If pos > 1 And Left(linea, 1) <> "#" Then
+      shell.Environment("Process")(Trim(Left(linea, pos - 1))) = Trim(Mid(linea, pos + 1))
+    End If
+  Loop
+  envStream.Close
+End If
+
 ready = PanelReady()
 If Not ready Then
   shell.CurrentDirectory = root

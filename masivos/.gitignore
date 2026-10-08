@@ -8,3 +8,4 @@ data/chat-estados.json
 data/
 logs/
 *.log
+local.env
