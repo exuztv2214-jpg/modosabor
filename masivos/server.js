@@ -2001,6 +2001,7 @@ function iniciarWhatsApp() {
   client.on('message_create', (msg) => {
     if (!msg.fromMe || !msg.to || msg.to === 'status@broadcast' || msg.isStatus) return;
     guardarMensajeConversacion(msg, msg.to);
+    emit('saliente', { numero: msg.to });
   });
 
   client.on('message_ack', (msg, ack) => {
@@ -2610,6 +2611,55 @@ function vincularFotosCache() {
   return { clientes, chats };
 }
 
+// Guarda sólo las fotos sobre los archivos actuales. Antes se reescribían los
+// clientes y chats leídos al empezar, y como el trabajo dura minutos, pisaba los
+// mensajes que entraban mientras tanto.
+function guardarFotos(fotos) {
+  if (!fotos.size) return;
+  for (const archivo of [ARCHIVO_CLIENTES, ARCHIVO_CHATS]) {
+    const items = leerJsonSeguro(archivo, []);
+    let cambio = false;
+    for (const item of items) {
+      const numero = item && (item.numero || item.id?._serialized || item.id);
+      if (!fotos.has(numero)) continue;
+      const foto = fotos.get(numero);
+      if (foto) item.foto = foto;
+      else delete item.foto;
+      cambio = true;
+    }
+    if (cambio) escribirJsonSeguro(archivo, items);
+  }
+  fotos.clear();
+}
+
+// Busca en la memoria de WhatsApp Web la foto de muchos contactos de una vez
+// (miniaturas de la lista de chats y de la agenda). Devuelve { id: url }.
+async function fotosEnMemoria(ids) {
+  return conTiempoLimite(
+    client.pupPage.evaluate((ids) => {
+      const C = window.require('WAWebCollections');
+      const salida = {};
+      const urlDe = (thumb) => thumb && (thumb.eurl || thumb.imgFull || thumb.img);
+      for (const id of ids) {
+        try {
+          const url =
+            urlDe(C.ProfilePicThumb && C.ProfilePicThumb.get(id)) ||
+            urlDe(C.Contact.get(id) && C.Contact.get(id).profilePicThumb) ||
+            urlDe(
+              C.Chat.get(id) && C.Chat.get(id).contact && C.Chat.get(id).contact.profilePicThumb
+            );
+          if (url) salida[id] = url;
+        } catch (e) {
+          /* sigue con el próximo */
+        }
+      }
+      return salida;
+    }, ids),
+    20000,
+    'Fotos en memoria'
+  );
+}
+
 async function correrFotos() {
   if (fotosJob.corriendo) return;
   const { clientes, chats } = vincularFotosCache();
@@ -2630,42 +2680,71 @@ async function correrFotos() {
   registrarLog(`📸 Descargando fotos de perfil (${pendientes.length} pendientes)…`);
   emit('fotos', { tipo: 'inicio', total: fotosJob.total });
 
-  let conFoto = 0;
+  const fotos = new Map();
+  let deMemoria = 0;
+  let delServidor = 0;
+  const bajar = async (c, url) => {
+    const archivo = nombreArchivoFoto(c.numero);
+    await descargarBuffer(url, path.join(DIR_FOTOS, archivo));
+    fotos.set(c.numero, archivo);
+  };
+
+  // 1) Todas las que WhatsApp Web ya tiene cargadas, en una sola consulta.
+  let enMemoria = {};
+  try {
+    enMemoria = await fotosEnMemoria(pendientes.map((c) => c.numero));
+  } catch (e) {
+    registrarLog(`⚠️ No se pudieron leer las fotos en memoria: ${e.message}`);
+  }
+  const resto = [];
   for (const c of pendientes) {
+    const url = enMemoria[c.numero];
+    if (!url) {
+      resto.push(c);
+      continue;
+    }
+    try {
+      await bajar(c, url);
+      deMemoria++;
+    } catch (e) {
+      resto.push(c);
+      continue;
+    }
+    fotosJob.hechos++;
+  }
+  guardarFotos(fotos);
+  emit('fotos', { tipo: 'progreso', hechos: fotosJob.hechos, total: fotosJob.total });
+
+  // 2) Las demás, una por una al servidor de WhatsApp (las que no tienen foto
+  //    visible por privacidad son las que tardan hasta agotar el tiempo).
+  for (const c of resto) {
+    if (motor.corriendo) break; // una campaña tiene prioridad: se retoma más tarde
     try {
       const url = await conTiempoLimite(
         obtenerFotoPerfil(c.numero, c.telefono),
-        12000,
+        8000,
         'Foto de perfil'
       );
       if (url) {
-        const archivo = nombreArchivoFoto(c.numero);
-        await descargarBuffer(url, path.join(DIR_FOTOS, archivo));
-        c.foto = archivo;
-        conFoto++;
-      } else delete c.foto;
+        await bajar(c, url);
+        delServidor++;
+      }
     } catch (e) {
-      delete c.foto;
-    }
-    const chat = chats.find((item) => item.numero === c.numero);
-    if (chat) {
-      if (c.foto) chat.foto = c.foto;
-      else delete chat.foto;
+      /* sin foto visible o sin respuesta */
     }
     fotosJob.hechos++;
     if (fotosJob.hechos % 10 === 0) {
-      escribirJsonSeguro(ARCHIVO_CLIENTES, clientes);
-      escribirJsonSeguro(ARCHIVO_CHATS, chats);
+      guardarFotos(fotos);
       emit('fotos', { tipo: 'progreso', hechos: fotosJob.hechos, total: fotosJob.total });
     }
-    await esperar(400);
+    await esperar(300);
   }
 
-  escribirJsonSeguro(ARCHIVO_CLIENTES, clientes);
-  escribirJsonSeguro(ARCHIVO_CHATS, chats);
+  guardarFotos(fotos);
   fotosJob.corriendo = false;
+  const conFoto = deMemoria + delServidor;
   registrarLog(
-    `📸 Fotos listas: ${conFoto} con foto · ${fotosJob.total - conFoto} sin foto visible (privacidad).`
+    `📸 Fotos listas: ${conFoto} nuevas (${deMemoria} desde la memoria de WhatsApp, ${delServidor} pedidas al servidor) · ${fotosJob.total - conFoto} sin foto visible.`
   );
   emit('fotos', { tipo: 'fin', conFoto, sinFoto: fotosJob.total - conFoto });
 }
@@ -3179,6 +3258,72 @@ app.get('/api/conversaciones', async (req, res) => {
   } catch (e) {
     res.json({ disponible: false, conversaciones: [], motivo: e.message });
   }
+});
+
+// Historial de un chat: WhatsApp Web sólo tiene en memoria los últimos mensajes,
+// así que al abrir un chat con pocos guardados se piden los anteriores con la
+// función de la librería (fetchMessages). De a uno por vez y nunca durante una
+// campaña, para no trabar la página de WhatsApp. Responde enseguida; cuando
+// termina avisa por SSE ("historial") para que el panel recargue el chat.
+const historialJob = { numero: null, recientes: new Map() };
+
+async function traerHistorial(numero) {
+  const chat = await conTiempoLimite(client.getChatById(numero), 15000, 'Abrir chat');
+  const mensajes = await conTiempoLimite(
+    chat.fetchMessages({ limit: 60 }),
+    25000,
+    'Historial del chat'
+  );
+  const chats = leerJsonSeguro(ARCHIVO_CHATS, []);
+  let nuevos = 0;
+  for (const msg of mensajes) {
+    if (msg.isStatus || ['e2e_notification', 'notification_template'].includes(msg.type)) continue;
+    if (appendChatMessage(chats, msg, numero)) nuevos++;
+  }
+  if (nuevos) {
+    const guardado = chats.find(
+      (item) => (item.numero || item.id?._serialized || item.id) === numero
+    );
+    if (guardado) {
+      guardado.mensajes = guardado.mensajes
+        .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0))
+        .slice(-100);
+      // appendChatMessage marca como "último" el que agregó; acá van mensajes viejos.
+      const ultimo = guardado.mensajes.at(-1);
+      guardado.timestamp = ultimo.timestamp;
+      guardado.lastMessageBody = ultimo.body;
+      guardado.lastMessageType = ultimo.type;
+      guardado.lastMessageFromMe = ultimo.fromMe;
+      guardado.texto = ultimo.body;
+      guardado.tipo = ultimo.type;
+      guardado.fromMe = ultimo.fromMe;
+    }
+    escribirJsonSeguro(ARCHIVO_CHATS, chats);
+  }
+  return nuevos;
+}
+
+app.post('/api/conversacion/historial', (req, res) => {
+  const numero = String((req.body || {}).numero || '').trim();
+  if (!/@(c\.us|lid|g\.us)$/.test(numero)) return res.status(400).json({ error: 'Chat inválido.' });
+  if (!client || estadoWA.estado !== 'listo')
+    return res.status(409).json({ error: 'WhatsApp no está listo.' });
+  if (motor.corriendo || listaJob.corriendo || historialJob.numero)
+    return res.json({ ok: false, ocupado: true });
+  const ultima = historialJob.recientes.get(numero) || 0;
+  if (Date.now() - ultima < 10 * 60 * 1000) return res.json({ ok: false, reciente: true });
+  historialJob.numero = numero;
+  historialJob.recientes.set(numero, Date.now());
+  res.json({ ok: true, iniciado: true });
+  traerHistorial(numero)
+    .then((nuevos) => emit('historial', { numero, nuevos }))
+    .catch((e) => {
+      registrarLog(`⚠️ No se pudo traer el historial de un chat: ${e.message}`);
+      emit('historial', { numero, nuevos: 0, error: e.message });
+    })
+    .finally(() => {
+      historialJob.numero = null;
+    });
 });
 
 app.post('/api/conversacion/mensaje', async (req, res) => {

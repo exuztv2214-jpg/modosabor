@@ -111,6 +111,17 @@ assert.equal(
   'no pisa un nombre real con el número'
 );
 
+// Un mensaje en vivo actualiza la vista previa de un chat ya guardado (normalizado).
+const guardadoNormalizado = sync.normalizeChats([
+  { id: 'vivo@lid', lastMessageBody: 'Mensaje viejo', timestamp: 10, mensajes: [] },
+]);
+sync.appendChatMessage(
+  guardadoNormalizado,
+  { id: { _serialized: 'm-nuevo' }, body: 'Mensaje nuevo', timestamp: 20 },
+  'vivo@lid'
+);
+assert.equal(sync.normalizeChats(guardadoNormalizado)[0].texto, 'Mensaje nuevo');
+
 // La miniatura en base64 de una foto no se muestra como texto del mensaje.
 const miniatura = '/9j/4AAQSkZJRgABAQAAAQABAAD' + 'A'.repeat(80);
 assert.equal(sync.cuerpoLimpio(miniatura, 'image'), '');

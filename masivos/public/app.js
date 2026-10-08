@@ -43,6 +43,8 @@ const state = {
   campaignStep: 1,
   contactsLimit: 60,
   chatsLimit: 80,
+  historyRequested: {},
+  loadingHistory: '',
   campaignSegment: '',
   campaignGroup: '',
   chatOpen: false,
@@ -1047,6 +1049,18 @@ function loadConversation(numero) {
       state.conversation = conversation;
       render();
       scrollConversationToBottom();
+      // Con pocos mensajes guardados, se piden los anteriores a WhatsApp (una vez).
+      if ((conversation.mensajes || []).length < 20 && !state.historyRequested[numero]) {
+        state.historyRequested[numero] = true;
+        api('/api/conversacion/historial', { method: 'POST', body: JSON.stringify({ numero }) })
+          .then((r) => {
+            if (r.iniciado) {
+              state.loadingHistory = numero;
+              render();
+            }
+          })
+          .catch(() => {});
+      }
     })
     .catch((error) => {
       state.conversation = { disponible: false, mensajes: [], motivo: error.message };
@@ -1119,7 +1133,7 @@ function renderConversaciones() {
     ? `<div class="conversation-head"><button class="wa-back back-to-list" data-action="chat-back" aria-label="Volver a la lista">${icon('arrow_back_ios')}</button>${avatarMarkup(chat)}<div class="phone-identity"><strong>${esc(chatName(chat))}</strong><small>${esc(chatContactLabel(chat) || 'Contacto de WhatsApp')}</small></div><label class="sr-only" for="conversation-status">Clasificación</label><select class="chat-status" id="conversation-status" title="Clasificación">${estados.map(([value, label]) => `<option value="${value}" ${value === estadoActual ? 'selected' : ''}>${label}</option>`).join('')}</select></div>`
     : '';
   const cuerpo = chat.numero
-    ? `${conversationMessages(chat)}${pendingChatBubble()}`
+    ? `${state.loadingHistory === chat.numero ? '<span class="date-chip">Buscando mensajes anteriores…</span>' : ''}${conversationMessages(chat)}${pendingChatBubble()}`
     : `<div class="chat-placeholder">${icon('forum')}<strong>Elegí un chat</strong><span>Los mensajes aparecen acá.</span></div>`;
   const composer = chat.numero
     ? `<div class="wa-compose composer"><label class="chat-attach-button" title="Adjuntar imagen, PDF o audio">${icon('add')}<input id="chat-file" type="file" hidden accept="image/*,application/pdf,audio/*"></label>${state.chatAttachment ? `<button class="wa-icon-button" data-action="remove-chat-attachment" aria-label="Quitar adjunto">${icon('close')}</button>` : ''}<label class="sr-only" for="chat-message">Mensaje</label><input id="chat-message" type="text" value="${esc(state.chatDraft)}" placeholder="Mensaje" autocomplete="off"><button class="wa-send" data-action="send-chat" aria-label="Enviar">${icon('arrow_upward')}</button></div>`
@@ -1606,6 +1620,16 @@ function connectLive() {
       const feed = $('.activity');
       if (feed) render();
     }
+  });
+  stream.addEventListener('historial', (event) => {
+    const info = JSON.parse(event.data || '{}');
+    if (state.loadingHistory === info.numero) state.loadingHistory = '';
+    if (info.numero === state.selectedChatNumber) loadConversation(info.numero);
+  });
+  // Mensajes que salen desde el celular o desde el panel.
+  stream.addEventListener('saliente', (event) => {
+    const info = JSON.parse(event.data || '{}');
+    if (info.numero && info.numero === state.selectedChatNumber) loadConversation(info.numero);
   });
   stream.addEventListener('programado', () => {
     showToast('Arrancó el envío programado.');

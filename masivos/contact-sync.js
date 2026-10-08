@@ -229,6 +229,11 @@ function appendChatMessage(chats, message, numero) {
   chat.lastMessageBody = item.body;
   chat.lastMessageType = item.type;
   chat.lastMessageFromMe = item.fromMe;
+  // Los chats ya guardados usan los campos normalizados: se actualizan también,
+  // si no la lista seguía mostrando el mensaje anterior.
+  chat.texto = item.body;
+  chat.tipo = item.type;
+  chat.fromMe = item.fromMe;
   return true;
 }
 
