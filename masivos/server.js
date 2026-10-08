@@ -27,6 +27,7 @@ const {
   normalizarContactosLivianos,
   normalizarMapeosLid,
   conTiempoLimite,
+  esNombreGenerico,
 } = require('./contact-sync');
 const { nombreArchivoFoto, vincularFotosExistentes } = require('./photo-cache');
 const { armarMensaje, normalizarSegmento } = require('./mensaje');
@@ -1091,8 +1092,11 @@ function enriquecerCliente(cliente, contexto) {
     (segmentos.includes('frio') ? 18 : 0) -
     (segmentos.includes('viejo') ? 12 : 0);
 
+  // Sin nombre en WhatsApp (sólo el número): se usa el nombre con el que pidió.
+  const nombrePedido = real && real.nombre && esNombreGenerico(cliente.nombre) ? real.nombre : null;
   return {
     ...cliente,
+    ...(nombrePedido ? { nombre: nombrePedido, nombreDesdePedido: true } : {}),
     segmentosAuto: segmentos,
     scoreAuto: score,
     metricas: {
@@ -1957,6 +1961,7 @@ function iniciarWhatsApp() {
     estadoWA = { estado: 'listo', qr: null };
     emit('estado', estadoWA);
     registrarLog('✅ WhatsApp listo (panel web).');
+    setTimeout(() => descargarFotosPendientes('al conectar'), 2 * 60 * 1000);
   });
 
   client.on('auth_failure', (msg) => {
@@ -2495,7 +2500,8 @@ async function correrAnalisis(limite) {
         if (r.negocio) cli.negocio = true;
         else delete cli.negocio;
         const nombreActual = (cli.nombre || '').trim();
-        if (r.nombre && nombreActual.length <= 2) cli.nombre = r.nombre;
+        if (r.nombre && !esNombreGenerico(r.nombre) && esNombreGenerico(nombreActual))
+          cli.nombre = r.nombre;
         cli.analizado = true;
         analisis.hechos++;
       });
@@ -3094,7 +3100,11 @@ async function obtenerConversacionesPanel() {
       return {
         ...cliente,
         numero: chat.numero,
-        nombre: chat.nombre || cliente.nombre || (chat.grupo ? 'Grupo de WhatsApp' : 'Sin nombre'),
+        nombre:
+          [chat.nombre, cliente.nombre].find((n) => n && !esNombreGenerico(n)) ||
+          chat.nombre ||
+          cliente.nombre ||
+          (chat.grupo ? 'Grupo de WhatsApp' : 'Sin nombre'),
         grupo: chat.grupo,
         foto: chat.foto || cliente.foto,
         texto: respuesta?.texto || chat.texto || '',
@@ -3102,6 +3112,11 @@ async function obtenerConversacionesPanel() {
           respuesta?.hora ||
           (chat.timestamp ? new Date(chat.timestamp * 1000).toLocaleDateString('es-AR') : ''),
         tipo: respuesta?.tipo || null,
+        // Último mensaje del chat, para la lista estilo WhatsApp.
+        ultimoTexto: chat.texto || '',
+        ultimoTipo: chat.tipo || '',
+        ultimoMio: Boolean(chat.fromMe),
+        timestamp: chat.timestamp || null,
         estado: estadoChat?.estado || respuesta?.estado || 'nuevo',
         nota: estadoChat?.nota || '',
         id: respuesta?.id || `chat:${chat.numero}`,
@@ -3403,7 +3418,8 @@ app.post('/api/listar', async (req, res) => {
                   .map((message) => ({
                     id: message.id?._serialized || message.id?.id || null,
                     fromMe: Boolean(message.id?.fromMe),
-                    body: String(message.body || ''),
+                    // En fotos y videos "body" es la miniatura: el texto va en "caption".
+                    body: String(message.caption || message.body || ''),
                     type: message.type || 'chat',
                     hasMedia: Boolean(message.mediaData),
                     timestamp: Number(message.t || 0) || null,
@@ -3517,7 +3533,11 @@ app.post('/api/listar', async (req, res) => {
                     const model = window.WWebJS.getContactModel(contact);
                     return {
                       id: model.id?._serialized || model.id || null,
-                      name: model.name || model.pushname || model.shortName || '',
+                      // Agendado > nombre de perfil > empresa; nunca el número.
+                      name:
+                        [model.name, model.pushname, model.verifiedName, model.shortName].find(
+                          (n) => n && /\p{L}/u.test(n)
+                        ) || '',
                       phoneNumber: model.phoneNumber?._serialized || model.phoneNumber || '',
                       userid: model.userid || '',
                       isGroup: model.isGroup,
@@ -3556,6 +3576,7 @@ app.post('/api/listar', async (req, res) => {
         });
         if (!analisis.corriendo) vincularFotosCache();
         actualizarPedidosReales();
+        descargarFotosPendientes('después de sincronizar');
       } catch (error) {
         registrarLog(`❌ Error completando la sincronización: ${error.message}`);
         emit('lista', { tipo: 'error', error: error.message });
@@ -3962,6 +3983,22 @@ servidor.on('error', (e) => {
   }
   process.exit(1);
 });
+
+// ---------- Fotos de perfil automáticas ----------
+// Antes sólo se bajaban tocando "Fotos": los chats nuevos quedaban sin foto.
+// Se piden las que faltan después de cada sincronización y cada 6 horas,
+// nunca durante una campaña (comparten la misma página de WhatsApp).
+function descargarFotosPendientes(motivo) {
+  if (estadoWA.estado !== 'listo' || fotosJob.corriendo || motor.corriendo || analisis.corriendo)
+    return;
+  if (listaJob.corriendo) return;
+  registrarLog(`📸 Buscando fotos de perfil que faltan (${motivo}).`);
+  correrFotos().catch((e) => {
+    fotosJob.corriendo = false;
+    registrarLog(`⚠️ No se pudieron actualizar las fotos: ${e.message}`);
+  });
+}
+setInterval(() => descargarFotosPendientes('revisión periódica'), 6 * 60 * 60 * 1000);
 
 // ---------- Pedidos reales del sistema Modo Sabor ----------
 

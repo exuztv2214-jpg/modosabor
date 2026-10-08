@@ -28,6 +28,14 @@ async function conTiempoLimite(promise, ms, etiqueta) {
   }
 }
 
+// "Nombre" que en realidad no lo es: vacío, de relleno, o el número de teléfono
+// (WhatsApp titula así los chats de quien no está agendado).
+const NOMBRES_DE_RELLENO = new Set(['Sin nombre', 'Contacto WhatsApp', 'Contacto importado']);
+function esNombreGenerico(nombre) {
+  const n = String(nombre || '').trim();
+  return !n || NOMBRES_DE_RELLENO.has(n) || !/\p{L}/u.test(n);
+}
+
 function mergeSyncedContacts(chats, contacts, previous, lidMappings = []) {
   const phoneToLid = new Map();
   const phoneByLid = new Map();
@@ -66,15 +74,16 @@ function mergeSyncedContacts(chats, contacts, previous, lidMappings = []) {
     const telefono = phoneByLid.get(numero) || (digits !== lidDigits ? digits : '');
     const incomingName = String(name || '').trim();
     const record = records.get(numero);
+    // Un nombre real gana a un número o a "Sin nombre", venga de donde venga.
+    const nombres = [old?.nombre, incomingName, record?.nombre];
     const merged = {
       ...(record || old || {}),
       ...(old || {}),
       numero,
       nombre:
-        old?.nombre &&
-        !['Sin nombre', 'Contacto WhatsApp', 'Contacto importado'].includes(old.nombre)
-          ? old.nombre
-          : incomingName || record?.nombre || old?.nombre || 'Sin nombre',
+        nombres.find((n) => n && !esNombreGenerico(n)) ||
+        nombres.find((n) => String(n || '').trim()) ||
+        'Sin nombre',
       ...(telefono ? { telefono } : {}),
       ...(lastMessage ? { ultimoMensaje: lastMessage } : {}),
     };
@@ -120,6 +129,17 @@ function mergeSyncedContacts(chats, contacts, previous, lidMappings = []) {
   );
 }
 
+// En los mensajes con foto o video, WhatsApp Web guarda en "body" la miniatura en
+// base64 ("/9j/4AAQ..."), no el texto. Se descarta para no mostrar basura.
+const TIPOS_MEDIA = new Set(['image', 'video', 'sticker', 'ptt', 'audio', 'document']);
+function cuerpoLimpio(body, type) {
+  const texto = String(body || '');
+  const compacto = texto.replace(/\s/g, '');
+  const pareceBase64 = compacto.length >= 60 && /^[A-Za-z0-9+/=]+$/.test(compacto);
+  if (pareceBase64 && (TIPOS_MEDIA.has(type) || /^(\/9j\/|iVBOR|UklGR)/.test(compacto))) return '';
+  return texto;
+}
+
 function normalizeChats(chats) {
   return (chats || [])
     .map((chat) => {
@@ -129,7 +149,7 @@ function normalizeChats(chats) {
         ? chat.mensajes.slice(-100).map((mensaje) => ({
             id: String(mensaje?.id || '') || null,
             fromMe: Boolean(mensaje?.fromMe),
-            body: String(mensaje?.body || ''),
+            body: cuerpoLimpio(mensaje?.body, String(mensaje?.type || 'chat')),
             type: String(mensaje?.type || 'chat'),
             hasMedia: Boolean(mensaje?.hasMedia),
             timestamp: Number(mensaje?.timestamp) || null,
@@ -144,7 +164,10 @@ function normalizeChats(chats) {
         grupo: Boolean(chat?.grupo || chat?.isGroup || chat?.groupMetadata),
         canal: Boolean(chat?.canal || chat?.isChannel || chat?.newsletterMetadata),
         noLeidos: Number(chat?.noLeidos || chat?.unreadCount || 0),
-        texto: String(chat?.texto || chat?.lastMessageBody || '').trim(),
+        texto: cuerpoLimpio(
+          String(chat?.texto || chat?.lastMessageBody || '').trim(),
+          String(chat?.tipo || chat?.lastMessageType || '')
+        ),
         tipo: String(chat?.tipo || chat?.lastMessageType || ''),
         fromMe: Boolean(chat?.fromMe || chat?.lastMessageFromMe),
         ...(chat?.foto ? { foto: String(chat.foto) } : {}),
@@ -194,7 +217,7 @@ function appendChatMessage(chats, message, numero) {
   const item = {
     id: serializedId(message?.id) || null,
     fromMe: Boolean(message?.fromMe || message?.id?.fromMe),
-    body: String(message?.body || message?.caption || ''),
+    body: cuerpoLimpio(message?.body || message?.caption || '', message?.type || 'chat'),
     type: message?.type || 'chat',
     hasMedia: Boolean(message?.hasMedia || message?.mediaData),
     timestamp: Number(message?.timestamp || message?.t || Math.floor(Date.now() / 1000)),
@@ -238,6 +261,8 @@ function normalizarMapeosLid(items) {
 }
 
 module.exports = {
+  cuerpoLimpio,
+  esNombreGenerico,
   mergeSyncedContacts,
   normalizeChats,
   mergeChats,

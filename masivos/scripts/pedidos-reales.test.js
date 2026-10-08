@@ -22,17 +22,17 @@ const contactos = [
 const cruce = cruzarPedidos(contactos, [
   { telefono: '3863412345', pedidos: 2, ultimoPedido: '2026-10-01' },
   { telefono: '03863-15-412345', pedidos: 1, ultimoPedido: '2026-10-07' },
-  { telefono: '0381 15 555-1234', pedidos: 4, ultimoPedido: '2026-09-01' },
+  { telefono: '0381 15 555-1234', pedidos: 4, ultimoPedido: '2026-09-01', nombre: 'Beto' },
   { telefono: '998877', pedidos: 9, ultimoPedido: '2026-10-07' },
   { telefono: '123', pedidos: 3, ultimoPedido: '2026-10-07' },
 ]);
 
 assert.deepEqual(
   cruce.get('ana@lid'),
-  { pedidos: 3, ultimoPedido: '2026-10-07' },
+  { pedidos: 3, ultimoPedido: '2026-10-07', nombre: '' },
   'suma las distintas formas de escribir el mismo teléfono'
 );
-assert.deepEqual(cruce.get('beto@lid'), { pedidos: 4, ultimoPedido: '2026-09-01' });
+assert.deepEqual(cruce.get('beto@lid'), { pedidos: 4, ultimoPedido: '2026-09-01', nombre: 'Beto' });
 assert.equal(cruce.has('carla@lid'), false, 'un número local ambiguo no se asigna');
 assert.equal(cruce.has('dani@lid'), false);
 assert.equal(cruce.size, 2);

@@ -42,6 +42,7 @@ const state = {
   logs: [],
   campaignStep: 1,
   contactsLimit: 60,
+  chatsLimit: 80,
   campaignSegment: '',
   campaignGroup: '',
   chatOpen: false,
@@ -64,13 +65,15 @@ const esc = (value) =>
     /[&<>"']/g,
     (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' })[c]
   );
+// Primeras letras o números de hasta dos palabras (ignora emojis y símbolos).
 const initials = (name) =>
-  String(name || '?')
+  String(name || '')
     .split(/\s+/)
+    .map((palabra) => Array.from(palabra).find((ch) => /[\p{L}\p{N}]/u.test(ch)))
+    .filter(Boolean)
     .slice(0, 2)
-    .map((x) => x[0])
     .join('')
-    .toUpperCase();
+    .toUpperCase() || '?';
 const money = (value) =>
   value == null
     ? '—'
@@ -920,42 +923,69 @@ function detailCard(c) {
 // ---------- Chats ----------
 
 function messageTime(timestamp) {
-  if (!timestamp) return '—';
+  if (!timestamp) return '';
   const date = new Date(Number(timestamp) * 1000);
   return Number.isNaN(date.getTime())
-    ? '—'
-    : date.toLocaleString('es-AR', {
-        day: '2-digit',
-        month: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: false,
-      });
+    ? ''
+    : date.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false });
+}
+
+// Como la lista de WhatsApp: hora si es hoy, "Ayer", día de la semana o fecha.
+function chatListTime(timestamp) {
+  if (!timestamp) return '';
+  const date = new Date(Number(timestamp) * 1000);
+  if (Number.isNaN(date.getTime())) return '';
+  const hoy = new Date();
+  const dias = Math.round(
+    (new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate()) -
+      new Date(date.getFullYear(), date.getMonth(), date.getDate())) /
+      86400000
+  );
+  if (dias <= 0) return messageTime(timestamp);
+  if (dias === 1) return 'Ayer';
+  if (dias < 7) return date.toLocaleDateString('es-AR', { weekday: 'long' });
+  return date.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: '2-digit' });
+}
+
+function dayLabel(timestamp) {
+  const etiqueta = chatListTime(timestamp);
+  if (!etiqueta) return '';
+  if (/^\d{1,2}:\d{2}$/.test(etiqueta)) return 'Hoy';
+  return etiqueta.charAt(0).toUpperCase() + etiqueta.slice(1);
 }
 
 function chatContactLabel(contact) {
-  if (contact?.grupo) return 'Grupo de WhatsApp';
-  return (
-    contact?.telefono ||
-    (String(contact?.numero || '').endsWith('@lid')
-      ? 'Número privado de WhatsApp'
-      : contact?.numero || 'Contacto sin identificador')
-  );
+  if (contact?.grupo) return 'Grupo';
+  if (contact?.telefono) return contact.telefono;
+  const numero = String(contact?.numero || '');
+  return numero.endsWith('@lid') ? '' : numero.replace(/@.*/, '');
 }
 
+function chatName(item) {
+  return item?.nombre || chatContactLabel(item) || 'Sin nombre';
+}
+
+// Etiqueta del mensaje como en WhatsApp: "📷 Foto", "🎤 Audio"… con su texto si lo trae.
+const MEDIA_LABELS = {
+  image: '📷 Foto',
+  video: '🎥 Video',
+  audio: '🎤 Audio',
+  ptt: '🎤 Audio',
+  document: '📄 Documento',
+  sticker: '🙂 Sticker',
+  location: '📍 Ubicación',
+  vcard: '👤 Contacto',
+  multi_vcard: '👤 Contactos',
+  revoked: '🚫 Mensaje eliminado',
+  call_log: '📞 Llamada',
+  poll_creation: '📊 Encuesta',
+};
+
 function messageLabel(message) {
-  const labels = {
-    image: 'Imagen adjunta',
-    video: 'Video adjunto',
-    audio: 'Audio adjunto',
-    document: 'Documento adjunto',
-    sticker: 'Sticker adjunto',
-  };
-  return (
-    labels[message.type] ||
-    message.body ||
-    (message.hasMedia ? 'Archivo multimedia' : 'Mensaje sin texto')
-  );
+  const media = MEDIA_LABELS[message.type];
+  const texto = String(message.body || '').trim();
+  if (media) return texto && message.type !== 'revoked' ? `${media.split(' ')[0]} ${texto}` : media;
+  return texto || (message.hasMedia ? '📎 Archivo' : 'Mensaje');
 }
 
 function formatBytes(bytes) {
@@ -966,31 +996,41 @@ function formatBytes(bytes) {
 
 function chatAttachmentVisual(file) {
   if (file.kind === 'image')
-    return `<img src="${esc(file.data)}" alt="Vista previa de ${esc(file.name)}">`;
-  if (file.kind === 'audio')
-    return `${icon('graphic_eq')}<audio controls src="${esc(file.data)}"></audio>`;
-  return icon('picture_as_pdf');
+    return `<img class="wa-media-image" src="${esc(file.data)}" alt="Vista previa de ${esc(file.name)}">`;
+  if (file.kind === 'audio') return `<audio controls src="${esc(file.data)}"></audio>`;
+  return `<div class="wa-document">${icon('description')}<div><strong>${esc(file.name)}</strong><span class="wa-doc-meta">PDF · ${formatBytes(file.size)}</span></div></div>`;
 }
 
 function pendingChatBubble() {
   const file = state.chatAttachment;
   if (!file) return '';
-  return `<div class="wa-bubble pending-media"><div class="pending-media-visual">${chatAttachmentVisual(file)}</div><strong>${esc(file.name)}</strong> · ${formatBytes(file.size)}${state.chatDraft.trim() ? `<p>${esc(state.chatDraft.trim())}</p>` : ''}<time>Vista previa · sin enviar</time></div>`;
+  return `<div class="wa-bubble tail pending-media">${chatAttachmentVisual(file)}${state.chatDraft.trim() ? `<span>${esc(state.chatDraft.trim())}</span>` : ''}<time>sin enviar</time></div>`;
 }
 
 function conversationMessages(chat) {
   const messages = state.conversation?.mensajes || [];
-  if (state.conversation?.disponible && messages.length)
-    return `<div class="conversation-messages">${messages.map((message) => `<div class="wa-bubble ${message.fromMe ? '' : 'inbound'}">${esc(messageLabel(message))}<time>${messageTime(message.timestamp)}${message.fromMe ? '<span class="ticks">✓✓</span>' : ''}</time></div>`).join('')}</div>`;
+  if (state.conversation?.disponible && messages.length) {
+    let diaAnterior = '';
+    const filas = messages.map((message, i) => {
+      const dia = dayLabel(message.timestamp);
+      const separador =
+        dia && dia !== diaAnterior ? `<span class="date-chip">${esc(dia)}</span>` : '';
+      diaAnterior = dia || diaAnterior;
+      const siguiente = messages[i + 1];
+      const finDeGrupo =
+        !siguiente ||
+        Boolean(siguiente.fromMe) !== Boolean(message.fromMe) ||
+        dayLabel(siguiente.timestamp) !== dia;
+      const ticks = message.fromMe
+        ? `<span class="ticks ${Number(message.ack) >= 3 ? 'read' : ''}">✓✓</span>`
+        : '';
+      return `${separador}<div class="wa-bubble ${message.fromMe ? '' : 'inbound'} ${finDeGrupo ? 'tail' : 'grouped'}">${waFormat(esc(messageLabel(message)))}<time>${messageTime(message.timestamp)}${ticks}</time></div>`;
+    });
+    return `<div class="conversation-messages">${filas.join('')}</div>`;
+  }
   if (state.conversation && !messages.length)
-    return empty(
-      'chat_bubble_outline',
-      'No hay mensajes guardados',
-      esc(state.conversation.motivo || 'Todavía no hay mensajes registrados para este chat.')
-    );
-  return chat.numero
-    ? empty('hourglass_top', 'Cargando conversación…', '')
-    : empty('forum', 'Elegí un chat', 'Los mensajes aparecen acá.');
+    return `<span class="date-chip">${esc(state.conversation.motivo || 'Todavía no hay mensajes guardados de este chat.')}</span>`;
+  return chat.numero ? '<span class="date-chip">Cargando…</span>' : '';
 }
 
 function scrollConversationToBottom() {
@@ -1023,6 +1063,8 @@ function chatMatchesFilter(chat, filter) {
   if (filter === 'consultas') return chat.estado === 'consulta';
   if (filter === 'problemas') return chat.estado === 'problema';
   if (filter === 'nuevos') return !chat.estado || chat.estado === 'nuevo';
+  if (filter === 'grupos') return Boolean(chat.grupo);
+  if (filter === 'personas') return !chat.grupo;
   return true;
 }
 
@@ -1040,7 +1082,7 @@ function renderConversaciones() {
           .includes(query))
   );
   const chat = allChats.find((item) => item.numero === state.selectedChatNumber) || {
-    nombre: 'Ningún chat seleccionado',
+    nombre: '',
     numero: '',
     estado: 'nuevo',
   };
@@ -1055,8 +1097,9 @@ function renderConversaciones() {
   ];
   const estadoActual = estados.some(([value]) => value === chat.estado) ? chat.estado : 'nuevo';
   const filtros = [
-    ['todos', 'Todos', allChats.length],
-    ['nuevos', 'Nuevos'],
+    ['todos', 'Todos'],
+    ['personas', 'Personas'],
+    ['grupos', 'Grupos'],
     ['pedidos', 'Pedidos'],
     ['consultas', 'Consultas'],
     ['problemas', 'Problemas'],
@@ -1065,16 +1108,43 @@ function renderConversaciones() {
     return `<button class="chat-filter ${state.chatFilter === f ? 'active' : ''}" data-action="chat-filter" data-filter="${f}">${label} ${n}</button>`;
   });
   const conectado = state.status?.whatsapp === 'listo';
+  const visibles = chats.slice(0, state.chatsLimit);
+  const lista = visibles.length
+    ? visibles.map((item) => chatRow(item)).join('') +
+      (chats.length > visibles.length
+        ? `<button class="chat-more" data-action="chats-more">Ver ${fmt(Math.min(80, chats.length - visibles.length))} chats más</button>`
+        : '')
+    : empty('search_off', 'No hay chats', 'Probá con otro nombre o filtro.');
+  const cabecera = chat.numero
+    ? `<div class="conversation-head"><button class="wa-back back-to-list" data-action="chat-back" aria-label="Volver a la lista">${icon('arrow_back_ios')}</button>${avatarMarkup(chat)}<div class="phone-identity"><strong>${esc(chatName(chat))}</strong><small>${esc(chatContactLabel(chat) || 'Contacto de WhatsApp')}</small></div><label class="sr-only" for="conversation-status">Clasificación</label><select class="chat-status" id="conversation-status" title="Clasificación">${estados.map(([value, label]) => `<option value="${value}" ${value === estadoActual ? 'selected' : ''}>${label}</option>`).join('')}</select></div>`
+    : '';
+  const cuerpo = chat.numero
+    ? `${conversationMessages(chat)}${pendingChatBubble()}`
+    : `<div class="chat-placeholder">${icon('forum')}<strong>Elegí un chat</strong><span>Los mensajes aparecen acá.</span></div>`;
+  const composer = chat.numero
+    ? `<div class="wa-compose composer"><label class="chat-attach-button" title="Adjuntar imagen, PDF o audio">${icon('add')}<input id="chat-file" type="file" hidden accept="image/*,application/pdf,audio/*"></label>${state.chatAttachment ? `<button class="wa-icon-button" data-action="remove-chat-attachment" aria-label="Quitar adjunto">${icon('close')}</button>` : ''}<label class="sr-only" for="chat-message">Mensaje</label><input id="chat-message" type="text" value="${esc(state.chatDraft)}" placeholder="Mensaje" autocomplete="off"><button class="wa-send" data-action="send-chat" aria-label="Enviar">${icon('arrow_upward')}</button></div>`
+    : '';
   return `${pageHead('Chats', 'Tus conversaciones de WhatsApp: respondé, adjuntá y clasificá.', `<span class="badge ${conectado ? 'green' : 'red'}"><span class="dot"></span>${conectado ? 'WhatsApp conectado' : 'Sin conexión'}</span><button class="button secondary" data-action="refresh">${icon('sync')}Actualizar</button>`)}
   <div class="inbox-grid ${state.chatOpen && chat.numero ? 'chat-open' : ''}">
-    <section class="card message-list"><div class="message-list-head"><label class="chat-search-wrap"><span class="sr-only">Buscar chats</span>${icon('search')}<input class="input" id="chat-search" placeholder="Buscar chats" value="${esc(state.chatQuery)}"></label><div class="chat-filters">${filtros.join('')}</div></div><div class="chat-scroll">${chats.length ? chats.map((item) => chatRow(item)).join('') : empty('search_off', 'No hay chats', 'Probá con otro nombre o filtro.')}</div></section>
-    <section class="card conversation">${chat.numero ? `<div class="conversation-head"><button class="button ghost icon back-to-list" data-action="chat-back" aria-label="Volver a la lista">${icon('arrow_back')}</button>${avatarMarkup(chat)}<div style="min-width:0"><h2>${esc(chat.nombre)}</h2><p>${esc(chatContactLabel(chat))}</p></div>${chat.numero ? `<label class="sr-only" for="conversation-status">Clasificación</label><select class="input" id="conversation-status">${estados.map(([value, label]) => `<option value="${value}" ${value === estadoActual ? 'selected' : ''}>${label}</option>`).join('')}</select>` : ''}</div>` : ''}<div class="conversation-body">${conversationMessages(chat)}${pendingChatBubble()}</div>${chat.numero ? `<div class="composer"><label class="chat-attach-button" title="Adjuntar imagen, PDF o audio">${icon('attach_file')}<input id="chat-file" type="file" hidden accept="image/*,application/pdf,audio/*"></label>${state.chatAttachment ? `<button class="button ghost icon" data-action="remove-chat-attachment" aria-label="Quitar adjunto">${icon('close')}</button>` : ''}<label class="sr-only" for="chat-message">Mensaje</label><input id="chat-message" type="text" value="${esc(state.chatDraft)}" placeholder="Escribí un mensaje"><button class="button primary icon" data-action="send-chat" aria-label="Enviar">${icon('send')}</button></div>` : ''}</section>
+    <section class="card message-list"><div class="message-list-head"><label class="chat-search-wrap"><span class="sr-only">Buscar chats</span>${icon('search')}<input class="input" id="chat-search" placeholder="Buscar" value="${esc(state.chatQuery)}"></label><div class="chat-filters">${filtros.join('')}</div></div><div class="chat-scroll">${lista}</div></section>
+    <section class="card conversation">${cabecera}<div class="conversation-body">${cuerpo}</div>${composer}</section>
   </div>`;
+}
+
+function chatPreviewText(item) {
+  // Si la última línea es una respuesta de campaña, se muestra ese texto; si no, el último mensaje.
+  const tipo = item.ultimoTipo || '';
+  const texto = item.texto || item.ultimoTexto || '';
+  const etiqueta = messageLabel({ type: tipo, body: texto });
+  return etiqueta === 'Mensaje' ? '' : etiqueta;
 }
 
 function chatRow(item) {
   const unread = state.unreadByChat[item.numero] || 0;
-  return `<div class="inbox-item ${item.numero === state.selectedChatNumber ? 'selected' : ''}" data-chat-number="${esc(item.numero || '')}">${avatarMarkup(item)}<div class="chat-row-copy"><div class="chat-row-top"><strong>${esc(item.nombre || 'Sin nombre')}</strong><time>${esc(item.hora || '')}</time>${unread ? `<b class="chat-unread">${unread > 9 ? '9+' : unread}</b>` : ''}</div><p>${esc(item.texto || item.mensaje || chatContactLabel(item))}</p></div></div>`;
+  const hora = item.timestamp ? chatListTime(item.timestamp) : item.hora || '';
+  const preview = chatPreviewText(item);
+  const mio = item.ultimoMio ? '<span class="ticks">✓✓</span> ' : '';
+  return `<div class="inbox-item ${item.numero === state.selectedChatNumber ? 'selected' : ''} ${unread ? 'unread' : ''}" data-chat-number="${esc(item.numero || '')}">${avatarMarkup(item, 'avatar chat-avatar')}<div class="chat-row-copy"><div class="chat-row-top"><strong>${esc(chatName(item))}</strong><time>${esc(hora)}</time></div><div class="chat-row-bottom"><p>${mio}${esc(preview || chatContactLabel(item))}</p>${unread ? `<b class="chat-unread">${unread > 99 ? '99+' : unread}</b>` : ''}</div></div></div>`;
 }
 
 // ---------- Resultados ----------
@@ -1249,16 +1319,16 @@ function renderWhatsappPreview() {
   const hora = `<time>${esc(ahora)}<span class="ticks">✓✓</span></time>`;
   const message = texto ? waFormat(esc(texto)) : '<em>Escribí el mensaje para ver cómo llega.</em>';
   // Así lo arma el motor: la primera imagen lleva el texto; el resto y el PDF van aparte.
-  const principal = `<div class="wa-bubble">${imagenes[0] ? `<img class="wa-media-image" src="${esc(assetUrl(imagenes[0]))}" alt="Flyer de la campaña">` : ''}<span class="wa-message-copy">${message}</span>${hora}</div>`;
+  const principal = `<div class="wa-bubble ${imagenes.length > 1 || pdf ? '' : 'tail'}">${imagenes[0] ? `<img class="wa-media-image" src="${esc(assetUrl(imagenes[0]))}" alt="Flyer de la campaña">` : ''}<span class="wa-message-copy">${message}</span>${hora}</div>`;
   const otras = imagenes
     .slice(1)
     .map(
-      (src) =>
-        `<div class="wa-bubble"><img class="wa-media-image" src="${esc(assetUrl(src))}" alt="Imagen adicional">${hora}</div>`
+      (src, i, resto) =>
+        `<div class="wa-bubble ${i === resto.length - 1 && !pdf ? 'tail' : ''}"><img class="wa-media-image" src="${esc(assetUrl(src))}" alt="Imagen adicional">${hora}</div>`
     )
     .join('');
   const documento = pdf
-    ? `<div class="wa-bubble"><div class="wa-document">${icon('description')}<div><strong>${esc(pdf)}</strong><span class="wa-doc-meta">PDF</span></div></div>${hora}</div>`
+    ? `<div class="wa-bubble tail"><div class="wa-document">${icon('description')}<div><strong>${esc(pdf)}</strong><span class="wa-doc-meta">PDF</span></div></div>${hora}</div>`
     : '';
   return `<div class="card wa-preview">${cardHead('Vista previa', 'Así llega a cada cliente')}<div class="phone"><div class="wa-status-bar"><span>${esc(ahora)}</span><span class="icons">${icon('signal_cellular_alt')}${icon('wifi')}${icon('battery_full')}</span></div><div class="phone-bar"><span class="material-symbols-outlined back" aria-hidden="true">arrow_back_ios</span><img class="whatsapp-brand-logo" src="${esc(previewLogo())}" alt=""><div class="phone-identity"><strong>${esc(name)}</strong><small>${esc(status)}</small></div><span class="actions">${icon('videocam')}${icon('call')}</span></div><div class="phone-body"><span class="date-chip">Hoy</span>${principal}${otras}${documento}</div><div class="wa-compose">${icon('add')}<span class="input-fake"></span>${icon('photo_camera')}${icon('mic')}</div><div class="wa-home"><i></i></div></div><p class="preview-disclaimer">El saludo y el cierre rotan entre los que configuraste. {NOMBRE} usa el nombre de cada contacto.</p></div>`;
 }
@@ -1630,6 +1700,10 @@ async function action(name, value) {
       }
       return render();
     }
+    if (name === 'chats-more') {
+      state.chatsLimit += 80;
+      return render();
+    }
     if (name === 'contacts-more') {
       state.contactsLimit += 60;
       return render();
@@ -1670,9 +1744,18 @@ async function action(name, value) {
       return showToast('Actualización de fotos iniciada.');
     }
     if (name === 'chat-filter') {
-      state.chatFilter = ['todos', 'nuevos', 'pedidos', 'consultas', 'problemas'].includes(value)
+      state.chatFilter = [
+        'todos',
+        'personas',
+        'grupos',
+        'nuevos',
+        'pedidos',
+        'consultas',
+        'problemas',
+      ].includes(value)
         ? value
         : 'todos';
+      state.chatsLimit = 80;
       return render();
     }
     if (name === 'contacts-view') {
@@ -2076,6 +2159,7 @@ document.addEventListener('input', (event) => {
   }
   if (event.target.id === 'chat-search') {
     state.chatQuery = event.target.value;
+    state.chatsLimit = 80;
     const cursor = event.target.selectionStart;
     render();
     const search = $('#chat-search');

@@ -117,7 +117,9 @@ function verifyFrontendContract() {
   assert.match(app, /state\.conversation\?\.mensajes/);
   assert.match(app, /data-action="save-message"/);
   assert.match(app, /AbortSignal\.timeout\(10000\)/);
-  assert.match(app, /Imagen adjunta/);
+  // Mensajes con multimedia como en WhatsApp, sin miniaturas en base64 como texto.
+  assert.match(app, /image: '📷 Foto'/);
+  assert.match(app, /function chatListTime\(/);
   assert.match(app, /conversation-status/);
   assert.match(app, /api\/conversacion\/mensaje/);
   assert.match(app, /chatAttachment/);

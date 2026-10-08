@@ -89,6 +89,40 @@ assert.equal(
   'no duplica un mensaje ya guardado'
 );
 
+// Un número de teléfono no cuenta como nombre: gana el nombre del perfil de WhatsApp.
+assert.equal(sync.esNombreGenerico('+54 9 3863 50-3847'), true);
+assert.equal(sync.esNombreGenerico('Sin nombre'), true);
+assert.equal(sync.esNombreGenerico('Ana'), false);
+assert.equal(
+  sync.mergeSyncedContacts(
+    [{ id: { _serialized: 'num@lid' }, name: '+54 9 3863 50-3847' }],
+    [{ id: { _serialized: 'num@lid' }, name: 'Ana Gómez' }],
+    [{ numero: 'num@lid', nombre: '+54 9 3863 50-3847' }]
+  )[0].nombre,
+  'Ana Gómez'
+);
+assert.equal(
+  sync.mergeSyncedContacts(
+    [{ id: { _serialized: 'num@lid' }, name: '+54 9 3863 50-3847' }],
+    [],
+    [{ numero: 'num@lid', nombre: 'Ana agendada' }]
+  )[0].nombre,
+  'Ana agendada',
+  'no pisa un nombre real con el número'
+);
+
+// La miniatura en base64 de una foto no se muestra como texto del mensaje.
+const miniatura = '/9j/4AAQSkZJRgABAQAAAQABAAD' + 'A'.repeat(80);
+assert.equal(sync.cuerpoLimpio(miniatura, 'image'), '');
+assert.equal(sync.cuerpoLimpio(miniatura, 'chat'), '', 'aunque el tipo venga mal');
+assert.equal(sync.cuerpoLimpio('Hoy hay pizza', 'image'), 'Hoy hay pizza', 'conserva el texto');
+assert.equal(sync.cuerpoLimpio('a'.repeat(80), 'chat'), 'a'.repeat(80), 'no toca texto común');
+assert.equal(
+  sync.normalizeChats([{ id: 'x@lid', lastMessageBody: miniatura, lastMessageType: 'image' }])[0]
+    .texto,
+  ''
+);
+
 // Sincronizar no borra el historial guardado ni los chats que WhatsApp no devolvió.
 const guardados = [
   {

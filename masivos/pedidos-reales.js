@@ -41,7 +41,7 @@ function formasPedido(telefono) {
 }
 
 // contactos: [{ numero, telefono }] de Masivos. pedidos: [{ telefono, pedidos, ultimoPedido }].
-// Devuelve Map numero -> { pedidos, ultimoPedido }.
+// Devuelve Map numero -> { pedidos, ultimoPedido, nombre }.
 function cruzarPedidos(contactos, pedidos) {
   const porNacional = new Map();
   for (const c of contactos || []) {
@@ -62,10 +62,13 @@ function cruzarPedidos(contactos, pedidos) {
     }
     if (coincidencias.length !== 1) continue;
     const numero = coincidencias[0];
-    const previo = resultado.get(numero) || { pedidos: 0, ultimoPedido: null };
+    const previo = resultado.get(numero) || { pedidos: 0, ultimoPedido: null, nombre: '' };
+    const nombre = String((p && p.nombre) || '').trim();
     resultado.set(numero, {
       pedidos: previo.pedidos + Number(p.pedidos || 0),
       ultimoPedido: [previo.ultimoPedido, p.ultimoPedido].filter(Boolean).sort().pop() || null,
+      // Nombre con el que pidió (sirve cuando WhatsApp no tiene uno).
+      nombre: previo.nombre || (/\p{L}/u.test(nombre) ? nombre : ''),
     });
   }
   return resultado;
