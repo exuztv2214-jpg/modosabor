@@ -12,7 +12,14 @@ assert.equal(typeof sync.normalizarMapeosLid, 'function');
 assert.equal(typeof sync.conTiempoLimite, 'function');
 
 const chats = [
-  { id: { _serialized: 'lid-a@lid' }, name: 'Chat A', timestamp: 10 },
+  {
+    id: { _serialized: 'lid-a@lid' },
+    name: 'Chat A',
+    timestamp: 10,
+    lastMessageBody: 'Mensaje real del chat',
+    lastMessageType: 'chat',
+    lastMessageFromMe: true,
+  },
   { id: { _serialized: 'group@g.us' }, name: 'Grupo', isGroup: true, timestamp: 20 },
 ];
 const contacts = [
@@ -30,6 +37,15 @@ assert.deepEqual(
 assert.equal(merged.find((item) => item.numero === 'lid-a@lid').nombre, 'Agenda A');
 assert.equal(sync.normalizeChats(chats).length, 2, 'la bandeja conserva también los grupos');
 assert.equal(sync.normalizeChats(chats).find((item) => item.grupo).numero, 'group@g.us');
+assert.deepEqual(
+  {
+    texto: sync.normalizeChats(chats)[0].texto,
+    tipo: sync.normalizeChats(chats)[0].tipo,
+    fromMe: sync.normalizeChats(chats)[0].fromMe,
+  },
+  { texto: 'Mensaje real del chat', tipo: 'chat', fromMe: true },
+  'conserva la vista previa real del último mensaje'
+);
 const manyChats = sync.normalizeChats(
   Array.from({ length: 566 }, (_, index) => ({
     id: { _serialized: `chat-${index}@lid` },

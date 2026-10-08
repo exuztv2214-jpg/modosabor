@@ -110,6 +110,8 @@ function verifyFrontendContract() {
   assert.match(app, /avatarMarkup\(item/);
   assert.doesNotMatch(app, /chats\.slice\(0,7\)/);
   assert.match(app, /state\.conversation\?\.mensajes/);
+  assert.match(app, /data-action="save-message"/);
+  assert.match(app, /AbortSignal\.timeout\(10000\)/);
   assert.match(app, /Imagen adjunta/);
   assert.match(app, /conversation-status/);
   assert.match(app, /api\/conversacion\/mensaje/);
@@ -131,8 +133,9 @@ function verifyFrontendContract() {
   assert.match(app, /run-campaign/);
   assert.match(app, /run-simulation/);
   assert.match(app, /token: state\.campaignPlan\.token/);
-  assert.match(app, /replace\(\s*['"]32 ms['"],\s*['"]—['"]\)/);
-  assert.match(app, /replace\(\s*['"]Fase 1['"]/);
+  assert.doesNotMatch(app, /32 ms/);
+  assert.doesNotMatch(app, /Fase 1/);
+  assert.match(app, /const warmupLabel = connected/);
   assert.match(app, /Preparar y revisar envío/);
   assert.match(app, /renderWhatsappPreview/);
   assert.match(app, /WhatsApp ya está vinculado/);
@@ -189,8 +192,10 @@ function verifyFrontendContract() {
   assert.match(server, /sincronizarConversacionesEnCRM\(chats\)/);
   assert.match(server, /escribirJsonSeguro\(ARCHIVO_CLIENTES, listaSincronizada\)/);
   assert.doesNotMatch(server, /fs\.writeFileSync\(ARCHIVO_CLIENTES, JSON\.stringify\(encontrados/);
-  assert.match(server, /WAWebChatLoadMessages/);
-  assert.match(server, /WWebJS\.getChat/);
+  assert.match(server, /const chats = window\.require\(['"]WAWebCollections['"]\)\.Chat/);
+  assert.match(server, /chats\.getModelsArray\(\)\.find/);
+  assert.doesNotMatch(server, /WAWebChatLoadMessages/);
+  assert.match(server, /path\.join\(DIR_DATA, ['"]mensaje-general\.txt['"]\)/);
   assert.match(server, /estadoAutomaticoDesdeTipo/);
   assert.match(server, /clasificarRespuestaTexto\(msg\.body\)/);
   assert.match(server, /estado: estadoAutomaticoDesdeTipo/);

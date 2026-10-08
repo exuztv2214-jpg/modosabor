@@ -39,13 +39,14 @@ const BROWSER_EXECUTABLE =
     'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
     'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
   ].find((candidate) => fs.existsSync(candidate));
-const ARCHIVO_MENSAJE = path.join(ROOT, 'mensaje.txt');
+const DIR_DATA = path.join(ROOT, 'data');
+const ARCHIVO_MENSAJE_INICIAL = path.join(ROOT, 'mensaje.txt');
+const ARCHIVO_MENSAJE = path.join(DIR_DATA, 'mensaje-general.txt');
 const ARCHIVO_CLIENTES = path.join(ROOT, 'data', 'clientes.json');
 const ARCHIVO_CHATS = path.join(ROOT, 'data', 'chats.json');
 const ARCHIVO_EXCLUIDOS = path.join(ROOT, 'data', 'excluidos.json');
 const ARCHIVO_OVERRIDE = path.join(ROOT, 'data', 'config-override.json');
 const ARCHIVO_LOG = path.join(ROOT, 'logs', 'log.txt');
-const DIR_DATA = path.join(ROOT, 'data');
 const DIR_CAMPANAS = path.join(DIR_DATA, 'campanas');
 const ARCHIVO_PAUSADOS = path.join(DIR_DATA, 'pausados.json');
 const ARCHIVO_CRM = path.join(DIR_DATA, 'crm-respuestas.json');
@@ -57,6 +58,10 @@ const ARCHIVO_RECORDATORIOS = path.join(DIR_DATA, 'recordatorios.json');
 const ARCHIVO_CIERRES_DIA = path.join(DIR_DATA, 'cierres-dia.json');
 const ARCHIVO_CHAT_ESTADOS = path.join(DIR_DATA, 'chat-estados.json');
 const ARCHIVO_GRUPOS_ENVIO = path.join(DIR_DATA, 'grupos-envio.json');
+
+fs.mkdirSync(DIR_DATA, { recursive: true });
+if (!fs.existsSync(ARCHIVO_MENSAJE) && fs.existsSync(ARCHIVO_MENSAJE_INICIAL))
+  fs.copyFileSync(ARCHIVO_MENSAJE_INICIAL, ARCHIVO_MENSAJE);
 
 function procesoVivo(pid) {
   if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid) return false;
@@ -2987,26 +2992,28 @@ async function obtenerConversacion(numero, limite = 60) {
   if (!client || estadoWA.estado !== 'listo')
     return { numero: id, disponible: false, mensajes: [], motivo: 'WhatsApp no está listo.' };
   const limiteSeguro = Math.max(1, Math.min(100, Number(limite) || 60));
-  const resultado = await client.pupPage.evaluate(
-    async ({ chatId, limit }) => {
-      const chat = await window.WWebJS.getChat(chatId, { getAsModel: false });
-      if (!chat) return { disponible: false, mensajes: [], motivo: 'Chat no encontrado.' };
-      const filtro = (mensaje) =>
-        !mensaje.isNotification &&
-        !['call_log', 'e2e_notification', 'notification_template'].includes(mensaje.type);
-      let mensajes = chat.msgs?.getModelsArray?.().filter(filtro) || [];
-      while (mensajes.length < limit && chat.msgs) {
-        const anteriores = await window.require('WAWebChatLoadMessages').loadEarlierMsgs({ chat });
-        if (!anteriores?.length) break;
-        mensajes = [...anteriores.filter(filtro), ...mensajes];
-      }
-      mensajes.sort((a, b) => (a.t || 0) - (b.t || 0));
-      return {
-        disponible: true,
-        mensajes: mensajes.slice(-limit).map((mensaje) => window.WWebJS.getMessageModel(mensaje)),
-      };
-    },
-    { chatId: id, limit: limiteSeguro }
+  const resultado = await conTiempoLimite(
+    client.pupPage.evaluate(
+      ({ chatId, limit }) => {
+        const chats = window.require('WAWebCollections').Chat;
+        const chat =
+          chats.get(chatId) ||
+          chats.getModelsArray().find((item) => item.id?._serialized === chatId);
+        if (!chat) return { disponible: false, mensajes: [], motivo: 'Chat no encontrado.' };
+        const filtro = (mensaje) =>
+          !mensaje.isNotification &&
+          !['call_log', 'e2e_notification', 'notification_template'].includes(mensaje.type);
+        const mensajes = chat.msgs?.getModelsArray?.().filter(filtro) || [];
+        mensajes.sort((a, b) => (a.t || 0) - (b.t || 0));
+        return {
+          disponible: true,
+          mensajes: mensajes.slice(-limit).map((mensaje) => window.WWebJS.getMessageModel(mensaje)),
+        };
+      },
+      { chatId: id, limit: limiteSeguro }
+    ),
+    8000,
+    'Carga de conversación'
   );
   return {
     numero: id,
@@ -3054,8 +3061,7 @@ async function obtenerConversacionesPanel() {
         nombre: chat.nombre || cliente.nombre || (chat.grupo ? 'Grupo de WhatsApp' : 'Sin nombre'),
         grupo: chat.grupo,
         foto: chat.foto || cliente.foto,
-        texto:
-          respuesta?.texto || (chat.timestamp ? 'Abrir conversación' : 'Sin mensajes registrados'),
+        texto: respuesta?.texto || chat.texto || '',
         hora:
           respuesta?.hora ||
           (chat.timestamp ? new Date(chat.timestamp * 1000).toLocaleDateString('es-AR') : ''),
@@ -3346,14 +3352,22 @@ app.post('/api/listar', async (req, res) => {
             window
               .require('WAWebCollections')
               .Chat.getModelsArray()
-              .map((chat) => ({
-                id: chat.id?._serialized || null,
-                name: chat.formattedTitle || chat.name || '',
-                timestamp: Number(chat.t || 0),
-                isGroup: Boolean(chat.groupMetadata),
-                isChannel: Boolean(chat.newsletterMetadata),
-                unreadCount: Number(chat.unreadCount || 0),
-              }))
+              .map((chat) => {
+                const lastMessage = (chat.msgs?.getModelsArray?.() || [])
+                  .filter((message) => !message.isNotification)
+                  .at(-1);
+                return {
+                  id: chat.id?._serialized || null,
+                  name: chat.formattedTitle || chat.name || '',
+                  timestamp: Number(lastMessage?.t || chat.t || 0),
+                  isGroup: Boolean(chat.groupMetadata),
+                  isChannel: Boolean(chat.newsletterMetadata),
+                  unreadCount: Number(chat.unreadCount || 0),
+                  lastMessageBody: String(lastMessage?.body || ''),
+                  lastMessageType: lastMessage?.type || '',
+                  lastMessageFromMe: Boolean(lastMessage?.id?.fromMe),
+                };
+              })
               .filter((chat) => chat.id)
           ),
           15000,
@@ -3367,6 +3381,9 @@ app.post('/api/listar', async (req, res) => {
           isGroup: Boolean(chat.isGroup),
           isChannel: Boolean(chat.isChannel),
           unreadCount: Number(chat.unreadCount || 0),
+          lastMessageBody: String(chat.lastMessage?.body || ''),
+          lastMessageType: chat.lastMessage?.type || '',
+          lastMessageFromMe: Boolean(chat.lastMessage?.fromMe),
         }))
     );
     chatsRaw = lectura.chats;

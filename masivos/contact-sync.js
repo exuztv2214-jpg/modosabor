@@ -133,6 +133,9 @@ function normalizeChats(chats) {
         grupo: Boolean(chat?.grupo || chat?.isGroup || chat?.groupMetadata),
         canal: Boolean(chat?.canal || chat?.isChannel || chat?.newsletterMetadata),
         noLeidos: Number(chat?.noLeidos || chat?.unreadCount || 0),
+        texto: String(chat?.texto || chat?.lastMessageBody || '').trim(),
+        tipo: String(chat?.tipo || chat?.lastMessageType || ''),
+        fromMe: Boolean(chat?.fromMe || chat?.lastMessageFromMe),
       };
     })
     .filter(Boolean);
