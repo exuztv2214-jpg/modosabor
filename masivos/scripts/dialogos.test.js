@@ -4,6 +4,64 @@ const path = require('node:path');
 const vm = require('node:vm');
 const { test } = require('node:test');
 const app = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+
+test('las listas se crean sólo al confirmar y conservan la selección revisada', async () => {
+  let aceptar;
+  const llamadas = [];
+  const context = vm.createContext({
+    state: {
+      selectedContacts: ['ana@lid'],
+      contacts: [{ numero: 'ana@lid' }, { numero: 'beto@lid' }],
+    },
+    solicitarDialogo: () =>
+      new Promise((resolve) => {
+        aceptar = resolve;
+      }),
+    api: async (...args) => {
+      llamadas.push(args);
+      return { total: 1, grupos: [{}] };
+    },
+    refresh: async () => {},
+    showToast() {},
+  });
+  vm.runInContext(app.match(/async function action\([^]*?\n}/)[0], context);
+  let pendiente = context.action('create-batch-groups');
+  assert.equal(typeof aceptar, 'function');
+  aceptar(null);
+  await pendiente;
+  assert.equal(llamadas.length, 0);
+  pendiente = context.action('create-batch-groups');
+  context.state.selectedContacts = ['beto@lid'];
+  aceptar({ nombre: 'Clientes' });
+  await pendiente;
+  assert.equal(llamadas[0][0], '/api/grupos-envio/automaticos');
+  assert.deepEqual(JSON.parse(llamadas[0][1].body).numeros, ['ana@lid']);
+  assert.equal(
+    llamadas.some(([url]) => url.includes('/api/enviar')),
+    false
+  );
+});
+
+test('crear listas conserva un teléfono seleccionado que ahora se representa como LID', async () => {
+  const llamadas = [];
+  const context = vm.createContext({
+    state: {
+      selectedContacts: ['5493811111111@c.us'],
+      contacts: [{ numero: '123456789012345@lid', telefono: '5493811111111' }],
+    },
+    solicitarDialogo: async () => ({ nombre: 'Clientes' }),
+    api: async (...args) => {
+      llamadas.push(args);
+      return { total: 1, grupos: [{}] };
+    },
+    refresh: async () => {},
+    showToast() {},
+  });
+  vm.runInContext(app.match(/async function action\([^]*?\n}/)[0], context);
+  await context.action('create-batch-groups');
+  assert.equal(llamadas.length, 1);
+  assert.deepEqual(JSON.parse(llamadas[0][1].body).numeros, ['123456789012345@lid']);
+});
 test('cancelar el modal no envía; aceptar conserva el plan revisado', async () => {
   const llamadas = [];
   const context = vm.createContext({

@@ -1207,6 +1207,12 @@ function resumenSegmentos(clientes) {
 
 function ordenarPorPrioridadCampana(clientes) {
   return clientes.slice().sort((a, b) => {
+    const compras = (b.metricas?.pedidosReales || 0) - (a.metricas?.pedidosReales || 0);
+    if (compras) return compras;
+    const reciente = String(b.metricas?.ultimoPedido || '').localeCompare(
+      String(a.metricas?.ultimoPedido || '')
+    );
+    if (reciente) return reciente;
     const pa = PRIORIDAD_CAMPANA.findIndex((s) => (a.segmentosAuto || []).includes(s));
     const pb = PRIORIDAD_CAMPANA.findIndex((s) => (b.segmentosAuto || []).includes(s));
     const ia = pa === -1 ? 99 : pa;
@@ -3129,6 +3135,55 @@ app.get('/api/grupos-envio', (req, res) => {
   res.json({ grupos: leerGruposEnvio() });
 });
 
+app.post('/api/grupos-envio/automaticos', (req, res) => {
+  const nombre = String(req.body?.nombre || '').trim();
+  const numeros = req.body?.numeros;
+  if (!nombre || nombre.length > 50)
+    return res.status(400).json({ error: 'Ingresá un nombre de hasta 50 caracteres.' });
+  if (
+    numeros !== undefined &&
+    (!Array.isArray(numeros) ||
+      !numeros.length ||
+      numeros.length > 10000 ||
+      !numeros.every((n) => typeof n === 'string' && normalizarNumeroContacto(n)))
+  )
+    return res.status(400).json({ error: 'La selección de contactos no es válida.' });
+  const resolver = resolverNumerosContacto();
+  const seleccion =
+    numeros === undefined
+      ? null
+      : new Set(numeros.map((n) => resolver(normalizarNumeroContacto(n))));
+  const excluidos = leerExcluidos();
+  const pausados = leerPausados();
+  const clientes = ordenarPorPrioridadCampana(leerClientesEnriquecidos()).filter(
+    (c) =>
+      (!seleccion || seleccion.has(c.numero)) && !excluidos.has(c.numero) && !pausados[c.numero]
+  );
+  if (!clientes.length)
+    return res.status(400).json({ error: 'No hay contactos habilitados en esa selección.' });
+  const existentes = leerGruposEnvio();
+  if (existentes.length + Math.ceil(clientes.length / 100) > 100)
+    return res.status(409).json({
+      error:
+        'No hay espacio para más listas. Eliminá algún grupo que ya no uses; sus contactos se conservan.',
+    });
+  const actualizado = new Date().toISOString();
+  const lote = crypto.randomUUID();
+  const grupos = [];
+  for (let i = 0; i < clientes.length; i += 100) {
+    grupos.push({
+      id: `grupo-${lote}-${grupos.length + 1}`,
+      nombre: `${nombre} · Lista ${grupos.length + 1}`,
+      descripcion:
+        'Hasta 100 contactos, priorizados por cantidad de pedidos reales y última compra.',
+      numeros: clientes.slice(i, i + 100).map((c) => c.numero),
+      actualizado,
+    });
+  }
+  guardarGruposEnvio([...existentes, ...grupos]);
+  res.status(201).json({ ok: true, total: clientes.length, grupos });
+});
+
 app.post('/api/grupos-envio', (req, res) => {
   const nombre = String((req.body && req.body.nombre) || '')
     .trim()
@@ -4187,11 +4242,9 @@ app.post('/api/preparar-envio', (req, res) => {
   const simulacro = !!(req.body && req.body.simulacro);
   const cfgEnvio = getConfig();
   if (!turnosDisponibles())
-    return res
-      .status(409)
-      .json({
-        error: 'Esperá a que se sincronicen los turnos del negocio antes de preparar la campaña.',
-      });
+    return res.status(409).json({
+      error: 'Esperá a que se sincronicen los turnos del negocio antes de preparar la campaña.',
+    });
   if (!simulacro && cfgEnvio.MODO_SOLO_RESPUESTAS) {
     return res.status(409).json({ error: "Modo 'solo respuestas' activo: no se mandan promos." });
   }

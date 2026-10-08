@@ -764,6 +764,7 @@ function visibleContactNumbers() {
 
 function contactOperations() {
   const selected = state.selectedContacts.length;
+  const listas = `<button class="button secondary small" data-action="create-batch-groups">${icon('format_list_numbered')}Crear listas de 100</button>`;
   const options = state.groups
     .map((g) => `<option value="${esc(g.id)}">${esc(g.nombre)} · ${g.numeros.length}</option>`)
     .join('');
@@ -771,12 +772,12 @@ function contactOperations() {
     ? `<select id="contact-group-select" class="group-select" aria-label="Grupo guardado"><option value="">Grupos guardados</option>${options}</select><button class="button secondary small" data-action="apply-group">Seleccionar grupo</button><button class="button ghost small icon" data-action="delete-group" title="Eliminar grupo" aria-label="Eliminar grupo seleccionado">${icon('delete')}</button>`
     : '';
   if (!selected)
-    return `<div class="toolbar selection-tools"><button class="button secondary small" data-action="select-visible">${icon('select_all')}Seleccionar visibles</button>${grupos}<span class="stat-foot">Seleccioná contactos para guardarlos como grupo, pausarlos o excluirlos.</span></div>`;
+    return `<div class="toolbar selection-tools"><button class="button secondary small" data-action="select-visible">${icon('select_all')}Seleccionar visibles</button>${listas}${grupos}<span class="stat-foot">Listas de todos los habilitados, o sólo de los que selecciones. Primero quienes más compran.</span></div>`;
   const restore =
     state.contactsFilter === 'excluidos'
       ? `<button class="button secondary small" data-action="reactivar-selected">${icon('undo')}Reactivar</button>`
       : `<button class="button danger small" data-action="exclude-selected">${icon('block')}Excluir</button>`;
-  return `<div class="bulk-bar" role="region" aria-label="Acciones sobre la selección"><strong>${selected} seleccionado${selected === 1 ? '' : 's'}</strong>${grupos}<button class="button secondary small" data-action="save-group">${icon('bookmark_add')}Guardar grupo</button><button class="button secondary small" data-action="pause-selected">${icon('pause_circle')}Pausar 7 días</button>${restore}<button class="button ghost small" data-action="clear-selection">Limpiar</button></div>`;
+  return `<div class="bulk-bar" role="region" aria-label="Acciones sobre la selección"><strong>${selected} seleccionado${selected === 1 ? '' : 's'}</strong>${listas}${grupos}<button class="button secondary small" data-action="save-group">${icon('bookmark_add')}Guardar grupo</button><button class="button secondary small" data-action="pause-selected">${icon('pause_circle')}Pausar 7 días</button>${restore}<button class="button ghost small" data-action="clear-selection">Limpiar</button></div>`;
 }
 
 function parseCsvLine(line, separator) {
@@ -1929,6 +1930,44 @@ async function action(name, value) {
       if (!group) return showToast('Elegí un grupo de envío.');
       state.selectedContacts = [...group.numeros];
       return render();
+    }
+    if (name === 'create-batch-groups') {
+      const seleccion = new Set(state.selectedContacts);
+      const numeros = state.contacts
+        .filter(
+          (c) =>
+            (!seleccion.size ||
+              seleccion.has(c.numero) ||
+              (c.numero.endsWith('@lid') &&
+                seleccion.has(`${String(c.telefono || '').replace(/\D/g, '')}@c.us`))) &&
+            !c.excluido &&
+            !c.pausado
+        )
+        .map((c) => c.numero);
+      if (!numeros.length) return showToast('No hay contactos habilitados para crear listas.');
+      const datos = await solicitarDialogo({
+        titulo: 'Crear listas de hasta 100 contactos',
+        mensaje: `${numeros.length} contactos ${seleccion.size ? 'seleccionados' : 'habilitados'} en ${Math.ceil(numeros.length / 100)} lista(s). Primero quienes tienen más pedidos reales; a igual cantidad, la compra más reciente. Se conservan los grupos anteriores. Crear listas no envía mensajes. Podés elegir cada lista desde Campaña; los límites y pausas se mantienen.`,
+        campos: [
+          {
+            name: 'nombre',
+            label: 'Nombre de las listas',
+            value: 'Prioridad de compra',
+            required: true,
+            max: 50,
+          },
+        ],
+        aceptar: 'Crear listas',
+      });
+      if (!datos?.nombre?.trim()) return;
+      const result = await api('/api/grupos-envio/automaticos', {
+        method: 'POST',
+        body: JSON.stringify({ nombre: datos.nombre.trim(), numeros }),
+      });
+      await refresh();
+      return showToast(
+        `${result.grupos.length} lista(s) creadas con ${result.total} contactos. Elegí una en Campaña.`
+      );
     }
     if (name === 'save-group') {
       if (!state.selectedContacts.length)

@@ -1,5 +1,25 @@
 # Bitácora de Masivos
 
+## 2026-10-08 — Listas de 100 y prioridad por compras
+
+Se agregó en Contactos **Crear listas de 100**, para todos los habilitados o sólo los seleccionados. El modal revisa cantidad y nombre; cancelar no guarda. Los grupos se agregan sin borrar los anteriores y no se envía ningún mensaje al crearlos. Se respetan exclusiones/pausas y equivalencias teléfono/LID, incluso cuando una sincronización cambia la representación de un contacto seleccionado. Si no hay espacio para nuevos grupos, se rechaza la operación sin perder los existentes.
+
+Las listas y el motor priorizan cantidad de pedidos reales de Modo Sabor y, ante empate, compra más reciente. Después se conserva la prioridad operativa existente. No se usa el número de consultas como si fueran compras; no encontrar un pedido asociado tampoco prueba que la persona nunca compró.
+
+Uso manual: Contactos → seleccionar personas si corresponde → Crear listas de 100 → Campaña → elegir Lista 1, Lista 2, etc. Cada grupo tiene hasta 100 personas, y el envío sigue respetando el máximo y las pausas configurados.
+
+Uso automático: Configuración → máximo por tanda 100 → Tandas automáticas → Campaña → Todos los habilitados → preparar y revisar. El motor recorre primero los 100 con mayor prioridad y luego los siguientes, con las pausas, cupo por ventana, bajas y bloqueo por turno vigentes. **Elegir una lista procesa sólo esa lista; no encadena las demás.** Crear listas no cambia estos ajustes ni activa programación automática. Cien por tanda no significa cien mensajes simultáneos ni garantiza evitar restricciones de WhatsApp.
+
+Verificación local: 36 regresiones de Masivos y comprobaciones existentes correctas. Pruebas con 205 habilitados generan 100/100/5, sin duplicados; todos en modo tandas cubre 205 y un grupo cubre 100. Se verificaron cancelación, selección capturada, PN/LID y rechazo por capacidad. Navegador con datos ficticios: modal, creación y selector de grupos correctos, cero envíos; vista compacta observada de 434 px sin desbordamiento. Revisión independiente final sin nuevos P1/P2.
+
+**Chispita: diferido por pedido explícito del usuario.** La detección de inactivos, propuesta de mensaje de recuperación y eventual automatización se definirán cuando lo solicite; no se implementó un envío automático de recuperación.
+
+Bloqueos/lecturas: la falta de confirmación de entrega o lectura no permite afirmar por sí sola que alguien bloqueó al negocio o que no leyó. WhatsApp contempla recibos desactivados y problemas de conexión, entre otras causas. Se propone registrar estados por mensaje/campaña, mostrar lectura no confirmada y ofrecer pausas reversibles por falta de interacción con revisión humana, sin borrar personas ni marcarlas como bloqueadas por inferencia. La atribución por mensaje sigue siendo un pendiente de la auditoría anterior.
+
+Fuentes consultadas: [confirmaciones de lectura de WhatsApp](https://faq.whatsapp.com/665923838265756/?cms_platform=iphone&locale=te_IN), [ayuda sobre bloqueos](https://faq.whatsapp.com/666362298345682/?locale=es_LA) y [política de mensajes del proveedor](https://business.whatsapp.com/policy/preview?lang=es_LA). Consentimiento, relevancia, frecuencia y respeto de la baja son controles fundamentales; dividir la base en listas no da inmunidad frente a bloqueos o reportes.
+
+Publicación de esta mejora: pendiente de registrar después de verificar el despliegue. No se enviaron mensajes reales durante el desarrollo ni la verificación.
+
 ## 2026-10-08 — Commit, despliegue y auditoría posterior
 
 Pedido: publicar las correcciones, auditar Masivos completo y sus integraciones, proponer mejoras y actualizar la bitácora.
@@ -30,10 +50,10 @@ Snapshot consistente de SQLite, integridad comprobada, archivo de datos operativ
 
 Se desplegó primero `modosabor-api`, luego `modosabor-masivos`:
 
-| Servicio | Despliegue | Resultado |
-|---|---|---|
-| API | `031e09a0-6ccb-41ec-89e8-b8c953ad870c` | SUCCESS |
-| Masivos | `d9685a80-666d-47c0-925d-b3ad303d42f2` | SUCCESS |
+| Servicio | Despliegue                             | Resultado |
+| -------- | -------------------------------------- | --------- |
+| API      | `031e09a0-6ccb-41ec-89e8-b8c953ad870c` | SUCCESS   |
+| Masivos  | `d9685a80-666d-47c0-925d-b3ad303d42f2` | SUCCESS   |
 
 [Panel publicado](https://www.modosabor.com.ar/masivos). No se cambió DNS ni el proyecto que atiende al dominio raíz sin `www`.
 

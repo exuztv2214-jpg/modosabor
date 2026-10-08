@@ -10,6 +10,97 @@ const sourcePath = path.join(__dirname, '..', 'server.js');
 const source = fs.readFileSync(sourcePath, 'utf8');
 const realRequire = createRequire(sourcePath);
 
+test('la prioridad usa cantidad de pedidos reales y luego la compra más reciente', (t) => {
+  const p = panel(t);
+  p.context.prioridades = [
+    { numero: 'activo', scoreAuto: 100, segmentosAuto: ['activo'] },
+    { numero: 'comprador-antiguo', metricas: { pedidosReales: 7, ultimoPedido: '2026-09-01' } },
+    { numero: 'comprador-reciente', metricas: { pedidosReales: 7, ultimoPedido: '2026-10-01' } },
+    { numero: 'mayor-comprador', metricas: { pedidosReales: 12, ultimoPedido: '2026-08-01' } },
+  ];
+  assert.deepEqual(Array.from(p.run('ordenarPorPrioridadCampana(prioridades).map(c=>c.numero)')), [
+    'mayor-comprador',
+    'comprador-reciente',
+    'comprador-antiguo',
+    'activo',
+  ]);
+});
+
+test('crear listas reparte habilitados en 100, 100 y resto sin enviar ni cambiar límites', (t) => {
+  const p = panel(t);
+  const clientes = Array.from({ length: 207 }, (_, i) => ({
+    numero: `549381${String(i).padStart(7, '0')}@c.us`,
+    metricas: { pedidosReales: i },
+  }));
+  p.context.contactosPrueba = clientes;
+  p.run('leerClientesEnriquecidos = () => contactosPrueba');
+  p.write('excluidos.json', [clientes[206].numero]);
+  p.write('pausados.json', { [clientes[205].numero]: { hasta: '2099-01-01' } });
+  p.write('grupos-envio.json', [{ id: 'manual', nombre: 'Mi grupo', numeros: ['otro@lid'] }]);
+  const configAntes = p.run('JSON.stringify(getConfig())');
+  const resultado = p.request('/api/grupos-envio/automaticos', { nombre: 'Compradores' });
+  assert.equal(resultado.status, 201);
+  const grupos = resultado.body.grupos;
+  assert.deepEqual(
+    Array.from(grupos, (g) => g.numeros.length),
+    [100, 100, 5]
+  );
+  const numeros = Array.from(grupos).flatMap((g) => Array.from(g.numeros));
+  assert.equal(numeros[0], clientes[204].numero);
+  assert.equal(numeros.at(-1), clientes[0].numero);
+  assert.equal(new Set(numeros).size, 205);
+  assert.equal(p.request('/api/grupos-envio', {}, 'GET').body.grupos.length, 4);
+  assert.equal(p.run('JSON.stringify(getConfig())'), configAntes);
+  p.context.grupoPrueba = grupos[0].id;
+  assert.equal(
+    p.run(
+      'calcularObjetivoCampana({...getConfig(), MAX_POR_CORRIDA:100, MODO_TANDAS:true}).objetivo.length'
+    ),
+    205
+  );
+  assert.equal(
+    p.run(
+      "calcularObjetivoCampana({...getConfig(), MAX_POR_CORRIDA:100, MODO_TANDAS:true}, {segmento:'grupo:'+grupoPrueba}).objetivo.length"
+    ),
+    100
+  );
+  assert.deepEqual(p.sent, []);
+});
+
+test('las listas respetan selección, unifican alias y rechazan selección vacía', (t) => {
+  const p = panel(t);
+  p.write('clientes.json', [
+    { numero: '123456789012345@lid', telefono: '5493811111111', nombre: 'Ana' },
+    { numero: '5493811111111@c.us', nombre: 'Ana' },
+    { numero: '5493812222222@c.us', nombre: 'Beto' },
+  ]);
+  const response = p.request('/api/grupos-envio/automaticos', {
+    nombre: 'Elegidos',
+    numeros: ['5493811111111@c.us', '123456789012345@lid'],
+  });
+  assert.equal(response.status, 201);
+  assert.deepEqual(Array.from(response.body.grupos[0].numeros), ['123456789012345@lid']);
+  for (const numeros of [[], 'todos', [null], ['desconocido@c.us']])
+    assert.equal(
+      p.request('/api/grupos-envio/automaticos', { nombre: 'Elegidos', numeros }).status,
+      400
+    );
+});
+
+test('crear listas no elimina grupos existentes al llegar al máximo', (t) => {
+  const p = panel(t);
+  p.write(
+    'grupos-envio.json',
+    Array.from({ length: 100 }, (_, i) => ({
+      id: `grupo-${i}`,
+      nombre: `Grupo ${i}`,
+      numeros: ['5493811111111@c.us'],
+    }))
+  );
+  assert.equal(p.request('/api/grupos-envio/automaticos', { nombre: 'Nuevos' }).status, 409);
+  assert.equal(p.request('/api/grupos-envio', {}, 'GET').body.grupos[0].id, 'grupo-0');
+});
+
 function panel(t, env = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'masivos-operacion-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
