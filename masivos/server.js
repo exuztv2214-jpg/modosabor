@@ -1815,6 +1815,23 @@ function emit(evento, data) {
   }
 }
 
+function limpiarBloqueosChromium() {
+  if (process.platform === 'win32') return;
+  const perfil = path.join(SESSION_AUTH_PATH, 'session');
+  for (const nombre of [
+    'SingletonLock',
+    'SingletonCookie',
+    'SingletonSocket',
+    'DevToolsActivePort',
+  ]) {
+    try {
+      fs.rmSync(path.join(perfil, nombre), { force: true });
+    } catch (e) {
+      /* un perfil nuevo todavía no tiene bloqueos */
+    }
+  }
+}
+
 // ---------- Cliente WhatsApp (único, persistente) ----------
 
 let client = null;
@@ -1839,6 +1856,8 @@ function iniciarWhatsApp() {
     registrarLog(`❌ ${e.message}`);
     return;
   }
+
+  limpiarBloqueosChromium();
 
   client = new Client({
     authStrategy: new LocalAuth({ dataPath: SESSION_AUTH_PATH }),

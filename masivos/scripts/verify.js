@@ -21,6 +21,11 @@ function verifyIsolation() {
   assert.match(server, /const HOST = process\.env\.HOST \|\| ['"]127\.0\.0\.1['"]/);
   assert.match(server, /path\.join\(ROOT, ['"]sesion['"]/);
   assert.match(server, /MASIVOS_SESSION_DIR/);
+  assert.match(server, /function limpiarBloqueosChromium\(\)/);
+  assert.match(
+    server,
+    /'SingletonLock', 'SingletonCookie', 'SingletonSocket', 'DevToolsActivePort'/
+  );
   assert.doesNotMatch(server, /D:\\ModoSaborPromoPro/);
   assert.doesNotMatch(server, /Documents\\kimi\\Workspaces\\masivos/);
   assert.match(server, /client\.getContacts\(\)/);
