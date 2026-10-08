@@ -19,6 +19,10 @@ const chats = [
     lastMessageBody: 'Mensaje real del chat',
     lastMessageType: 'chat',
     lastMessageFromMe: true,
+    mensajes: [
+      { id: 'm1', fromMe: false, body: 'Hola', type: 'chat', timestamp: 8 },
+      { id: 'm2', fromMe: true, body: 'Respuesta', type: 'chat', timestamp: 10 },
+    ],
   },
   { id: { _serialized: 'group@g.us' }, name: 'Grupo', isGroup: true, timestamp: 20 },
 ];
@@ -33,6 +37,14 @@ assert.equal(merged.length, 1, 'usa los chats como padrón y la agenda sólo par
 assert.deepEqual(
   merged.map(({ numero, telefono }) => [numero, telefono || null]),
   [['lid-a@lid', '5493812345678']]
+);
+assert.deepEqual(
+  sync.normalizeChats(chats)[0].mensajes.map(({ id, body, fromMe }) => ({ id, body, fromMe })),
+  [
+    { id: 'm1', body: 'Hola', fromMe: false },
+    { id: 'm2', body: 'Respuesta', fromMe: true },
+  ],
+  'conserva los mensajes recientes del chat'
 );
 assert.equal(merged.find((item) => item.numero === 'lid-a@lid').nombre, 'Agenda A');
 assert.equal(sync.normalizeChats(chats).length, 2, 'la bandeja conserva también los grupos');

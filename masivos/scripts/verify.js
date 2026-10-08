@@ -45,6 +45,10 @@ function verifyFrontendContract() {
   const css = fs.readFileSync(path.join(root, 'public', 'styles.css'), 'utf8');
   const app = fs.readFileSync(path.join(root, 'public', 'app.js'), 'utf8');
   const server = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
+  const conversationSource = server.slice(
+    server.indexOf('async function obtenerConversacion'),
+    server.indexOf('async function obtenerConversacionesPanel')
+  );
   for (const label of [
     '01. Inicio',
     '02. Campaña',
@@ -192,9 +196,11 @@ function verifyFrontendContract() {
   assert.match(server, /sincronizarConversacionesEnCRM\(chats\)/);
   assert.match(server, /escribirJsonSeguro\(ARCHIVO_CLIENTES, listaSincronizada\)/);
   assert.doesNotMatch(server, /fs\.writeFileSync\(ARCHIVO_CLIENTES, JSON\.stringify\(encontrados/);
-  assert.match(server, /const chats = window\.require\(['"]WAWebCollections['"]\)\.Chat/);
-  assert.match(server, /chats\.getModelsArray\(\)\.find/);
+  assert.match(server, /WAWebCollections['"]\)\s*\.Chat\.getModelsArray\(\)/);
+  assert.match(server, /mensajes:\s*lastMessage/);
   assert.doesNotMatch(server, /WAWebChatLoadMessages/);
+  assert.match(conversationSource, /leerJsonSeguro\(ARCHIVO_CHATS/);
+  assert.doesNotMatch(conversationSource, /pupPage\.evaluate/);
   assert.match(server, /path\.join\(DIR_DATA, ['"]mensaje-general\.txt['"]\)/);
   assert.match(server, /estadoAutomaticoDesdeTipo/);
   assert.match(server, /clasificarRespuestaTexto\(msg\.body\)/);

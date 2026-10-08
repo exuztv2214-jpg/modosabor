@@ -2989,45 +2989,14 @@ app.get('/api/operador', (req, res) => {
 async function obtenerConversacion(numero, limite = 60) {
   const id = String(numero || '').trim();
   if (!id) throw new Error('Falta número de contacto.');
-  if (!client || estadoWA.estado !== 'listo')
-    return { numero: id, disponible: false, mensajes: [], motivo: 'WhatsApp no está listo.' };
   const limiteSeguro = Math.max(1, Math.min(100, Number(limite) || 60));
-  const resultado = await conTiempoLimite(
-    client.pupPage.evaluate(
-      ({ chatId, limit }) => {
-        const chats = window.require('WAWebCollections').Chat;
-        const chat =
-          chats.get(chatId) ||
-          chats.getModelsArray().find((item) => item.id?._serialized === chatId);
-        if (!chat) return { disponible: false, mensajes: [], motivo: 'Chat no encontrado.' };
-        const filtro = (mensaje) =>
-          !mensaje.isNotification &&
-          !['call_log', 'e2e_notification', 'notification_template'].includes(mensaje.type);
-        const mensajes = chat.msgs?.getModelsArray?.().filter(filtro) || [];
-        mensajes.sort((a, b) => (a.t || 0) - (b.t || 0));
-        return {
-          disponible: true,
-          mensajes: mensajes.slice(-limit).map((mensaje) => window.WWebJS.getMessageModel(mensaje)),
-        };
-      },
-      { chatId: id, limit: limiteSeguro }
-    ),
-    8000,
-    'Carga de conversación'
-  );
+  const chat = normalizeChats(leerJsonSeguro(ARCHIVO_CHATS, [])).find((item) => item.numero === id);
+  if (!chat)
+    return { numero: id, disponible: false, mensajes: [], motivo: 'Chat no sincronizado.' };
   return {
     numero: id,
-    disponible: resultado.disponible,
-    mensajes: (resultado.mensajes || []).map((msg) => ({
-      id: msg.id?._serialized || msg.id?.id || null,
-      fromMe: Boolean(msg.fromMe),
-      body: String(msg.body || ''),
-      type: msg.type || 'chat',
-      hasMedia: Boolean(msg.hasMedia),
-      timestamp: Number(msg.t || msg.timestamp) || null,
-      ack: msg.ack ?? null,
-    })),
-    ...(resultado.motivo ? { motivo: resultado.motivo } : {}),
+    disponible: true,
+    mensajes: chat.mensajes.slice(-limiteSeguro),
   };
 }
 
@@ -3353,19 +3322,36 @@ app.post('/api/listar', async (req, res) => {
               .require('WAWebCollections')
               .Chat.getModelsArray()
               .map((chat) => {
-                const lastMessage = (chat.msgs?.getModelsArray?.() || [])
-                  .filter((message) => !message.isNotification)
-                  .at(-1);
+                const mensajes = (chat.msgs?.getModelsArray?.() || [])
+                  .filter(
+                    (message) =>
+                      !message.isNotification &&
+                      !['call_log', 'e2e_notification', 'notification_template'].includes(
+                        message.type
+                      )
+                  )
+                  .slice(-100)
+                  .map((message) => ({
+                    id: message.id?._serialized || message.id?.id || null,
+                    fromMe: Boolean(message.id?.fromMe),
+                    body: String(message.body || ''),
+                    type: message.type || 'chat',
+                    hasMedia: Boolean(message.mediaData),
+                    timestamp: Number(message.t || 0) || null,
+                    ack: message.ack ?? null,
+                  }));
+                const lastMessage = mensajes.at(-1);
                 return {
                   id: chat.id?._serialized || null,
                   name: chat.formattedTitle || chat.name || '',
-                  timestamp: Number(lastMessage?.t || chat.t || 0),
+                  timestamp: Number(lastMessage?.timestamp || chat.t || 0),
                   isGroup: Boolean(chat.groupMetadata),
                   isChannel: Boolean(chat.newsletterMetadata),
                   unreadCount: Number(chat.unreadCount || 0),
-                  lastMessageBody: String(lastMessage?.body || ''),
+                  lastMessageBody: lastMessage?.body || '',
                   lastMessageType: lastMessage?.type || '',
-                  lastMessageFromMe: Boolean(lastMessage?.id?.fromMe),
+                  lastMessageFromMe: Boolean(lastMessage?.fromMe),
+                  mensajes,
                 };
               })
               .filter((chat) => chat.id)
@@ -3374,17 +3360,33 @@ app.post('/api/listar', async (req, res) => {
           'Colección de chats'
         ),
       async () =>
-        (await conTiempoLimite(client.getChats(), 15000, 'getChats')).map((chat) => ({
-          id: chat.id?._serialized,
-          name: chat.name || chat.formattedTitle || '',
-          timestamp: Number(chat.timestamp || 0),
-          isGroup: Boolean(chat.isGroup),
-          isChannel: Boolean(chat.isChannel),
-          unreadCount: Number(chat.unreadCount || 0),
-          lastMessageBody: String(chat.lastMessage?.body || ''),
-          lastMessageType: chat.lastMessage?.type || '',
-          lastMessageFromMe: Boolean(chat.lastMessage?.fromMe),
-        }))
+        (await conTiempoLimite(client.getChats(), 15000, 'getChats')).map((chat) => {
+          const lastMessage = chat.lastMessage;
+          return {
+            id: chat.id?._serialized,
+            name: chat.name || chat.formattedTitle || '',
+            timestamp: Number(chat.timestamp || 0),
+            isGroup: Boolean(chat.isGroup),
+            isChannel: Boolean(chat.isChannel),
+            unreadCount: Number(chat.unreadCount || 0),
+            lastMessageBody: String(lastMessage?.body || ''),
+            lastMessageType: lastMessage?.type || '',
+            lastMessageFromMe: Boolean(lastMessage?.fromMe),
+            mensajes: lastMessage
+              ? [
+                  {
+                    id: lastMessage.id?._serialized || lastMessage.id?.id || null,
+                    fromMe: Boolean(lastMessage.fromMe),
+                    body: String(lastMessage.body || ''),
+                    type: lastMessage.type || 'chat',
+                    hasMedia: Boolean(lastMessage.hasMedia),
+                    timestamp: Number(lastMessage.timestamp || 0) || null,
+                    ack: lastMessage.ack ?? null,
+                  },
+                ]
+              : [],
+          };
+        })
     );
     chatsRaw = lectura.chats;
     if (!chatsRaw.length) throw new Error('WhatsApp no devolvió conversaciones.');

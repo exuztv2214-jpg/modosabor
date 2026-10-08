@@ -125,6 +125,17 @@ function normalizeChats(chats) {
     .map((chat) => {
       const numero = serializedId(chat?.numero) || serializedId(chat?.id);
       if (!numero || !/@(?:c\.us|lid|g\.us)$/i.test(numero)) return null;
+      const mensajes = Array.isArray(chat?.mensajes)
+        ? chat.mensajes.slice(-100).map((mensaje) => ({
+            id: String(mensaje?.id || '') || null,
+            fromMe: Boolean(mensaje?.fromMe),
+            body: String(mensaje?.body || ''),
+            type: String(mensaje?.type || 'chat'),
+            hasMedia: Boolean(mensaje?.hasMedia),
+            timestamp: Number(mensaje?.timestamp) || null,
+            ack: mensaje?.ack ?? null,
+          }))
+        : [];
       return {
         numero,
         nombre:
@@ -136,6 +147,7 @@ function normalizeChats(chats) {
         texto: String(chat?.texto || chat?.lastMessageBody || '').trim(),
         tipo: String(chat?.tipo || chat?.lastMessageType || ''),
         fromMe: Boolean(chat?.fromMe || chat?.lastMessageFromMe),
+        mensajes,
       };
     })
     .filter(Boolean);
