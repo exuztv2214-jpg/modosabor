@@ -713,12 +713,19 @@ function updateMessageCount() {
   if (input && count) count.textContent = `${input.value.length} caracteres`;
 }
 function openQr() {
+  const connected = state.status?.whatsapp === 'listo';
   const qr = state.status?.qr;
-  const qrMarkup = qr
-    ? `<div class="qr-box real"><img src="${esc(qr)}" alt="Código QR de WhatsApp"></div>`
-    : '<div class="qr-box"><span>Esperando QR del servidor</span></div>';
+  const qrMarkup = connected
+    ? '<div class="qr-box"><span class="material-symbols-outlined" style="font-size:52px;color:var(--green)">check_circle</span></div>'
+    : qr
+      ? `<div class="qr-box real"><img src="${esc(qr)}" alt="Código QR de WhatsApp"></div>`
+      : '<div class="qr-box"><span>Esperando QR del servidor</span></div>';
+  const detail = connected
+    ? 'WhatsApp ya está vinculado. No necesitás escanear otro código.'
+    : state.status?.whatsappDetalle ||
+      (qr ? 'QR disponible para escanear' : 'El backend todavía no generó un QR');
   $('#modal-root').innerHTML =
-    `<div class="modal-backdrop" data-action="close-modal"><div class="modal"><div class="modal-head"><h2>Conectar WhatsApp Web</h2><button class="close" data-action="close-modal">×</button></div><p style="color:var(--brown);font-size:12px;line-height:18px">Abrí WhatsApp en tu teléfono, entrá a Dispositivos vinculados y escaneá este código. La sesión se guardará sólo en este proyecto.</p>${qrMarkup}<div class="empty-state" style="padding:12px"><strong>${esc(state.status?.whatsappDetalle || (qr ? 'QR disponible para escanear' : 'El backend todavía no generó un QR'))}</strong>Podés cerrar esta ventana y volver a revisar el estado.</div></div></div>`;
+    `<div class="modal-backdrop" data-action="close-modal"><div class="modal"><div class="modal-head"><h2>${connected ? 'WhatsApp vinculado' : 'Conectar WhatsApp Web'}</h2><button class="close" data-action="close-modal">×</button></div><p style="color:var(--brown);font-size:12px;line-height:18px">${connected ? 'La sesión persistente está activa en Railway.' : 'Abrí WhatsApp en tu teléfono, entrá a Dispositivos vinculados y escaneá este código. La sesión se guardará sólo en este proyecto.'}</p>${qrMarkup}<div class="empty-state" style="padding:12px"><strong>${esc(detail)}</strong>${connected ? ' Ya podés cerrar esta ventana y usar el panel.' : ' Podés cerrar esta ventana y volver a revisar el estado.'}</div></div></div>`;
 }
 
 async function refresh() {
