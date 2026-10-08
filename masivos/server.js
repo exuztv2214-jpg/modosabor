@@ -5141,7 +5141,27 @@ app.get('/api/diagnostico-wa', async (req, res) => {
   };
   if (!client || !client.pupPage) return res.json({ estado: estadoWA.estado, pagina: false });
   const pagina = client.pupPage;
-  const pruebas = [await medir('ping', () => pagina.evaluate(() => 1))];
+  const cdpPagina = pagina._client ? pagina._client() : null;
+  const pruebas = [
+    {
+      nombre: 'conexion',
+      valor: {
+        cerrada: pagina.isClosed(),
+        navegadorConectado: client.pupBrowser ? client.pupBrowser.isConnected() : null,
+        marco: pagina.mainFrame().url(),
+        targetsPagina: client.pupBrowser
+          ? client.pupBrowser.targets().filter((t) => t.type() === 'page').length
+          : null,
+      },
+    },
+    await medir('cdpCrudo', () =>
+      cdpPagina.send('Runtime.evaluate', {
+        expression: 'JSON.stringify({r:document.readyState,w:typeof window.WWebJS})',
+        returnByValue: true,
+      })
+    ),
+    await medir('ping', () => pagina.evaluate(() => 1)),
+  ];
   pruebas.push(await medir('activar', () => activarPagina()));
   pruebas.push(await medir('ping2', () => pagina.evaluate(() => 1)));
   pruebas.push(
