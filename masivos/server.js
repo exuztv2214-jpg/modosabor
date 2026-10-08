@@ -14,7 +14,7 @@ const QRCode = require('qrcode');
 const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const configBase = require('./config');
 const { liberarSesionWhatsApp } = require('./session-utils');
-const { mergeSyncedContacts, normalizeChats } = require('./contact-sync');
+const { mergeSyncedContacts, normalizeChats, leerChatsConRespaldo } = require('./contact-sync');
 
 const PORT = Number(process.env.PORT || 3867);
 const HOST = process.env.HOST || '127.0.0.1';
@@ -141,6 +141,35 @@ async function conTiempoLimite(promise, ms, etiqueta) {
     ]);
   } finally {
     clearTimeout(timer);
+  }
+}
+async function recuperarPaginaWhatsApp() {
+  try {
+    return await conTiempoLimite(
+      client.pupPage.evaluate(() => document.readyState),
+      5000,
+      'Prueba de página WhatsApp'
+    );
+  } catch (error) {
+    registrarLog(
+      `⚠️ La página de WhatsApp no responde (${error.message}); recargando la sesión guardada.`
+    );
+    emit('lista', { tipo: 'recuperando' });
+    await conTiempoLimite(
+      client.pupPage.reload({ waitUntil: 'domcontentloaded', timeout: 30000 }),
+      35000,
+      'Recarga de WhatsApp'
+    );
+    await conTiempoLimite(
+      client.pupPage.waitForFunction('window.WWebJS !== undefined', { timeout: 45000 }),
+      50000,
+      'Restauración de WhatsApp'
+    );
+    return await conTiempoLimite(
+      client.pupPage.evaluate(() => document.readyState),
+      10000,
+      'Prueba posterior a recarga'
+    );
   }
 }
 const azar = (arr) => arr[Math.floor(Math.random() * arr.length)];
@@ -3296,29 +3325,12 @@ app.post('/api/listar', async (req, res) => {
   try {
     emit('lista', { tipo: 'inicio' });
     let chatsRaw;
-    let fuente = 'getChats';
-    const pageReady = await conTiempoLimite(
-      client.pupPage.evaluate(() => document.readyState),
-      5000,
-      'Prueba de página WhatsApp'
-    );
+    const pageReady = await recuperarPaginaWhatsApp();
     registrarLog(`🔎 Página de WhatsApp responde (${pageReady}).`);
-    try {
-      registrarLog('📥 Leyendo conversaciones desde WhatsApp…');
-      chatsRaw = (await conTiempoLimite(client.getChats(), 15000, 'getChats')).map((chat) => ({
-        id: chat.id?._serialized,
-        name: chat.name || chat.formattedTitle || '',
-        timestamp: Number(chat.timestamp || 0),
-        isGroup: Boolean(chat.isGroup),
-        isChannel: Boolean(chat.isChannel),
-        unreadCount: Number(chat.unreadCount || 0),
-      }));
-      if (!chatsRaw.length) throw new Error('getChats no devolvió resultados.');
-      registrarLog(`📥 getChats devolvió ${chatsRaw.length} conversaciones.`);
-    } catch (error) {
-      try {
-        registrarLog(`⚠️ getChats falló (${error.message}); usando colección directa.`);
-        chatsRaw = await conTiempoLimite(
+    registrarLog('📥 Leyendo índice de chats de WhatsApp…');
+    const lectura = await leerChatsConRespaldo(
+      () =>
+        conTiempoLimite(
           client.pupPage.evaluate(() =>
             window
               .require('WAWebCollections')
@@ -3335,14 +3347,20 @@ app.post('/api/listar', async (req, res) => {
           ),
           15000,
           'Colección de chats'
-        );
-        if (!chatsRaw.length) throw new Error('La colección no devolvió chats.');
-        fuente = 'colección de chats';
-        registrarLog(`📥 La colección directa devolvió ${chatsRaw.length} conversaciones.`);
-      } catch (fallbackError) {
-        throw new Error(`No se pudieron leer los chats: ${fallbackError.message || error.message}`);
-      }
-    }
+        ),
+      async () =>
+        (await conTiempoLimite(client.getChats(), 15000, 'getChats')).map((chat) => ({
+          id: chat.id?._serialized,
+          name: chat.name || chat.formattedTitle || '',
+          timestamp: Number(chat.timestamp || 0),
+          isGroup: Boolean(chat.isGroup),
+          isChannel: Boolean(chat.isChannel),
+          unreadCount: Number(chat.unreadCount || 0),
+        }))
+    );
+    chatsRaw = lectura.chats;
+    if (!chatsRaw.length) throw new Error('WhatsApp no devolvió conversaciones.');
+    registrarLog(`📥 ${lectura.fuente} devolvió ${chatsRaw.length} conversaciones.`);
     const chats = normalizeChats(chatsRaw);
     const previos = leerJsonSeguro(ARCHIVO_CLIENTES, []);
     const listaSincronizada = mergeSyncedContacts(chatsRaw, [], previos);

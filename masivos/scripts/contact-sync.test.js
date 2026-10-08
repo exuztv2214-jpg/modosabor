@@ -6,6 +6,7 @@ const modulePath = path.join(__dirname, '..', 'contact-sync.js');
 const sync = fs.existsSync(modulePath) ? require(modulePath) : {};
 assert.equal(typeof sync.mergeSyncedContacts, 'function');
 assert.equal(typeof sync.normalizeChats, 'function');
+assert.equal(typeof sync.leerChatsConRespaldo, 'function');
 
 const chats = [
   { id: { _serialized: 'lid-a@lid' }, name: 'Chat A', timestamp: 10 },
@@ -37,4 +38,21 @@ const manyChats = sync.normalizeChats(
   }))
 );
 assert.equal(manyChats.length, 566, 'no se trunca la bandeja cuando supera 500 chats');
-console.log('contact and chat sync: OK');
+
+void (async () => {
+  let lecturaPesada = false;
+  const lectura = await sync.leerChatsConRespaldo(
+    async () => manyChats,
+    async () => {
+      lecturaPesada = true;
+      return [];
+    }
+  );
+  assert.equal(lectura.chats.length, 566, 'lee el listado liviano completo de 566 chats');
+  assert.equal(lectura.fuente, 'colección');
+  assert.equal(lecturaPesada, false, 'no hidrata metadatos de grupos en el camino principal');
+  console.log('contact and chat sync: OK');
+})().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});

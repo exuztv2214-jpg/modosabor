@@ -884,6 +884,8 @@ function connectLive() {
   stream.addEventListener('lista', (event) => {
     const info = JSON.parse(event.data || '{}');
     if (info.tipo === 'inicio') showToast('Sincronizando agenda y chats de WhatsApp…');
+    if (info.tipo === 'recuperando')
+      showToast('Reiniciando la vista de WhatsApp para recuperar la sincronización…');
     if (info.tipo === 'chats') {
       refresh();
       showToast(

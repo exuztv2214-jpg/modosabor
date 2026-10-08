@@ -101,4 +101,14 @@ function normalizeChats(chats) {
     .filter(Boolean);
 }
 
-module.exports = { mergeSyncedContacts, normalizeChats };
+async function leerChatsConRespaldo(lecturaLigera, lecturaCompleta) {
+  try {
+    const chats = await lecturaLigera();
+    if (Array.isArray(chats)) return { chats, fuente: 'colección' };
+  } catch (error) {
+    if (/excedió|timeout/i.test(String(error?.message || error))) throw error;
+  }
+  return { chats: await lecturaCompleta(), fuente: 'getChats' };
+}
+
+module.exports = { mergeSyncedContacts, normalizeChats, leerChatsConRespaldo };
