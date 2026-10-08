@@ -3368,7 +3368,7 @@ app.post('/api/listar', async (req, res) => {
     escribirJsonSeguro(ARCHIVO_CLIENTES, listaSincronizada);
     escribirJsonSeguro(ARCHIVO_CHATS, chats);
     const grupos = chats.filter((chat) => chat.grupo).length;
-    registrarLog(`📋 Chats leídos: ${chats.length} (${grupos} grupos; ${fuente}).`);
+    registrarLog(`📋 Chats leídos: ${chats.length} (${grupos} grupos; ${lectura.fuente}).`);
     emit('lista', {
       tipo: 'chats',
       total: listaSincronizada.length,
