@@ -28,7 +28,8 @@ function verifyIsolation() {
   assert.match(server, /'DevToolsActivePort'/);
   assert.doesNotMatch(server, /D:\\ModoSaborPromoPro/);
   assert.doesNotMatch(server, /Documents\\kimi\\Workspaces\\masivos/);
-  assert.match(server, /client\.getContacts\(\)/);
+  assert.match(server, /Contact\.getModelsArray\(\)/);
+  assert.match(server, /normalizarContactosLivianos/);
   assert.match(server, /client\.getChats\(\)/);
   assert.match(server, /client\.getProfilePicUrl/);
   assert.match(server, /const ORIGENES_PANEL = new Set\(\s*\[/s);

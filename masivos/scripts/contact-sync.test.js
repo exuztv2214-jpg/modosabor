@@ -7,6 +7,7 @@ const sync = fs.existsSync(modulePath) ? require(modulePath) : {};
 assert.equal(typeof sync.mergeSyncedContacts, 'function');
 assert.equal(typeof sync.normalizeChats, 'function');
 assert.equal(typeof sync.leerChatsConRespaldo, 'function');
+assert.equal(typeof sync.normalizarContactosLivianos, 'function');
 
 const chats = [
   { id: { _serialized: 'lid-a@lid' }, name: 'Chat A', timestamp: 10 },
@@ -51,6 +52,16 @@ void (async () => {
   assert.equal(lectura.chats.length, 566, 'lee el listado liviano completo de 566 chats');
   assert.equal(lectura.fuente, 'colección');
   assert.equal(lecturaPesada, false, 'no hidrata metadatos de grupos en el camino principal');
+  const contactosLivianos = sync.normalizarContactosLivianos([
+    {
+      id: { _serialized: 'cliente-a@lid' },
+      phoneNumber: { _serialized: '5493812345678@c.us' },
+      pushname: 'Cliente A',
+    },
+  ]);
+  assert.deepEqual(contactosLivianos, [
+    { id: 'cliente-a@lid', name: 'Cliente A', number: '5493812345678@c.us' },
+  ]);
   console.log('contact and chat sync: OK');
 })().catch((error) => {
   console.error(error);

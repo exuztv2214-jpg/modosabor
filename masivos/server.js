@@ -14,7 +14,12 @@ const QRCode = require('qrcode');
 const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const configBase = require('./config');
 const { liberarSesionWhatsApp } = require('./session-utils');
-const { mergeSyncedContacts, normalizeChats, leerChatsConRespaldo } = require('./contact-sync');
+const {
+  mergeSyncedContacts,
+  normalizeChats,
+  leerChatsConRespaldo,
+  normalizarContactosLivianos,
+} = require('./contact-sync');
 
 const PORT = Number(process.env.PORT || 3867);
 const HOST = process.env.HOST || '127.0.0.1';
@@ -3380,9 +3385,25 @@ app.post('/api/listar', async (req, res) => {
       try {
         let contactos = [];
         try {
-          contactos = await conTiempoLimite(client.getContacts(), 15000, 'getContacts');
+          contactos = normalizarContactosLivianos(
+            await conTiempoLimite(
+              client.pupPage.evaluate(() =>
+                window
+                  .require('WAWebCollections')
+                  .Contact.getModelsArray()
+                  .map((contact) => ({
+                    id: contact.id?._serialized || null,
+                    name: contact.name || contact.pushname || contact.shortName || '',
+                    phoneNumber: contact.phoneNumber?._serialized || contact.phoneNumber || '',
+                    userid: contact.userid || '',
+                  }))
+              ),
+              15000,
+              'Colección de contactos'
+            )
+          );
         } catch (error) {
-          registrarLog(`⚠️ No se pudo leer la agenda de WhatsApp: ${error.message}`);
+          registrarLog(`⚠️ No se pudo leer la agenda local de WhatsApp: ${error.message}`);
         }
         const actualizados = mergeSyncedContacts(
           chatsRaw,
@@ -3403,8 +3424,7 @@ app.post('/api/listar', async (req, res) => {
           grupos,
           agenda: contactos.length,
         });
-        if (!analisis.corriendo) await correrAnalisis(0);
-        await correrFotos();
+        if (!analisis.corriendo) void correrFotos();
       } catch (error) {
         registrarLog(`❌ Error completando la sincronización: ${error.message}`);
         emit('lista', { tipo: 'error', error: error.message });

@@ -111,4 +111,17 @@ async function leerChatsConRespaldo(lecturaLigera, lecturaCompleta) {
   return { chats: await lecturaCompleta(), fuente: 'getChats' };
 }
 
-module.exports = { mergeSyncedContacts, normalizeChats, leerChatsConRespaldo };
+function normalizarContactosLivianos(contacts) {
+  return (contacts || []).map((contact) => ({
+    id: serializedId(contact?.id),
+    name: contact?.name || contact?.pushname || contact?.shortName || '',
+    number: serializedId(contact?.phoneNumber) || serializedId(contact?.userid),
+  }));
+}
+
+module.exports = {
+  mergeSyncedContacts,
+  normalizeChats,
+  leerChatsConRespaldo,
+  normalizarContactosLivianos,
+};
