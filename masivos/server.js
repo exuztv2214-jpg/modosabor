@@ -220,9 +220,63 @@ async function activarPagina() {
     return false;
   }
 }
-setInterval(() => {
-  if (estadoWA.estado === 'listo') activarPagina();
-}, 60 * 1000);
+// Al conectar, la conexión del panel con la página queda a veces trabada: llegan los
+// mensajes entrantes, pero ninguna orden (leer chats, fotos, enviar) responde y la
+// CPU queda en cero. Recargar la página la destraba (la sesión no se pierde). Se
+// prueba al conectar y cada 2 minutos; dos fallas seguidas recargan.
+const saludPagina = { fallas: 0, revisando: false, ultimaRecarga: 0 };
+
+async function paginaResponde() {
+  try {
+    await conTiempoLimite(
+      client.pupPage.evaluate(() => 1),
+      8000,
+      'Ping a WhatsApp Web'
+    );
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+async function vigilarPagina(motivo, forzar = false) {
+  if (saludPagina.revisando || !client || !client.pupPage || estadoWA.estado !== 'listo') return;
+  saludPagina.revisando = true;
+  try {
+    activarPagina();
+    if (await paginaResponde()) {
+      saludPagina.fallas = 0;
+      return;
+    }
+    saludPagina.fallas++;
+    if (saludPagina.fallas < 2 && !forzar) return;
+    if (!forzar && Date.now() - saludPagina.ultimaRecarga < 3 * 60 * 1000) return;
+    saludPagina.ultimaRecarga = Date.now();
+    saludPagina.fallas = 0;
+    registrarLog(`🔄 WhatsApp Web no respondía (${motivo}): recargando la página.`);
+    try {
+      await recuperarPaginaWhatsApp();
+      registrarLog(
+        (await paginaResponde())
+          ? '✅ WhatsApp Web responde de nuevo.'
+          : '⚠️ WhatsApp Web sigue sin responder; se vuelve a probar en 2 minutos.'
+      );
+    } catch (e) {
+      registrarLog(`⚠️ No se pudo recargar WhatsApp Web: ${e.message}`);
+    }
+  } finally {
+    saludPagina.revisando = false;
+  }
+}
+
+setInterval(
+  () => {
+    if (estadoWA.estado !== 'listo') return;
+    activarPagina();
+    if (!motor.corriendo) vigilarPagina('revisión periódica');
+  },
+  2 * 60 * 1000
+);
 
 async function recuperarPaginaWhatsApp() {
   try {
@@ -2361,6 +2415,7 @@ function iniciarWhatsApp() {
     emit('estado', estadoWA);
     registrarLog('✅ WhatsApp listo (panel web).');
     activarPagina();
+    setTimeout(() => vigilarPagina('al conectar', true), 20000);
     setTimeout(() => descargarFotosPendientes('al conectar'), 2 * 60 * 1000);
   });
 
@@ -2690,6 +2745,9 @@ async function correrEnvio(simulacro, opciones = {}) {
         : '')
   );
   emitirMotor();
+
+  // Antes del primer envío, la página tiene que responder (si no, se recarga).
+  if (!simulacro && client && client.pupPage) await vigilarPagina('antes de enviar', true);
 
   const inicio = Date.now();
   const promedioDelay = (DELAY_MIN + DELAY_MAX) / 2;
@@ -3199,7 +3257,7 @@ async function correrFotos() {
 
   // 1) Todas las que WhatsApp Web ya tiene cargadas, en una sola consulta.
   let enMemoria = {};
-  await activarPagina();
+  await vigilarPagina('antes de las fotos', true);
   try {
     enMemoria = await fotosEnMemoria(pendientes.map((c) => c.numero));
   } catch (e) {
@@ -3999,6 +4057,7 @@ async function sincronizarHistorialPendiente(motivo) {
     .filter((c) => c.mensajes < 10 && !(intentos[c.numero] > hace))
     .sort((a, b) => b.timestamp - a.timestamp);
   if (!pendientes.length) return;
+  await vigilarPagina('antes del historial', true);
   historialFondo.corriendo = true;
   historialFondo.hechos = 0;
   historialFondo.total = pendientes.length;
