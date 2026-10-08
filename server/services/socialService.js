@@ -2549,10 +2549,18 @@ function createWorkerCommand(tipo, payload = {}) {
       throw new Error('Indicá con qué identidad: Perfil o Fan Page');
     }
     const cuenta = db
-      .prepare("SELECT id FROM social_accounts WHERE id = ? AND provider = 'facebook'")
+      .prepare(
+        "SELECT nombre, identificador_externo, metadata FROM social_accounts WHERE id = ? AND provider = 'facebook'"
+      )
       .get(identidad);
     if (!cuenta) throw new Error('No existe esa identidad de Facebook');
     cuerpo.identityId = identidad;
+    const metadata = parse(cuenta.metadata);
+    cuerpo.identityTipo = clean(
+      metadata.tipo || (cuenta.identificador_externo === 'fb_perfil' ? 'perfil' : 'page'),
+      20
+    ).toLowerCase();
+    cuerpo.identityNombre = clean(cuenta.nombre, 120);
   }
 
   const result = db

@@ -171,6 +171,18 @@ async function run() {
     const profileId = db
       .prepare("SELECT id FROM social_accounts WHERE identificador_externo = 'fb_perfil'")
       .get().id;
+    const syncProfileCommand = social.createWorkerCommand('sync_facebook_groups', {
+      identityId: profileId,
+    });
+    assert.deepStrictEqual(
+      JSON.parse(
+        db
+          .prepare('SELECT payload FROM social_worker_commands WHERE id = ?')
+          .get(syncProfileCommand).payload
+      ),
+      { identityId: profileId, identityTipo: 'perfil', identityNombre: 'Perfil de Facebook' },
+      'El Worker recibe la identidad completa para cambiar al Perfil antes de leer sus grupos'
+    );
     db.prepare(
       "DELETE FROM configuracion WHERE clave = 'social_worker_linked_after_command_id'"
     ).run();
