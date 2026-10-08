@@ -116,6 +116,24 @@ pasa por el mismo origen.
 - `data/`, `sesion/` y `.wwebjs_cache/` están en `.gitignore`: no hay datos de clientes en git.
 - La ruta `/masivos` del servidor principal exige `auth` + `marketing.edit`.
 
+## Hallazgo agregado durante los arreglos
+
+- **P0, el más grave:** `sanitizeMiddleware` del servidor principal procesaba los cuerpos que van a
+  `/masivos`. Escapaba `&`, `<` y `>` en los mensajes a clientes ("Milanesa &amp; papas") y cortaba
+  todo string a 5000 caracteres, así que **todas las imágenes y adjuntos subidos en producción llegaban
+  truncados (~3,7 KB) y rotos**. El `promo.png` de 5 KB que hay hoy en producción es uno de esos.
+
+## Estado de los arreglos (rama `fix/masivos-campanas`)
+
+| Commit | Qué resuelve |
+|--------|--------------|
+| `346dc6d` | F1, F2, F3, F4, F5, F6 y F8; F7 parcial: "Reactivar" ahora también reincluye |
+| `acd1227` | Punto 1 (medios en `data/media`), F9 y F10 |
+| `89ec6ad` | P0 y puntos 2 y 3 (cuerpo crudo por el proxy y sin `Authorization`) |
+
+Quedan pendientes: los puntos 4 a 8, F11 (es una decisión de negocio: ¿cuenta como "respuesta" un
+mensaje de alguien a quien no le mandamos promo?) y F12 a F15.
+
 ## Prioridad sugerida
 1. **Que la campaña llegue a quien corresponde:** F1, F2, F3, F5, F6 y F7 (más reincluir a los 567 contactos).
 2. **Que no se pierdan cosas:** el punto 1 (flyers en el volumen), F9 y F10.
