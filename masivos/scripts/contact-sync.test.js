@@ -22,15 +22,11 @@ const contacts = [
 const mappings = [{ lid: 'lid-a@lid', pn: '5493812345678@c.us' }];
 const merged = sync.mergeSyncedContacts(chats, contacts, [], mappings);
 
-assert.equal(
-  merged.length,
-  2,
-  'incluye contactos de agenda aunque no tengan chat y no duplica LID/PN'
+assert.equal(merged.length, 1, 'usa los chats como padrón y la agenda sólo para enriquecerlos');
+assert.deepEqual(
+  merged.map(({ numero, telefono }) => [numero, telefono || null]),
+  [['lid-a@lid', '5493812345678']]
 );
-assert.deepEqual(merged.map(({ numero, telefono }) => [numero, telefono || null]).sort(), [
-  ['lid-a@lid', '5493812345678'],
-  ['new@lid', null],
-]);
 assert.equal(merged.find((item) => item.numero === 'lid-a@lid').nombre, 'Agenda A');
 assert.equal(sync.normalizeChats(chats).length, 2, 'la bandeja conserva también los grupos');
 assert.equal(sync.normalizeChats(chats).find((item) => item.grupo).numero, 'group@g.us');
@@ -82,11 +78,11 @@ void (async () => {
   );
   assert.equal(
     sync.mergeSyncedContacts([], contactosLivianos, []).length,
-    1,
-    'no agrega participantes de grupos como contactos'
+    0,
+    'no agrega agenda ni participantes de grupos si no tienen conversación'
   );
   const lidSinTelefono = sync.mergeSyncedContacts(
-    [],
+    [{ id: { _serialized: '155873238364376@lid' } }],
     sync.normalizarContactosLivianos([
       { id: { _serialized: '155873238364376@lid' }, userid: '155873238364376@lid' },
     ]),
@@ -98,7 +94,7 @@ void (async () => {
     'no presenta el identificador LID como teléfono'
   );
   const lidAntesGuardadoComoTelefono = sync.mergeSyncedContacts(
-    [],
+    [{ id: { _serialized: '155873238364376@lid' } }],
     [],
     [{ numero: '155873238364376@lid', telefono: '155873238364376' }]
   )[0];
@@ -108,7 +104,7 @@ void (async () => {
     'limpia teléfonos históricos que eran el mismo identificador LID'
   );
   const duplicadosHistoricos = sync.mergeSyncedContacts(
-    [],
+    [{ id: { _serialized: 'cliente-duplicado@lid' }, name: 'Cliente' }],
     [],
     [
       { numero: 'cliente-duplicado@lid', telefono: '5493812345678', nombre: 'Cliente' },
@@ -122,7 +118,7 @@ void (async () => {
   );
   assert.equal(duplicadosHistoricos[0].numero, 'cliente-duplicado@lid');
   const duplicadoDetectadoEnAgenda = sync.mergeSyncedContacts(
-    [],
+    [{ id: { _serialized: '5493812223344@c.us' }, name: 'Cliente agenda' }],
     [
       {
         id: { _serialized: 'cliente-agenda@lid' },
@@ -138,6 +134,12 @@ void (async () => {
     'deduplica el teléfono cuando la propia agenda informa su LID'
   );
   assert.equal(duplicadoDetectadoEnAgenda[0].numero, 'cliente-agenda@lid');
+  const importadoSinChat = sync.mergeSyncedContacts(
+    [],
+    [],
+    [{ origen: 'crm', numero: '5493819998877@c.us', nombre: 'Importado' }]
+  );
+  assert.equal(importadoSinChat.length, 1, 'conserva contactos importados manualmente');
   console.log('contact and chat sync: OK');
 })().catch((error) => {
   console.error(error);

@@ -50,6 +50,11 @@ function mergeSyncedContacts(chats, contacts, previous, lidMappings = []) {
   }
 
   const canonical = (id) => phoneToLid.get(id) || id;
+  const previousById = new Map(
+    (previous || [])
+      .filter((item) => serializedId(item?.numero))
+      .map((item) => [canonical(serializedId(item.numero)), item])
+  );
   const records = new Map();
   const add = (id, name, phone, lastMessage, old = null) => {
     const originalId = serializedId(id);
@@ -78,16 +83,18 @@ function mergeSyncedContacts(chats, contacts, previous, lidMappings = []) {
     records.set(numero, merged);
   };
 
-  for (const item of previous || [])
+  for (const item of (previous || []).filter((contact) => contact?.origen === 'crm'))
     add(item?.numero, item?.nombre, item?.telefono, item?.ultimoMensaje, item);
   for (const chat of chats || []) {
     if (chat?.isGroup || chat?.grupo || chat?.isChannel) continue;
     const id = serializedId(chat?.id) || serializedId(chat?.numero);
+    const old = previousById.get(canonical(id));
     add(
       id,
       chat?.name || chat?.formattedTitle || chat?.nombre,
       chat?.phoneNumber,
-      chat?.timestamp ? new Date(chat.timestamp * 1000).toISOString().slice(0, 10) : ''
+      chat?.timestamp ? new Date(chat.timestamp * 1000).toISOString().slice(0, 10) : '',
+      old
     );
   }
   for (const contact of contacts || []) {
@@ -99,11 +106,13 @@ function mergeSyncedContacts(chats, contacts, previous, lidMappings = []) {
     )
       continue;
     const id = serializedId(contact?.id) || serializedId(contact?.numero);
+    if (!records.has(canonical(id))) continue;
     add(
       id,
       contact?.name || contact?.pushname || contact?.shortName,
       contact?.number || contact?.userid || contact?.phoneNumber,
-      ''
+      '',
+      previousById.get(canonical(id))
     );
   }
   return [...records.values()].sort((a, b) =>
