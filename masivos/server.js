@@ -192,6 +192,38 @@ function grupoEnvioPorId(id) {
 // ---------- Utilidades ----------
 
 const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
+// Marca la página de WhatsApp como visible, enfocada y activa (no congelada). Se
+// repite cada minuto y antes de cada tanda: sin esto Chromium la congelaba y toda
+// consulta quedaba esperando para siempre.
+let sesionCdp = null;
+async function activarPagina() {
+  if (!client || !client.pupPage) return false;
+  try {
+    if (!sesionCdp || sesionCdp.pagina !== client.pupPage) {
+      sesionCdp = {
+        pagina: client.pupPage,
+        cdp: await client.pupPage.createCDPSession(),
+      };
+    }
+    const { cdp } = sesionCdp;
+    await conTiempoLimite(
+      Promise.all([
+        cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true }),
+        cdp.send('Page.setWebLifecycleState', { state: 'active' }),
+      ]),
+      5000,
+      'Activar página'
+    );
+    return true;
+  } catch (e) {
+    sesionCdp = null;
+    return false;
+  }
+}
+setInterval(() => {
+  if (estadoWA.estado === 'listo') activarPagina();
+}, 60 * 1000);
+
 async function recuperarPaginaWhatsApp() {
   try {
     return await conTiempoLimite(
@@ -2295,7 +2327,16 @@ function iniciarWhatsApp() {
     authStrategy: new LocalAuth({ dataPath: SESSION_AUTH_PATH }),
     puppeteer: {
       headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
+      // Chromium congela las pestañas en segundo plano: la página de WhatsApp quedaba
+      // sin responder (CPU en cero) y fotos, historial y chats vencían.
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-background-timer-throttling',
+        '--disable-backgrounding-occluded-windows',
+        '--disable-renderer-backgrounding',
+        '--disable-features=IntensiveWakeUpThrottling,CalculateNativeWinOcclusion',
+      ],
       ...(BROWSER_EXECUTABLE ? { executablePath: BROWSER_EXECUTABLE } : {}),
     },
     ...(configBase.WA_WEB_VERSION ? { webVersion: configBase.WA_WEB_VERSION } : {}),
@@ -2319,6 +2360,7 @@ function iniciarWhatsApp() {
     estadoWA = { estado: 'listo', qr: null };
     emit('estado', estadoWA);
     registrarLog('✅ WhatsApp listo (panel web).');
+    activarPagina();
     setTimeout(() => descargarFotosPendientes('al conectar'), 2 * 60 * 1000);
   });
 
@@ -3157,6 +3199,7 @@ async function correrFotos() {
 
   // 1) Todas las que WhatsApp Web ya tiene cargadas, en una sola consulta.
   let enMemoria = {};
+  await activarPagina();
   try {
     enMemoria = await fotosEnMemoria(pendientes.map((c) => c.numero));
   } catch (e) {
@@ -3189,14 +3232,22 @@ async function correrFotos() {
   const limiteOculta = Date.now() - 7 * 86400000;
   const aPedir = resto.filter((c) => !(sinFoto[c.numero] > limiteOculta));
   let ocultas = resto.length - aPedir.length;
+  let fallasSeguidas = 0;
   for (let i = 0; i < aPedir.length; i += 24) {
     if (motor.corriendo) break; // una campaña tiene prioridad: se retoma más tarde
     const lote = aPedir.slice(i, i + 24);
     let urls = {};
+    await activarPagina();
     try {
       urls = await fotosDelServidor(lote.map((c) => c.numero));
+      fallasSeguidas = 0;
     } catch (e) {
-      registrarLog(`⚠️ Una tanda de fotos falló (${e.message}); sigue la próxima.`);
+      fallasSeguidas++;
+      registrarLog(`⚠️ Una tanda de fotos falló (${e.message}).`);
+      if (fallasSeguidas >= 2) {
+        registrarLog('📸 WhatsApp Web no responde: las fotos se retoman en la próxima pasada.');
+        break;
+      }
     }
     const ahora = Date.now();
     for (const c of lote) {
@@ -3953,16 +4004,25 @@ async function sincronizarHistorialPendiente(motivo) {
   historialFondo.total = pendientes.length;
   registrarLog(`💬 Trayendo mensajes de ${pendientes.length} chats (${motivo})…`);
   let nuevos = 0;
+  let fallasSeguidas = 0;
   try {
     for (let i = 0; i < pendientes.length; i += 10) {
       while ((motor.corriendo || historialJob.numero) && estadoWA.estado === 'listo')
         await esperar(5000);
       if (estadoWA.estado !== 'listo') break;
       const lote = pendientes.slice(i, i + 10).map((c) => c.numero);
+      await activarPagina();
       try {
         nuevos += guardarHistoriales(await historialEnPagina(lote, 30));
+        fallasSeguidas = 0;
       } catch (e) {
-        registrarLog(`⚠️ Una tanda de historial falló (${e.message}); sigue la próxima.`);
+        fallasSeguidas++;
+        registrarLog(`⚠️ Una tanda de historial falló (${e.message}).`);
+        if (fallasSeguidas >= 2) {
+          registrarLog('💬 WhatsApp Web no responde: el historial se retoma en la próxima pasada.');
+          break;
+        }
+        continue; // no se marca como intentado: se reintenta la próxima vez
       }
       const ahora = Date.now();
       const marcas = leerJsonSeguro(ARCHIVO_HISTORIAL_INTENTOS, {});
@@ -5063,6 +5123,50 @@ function campanasParaRevisar() {
   }
   return { interrumpidas, inciertos };
 }
+
+// Diagnóstico de la página de WhatsApp Web (sólo lectura).
+app.get('/api/diagnostico-wa', async (req, res) => {
+  const medir = async (nombre, fn) => {
+    const t = Date.now();
+    try {
+      return {
+        nombre,
+        ms: Date.now() - t,
+        valor: await conTiempoLimite(fn(), 8000, nombre),
+        fin: Date.now() - t,
+      };
+    } catch (e) {
+      return { nombre, error: e.message, fin: Date.now() - t };
+    }
+  };
+  if (!client || !client.pupPage) return res.json({ estado: estadoWA.estado, pagina: false });
+  const pagina = client.pupPage;
+  const pruebas = [await medir('ping', () => pagina.evaluate(() => 1))];
+  pruebas.push(await medir('activar', () => activarPagina()));
+  pruebas.push(await medir('ping2', () => pagina.evaluate(() => 1)));
+  pruebas.push(
+    await medir('estado', () =>
+      pagina.evaluate(() => {
+        const C = window.require && window.require('WAWebCollections');
+        return {
+          visible: document.visibilityState,
+          foco: document.hasFocus(),
+          listo: document.readyState,
+          wwebjs: typeof window.WWebJS,
+          chats: C && C.Chat ? C.Chat.getModelsArray().length : null,
+          miniaturas: C && C.ProfilePicThumb ? C.ProfilePicThumb.getModelsArray().length : null,
+        };
+      })
+    )
+  );
+  res.json({
+    estado: estadoWA.estado,
+    url: pagina.url(),
+    fotos: fotosJob,
+    historial: historialFondo,
+    pruebas,
+  });
+});
 
 app.get('/api/operacion', (req, res) => {
   res.json(estadoOperacion());
