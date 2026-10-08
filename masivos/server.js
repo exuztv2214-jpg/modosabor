@@ -196,6 +196,7 @@ const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
 // mensajes entrantes, pero ninguna orden (leer chats, fotos, enviar) responde y la
 // CPU queda en cero. Recargar la página la destraba (la sesión no se pierde). Se
 // prueba al conectar y cada 2 minutos; dos fallas seguidas recargan.
+let recargasArranque = 0;
 const saludPagina = { fallas: 0, revisando: false, ultimaRecarga: 0 };
 
 async function paginaResponde() {
@@ -2360,7 +2361,6 @@ function iniciarWhatsApp() {
         '--disable-background-timer-throttling',
         '--disable-backgrounding-occluded-windows',
         '--disable-renderer-backgrounding',
-        '--disable-features=IntensiveWakeUpThrottling,CalculateNativeWinOcclusion',
       ],
       ...(BROWSER_EXECUTABLE ? { executablePath: BROWSER_EXECUTABLE } : {}),
     },
@@ -2377,7 +2377,26 @@ function iniciarWhatsApp() {
     emit('estado', estadoWA);
   });
 
-  client.on('authenticated', () => registrarLog('✅ Sesión autenticada.'));
+  client.on('authenticated', () => {
+    registrarLog('✅ Sesión autenticada.');
+    // Si la página se traba durante el arranque, 'ready' nunca llega y el panel queda
+    // sin poder enviar. A los 90 s sin 'ready' se recarga la página (una vez por arranque).
+    const esperado = client;
+    setTimeout(async () => {
+      if (client !== esperado || estadoWA.estado === 'listo') return;
+      if (++recargasArranque > 3) return; // no entrar en ciclo: queda para revisar a mano
+      registrarLog('🔄 WhatsApp no terminó de cargar: recargando la página.');
+      try {
+        await conTiempoLimite(
+          client.pupPage.reload({ waitUntil: 'domcontentloaded', timeout: 30000 }),
+          35000,
+          'Recarga de WhatsApp'
+        );
+      } catch (e) {
+        registrarLog(`⚠️ No se pudo recargar WhatsApp Web: ${e.message}`);
+      }
+    }, 90000);
+  });
   client.on('loading_screen', (pct) => console.log(`WhatsApp cargando: ${pct}%`));
   client.on('change_state', (st) => console.log(`WhatsApp estado: ${st}`));
 
@@ -2385,6 +2404,7 @@ function iniciarWhatsApp() {
     estadoWA = { estado: 'listo', qr: null };
     emit('estado', estadoWA);
     registrarLog('✅ WhatsApp listo (panel web).');
+    recargasArranque = 0;
     setTimeout(() => vigilarPagina('al conectar', true), 20000);
     setTimeout(() => descargarFotosPendientes('al conectar'), 2 * 60 * 1000);
   });
