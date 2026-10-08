@@ -92,3 +92,11 @@ Alcance: cambios en este worktree; no se desplegó ni se enviaron mensajes reale
 Verificación: `npm --prefix masivos run verify` pasó sus comprobaciones y 30 regresiones; `npm --prefix server test` pasó 146 archivos, 0 fallados. Cutover estático, sintaxis JavaScript/Python y `git diff --check` correctos. Revisión independiente final sin nuevos P1/P2. Navegador aislado con contactos ficticios: foto/nombre persistentes después de recargar, logo guardado tras modal, cancelar pausa conserva habilitados, Escape cierra y móvil de 390 px sin desbordamiento horizontal. Consola sin errores en la comprobación.
 
 Pendiente: botones interactivos reales, documentados en `../botones-interactivos.md`; la biblioteca QR actual no los admite. Se necesita definir/conectar la cuenta Business Platform y sus plantillas. No se reinició el entorno operativo, no se desplegó, ni se enviaron mensajes reales. El launcher y la sesión de WhatsApp reales siguen sin verificación en ejecución.
+
+## Publicación y auditoría posterior — 2026-10-08
+
+Commit de código `8f91551`, publicado en `main` de `exuztv2214-jpg/modosabor`. CI remota `37838824571` correcta. Railway: API `031e09a0-6ccb-41ec-89e8-b8c953ad870c` y Masivos `d9685a80-666d-47c0-925d-b3ad303d42f2`, ambos SUCCESS. Se respaldaron SQLite y datos operativos antes de publicar.
+
+Verificación real después de publicar: sesión WhatsApp `listo`, 574 contactos, 507 chats almacenados, horarios sincronizados y bloqueo por turno habilitado. Hashes de contactos/exclusiones/pausas/configuración conservados; código remoto coincidente; SQLite con integridad `ok`. Seis pantallas revisadas en Chrome autenticado, cancelación de modal sin guardar y sin errores de consola observados. No se enviaron mensajes ni se cambiaron ajustes operativos.
+
+Bitácora de publicación: [../BITACORA.md](../BITACORA.md). Auditoría completa del módulo y sus integraciones: [../../../AUDITORIA-MASIVOS-POSTDEPLOY-2026-10-08.md](../../../AUDITORIA-MASIVOS-POSTDEPLOY-2026-10-08.md), con 14 hallazgos pendientes y propuestas priorizadas. No confundir la sesión conectada con una prueba de entrega real. Botones Business Platform y ejecución del launcher Windows permanecen sin verificación operativa.
