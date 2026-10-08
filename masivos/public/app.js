@@ -786,23 +786,35 @@ async function refresh() {
   if (results[6].status === 'fulfilled' && results[6].value.texto)
     state.message = results[6].value.texto.trim();
   if (results[7].status === 'fulfilled') state.groups = results[7].value.grupos || [];
-  const analytics = await api('/api/estadisticas').catch(() => null);
-  if (analytics) state.analytics = analytics;
-  const chats = await api('/api/conversaciones').catch(() => ({ conversaciones: [] }));
-  state.conversations = chats.conversaciones || [];
-  if (chats.total > state.contacts.length) {
-    const latestContacts = await api('/api/clientes').catch(() => null);
-    if (latestContacts?.clientes) state.contacts = latestContacts.clientes;
-  }
-  const media = await Promise.allSettled([api('/api/imagen'), api('/api/pdf')]);
-  if (media[0].status === 'fulfilled') state.media = media[0].value.imagenes || [];
-  if (media[1].status === 'fulfilled')
-    state.pdf = media[1].value.existe ? { nombre: media[1].value.nombre || 'menu.pdf' } : null;
   state.busy = false;
   syncShell();
   render();
   if (results.every((r) => r.status === 'rejected'))
     showToast('Panel listo: conectá WhatsApp para cargar datos reales.');
+
+  api('/api/estadisticas')
+    .then((analytics) => {
+      state.analytics = analytics;
+      render();
+    })
+    .catch(() => {});
+  api('/api/conversaciones', { signal: AbortSignal.timeout(10000) })
+    .then(async (chats) => {
+      state.conversations = chats.conversaciones || [];
+      if (chats.total > state.contacts.length) {
+        const latestContacts = await api('/api/clientes');
+        if (latestContacts?.clientes) state.contacts = latestContacts.clientes;
+      }
+      syncShell();
+      render();
+    })
+    .catch(() => {});
+  Promise.allSettled([api('/api/imagen'), api('/api/pdf')]).then((media) => {
+    if (media[0].status === 'fulfilled') state.media = media[0].value.imagenes || [];
+    if (media[1].status === 'fulfilled')
+      state.pdf = media[1].value.existe ? { nombre: media[1].value.nombre || 'menu.pdf' } : null;
+    render();
+  });
 }
 
 function connectLive() {
