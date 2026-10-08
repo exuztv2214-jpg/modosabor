@@ -826,6 +826,9 @@ function connectLive() {
     if (!wasConnected && liveWhatsapp === 'listo') {
       modal.innerHTML = '';
       showToast('WhatsApp vinculado correctamente.');
+      api('/api/listar', { method: 'POST', body: '{}' }).catch((error) =>
+        showToast(error.message || 'No se pudieron sincronizar los contactos.')
+      );
     } else if (modal?.innerHTML) {
       openQr();
     }
@@ -836,6 +839,15 @@ function connectLive() {
     state.status = { ...(state.status || {}), qr: event.data };
     syncShell();
     if ($('#modal-root')?.innerHTML) openQr();
+  });
+  stream.addEventListener('lista', (event) => {
+    const info = JSON.parse(event.data || '{}');
+    if (info.tipo === 'inicio') showToast('Sincronizando contactos de WhatsApp…');
+    if (info.tipo === 'fin') {
+      refresh();
+      showToast(`Contactos sincronizados: ${info.total || 0}.`);
+    }
+    if (info.tipo === 'error') showToast(info.error || 'No se pudieron sincronizar los contactos.');
   });
   stream.addEventListener('fotos', (event) => {
     const info = JSON.parse(event.data || '{}');
