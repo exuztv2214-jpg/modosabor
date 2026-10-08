@@ -20,6 +20,7 @@ function verifyIsolation() {
   assert.match(server, /const PORT = Number\(process\.env\.PORT \|\| 3867\)/);
   assert.match(server, /const HOST = process\.env\.HOST \|\| ['"]127\.0\.0\.1['"]/);
   assert.match(server, /path\.join\(ROOT, ['"]sesion['"]/);
+  assert.match(server, /MASIVOS_SESSION_DIR/);
   assert.doesNotMatch(server, /D:\\ModoSaborPromoPro/);
   assert.doesNotMatch(server, /Documents\\kimi\\Workspaces\\masivos/);
   assert.match(server, /client\.getContacts\(\)/);

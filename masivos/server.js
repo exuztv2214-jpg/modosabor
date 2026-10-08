@@ -20,6 +20,9 @@ const HOST = process.env.HOST || '127.0.0.1';
 const PANEL_PROXY_TOKEN = String(process.env.MASIVOS_PROXY_TOKEN || '').trim();
 const PANEL_BASE_PATH = String(process.env.MASIVOS_BASE_PATH || '').replace(/\/+$/, '');
 const ROOT = __dirname;
+const SESSION_AUTH_PATH = String(
+  process.env.MASIVOS_SESSION_DIR || path.join(ROOT, 'sesion')
+).trim();
 const BROWSER_EXECUTABLE =
   process.env.MODO_SABOR_BROWSER ||
   [
@@ -1838,7 +1841,7 @@ function iniciarWhatsApp() {
   }
 
   client = new Client({
-    authStrategy: new LocalAuth({ dataPath: path.join(ROOT, 'sesion') }),
+    authStrategy: new LocalAuth({ dataPath: SESSION_AUTH_PATH }),
     puppeteer: {
       headless: true,
       args: ['--no-sandbox', '--disable-setuid-sandbox'],
