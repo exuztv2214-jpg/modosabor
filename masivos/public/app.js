@@ -31,8 +31,20 @@ const state = {
   contactsFilter: 'todos',
   contactQuery: '',
   busy: false,
+  identity: null,
+  business: null,
+  operador: null,
+  motor: { corriendo: false, pausado: false, stats: {} },
+  progress: null,
+  wait: null,
+  tanda: null,
+  campaignDetail: null,
+  logs: [],
 };
 let qrRefreshTimer = null;
+let waitTimer = null;
+
+const ROLE_LABELS = { admin: 'Dueño', caja: 'Caja', cocina: 'Cocina', delivery: 'Delivery' };
 
 const PANEL_BASE_PATH = String(window.__MODO_SABOR_MASIVOS_BASE_PATH__ || '').replace(/\/+$/, '');
 const panelPath = (value) => {
@@ -95,8 +107,62 @@ function statusLabel() {
   return state.status?.whatsapp === 'listo' ? 'CONECTADO' : 'DESCONECTADO';
 }
 
+// Usuario y negocio salen del sistema Modo Sabor (mismo dominio en producción).
+// En uso local, sin el sistema principal, quedan los valores de "Panel local".
+async function loadIdentity() {
+  const [me, negocio] = await Promise.allSettled([
+    fetch('/api/auth/me', { credentials: 'include' }).then((r) => (r.ok ? r.json() : null)),
+    fetch('/api/configuracion', { credentials: 'include' }).then((r) => (r.ok ? r.json() : null)),
+  ]);
+  const user = me.status === 'fulfilled' && me.value ? me.value.user || me.value : null;
+  if (user?.nombre) state.identity = { nombre: user.nombre, rol: user.rol || '' };
+  const cfg = negocio.status === 'fulfilled' ? negocio.value : null;
+  if (cfg?.negocio_nombre)
+    state.business = {
+      nombre: cfg.negocio_nombre,
+      localidad: cfg.negocio_localidad || '',
+      logo: cfg.negocio_logo_url || cfg.negocio_logo || '',
+    };
+  syncShell();
+  render();
+}
+
+function businessLabel() {
+  const b = state.business;
+  if (!b) return state.config?.NEGOCIO_NOMBRE || 'Modo Sabor';
+  return b.localidad && !b.nombre.includes(b.localidad) ? `${b.nombre} ${b.localidad}` : b.nombre;
+}
+
+// Rutas del sistema principal (/uploads/...) no van bajo el prefijo del panel.
+function assetUrl(url) {
+  const raw = String(url || '');
+  if (!raw) return '';
+  if (/^(?:https?:|data:|blob:)/i.test(raw) || raw.startsWith('/uploads/')) return raw;
+  return panelPath(raw);
+}
+
+function previewLogo() {
+  const own = state.config?.NEGOCIO_LOGO;
+  if (own && own !== '/assets/logo.png') return assetUrl(own);
+  return assetUrl(state.business?.logo || '/assets/logo.png');
+}
+
 function syncShell() {
   const connected = state.status?.whatsapp === 'listo';
+  const user = state.identity;
+  const userName = $('#shell-user');
+  if (userName) userName.textContent = user?.nombre || 'Panel local';
+  const role = $('#shell-role');
+  if (role)
+    role.textContent = user
+      ? ROLE_LABELS[user.rol] || user.rol || 'Usuario'
+      : 'Sin sesión del sistema';
+  const avatar = $('#shell-avatar');
+  if (avatar) avatar.textContent = user ? initials(user.nombre) : '·';
+  const business = $('#shell-business');
+  if (business) business.textContent = businessLabel();
+  const branch = $('#shell-branch');
+  if (branch) branch.textContent = businessLabel();
   document.body.dataset.connected = connected ? 'true' : 'false';
   const dot = $('.channel-title .status-dot');
   if (dot) dot.className = `status-dot ${connected ? '' : 'offline'}`;
@@ -123,12 +189,23 @@ function syncShell() {
   const bar = $('#sidebar-health-bar');
   if (bar) bar.style.width = `${Math.max(0, Math.min(100, health || 0))}%`;
   const label = $('#sidebar-health-label');
-  if (label) label.textContent = connected ? 'Calentamiento OK' : 'Sin conexión';
+  if (label) label.textContent = connected ? healthStateLabel(state.health) : 'Sin conexión';
   const batch = $('#shell-batch');
-  if (batch)
-    batch.textContent = state.config?.MAX_POR_CORRIDA
-      ? `Tandas ${state.config.MAX_POR_CORRIDA}`
-      : 'Tandas —';
+  if (batch) batch.textContent = motorLabel();
+}
+
+const HEALTH_LABELS = { verde: 'Ritmo sano', amarillo: 'Precaución', rojo: 'Riesgo alto' };
+function healthStateLabel(health) {
+  return HEALTH_LABELS[health?.estado] || 'Sin datos';
+}
+
+function motorLabel() {
+  const m = state.motor || {};
+  if (!m.corriendo) return 'en espera';
+  const s = m.stats || {};
+  const avance = `${s.hechos || 0} de ${s.total || 0}`;
+  if (m.pausado) return `pausado · ${avance}`;
+  return `${s.simulacro ? 'simulando' : 'enviando'} · ${avance}`;
 }
 
 function card(title, content, className = '') {
@@ -145,50 +222,288 @@ function renderInicio() {
   const active = segments.recurrentes;
   const nuevos = segments.nuevos;
   const cold = segments.frios;
-  const stats = state.status?.stats || {};
-  const warmup = state.status?.calentamiento;
-  const warmupLabel = connected
-    ? warmup?.calentamiento
-      ? `Rampa ${Number(warmup.diasPrevios || 0) + 1}`
-      : 'No activa'
-    : '—';
+  const health = state.health || {};
+  const motor = state.motor || {};
+  const pendientes = motor.corriendo
+    ? Math.max(0, Number(motor.stats?.total || 0) - Number(motor.stats?.hechos || 0))
+    : 0;
   return `
     <div class="connection-row">
-      ${card('', `<div class="connection-top"><div class="connection-icon"><span class="material-symbols-outlined">phone_iphone</span></div><div><h2>WhatsApp Web<br>${connected ? 'Vinculado' : 'Sin vincular'}</h2><p>${esc(state.status?.whatsappDetalle || (connected ? 'Cuenta conectada y lista para operar' : 'Escaneá el QR para conectar tu cuenta'))}</p></div><span class="badge ${connected ? 'green' : 'red'}">${connected ? 'Sesión activa' : 'Esperando QR'}</span><button class="button ghost" data-action="qr"><span class="material-symbols-outlined">qr_code_2</span> Revisar conexión</button></div><div class="status-grid"><div><small>ESTADO DEL NODO</small><strong>${connected ? 'En línea' : '—'}</strong></div><div><small>COLA DE SALIDA</small><strong class="good">${stats.pendientes ?? 0} msgs</strong></div><div><small>ÚLTIMA SINCRONIZACIÓN</small><strong>${state.conversations.length ? `${state.conversations.length} chats` : '—'}</strong></div></div>`, 'connection-card')}
-      ${card('', `<div class="suggestion-top"><span><span class="material-symbols-outlined">auto_awesome</span> PRÓXIMO PASO SUGERIDO</span><span class="badge red">${connected ? 'Acción recomendada' : 'Requiere conexión'}</span></div><h3>${connected ? 'Preparar una campaña segmentada' : 'Conectar WhatsApp Web'}</h3><p>${connected ? 'Seleccioná un segmento de clientes, revisá el mensaje y simulá el envío antes de despachar.' : 'La interfaz ya está lista. Escaneá el código QR para habilitar contactos, chats y campañas.'}</p><button class="button primary" ${connected ? 'data-route="campana"' : 'data-action="qr"'}>${connected ? 'Preparar campaña' : 'Abrir conexión'} <span class="material-symbols-outlined">arrow_forward</span></button>`, 'suggestion')}
+      ${card('', `<div class="connection-top"><div class="connection-icon"><span class="material-symbols-outlined">phone_iphone</span></div><div><h2>WhatsApp Web<br>${connected ? 'Vinculado' : 'Sin vincular'}</h2><p>${esc(state.status?.whatsappDetalle || (connected ? 'Cuenta conectada y lista para operar' : 'Escaneá el QR para conectar tu cuenta'))}</p></div><span class="badge ${connected ? 'green' : 'red'}">${connected ? 'Sesión activa' : 'Esperando QR'}</span><button class="button ghost" data-action="qr"><span class="material-symbols-outlined">qr_code_2</span> Revisar conexión</button></div><div class="status-grid"><div><small>CHATS SINCRONIZADOS</small><strong>${state.conversations.length ? state.conversations.length.toLocaleString('es-AR') : '—'}</strong></div><div><small>ENVIADOS HOY</small><strong>${connected ? Number(health.enviadosHoy || 0).toLocaleString('es-AR') : '—'}</strong></div><div><small>EN COLA</small><strong class="good">${motor.corriendo ? `${pendientes} msgs` : 'Sin campaña'}</strong></div></div>`, 'connection-card')}
+      ${nextStepCard(connected)}
     </div>
     <div class="metric-grid">
-      ${metric('TOTAL HABILITADOS', total ? total.toLocaleString('es-AR') : '—', 'contacts', total ? 'Contactos sincronizados' : 'Sin lista cargada', 'green')}
-      ${metric('CLIENTES ACTIVOS', active ? active.toLocaleString('es-AR') : '—', 'local_fire_department', total ? 'Listos para segmentar' : 'Requiere sincronización')}
-      ${metric('NUEVOS REGISTROS', segments.loaded ? nuevos.toLocaleString('es-AR') : '—', 'person_add', segments.loaded ? 'Segmento nuevo real' : 'Requiere sincronización', 'red')}
-      ${metric('CONTACTOS FRÍOS', cold ? cold.toLocaleString('es-AR') : '—', 'ac_unit', cold ? 'Requieren reactivación' : 'Sin datos históricos')}
+      ${metric('HABILITADOS', total ? total.toLocaleString('es-AR') : '—', 'contacts', total ? 'Reciben campañas' : 'Sin lista cargada', 'green')}
+      ${metric('ACTIVOS', segments.loaded ? active.toLocaleString('es-AR') : '—', 'local_fire_department', 'Respondieron en 14 días')}
+      ${metric('NUEVOS', segments.loaded ? nuevos.toLocaleString('es-AR') : '—', 'person_add', 'Chats de los últimos 7 días', 'red')}
+      ${metric('FRÍOS', segments.loaded ? cold.toLocaleString('es-AR') : '—', 'ac_unit', '3+ promos sin respuesta')}
     </div>
-    <div class="card shortcuts"><strong><span class="material-symbols-outlined">bolt</span> ATAJOS DE TURNO:</strong><button class="shortcut" data-action="refresh"><span class="material-symbols-outlined">sync</span>Actualizar Contactos</button><button class="shortcut primary" data-route="campana"><span class="material-symbols-outlined">campaign</span>Preparar Campaña</button><button class="shortcut" data-action="simulate"><span class="material-symbols-outlined">model_training</span>Hacer Simulacro</button><button class="shortcut" data-action="test"><span class="material-symbols-outlined">send_to_mobile</span>Enviar Prueba Personal</button><button class="shortcut" data-route="conversaciones"><span class="material-symbols-outlined">chat</span>Revisar Chats <b data-unread-chats>0</b></button></div>
+    <div class="card shortcuts"><strong><span class="material-symbols-outlined">bolt</span> ATAJOS:</strong><button class="shortcut" data-action="refresh"><span class="material-symbols-outlined">sync</span>Actualizar Contactos</button><button class="shortcut primary" data-route="campana"><span class="material-symbols-outlined">campaign</span>Preparar Campaña</button><button class="shortcut" data-action="test"><span class="material-symbols-outlined">send_to_mobile</span>Enviar Prueba Personal</button><button class="shortcut" data-route="conversaciones"><span class="material-symbols-outlined">chat</span>Revisar Chats <b data-unread-chats>0</b></button></div>
     <div class="grid two" style="margin-top:18px">
-      ${card('', `<div class="campaign-head"><div><div class="eyebrow">CAMPAÑA ACTIVA EN FILA · <span class="eyebrow green">Lista para preparar</span></div><h2 class="campaign-title">Tu próxima campaña empieza acá</h2></div><span class="badge slate">Sin despacho activo</span></div><div class="campaign-preview"><div class="attachment-thumb"><span class="material-symbols-outlined">restaurant</span></div><div class="preview-copy"><strong>Mensaje personalizado para clientes</strong><br>Usá variables, multimedia y segmentos para crear una comunicación clara y medible.<div class="preview-meta"><span><span class="material-symbols-outlined">tune</span> Variables activas</span><span><span class="material-symbols-outlined">schedule</span> Programación segura</span></div></div></div><div class="mini-stats"><div class="mini-stat"><small>DESTINATARIOS</small><strong>${total ? total.toLocaleString('es-AR') : '—'}</strong></div><div class="mini-stat"><small>FRECUENCIA / TANDAS</small><strong>Configurable</strong></div><div class="mini-stat"><small>PROGRAMACIÓN</small><strong>Manual</strong></div></div><div class="readiness"><span class="material-symbols-outlined">verified</span><span>La campaña se habilita cuando WhatsApp esté conectado y exista una lista.</span><b>Lista de control activa</b></div><div class="campaign-actions"><button class="button secondary" data-route="campana"><span class="material-symbols-outlined">visibility</span>Previsualizar</button><button class="button primary" data-route="campana"><span class="material-symbols-outlined">edit</span>Construir campaña</button></div>`, 'campaign-card')}
-      <div>${card('', `<div class="health-score"><div><div class="eyebrow">SALUD DE LA LÍNEA</div><h2>${healthValue(connected ? state.health : null)}<small>/100</small></h2></div><b>RIESGO ${connected ? 'CONTROLADO' : 'SIN DATOS'}</b></div><div class="health-box"><div><small>REPORTES (7d)</small><strong>—</strong></div><div><small>CALENTAMIENTO</small><strong>${warmupLabel}</strong></div><div><small>VELOCIDAD</small><strong>${connected ? 'Regulada' : '—'}</strong></div></div><div style="margin-top:15px;font-size:11px;color:var(--brown)">Cupo diario utilizado hoy: <b style="float:right">${connected ? `${stats.enviados ?? 0} / — mensajes` : '—'}</b></div><div class="progress"><i style="width:${connected ? 8 : 0}%"></i></div>`, 'side-card')}${card('', `<div class="activity"><div style="display:flex;justify-content:space-between;align-items:center"><h3>Actividad del Sistema</h3><span class="eyebrow">En vivo</span></div>${state.events.length ? state.events.slice(0, 4).map(eventRow).join('') : empty('history', 'Todavía no hay actividad', 'Los eventos del panel aparecerán aquí.')}</div>`, 'side-card')}</div>
+      ${motor.corriendo ? liveCampaignCard() : lastCampaignCard()}
+      <div>${healthCard(connected)}${activityCard()}</div>
     </div>`;
+}
+
+// Próximo paso real: lo calcula el servidor (/api/operador) con pedidos, mensaje, prueba y salud.
+function nextStepCard(connected) {
+  const op = state.operador;
+  const accion = connected
+    ? op?.proximaAccion || 'Preparar campaña por prioridad'
+    : 'Conectar WhatsApp';
+  const destinos = {
+    'Responder pedidos probables': ['data-route="conversaciones"', 'Ver chats'],
+    'Conectar WhatsApp': ['data-action="qr"', 'Abrir conexión'],
+    'Bajar volumen y trabajar CRM': ['data-route="conversaciones"', 'Ver chats'],
+  };
+  const [boton, etiqueta] = destinos[accion] || ['data-route="campana"', 'Ir a Campaña'];
+  const notas = connected ? (op?.notificaciones || []).slice(0, 3) : [];
+  return card(
+    '',
+    `<div class="suggestion-top"><span><span class="material-symbols-outlined">auto_awesome</span> PRÓXIMO PASO</span></div><h3>${esc(accion)}</h3>${notas.length ? `<ul class="next-step-notes">${notas.map((nota) => `<li>${esc(nota)}</li>`).join('')}</ul>` : `<p>${connected ? 'Todo en orden para preparar la próxima campaña.' : 'Escaneá el código QR para habilitar contactos, chats y campañas.'}</p>`}<button class="button primary" ${boton}>${etiqueta} <span class="material-symbols-outlined">arrow_forward</span></button>`,
+    'suggestion'
+  );
+}
+
+function campaignTime(iso) {
+  if (!iso) return '—';
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime())
+    ? '—'
+    : date.toLocaleString('es-AR', {
+        day: '2-digit',
+        month: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      });
+}
+
+const CAMPAIGN_STATES = {
+  corriendo: 'En curso',
+  finalizada: 'Finalizada',
+  detenida: 'Detenida',
+};
+
+function segmentLabel(segmento) {
+  const value = String(segmento || '');
+  if (!value || value === 'todos') return 'Todos los habilitados';
+  if (value.startsWith('grupo:')) {
+    const grupo = state.groups.find((item) => item.id === value.slice(6));
+    return grupo ? `Grupo: ${grupo.nombre}` : 'Grupo guardado';
+  }
+  if (value.startsWith('reintento:')) return 'Reintento de fallidos';
+  return SEGMENT_NAMES[value] || value;
+}
+
+const SEGMENT_NAMES = {
+  activo: 'Activos',
+  nuevo: 'Nuevos',
+  nuevo_sin_enviar: 'Nuevos sin enviar',
+  frio: 'Fríos',
+  pidio: 'Pidieron',
+  pidio_ayer: 'Pidieron ayer',
+  cliente: 'Ya compraron',
+  frecuente: 'Frecuentes',
+  inactivo_30: 'No piden hace 30 días',
+};
+
+function lastCampaignCard() {
+  const last = state.campaigns[0];
+  const cfg = state.config || {};
+  const programacion = cfg.PROGRAMACION_ACTIVA
+    ? `Automática ${esc(cfg.PROGRAMACION_HORA || '10:30')}`
+    : 'Manual';
+  const resumen = last
+    ? `<div class="campaign-head"><div><div class="eyebrow">ÚLTIMA CAMPAÑA · ${esc(campaignTime(last.inicio))}</div><h2 class="campaign-title">${esc(segmentLabel(last.segmento))}</h2></div><span class="badge ${last.simulacro ? 'slate' : last.estado === 'detenida' ? 'red' : 'green'}">${last.simulacro ? 'Simulacro' : esc(CAMPAIGN_STATES[last.estado] || last.estado || '—')}</span></div><div class="mini-stats"><div class="mini-stat"><small>ENVIADOS</small><strong>${Number(last.stats?.ok || 0)}</strong></div><div class="mini-stat"><small>FALLIDOS</small><strong>${Number(last.stats?.fallidos || 0)}</strong></div><div class="mini-stat"><small>DESTINATARIOS</small><strong>${Number(last.stats?.total || 0)}</strong></div></div>`
+    : `<div class="campaign-head"><div><div class="eyebrow">CAMPAÑAS</div><h2 class="campaign-title">Todavía no hay campañas</h2></div></div><p class="muted-copy">Prepará la primera desde Campaña: elegís mensaje, flyer y a quién mandarlo.</p>`;
+  return card(
+    '',
+    `${resumen}<div class="mini-stats"><div class="mini-stat"><small>PROGRAMACIÓN</small><strong>${programacion}</strong></div><div class="mini-stat"><small>MÁXIMO POR TANDA</small><strong>${Number(cfg.MAX_POR_CORRIDA || 50)}</strong></div><div class="mini-stat"><small>PAUSA ENTRE MENSAJES</small><strong>${Math.round(Number(cfg.DELAY_MIN_MS || 15000) / 1000)}–${Math.round(Number(cfg.DELAY_MAX_MS || 45000) / 1000)} s</strong></div></div><div class="campaign-actions">${last ? '<button class="button secondary" data-route="resultados"><span class="material-symbols-outlined">query_stats</span>Ver resultados</button>' : ''}<button class="button primary" data-route="campana"><span class="material-symbols-outlined">edit</span>Nueva campaña</button></div>`,
+    'campaign-card'
+  );
+}
+
+function healthCard(connected) {
+  const h = state.health || {};
+  const cfg = state.config || {};
+  const maxVentana = Number(cfg.MAX_POR_HORA || 0);
+  const ventana = Number(h.enviadosVentana || 0);
+  const uso = maxVentana ? Math.min(100, Math.round((ventana / maxVentana) * 100)) : 0;
+  const warmup = state.status?.calentamiento;
+  const tono = h.estado === 'rojo' ? 'red' : h.estado === 'amarillo' ? 'slate' : 'green';
+  return card(
+    '',
+    `<div class="health-score"><div><div class="eyebrow">SALUD DEL NÚMERO</div><h2>${connected && h.score != null ? h.score : '—'}<small>/100</small></h2></div><span class="badge ${tono}">${connected ? healthStateLabel(h) : 'Sin conexión'}</span></div><div class="health-box"><div><small>ENVIADOS HOY</small><strong>${connected ? Number(h.enviadosHoy || 0) : '—'}</strong></div><div><small>RESPUESTA HOY</small><strong>${connected && h.enviadosHoy ? `${Math.round(Number(h.tasaRespuesta || 0) * 100)}%` : '—'}</strong></div><div><small>CALENTAMIENTO</small><strong>${warmup?.calentamiento ? `Día ${Number(warmup.diasPrevios || 0) + 1}` : 'Apagado'}</strong></div></div><div style="margin-top:15px;font-size:11px;color:var(--brown)">Cupo de los últimos ${Number(h.ventanaCupoMin || cfg.VENTANA_CUPO_MINUTOS || 60)} min: <b style="float:right">${maxVentana ? `${ventana} / ${maxVentana}` : `${ventana} · sin límite`}</b></div><div class="progress"><i style="width:${uso}%"></i></div>${connected && h.recomendaciones?.[0] ? `<p class="muted-copy">${esc(h.recomendaciones[0])}</p>` : ''}`,
+    'side-card'
+  );
+}
+
+function activityCard() {
+  const eventos = state.logs.slice(-5).reverse();
+  return card(
+    '',
+    `<div class="activity"><div style="display:flex;justify-content:space-between;align-items:center"><h3>Actividad del motor</h3><span class="eyebrow">En vivo</span></div>${eventos.length ? eventos.map(eventRow).join('') : empty('history', 'Todavía no hay actividad', 'Los envíos, sincronizaciones y bajas aparecen acá.')}</div>`,
+    'side-card'
+  );
+}
+
+// Las líneas del log vienen como "[8/10/2026, 15:43:29] texto".
+function parseLogLine(linea) {
+  const match = String(linea || '').match(/^\[([^\]]+)\]\s*(.*)$/);
+  const hora = match ? (match[1].split(',')[1] || match[1]).trim().slice(0, 5) : '';
+  return { hora, texto: match ? match[2] : String(linea || '') };
+}
+
+function liveCampaignCard() {
+  const m = state.motor || {};
+  const s = m.stats || {};
+  const total = Number(s.total || 0);
+  const hechos = Number(s.hechos || 0);
+  const pct = total ? Math.round((hechos / total) * 100) : 0;
+  const ultimo = state.progress;
+  return card(
+    '',
+    `<div class="campaign-head"><div><div class="eyebrow">CAMPAÑA EN CURSO${s.tandas > 1 ? ` · TANDA ${Number(state.tanda?.actual || 1)} DE ${Number(s.tandas)}` : ''}</div><h2 class="campaign-title">${m.pausado ? 'En pausa' : s.simulacro ? 'Simulacro en curso' : 'Enviando mensajes'}</h2></div><span class="badge ${m.pausado ? 'slate' : s.simulacro ? 'slate' : 'green'}">${s.simulacro ? 'Simulacro' : m.pausado ? 'Pausada' : 'En vivo'}</span></div><div class="live-progress" role="progressbar" aria-valuemin="0" aria-valuemax="${total}" aria-valuenow="${hechos}"><i style="width:${pct}%"></i></div><div class="mini-stats"><div class="mini-stat"><small>ENVIADOS</small><strong>${Number(s.ok || 0)}</strong></div><div class="mini-stat"><small>FALLIDOS</small><strong>${Number(s.fallidos || 0)}</strong></div><div class="mini-stat"><small>FALTAN</small><strong>${Math.max(0, total - hechos)}</strong></div></div>${ultimo ? `<p class="live-last ${ultimo.ok === false ? 'bad' : ''}">${ultimo.ok === false ? '✗' : '✓'} ${esc(ultimo.etiqueta || '')}${ultimo.error ? ` · ${esc(ultimo.error)}` : ''}</p>` : ''}<p class="live-wait" id="live-wait">${esc(waitLabel())}</p><div class="campaign-actions">${m.pausado ? '<button class="button primary" data-action="motor-reanudar"><span class="material-symbols-outlined">play_arrow</span>Reanudar</button>' : '<button class="button secondary" data-action="motor-pausar"><span class="material-symbols-outlined">pause</span>Pausar</button>'}<button class="button danger" data-action="motor-detener"><span class="material-symbols-outlined">stop</span>Detener</button></div>`,
+    'campaign-card live-campaign'
+  );
+}
+
+const WAIT_LABELS = {
+  normal: 'Próximo mensaje en',
+  larga: 'Pausa larga de seguridad:',
+  cupo: 'Cupo por hora lleno; sigue en',
+  tanda: 'Espera entre tandas:',
+};
+
+function waitLabel() {
+  const m = state.motor || {};
+  if (m.pausado) return 'Pausada: no sale nada hasta que la reanudes.';
+  const w = state.wait;
+  if (!w) return 'Preparando el próximo envío…';
+  const restante = Math.max(0, Math.round((w.hasta - Date.now()) / 1000));
+  if (!restante) return 'Enviando…';
+  const tiempo = restante >= 90 ? `${Math.ceil(restante / 60)} min` : `${restante} s`;
+  return `${WAIT_LABELS[w.tipo] || 'Esperando'} ${tiempo}`;
+}
+
+function tickWait() {
+  const el = $('#live-wait');
+  if (el) el.textContent = waitLabel();
 }
 
 function metric(title, value, icon, foot, tone = '') {
   return `<div class="card metric-card"><div class="metric-head"><span>${title}</span><span class="metric-icon material-symbols-outlined">${icon}</span></div><div class="metric-value">${value}</div><div class="metric-foot"><span class="${tone === 'green' ? 'positive' : tone === 'red' ? 'negative' : ''}">${foot}</span></div></div>`;
 }
-function healthValue(h) {
-  return h?.puntaje != null ? h.puntaje : h?.score != null ? h.score : '—';
-}
-function eventRow(event, i) {
-  return `<div class="activity-row ${i === 1 ? 'red' : i === 2 ? 'gray' : ''}"><i></i><div><strong>${esc(event.titulo || event.tipo || 'Evento del sistema')}</strong><p>${esc(event.detalle || event.mensaje || '')}</p></div><time>${esc(event.hora || 'Ahora')}</time></div>`;
+function eventRow(linea) {
+  const { hora, texto } = parseLogLine(linea);
+  const tono = /❌|ERROR|⛔|🚫/.test(texto) ? 'red' : /SIMULACRO|💾|📸/.test(texto) ? 'gray' : '';
+  return `<div class="activity-row ${tono}"><i></i><div><p>${esc(texto)}</p></div><time>${esc(hora)}</time></div>`;
 }
 
 function renderCampana() {
   const segments = campaignSegmentCounts();
   const total = segments.total;
-  return `<div class="page-head"><div class="page-title"><div class="page-icon"><span class="material-symbols-outlined">rocket_launch</span></div><div><div class="eyebrow">CENTRO OPERATIVO / CAMPAÑA</div><h1>Constructor y Simulacro de Campaña</h1><p>Campañas segmentadas de alto impacto por WhatsApp Directo con dispersión anti-bloqueo.</p></div></div><span class="badge green">Línea ${state.status?.whatsapp === 'listo' ? 'activa' : 'pendiente'}</span></div><div class="step-rail"><div class="step active"><b>1</b> Mensaje</div><div class="step-line"></div><div class="step"><b>2</b> Multimedia</div><div class="step-line"></div><div class="step"><b>3</b> Audiencia</div><div class="step-line"></div><div class="step"><b>4</b> Despacho</div></div><div class="studio"><div class="studio-main">
+  return `<div class="page-head"><div class="page-title"><div class="page-icon"><span class="material-symbols-outlined">rocket_launch</span></div><div><div class="eyebrow">CENTRO OPERATIVO / CAMPAÑA</div><h1>Constructor y Simulacro de Campaña</h1><p>Mensaje, flyer y destinatarios. Primero se prepara y revisa; nada sale sin tu confirmación.</p></div></div><span class="badge green">Línea ${state.status?.whatsapp === 'listo' ? 'activa' : 'pendiente'}</span></div><div class="step-rail"><div class="step active"><b>1</b> Mensaje</div><div class="step-line"></div><div class="step"><b>2</b> Multimedia</div><div class="step-line"></div><div class="step"><b>3</b> Audiencia</div><div class="step-line"></div><div class="step"><b>4</b> Despacho</div></div><div class="studio"><div class="studio-main">${state.motor?.corriendo ? liveCampaignCard() : ''}
     ${card('', `<div class="section-title"><span class="number">1</span><h2>Redacción de Mensaje & Variables</h2></div><div class="tabs"><button class="${state.campaignTab === 'general' ? 'active' : ''}" data-action="campaign-tab" data-tab="general">General</button><button class="${state.campaignTab === 'recurrentes' ? 'active' : ''}" data-action="campaign-tab" data-tab="recurrentes">Ya Pidieron (Recurrentes)</button><button class="${state.campaignTab === 'nuevos' ? 'active' : ''}" data-action="campaign-tab" data-tab="nuevos">Nuevos (Bienvenida)</button><button class="${state.campaignTab === 'frios' ? 'active' : ''}" data-action="campaign-tab" data-tab="frios">Recuperar Fríos</button></div><div class="eyebrow">INYECTAR VARIABLES PERSONALIZADAS</div><div class="var-pills"><button class="var-pill" data-insert="{SALUDO}">+ {SALUDO}</button><button class="var-pill" data-insert="{NOMBRE}">+ {NOMBRE}</button></div><textarea class="editor" id="campaign-message" placeholder="Escribí el mensaje de tu campaña...">${esc(state.message)}</textarea><div class="editor-note"><span>Variables simples y claras para personalizar cada conversación.</span><b id="message-count">0 caracteres</b></div><button class="button secondary" data-action="save-message"><span class="material-symbols-outlined">save</span>Guardar borrador</button>`, 'section-card')}
     ${card('', `<div class="section-title"><span class="number">2</span><h2>Contenido Multimedia & Adjuntos</h2><small>Máx. 16 MB por archivo</small></div><div class="attachment-list">${state.media.length ? state.media.map((item) => `<div class="attachment"><div class="attachment-thumb" style="background-image:url('${esc(item.dataUrl || item.url || '')}');background-size:cover"><span class="material-symbols-outlined">image</span></div><div><strong>${esc(item.nombre || 'Imagen de campaña')}</strong><small>Imagen lista para usar</small></div><span class="material-symbols-outlined" data-remove-image="${esc(item.nombre || '')}">delete</span></div>`).join('') : '<div class="attachment"><div class="attachment-thumb"><span class="material-symbols-outlined">image</span></div><div><strong>Imagen de campaña</strong><small>JPG, PNG o WEBP</small></div></div>'}${state.pdf ? `<div class="attachment"><div class="attachment-thumb" style="background:#ffd8d2;color:#b51b07"><span class="material-symbols-outlined">picture_as_pdf</span></div><div><strong>${esc(state.pdf.nombre || 'Menú o promoción')}</strong><small>PDF listo para adjuntar</small></div><span class="material-symbols-outlined" data-remove-pdf="true">delete</span></div>` : '<div class="attachment"><div class="attachment-thumb" style="background:#ffd8d2;color:#b51b07"><span class="material-symbols-outlined">picture_as_pdf</span></div><div><strong>Menú o promoción</strong><small>PDF opcional</small></div></div>'}</div><label class="upload-row"><span class="material-symbols-outlined">upload_file</span> Agregar imágenes o PDF <input id="campaign-file" type="file" hidden multiple accept="image/*,.pdf"></label>`, 'section-card')}
-    ${card('', `<div class="section-title"><span class="number">3</span><h2>Selección de Segmento Objetivo</h2><button class="link-button" data-route="contactos" style="width:auto;margin-left:auto;color:var(--coral-dark)">Gestionar filtros CRM</button></div><div class="audience-grid"><label class="audience"><span><input type="radio" name="segment" value="activo" ${state.campaignSegment === 'activo' ? 'checked' : ''}> Clientes Activos</span><p>Contactos con actividad reciente y consentimiento.</p><strong>${segments.loaded ? segments.recurrentes.toLocaleString('es-AR') : '—'} destinatarios</strong></label><label class="audience"><span><input type="radio" name="segment" value="nuevo" ${state.campaignSegment === 'nuevo' ? 'checked' : ''}> Clientes Nuevos</span><p>Registrados recientemente o sin segunda visita confirmada.</p><strong>${segments.loaded ? segments.nuevos.toLocaleString('es-AR') : '—'} destinatarios</strong></label><label class="audience"><span><input type="radio" name="segment" value="frio" ${state.campaignSegment === 'frio' ? 'checked' : ''}> Contactos Fríos</span><p>Recibieron 3 o más promos y nunca respondieron.</p><strong>${segments.loaded ? segments.frios.toLocaleString('es-AR') : '—'} destinatarios</strong></label><label class="audience"><span><input type="radio" name="segment" value="todos" ${state.campaignSegment === 'todos' ? 'checked' : ''}> Base Total Habilitada</span><p>Todos los contactos habilitados para campañas.</p><strong>${segments.loaded ? total.toLocaleString('es-AR') : '—'} contactos</strong></label></div>${state.groups.length ? `<div class="campaign-group-picker"><span class="material-symbols-outlined">bookmark</span><div><strong>Grupo guardado</strong><small>Usá una selección preparada desde Contactos.</small></div><select id="campaign-group" aria-label="Grupo guardado"><option value="">Elegir grupo...</option>${state.groups.map((group) => `<option value="${esc(group.id)}">${esc(group.nombre)} · ${group.numeros.length} contactos</option>`).join('')}</select></div>` : `<div class="campaign-group-hint"><span class="material-symbols-outlined">bookmark_add</span>Guardá una selección desde Contactos para reutilizarla como grupo de envío.</div>`}<div class="readiness"><span class="material-symbols-outlined">shield</span>La audiencia se mantiene bloqueada hasta que exista conexión y consentimiento.</div>`, 'section-card')}
-    ${card('', `<div class="section-title"><span class="number">4</span><h2>Revisión, Ritmo y Seguridad de Envío</h2><span class="badge green" style="margin-left:auto">Validación activa</span></div><div class="check-list"><div class="check-row"><span class="material-symbols-outlined">check_circle</span><div><strong>Mensaje revisado</strong><small>No se enviará nada mientras sea sólo una vista previa.</small></div></div><div class="check-row"><span class="material-symbols-outlined">check_circle</span><div><strong>Variables mapeadas</strong><small>Los campos vacíos se muestran antes de confirmar.</small></div></div><div class="check-row"><span class="material-symbols-outlined">check_circle</span><div><strong>Intervalo de seguridad configurado</strong><small>La dispersión evita ráfagas y mantiene control manual.</small></div></div></div><div class="campaign-actions"><button class="button secondary" data-action="simulate"><span class="material-symbols-outlined">play_circle</span>Hacer Simulacro</button><button class="button secondary" data-action="test"><span class="material-symbols-outlined">send_to_mobile</span>Enviar Prueba Personal</button><button class="button primary" data-action="dispatch"><span class="material-symbols-outlined">schedule_send</span>Confirmar y Programar Envío</button></div>`, 'section-card')}
-  </div><aside class="preview-dock">${renderWhatsappPreview()}<div class="card side-card projection"><h3>Simulación de Rendimiento</h3><div class="projection-grid"><div><small>Apertura proyectada</small><strong class="green">—</strong><small>Se calcula al simular</small></div><div><small>Respuestas esperadas</small><strong class="red">—</strong><small>Sin histórico todavía</small></div><div><small>Reservas / Mesas</small><strong>—</strong><small>Sin campaña enviada</small></div><div><small>Costo operativo</small><strong class="green">$0</strong><small>Sesión local</small></div></div></div></aside></div>`;
+    ${card('', `<div class="section-title"><span class="number">3</span><h2>Selección de Segmento Objetivo</h2><button class="link-button" data-route="contactos" style="width:auto;margin-left:auto;color:var(--coral-dark)">Gestionar filtros CRM</button></div><div class="audience-grid"><label class="audience"><span><input type="radio" name="segment" value="activo" ${state.campaignSegment === 'activo' ? 'checked' : ''}> Clientes Activos</span><p>Respondieron en los últimos 14 días.</p><strong>${segments.loaded ? segments.recurrentes.toLocaleString('es-AR') : '—'} destinatarios</strong></label><label class="audience"><span><input type="radio" name="segment" value="nuevo" ${state.campaignSegment === 'nuevo' ? 'checked' : ''}> Clientes Nuevos</span><p>Chats nuevos de los últimos 7 días que todavía no recibieron promo.</p><strong>${segments.loaded ? segments.nuevos.toLocaleString('es-AR') : '—'} destinatarios</strong></label><label class="audience"><span><input type="radio" name="segment" value="frio" ${state.campaignSegment === 'frio' ? 'checked' : ''}> Contactos Fríos</span><p>Recibieron 3 o más promos y nunca respondieron.</p><strong>${segments.loaded ? segments.frios.toLocaleString('es-AR') : '—'} destinatarios</strong></label>${realOrderAudiences(segments)}<label class="audience"><span><input type="radio" name="segment" value="todos" ${state.campaignSegment === 'todos' ? 'checked' : ''}> Base Total Habilitada</span><p>Todos los contactos que no están excluidos ni pausados.</p><strong>${segments.loaded ? total.toLocaleString('es-AR') : '—'} contactos</strong></label></div>${state.groups.length ? `<div class="campaign-group-picker"><span class="material-symbols-outlined">bookmark</span><div><strong>Grupo guardado</strong><small>Usá una selección preparada desde Contactos.</small></div><select id="campaign-group" aria-label="Grupo guardado"><option value="">Elegir grupo...</option>${state.groups.map((group) => `<option value="${esc(group.id)}">${esc(group.nombre)} · ${group.numeros.length} contactos</option>`).join('')}</select></div>` : `<div class="campaign-group-hint"><span class="material-symbols-outlined">bookmark_add</span>Guardá una selección desde Contactos para reutilizarla como grupo de envío.</div>`}`, 'section-card')}
+    ${dispatchCard()}
+  </div><aside class="preview-dock">${renderWhatsappPreview()}</aside></div>`;
+}
+
+// Segmentos que salen de los pedidos reales del sistema (sólo si está conectado).
+function realOrderAudiences(segments) {
+  if (!state.status?.pedidosReales?.configurado) return '';
+  const opcion = (value, titulo, detalle, total) =>
+    `<label class="audience"><span><input type="radio" name="segment" value="${value}" ${state.campaignSegment === value ? 'checked' : ''}> ${titulo}</span><p>${detalle}</p><strong>${segments.loaded ? total.toLocaleString('es-AR') : '—'} destinatarios</strong></label>`;
+  return (
+    opcion(
+      'cliente',
+      'Ya compraron',
+      'Tienen al menos un pedido en Modo Sabor.',
+      segments.clientes
+    ) +
+    opcion('frecuente', 'Frecuentes', '4 o más pedidos en Modo Sabor.', segments.frecuentes) +
+    opcion(
+      'inactivo_30',
+      'No piden hace 30 días',
+      'Compraron antes pero no en el último mes.',
+      segments.inactivos
+    )
+  );
+}
+
+function pedidosRealesBadge() {
+  const info = state.status?.pedidosReales;
+  if (!info?.configurado)
+    return '<span class="badge slate" title="Falta configurar MODOSABOR_API_URL en el servicio Masivos">Sin conexión con pedidos</span>';
+  if (info.error)
+    return `<span class="badge red" title="${esc(info.error)}">Pedidos de Modo Sabor: error</span>`;
+  return `<span class="badge green">${Number(info.contactosConPedidos || 0)} contactos con pedidos en Modo Sabor</span>`;
+}
+
+function lastActivity(c) {
+  const m = c.metricas || {};
+  if (m.ultimoPedido) return `Pidió el ${m.ultimoPedido}`;
+  if (m.ultimaRespuestaFecha) return `Respondió el ${m.ultimaRespuestaFecha}`;
+  return 'Sin historial';
+}
+
+// Paso 4: chequeos calculados con el estado real; nada está tildado de antemano.
+function dispatchCard() {
+  const cfg = state.config || {};
+  const connected = state.status?.whatsapp === 'listo';
+  const hoy = new Date().getDay();
+  const diaNoEnvio = Array.isArray(cfg.DIAS_NO_ENVIO) && cfg.DIAS_NO_ENVIO.includes(hoy);
+  const checks = [
+    [
+      connected,
+      'WhatsApp conectado',
+      connected ? 'Sesión activa.' : 'Escaneá el QR antes de enviar.',
+    ],
+    [
+      Boolean(state.message.trim()),
+      'Mensaje cargado',
+      state.message.trim()
+        ? `${state.message.trim().length} caracteres.`
+        : 'Escribí el mensaje en el paso 1.',
+    ],
+    [
+      state.media.length > 0,
+      'Flyer',
+      state.media.length
+        ? `${state.media.length} imagen(es) por contacto.`
+        : 'Sin imagen: se manda sólo texto.',
+      true,
+    ],
+    [
+      !cfg.MODO_SOLO_RESPUESTAS && !diaNoEnvio,
+      'Día habilitado',
+      cfg.MODO_SOLO_RESPUESTAS
+        ? 'Modo "sólo respuestas" activo: no salen promos.'
+        : diaNoEnvio
+          ? 'Hoy está marcado como día sin envío.'
+          : 'Hoy se puede enviar.',
+    ],
+    [
+      true,
+      'Ritmo de envío',
+      `${Math.round(Number(cfg.DELAY_MIN_MS || 15000) / 1000)}–${Math.round(Number(cfg.DELAY_MAX_MS || 45000) / 1000)} s entre mensajes · ${Number(cfg.MAX_POR_HORA || 0) || 'sin'} límite por hora · máximo ${Number(cfg.MAX_POR_CORRIDA || 50)} por tanda.`,
+    ],
+  ];
+  const rows = checks
+    .map(
+      ([ok, titulo, detalle, opcional]) =>
+        `<div class="check-row ${ok ? '' : opcional ? 'warn' : 'bad'}"><span class="material-symbols-outlined">${ok ? 'check_circle' : opcional ? 'info' : 'cancel'}</span><div><strong>${esc(titulo)}</strong><small>${esc(detalle)}</small></div></div>`
+    )
+    .join('');
+  const ocupado = state.motor?.corriendo;
+  return card(
+    '',
+    `<div class="section-title"><span class="number">4</span><h2>Revisión y envío</h2></div><div class="check-list">${rows}</div><div class="campaign-actions"><button class="button secondary" data-action="simulate" ${ocupado ? 'disabled' : ''}><span class="material-symbols-outlined">play_circle</span>Hacer Simulacro</button><button class="button secondary" data-action="test" ${ocupado ? 'disabled' : ''}><span class="material-symbols-outlined">send_to_mobile</span>Enviar Prueba Personal</button><button class="button primary" data-action="dispatch" ${ocupado ? 'disabled' : ''}><span class="material-symbols-outlined">schedule_send</span>Preparar y revisar envío</button></div>${ocupado ? '<small>Hay una campaña en curso: esperá a que termine o detenela.</small>' : ''}`,
+    'section-card'
+  );
 }
 
 // Cada pestaña del editor guarda su propia plantilla en el servidor (mensaje-<tag>.txt).
@@ -231,6 +546,9 @@ function campaignSegmentCounts() {
     recurrentes: count('activo'),
     nuevos: count('nuevo'),
     frios: count('frio'),
+    clientes: count('cliente'),
+    frecuentes: count('frecuente'),
+    inactivos: count('inactivo_30'),
   };
 }
 
@@ -389,7 +707,7 @@ function renderContactos() {
   const content = visible.length
     ? state.contactsView === 'cards'
       ? `<div class="contact-card-grid">${visible.map((c) => contactCard(c, selected)).join('')}</div>`
-      : `<div class="table-head"><span>COMENSAL / TELÉFONO</span><span>SEGMENTO / GUSTOS</span><span>ÚLTIMO PEDIDO</span><span>ESTADO</span></div><div class="contact-table-scroll">${visible.map((c) => contactRow(c, selected)).join('')}</div>`
+      : `<div class="table-head"><span>CLIENTE / TELÉFONO</span><span>SEGMENTO / ETIQUETAS</span><span>ÚLTIMA ACTIVIDAD</span><span>ESTADO</span></div><div class="contact-table-scroll">${visible.map((c) => contactRow(c, selected)).join('')}</div>`
     : empty(
         'group_off',
         query
@@ -403,17 +721,17 @@ function renderContactos() {
             ? 'Elegí otro segmento para seguir explorando la base.'
             : 'Conectá WhatsApp y usá “Actualizar Contactos” para traer la agenda disponible.'
       );
-  return `<div class="page-head"><div class="page-title"><div class="page-icon"><span class="material-symbols-outlined">groups</span></div><div><div class="eyebrow">CENTRO OPERATIVO / CRM</div><h1>Directorio & CRM Gastronómico</h1><p>Gestioná comensales, historial y segmentación desde un solo lugar.</p></div></div><div class="page-actions"><button class="button secondary" data-action="photos"><span class="material-symbols-outlined">account_circle</span>Actualizar fotos</button><button class="button secondary" data-action="import"><span class="material-symbols-outlined">upload_file</span>Importar Excel / VCF</button><button class="button primary" data-action="add-contact"><span class="material-symbols-outlined">person_add</span>Agregar Contacto</button></div></div><div class="card toolbar"><span class="material-symbols-outlined">search</span><input class="search" id="contact-search" placeholder="Buscar por nombre, teléfono o etiqueta..." value="${esc(state.contactQuery)}"><span class="result-count">${visible.length} de ${filteredContacts.length} contactos</span><div class="view-toggle" aria-label="Vista de contactos"><button class="view-button ${state.contactsView === 'list' ? 'active' : ''}" data-action="contacts-view" data-view="list" aria-pressed="${state.contactsView === 'list'}"><span class="material-symbols-outlined">view_list</span>Lista</button><button class="view-button ${state.contactsView === 'cards' ? 'active' : ''}" data-action="contacts-view" data-view="cards" aria-pressed="${state.contactsView === 'cards'}"><span class="material-symbols-outlined">grid_view</span>Tarjetas</button></div><button class="button ghost" data-action="refresh"><span class="material-symbols-outlined">sync</span>Actualizar</button></div><div class="filter-chips"><button class="filter-chip ${filter === 'todos' ? 'active' : ''}" data-action="contacts-filter" data-filter="todos">Todos ${counts.todos}</button><button class="filter-chip ${filter === 'activos' ? 'active' : ''}" data-action="contacts-filter" data-filter="activos"><b class="status-dot"></b> Activos ${counts.activos}</button><button class="filter-chip ${filter === 'nuevos' ? 'active' : ''}" data-action="contacts-filter" data-filter="nuevos"><b class="status-dot warn"></b> Nuevos ${counts.nuevos}</button><button class="filter-chip ${filter === 'frios' ? 'active' : ''}" data-action="contacts-filter" data-filter="frios">Fríos ${counts.frios}</button><button class="filter-chip ${filter === 'excluidos' ? 'active' : ''}" data-action="contacts-filter" data-filter="excluidos">Excluidos / Pausados ${counts.excluidos}</button></div>${contactOperations()}<div class="crm-layout"><section class="card table-card">${content}</section>${detailCard(selected)}</div>`;
+  return `<div class="page-head"><div class="page-title"><div class="page-icon"><span class="material-symbols-outlined">groups</span></div><div><div class="eyebrow">CENTRO OPERATIVO / CONTACTOS</div><h1>Contactos y clientes</h1><p>Tus contactos de WhatsApp con su historial de envíos, respuestas y pedidos.</p></div></div><div class="page-actions">${pedidosRealesBadge()}<button class="button secondary" data-action="photos"><span class="material-symbols-outlined">account_circle</span>Actualizar fotos</button><button class="button secondary" data-action="import"><span class="material-symbols-outlined">upload_file</span>Importar Excel / VCF</button><button class="button primary" data-action="add-contact"><span class="material-symbols-outlined">person_add</span>Agregar Contacto</button></div></div><div class="card toolbar"><span class="material-symbols-outlined">search</span><input class="search" id="contact-search" placeholder="Buscar por nombre, teléfono o etiqueta..." value="${esc(state.contactQuery)}"><span class="result-count">${visible.length} de ${filteredContacts.length} contactos</span><div class="view-toggle" aria-label="Vista de contactos"><button class="view-button ${state.contactsView === 'list' ? 'active' : ''}" data-action="contacts-view" data-view="list" aria-pressed="${state.contactsView === 'list'}"><span class="material-symbols-outlined">view_list</span>Lista</button><button class="view-button ${state.contactsView === 'cards' ? 'active' : ''}" data-action="contacts-view" data-view="cards" aria-pressed="${state.contactsView === 'cards'}"><span class="material-symbols-outlined">grid_view</span>Tarjetas</button></div><button class="button ghost" data-action="refresh"><span class="material-symbols-outlined">sync</span>Actualizar</button></div><div class="filter-chips"><button class="filter-chip ${filter === 'todos' ? 'active' : ''}" data-action="contacts-filter" data-filter="todos">Todos ${counts.todos}</button><button class="filter-chip ${filter === 'activos' ? 'active' : ''}" data-action="contacts-filter" data-filter="activos"><b class="status-dot"></b> Habilitados ${counts.activos}</button><button class="filter-chip ${filter === 'nuevos' ? 'active' : ''}" data-action="contacts-filter" data-filter="nuevos"><b class="status-dot warn"></b> Nuevos ${counts.nuevos}</button><button class="filter-chip ${filter === 'frios' ? 'active' : ''}" data-action="contacts-filter" data-filter="frios">Fríos ${counts.frios}</button><button class="filter-chip ${filter === 'excluidos' ? 'active' : ''}" data-action="contacts-filter" data-filter="excluidos">Excluidos / Pausados ${counts.excluidos}</button></div>${contactOperations()}<div class="crm-layout"><section class="card table-card">${content}</section>${detailCard(selected)}</div>`;
 }
 function contactRow(c, selected) {
   const numero = String(c.numero || '');
-  return `<div class="contact-row ${selected?.numero === c.numero ? 'selected' : ''}" data-contact="${esc(numero)}"><div class="person"><input class="contact-select" type="checkbox" data-contact-select="${esc(numero)}" aria-label="Seleccionar ${esc(c.nombre || numero)}" ${state.selectedContacts.includes(numero) ? 'checked' : ''}><span class="select-avatar">${avatarMarkup(c)}</span><div><strong>${esc(c.nombre || 'Sin nombre')}</strong><small>${esc(c.telefono || c.numero || 'Sin teléfono')}</small></div></div><div class="tags"><span class="tag">${esc(c.segmentosAuto?.[0] || c.segmento || 'Contacto')}</span>${c.tags?.[0] ? `<span class="tag green">${esc(c.tags[0])}</span>` : ''}</div><div class="contact-meta">${esc(c.ultimoPedido || c.metricas?.ultimaRespuestaFecha || 'Sin historial')}<small>${c.metricas?.respondioTotal ? `${c.metricas.respondioTotal} respuestas` : 'Historial pendiente'}</small></div><span class="badge ${c.excluido || c.pausado ? 'red' : 'green'}">${c.excluido ? 'Excluido' : c.pausado ? 'Pausado' : 'Habilitado'}</span></div>`;
+  return `<div class="contact-row ${selected?.numero === c.numero ? 'selected' : ''}" data-contact="${esc(numero)}"><div class="person"><input class="contact-select" type="checkbox" data-contact-select="${esc(numero)}" aria-label="Seleccionar ${esc(c.nombre || numero)}" ${state.selectedContacts.includes(numero) ? 'checked' : ''}><span class="select-avatar">${avatarMarkup(c)}</span><div><strong>${esc(c.nombre || 'Sin nombre')}</strong><small>${esc(c.telefono || c.numero || 'Sin teléfono')}</small></div></div><div class="tags"><span class="tag">${esc(c.segmentosAuto?.[0] || c.segmento || 'Contacto')}</span>${c.tags?.[0] ? `<span class="tag green">${esc(c.tags[0])}</span>` : ''}</div><div class="contact-meta">${esc(lastActivity(c))}<small>${c.metricas?.pedidosReales ? `${c.metricas.pedidosReales} pedidos` : c.metricas?.respondioTotal ? `${c.metricas.respondioTotal} respuestas` : 'Sin respuestas'}</small></div><span class="badge ${c.excluido || c.pausado ? 'red' : 'green'}">${c.excluido ? 'Excluido' : c.pausado ? 'Pausado' : 'Habilitado'}</span></div>`;
 }
 function contactCard(c, selected) {
   const metrics = c.metricas || {};
   const numero = String(c.numero || '');
   const tags = [...(c.segmentosAuto || []), ...(c.tags || [])].filter(Boolean).slice(0, 3);
-  return `<article class="contact-card ${selected?.numero === c.numero ? 'selected' : ''}" data-contact="${esc(numero)}"><div class="contact-card-top"><label class="card-select"><input class="contact-select" type="checkbox" data-contact-select="${esc(numero)}" aria-label="Seleccionar ${esc(c.nombre || numero)}" ${state.selectedContacts.includes(numero) ? 'checked' : ''}><span>Seleccionar</span></label>${avatarMarkup(c, 'avatar contact-card-avatar')}<span class="badge ${c.excluido || c.pausado ? 'red' : 'green'}">${c.excluido ? 'Excluido' : c.pausado ? 'Pausado' : 'Habilitado'}</span></div><h3>${esc(c.nombre || 'Sin nombre')}</h3><p class="contact-handle">${esc(c.telefono || c.numero || 'Sin teléfono')}</p><div class="tags">${(tags.length ? tags : ['Contacto']).map((tag, i) => `<span class="tag ${i === 1 ? 'green' : ''}">${esc(tag)}</span>`).join('')}</div><div class="contact-card-meta"><span><small>Último pedido</small><strong>${esc(c.ultimoPedido || metrics.ultimaRespuestaFecha || 'Sin historial')}</strong></span><span><small>Respuestas</small><strong>${metrics.respondioTotal ?? '—'}</strong></span></div><div class="contact-card-actions"><button class="button ghost" data-action="open-wa" data-number="${esc(numero)}"><span class="material-symbols-outlined">chat</span>WhatsApp</button><span class="material-symbols-outlined">arrow_forward</span></div></article>`;
+  return `<article class="contact-card ${selected?.numero === c.numero ? 'selected' : ''}" data-contact="${esc(numero)}"><div class="contact-card-top"><label class="card-select"><input class="contact-select" type="checkbox" data-contact-select="${esc(numero)}" aria-label="Seleccionar ${esc(c.nombre || numero)}" ${state.selectedContacts.includes(numero) ? 'checked' : ''}><span>Seleccionar</span></label>${avatarMarkup(c, 'avatar contact-card-avatar')}<span class="badge ${c.excluido || c.pausado ? 'red' : 'green'}">${c.excluido ? 'Excluido' : c.pausado ? 'Pausado' : 'Habilitado'}</span></div><h3>${esc(c.nombre || 'Sin nombre')}</h3><p class="contact-handle">${esc(c.telefono || c.numero || 'Sin teléfono')}</p><div class="tags">${(tags.length ? tags : ['Contacto']).map((tag, i) => `<span class="tag ${i === 1 ? 'green' : ''}">${esc(tag)}</span>`).join('')}</div><div class="contact-card-meta"><span><small>Última actividad</small><strong>${esc(lastActivity(c))}</strong></span><span><small>Respuestas</small><strong>${metrics.respondioTotal ?? '—'}</strong></span></div><div class="contact-card-actions"><button class="button ghost" data-action="open-wa" data-number="${esc(numero)}"><span class="material-symbols-outlined">chat</span>WhatsApp</button><span class="material-symbols-outlined">arrow_forward</span></div></article>`;
 }
 function detailActivity(detail) {
   const responses = Array.isArray(detail.respuestas)
@@ -447,7 +765,7 @@ function detailCard(c) {
   const tags = [...(detail.tags || c.tags || []), ...(c.segmentosAuto || [])]
     .filter(Boolean)
     .slice(0, 4);
-  return `<aside class="card detail-card"><div class="detail-head">${avatarMarkup(c)}<div><h2>${esc(c.nombre || 'Sin nombre')}</h2><p>${esc(c.telefono || c.numero || 'Sin teléfono')}</p></div><span class="badge ${c.excluido || c.pausado ? 'red' : 'green'}" style="margin-left:auto">${c.excluido ? 'Excluido' : c.pausado ? 'Pausado' : 'Cliente'}</span></div><div class="detail-actions"><button class="button primary" data-action="open-wa" data-number="${esc(c.numero)}"><span class="material-symbols-outlined">chat</span>Abrir WhatsApp</button><button class="button ghost" data-action="note"><span class="material-symbols-outlined">edit_note</span></button></div><div class="detail-kpis"><div><small>Pedidos</small><strong>${metrics.pedidosProbables ?? c.pedidos ?? c.metricas?.pidioTotal ?? '—'}</strong></div><div><small>Respuestas</small><strong>${metrics.respuestasTotal ?? metrics.respondioTotal ?? '—'}</strong></div><div><small>Envíos</small><strong>${metrics.enviadosTotal ?? '—'}</strong></div></div><div class="detail-block"><h4>PERFIL DE PALADAR & SALÓN</h4><div class="tags">${(tags.length ? tags : ['Preferencias pendientes']).map((tag) => `<span class="tag">${esc(tag)}</span>`).join('')}</div><p class="detail-last-contact">Último mensaje: ${esc(c.ultimoMensaje || 'Sin fecha registrada')}</p></div><div class="detail-block"><h4>HISTORIAL REAL</h4>${detailActivity(detail)}</div><div class="detail-block"><h4>BITÁCORA DEL SALÓN</h4><div class="note-box">${esc(detail.nota || 'Todavía no hay notas para este contacto. Agregá contexto después de cada conversación.')}</div></div></aside>`;
+  return `<aside class="card detail-card"><div class="detail-head">${avatarMarkup(c)}<div><h2>${esc(c.nombre || 'Sin nombre')}</h2><p>${esc(c.telefono || c.numero || 'Sin teléfono')}</p></div><span class="badge ${c.excluido || c.pausado ? 'red' : 'green'}" style="margin-left:auto">${c.excluido ? 'Excluido' : c.pausado ? 'Pausado' : 'Cliente'}</span></div><div class="detail-actions"><button class="button primary" data-action="open-wa" data-number="${esc(c.numero)}"><span class="material-symbols-outlined">chat</span>Abrir WhatsApp</button><button class="button ghost" data-action="note"><span class="material-symbols-outlined">edit_note</span></button></div><div class="detail-kpis"><div><small>Pedidos</small><strong>${c.metricas?.pedidosReales ?? '—'}</strong></div><div><small>Respuestas</small><strong>${metrics.respuestasTotal ?? metrics.respondioTotal ?? '—'}</strong></div><div><small>Envíos</small><strong>${metrics.enviadosTotal ?? '—'}</strong></div></div><div class="detail-block"><h4>SEGMENTOS Y ETIQUETAS</h4><div class="tags">${(tags.length ? tags : ['Sin segmento']).map((tag) => `<span class="tag">${esc(tag)}</span>`).join('')}</div><p class="detail-last-contact">Último mensaje: ${esc(c.ultimoMensaje || 'Sin fecha registrada')}</p></div><div class="detail-block"><h4>HISTORIAL REAL</h4>${detailActivity(detail)}</div><div class="detail-block"><h4>NOTAS</h4><div class="note-box">${esc(detail.nota?.texto || 'Sin notas. Usá el lápiz para agregar una.')}</div></div></aside>`;
 }
 
 function messageTime(timestamp) {
@@ -589,6 +907,52 @@ function chatRow(item) {
   return `<div class="inbox-item ${item.numero === state.selectedChatNumber ? 'selected' : ''}" data-chat-number="${esc(item.numero || '')}">${avatarMarkup(item)}<div class="chat-row-copy"><div class="chat-row-top"><strong>${esc(item.nombre || 'Sin nombre')}</strong><time>${esc(item.hora || 'Hoy')}</time>${unread ? `<b class="chat-unread">${unread > 9 ? '9+' : unread}</b>` : ''}</div><small>${esc(chatContactLabel(item))}</small><p>${esc(item.texto || item.mensaje || 'Sin mensajes registrados')}</p></div></div>`;
 }
 
+function campaignsTable() {
+  if (!state.campaigns.length)
+    return empty(
+      'campaign',
+      'Sin campañas todavía',
+      'Cada campaña o simulacro queda registrado acá.'
+    );
+  const filas = state.campaigns
+    .map((c) => {
+      const s = c.stats || {};
+      return `<button class="campaign-row" data-action="campaign-detail" data-id="${esc(c.id)}"><span><strong>${esc(campaignTime(c.inicio))}</strong><small>${esc(segmentLabel(c.segmento))}</small></span><span class="badge ${c.simulacro ? 'slate' : c.estado === 'detenida' ? 'red' : 'green'}">${c.simulacro ? 'Simulacro' : esc(CAMPAIGN_STATES[c.estado] || c.estado || '—')}</span><span class="campaign-row-stats">${Number(s.ok || 0)} ok · ${Number(s.fallidos || 0)} fallidos · ${Number(s.total || 0)} total</span></button>`;
+    })
+    .join('');
+  return `<div class="campaign-rows">${filas}</div>`;
+}
+
+const DESTINATARIO_ESTADOS = {
+  enviado: 'Enviado',
+  fallido: 'Falló',
+  detenido: 'Detenido',
+  simulado: 'Simulado',
+  pendiente: 'No se envió',
+};
+
+function campaignDetailCard() {
+  const c = state.campaignDetail;
+  if (!c) return '';
+  const destinatarios = Array.isArray(c.destinatarios) ? c.destinatarios : [];
+  const fallidos = destinatarios.filter((d) => d.estado === 'fallido' || d.estado === 'detenido');
+  const filas = destinatarios
+    .map(
+      (d) =>
+        `<div class="recipient-row ${d.estado === 'enviado' || d.estado === 'simulado' ? '' : 'bad'}"><span><strong>${esc(d.nombre || 'Sin nombre')}</strong><small>${esc(d.numero)}</small></span><span>${esc(DESTINATARIO_ESTADOS[d.estado] || d.estado)}</span><small>${esc(d.error || '')}</small></div>`
+    )
+    .join('');
+  const reintento =
+    !c.simulacro && fallidos.length && c.estado !== 'corriendo'
+      ? `<button class="button primary" data-action="retry-failed" data-id="${esc(c.id)}"><span class="material-symbols-outlined">replay</span>Reintentar ${fallidos.length} fallidos</button>`
+      : '';
+  return card(
+    '',
+    `<div class="section-title"><h2>Campaña del ${esc(campaignTime(c.inicio))}</h2><button class="button ghost" data-action="close-campaign-detail">Cerrar</button></div><p class="muted-copy">${esc(segmentLabel(c.segmento))} · ${c.simulacro ? 'Simulacro' : esc(CAMPAIGN_STATES[c.estado] || c.estado)} · pausa ${Math.round(Number(c.config?.delayMinMs || 0) / 1000)}–${Math.round(Number(c.config?.delayMaxMs || 0) / 1000)} s</p><div class="recipient-list">${filas || empty('group_off', 'Sin destinatarios', 'La campaña no tenía a nadie pendiente.')}</div><div class="campaign-actions">${reintento}</div>`,
+    'section-card campaign-detail'
+  );
+}
+
 function renderResultados() {
   const stats = state.analytics || {};
   const totals = stats.totales || {};
@@ -608,27 +972,22 @@ function renderResultados() {
         )
         .join('')
     : '<span class="result-empty">Sin despachos registrados</span>';
-  const actividad = dias.length
-    ? dias
-        .map(
-          (dia) =>
-            `<div class="result-day"><strong>${esc(dia.fecha)}</strong><span>${Number(dia.enviados || 0)} enviados · ${Number(dia.leidos || 0)} leídos · ${Number(dia.respondieron || 0)} respuestas</span></div>`
-        )
-        .join('')
-    : empty(
-        'bar_chart',
-        'Sin actividad todavía',
-        'Las métricas aparecerán después de un envío o simulacro registrado.'
-      );
-  return `<div class="page-head"><div class="page-title"><div class="page-icon"><span class="material-symbols-outlined">query_stats</span></div><div><div class="eyebrow">CENTRO OPERATIVO / ANALÍTICA</div><h1>Resultados de Campañas</h1><p>Datos registrados por el motor local, separados de simulacros y vistas previas.</p></div></div><button class="button secondary" data-action="refresh"><span class="material-symbols-outlined">sync</span>Actualizar</button></div><div class="metric-grid">${metric('CAMPAÑAS REGISTRADAS', state.campaigns.length.toLocaleString('es-AR'), 'campaign', `${state.campaigns.filter((campana) => campana.estado === 'finalizada').length} finalizadas`)}${metric('MENSAJES ENVIADOS', enviados.toLocaleString('es-AR'), 'send', 'Histórico registrado')}${metric('LECTURAS', leidos.toLocaleString('es-AR'), 'done_all', `Tasa de lectura: ${tasaLectura}`)}${metric('RESPUESTAS ÚNICAS', respondieron.toLocaleString('es-AR'), 'reply', 'Personas que respondieron')}</div><div class="grid two" style="margin-top:18px">${card('', `<div class="section-title"><h2>Actividad de despacho</h2><span class="badge slate">Últimos 7 días con datos</span></div><div class="result-days">${actividad}</div>`, 'section-card')}${card('', `<div class="section-title"><h2>Volumen registrado</h2><span class="badge green">Datos reales</span></div><div class="result-chart"><div class="eyebrow">MENSAJES ENVIADOS POR DÍA</div><div class="bars">${barras}</div></div>`, 'section-card')}</div>`;
+  const logs = state.logs.slice(-60).reverse();
+  return `<div class="page-head"><div class="page-title"><div class="page-icon"><span class="material-symbols-outlined">query_stats</span></div><div><div class="eyebrow">CENTRO OPERATIVO / RESULTADOS</div><h1>Resultados de campañas</h1><p>Lo que registró el motor de envío: campañas, entregas, lecturas y respuestas.</p></div></div><button class="button secondary" data-action="refresh"><span class="material-symbols-outlined">sync</span>Actualizar</button></div><div class="metric-grid">${metric('CAMPAÑAS', state.campaigns.length.toLocaleString('es-AR'), 'campaign', `${state.campaigns.filter((campana) => campana.estado === 'finalizada' && !campana.simulacro).length} enviadas de verdad`)}${metric('MENSAJES ENVIADOS', enviados.toLocaleString('es-AR'), 'send', 'Histórico registrado')}${metric('LECTURAS', leidos.toLocaleString('es-AR'), 'done_all', `Tasa de lectura: ${tasaLectura}`)}${metric('RESPUESTAS', respondieron.toLocaleString('es-AR'), 'reply', 'Personas que escribieron')}</div>${campaignDetailCard()}<div class="grid two" style="margin-top:18px">${card('', `<div class="section-title"><h2>Campañas</h2><span class="badge slate">Últimas ${state.campaigns.length}</span></div>${campaignsTable()}`, 'section-card')}${card('', `<div class="section-title"><h2>Enviados por día</h2></div><div class="result-chart"><div class="bars">${barras}</div></div><div class="section-title" style="margin-top:18px"><h2>Log del motor</h2></div><div class="log-list">${logs.length ? logs.map((linea) => `<div>${esc(linea)}</div>`).join('') : '<span class="result-empty">Sin registros</span>'}</div>`, 'section-card')}</div>`;
 }
 
-function renderConfiguracion() {
-  const c = state.config || {};
-  const seconds = (ms, fallback) => Math.max(0, Math.round(Number(ms || fallback) / 1000));
-  const switchMarkup = (setting, label, on) =>
-    `<button class="switch ${on ? 'on' : ''}" data-setting="${setting}" aria-label="${label}" aria-pressed="${on ? 'true' : 'false'}"><i></i></button>`;
-  return `<div class="page-head"><div class="page-title"><div class="page-icon"><span class="material-symbols-outlined">settings</span></div><div><div class="eyebrow">CENTRO OPERATIVO / CONFIGURACIÓN</div><h1>Configuración & Seguridad</h1><p>Valores reales del panel guardados en este proyecto.</p></div></div><button class="button primary" data-action="save-settings"><span class="material-symbols-outlined">save</span>Guardar cambios</button></div><div class="settings-grid"><section class="card section-card"><div class="section-title"><span class="number"><span class="material-symbols-outlined">qr_code_2</span></span><h2>Conexión de WhatsApp</h2></div><div class="setting-row"><div><strong>Estado de la sesión</strong><small>${esc(state.status?.whatsappDetalle || 'Sin sesión vinculada')}</small></div><button class="button secondary" data-action="qr">Escanear QR</button></div><div class="setting-row"><div><strong>Actualizar contactos</strong><small>Trae nombres, fotos y chats disponibles.</small></div><button class="button ghost" data-action="refresh">Actualizar</button></div><div class="setting-row"><div><strong>Sesión persistente</strong><small>Se guarda sólo en la carpeta nueva del proyecto.</small></div>${switchMarkup('persistent', 'Sesión persistente', true)}</div></section><section class="card section-card"><div class="section-title"><span class="number"><span class="material-symbols-outlined">speed</span></span><h2>Ritmo de envío</h2></div><div class="setting-row"><div><strong>Pausa mínima entre mensajes</strong><small>Segundos, convertidos al formato que usa el servidor.</small></div><input id="config-delay-min" type="number" value="${seconds(c.DELAY_MIN_MS, 15000)}" min="0" max="300"></div><div class="setting-row"><div><strong>Pausa máxima entre mensajes</strong><small>Debe ser igual o mayor que la mínima.</small></div><input id="config-delay-max" type="number" value="${seconds(c.DELAY_MAX_MS, 45000)}" min="0" max="300"></div><div class="setting-row"><div><strong>Máximo por tanda</strong><small>El servidor limita este valor entre 1 y 100.</small></div><input id="config-max-run" type="number" value="${Number(c.MAX_POR_CORRIDA || 50)}" min="1" max="100"></div><div class="setting-row"><div><strong>Máximo por hora</strong><small>0 significa sin límite configurado.</small></div><input id="config-max-hour" type="number" value="${Number(c.MAX_POR_HORA || 0)}" min="0" max="1000"></div><div class="setting-row"><div><strong>Modo sólo respuestas</strong><small>Bloquea promociones y mantiene la bandeja activa.</small></div>${switchMarkup('solo-respuestas', 'Modo sólo respuestas', !!c.MODO_SOLO_RESPUESTAS)}</div></section><section class="card section-card"><div class="section-title"><span class="number"><span class="material-symbols-outlined">shield</span></span><h2>Protecciones</h2></div><div class="setting-row"><div><strong>No repetir el mismo día</strong><small>Evita duplicar mensajes a un contacto.</small></div>${switchMarkup('no-repetir', 'No repetir el mismo día', c.NO_REPETIR_MISMO_DIA !== false)}</div><div class="setting-row"><div><strong>Programación automática</strong><small>El panel debe permanecer abierto para disparar la corrida.</small></div>${switchMarkup('programacion', 'Programación automática', !!c.PROGRAMACION_ACTIVA)}</div><div class="setting-row"><div><strong>Hora programada</strong><small>Formato de 24 horas.</small></div><input id="config-schedule-time" type="time" value="${esc(c.PROGRAMACION_HORA || '10:30')}"></div><div class="check-list"><div class="check-row"><span class="material-symbols-outlined">check_circle</span><div><strong>Confirmación antes de enviar</strong><small>La campaña requiere preparación previa y token de confirmación.</small></div></div><div class="check-row"><span class="material-symbols-outlined">check_circle</span><div><strong>Baja automática</strong><small>Las respuestas “BAJA” quedan excluidas de futuras promos.</small></div></div></div></section></div>`;
+function scheduleSegmentSelect(actual) {
+  const valor = actual || 'todos';
+  const opciones = [
+    ['todos', 'Todos los habilitados'],
+    ['activo', SEGMENT_NAMES.activo],
+    ['nuevo', SEGMENT_NAMES.nuevo],
+    ['cliente', SEGMENT_NAMES.cliente],
+    ['frecuente', SEGMENT_NAMES.frecuente],
+    ['inactivo_30', SEGMENT_NAMES.inactivo_30],
+    ...state.groups.map((grupo) => [`grupo:${grupo.id}`, `Grupo: ${grupo.nombre}`]),
+  ];
+  return `<select id="config-schedule-segment" aria-label="Destinatarios de la corrida programada">${opciones.map(([v, label]) => `<option value="${esc(v)}" ${v === valor ? 'selected' : ''}>${esc(label)}</option>`).join('')}</select>`;
 }
 
 function renderConfiguracionCompleta() {
@@ -646,26 +1005,52 @@ function renderConfiguracionCompleta() {
     )
     .join('');
   const lines = (items) => esc((Array.isArray(items) ? items : []).join('\n'));
-  return `<div class="page-head"><div class="page-title"><div class="page-icon"><span class="material-symbols-outlined">settings</span></div><div><div class="eyebrow">CENTRO OPERATIVO / CONFIGURACIÓN</div><h1>Configuración completa</h1><p>Todo lo que el motor puede modificar, agrupado por tarea y guardado en este proyecto.</p></div></div><button class="button primary" data-action="save-settings"><span class="material-symbols-outlined">save</span>Guardar cambios</button></div><div class="settings-grid full-settings"><section class="card section-card"><div class="section-title"><span class="number"><span class="material-symbols-outlined">storefront</span></span><h2>Identidad del delivery</h2></div><div class="setting-row"><div><strong>Nombre que verá el cliente</strong><small>Aparece en la vista previa de WhatsApp.</small></div><input id="config-business-name" type="text" value="${esc(c.NEGOCIO_NOMBRE || 'Modo Sabor Palermo')}" maxlength="80"></div><div class="setting-row"><div><strong>Descripción de la cuenta</strong><small>Texto corto debajo del nombre.</small></div><input id="config-business-status" type="text" value="${esc(c.NEGOCIO_ESTADO || 'Cuenta oficial del delivery')}" maxlength="80"></div><div class="setting-row"><div><strong>Logo vinculado</strong><small>Ruta actual usada por la previsualización.</small></div><input id="config-logo-path" type="text" value="${esc(c.NEGOCIO_LOGO || '/assets/logo.png')}" maxlength="300"></div><div class="brand-preview"><img class="whatsapp-brand-logo" src="${esc(c.NEGOCIO_LOGO || '/assets/logo.png')}" alt="Logo del delivery"><span>Logo activo en la previsualización</span></div></section><section class="card section-card"><div class="section-title"><span class="number"><span class="material-symbols-outlined">speed</span></span><h2>Ritmo y límites</h2></div><div class="setting-row"><div><strong>Pausa mínima / máxima</strong><small>Segundos entre mensajes.</small></div><span class="inline-inputs"><input id="config-delay-min" type="number" value="${seconds(c.DELAY_MIN_MS, 15000)}" min="0" max="300"><input id="config-delay-max" type="number" value="${seconds(c.DELAY_MAX_MS, 45000)}" min="0" max="300"></span></div><div class="setting-row"><div><strong>Máximo por tanda</strong><small>Mensajes en una corrida.</small></div><input id="config-max-run" type="number" value="${Number(c.MAX_POR_CORRIDA || 50)}" min="1" max="100"></div><div class="setting-row"><div><strong>Máximo por ventana</strong><small>Mensajes cada ${Number(c.VENTANA_CUPO_MINUTOS || 60)} minutos.</small></div><span class="inline-inputs"><input id="config-max-hour" type="number" value="${Number(c.MAX_POR_HORA || 0)}" min="0" max="1000"><input id="config-window-minutes" type="number" value="${Number(c.VENTANA_CUPO_MINUTOS || 60)}" min="1" max="240"></span></div><div class="setting-row"><div><strong>Reintentos</strong><small>Si falla un envío individual.</small></div><input id="config-retries" type="number" value="${Number(c.REINTENTOS || 0)}" min="0" max="3"></div><div class="setting-row"><div><strong>Pausa larga</strong><small>Cada tantos mensajes, durante tantos segundos.</small></div><span class="inline-inputs"><input id="config-pause-long" type="number" value="${Number(c.PAUSA_LARGA_CADA || 0)}" min="0" max="500"><input id="config-pause-long-seconds" type="number" value="${Number(c.PAUSA_LARGA_SEGUNDOS || 120)}" min="30" max="3600"></span></div></section><section class="card section-card"><div class="section-title"><span class="number"><span class="material-symbols-outlined">shield</span></span><h2>Protecciones</h2></div><div class="setting-row"><div><strong>No repetir el mismo día</strong><small>Evita duplicados.</small></div>${switchMarkup('no-repetir', 'No repetir el mismo día', active('NO_REPETIR_MISMO_DIA', true))}</div><div class="setting-row"><div><strong>Adjuntar PDF</strong><small>Incluye el menú si existe.</small></div>${switchMarkup('attach-pdf', 'Adjuntar PDF', active('ADJUNTAR_PDF', true))}</div><div class="setting-row"><div><strong>Baja automática</strong><small>Excluye a quien responde BAJA.</small></div>${switchMarkup('auto-optout', 'Baja automática', active('BAJA_AUTOMATICA', true))}</div><label class="stack-field"><span>Respuesta de baja</span><textarea id="config-baja-response" rows="2">${esc(c.BAJA_RESPUESTA || '')}</textarea></label><label class="stack-field"><span>Footer de baja</span><textarea id="config-optout-footer" rows="2">${esc(c.FOOTER_BAJA || '')}</textarea></label></section><section class="card section-card"><div class="section-title"><span class="number"><span class="material-symbols-outlined">model_training</span></span><h2>Calentamiento y tandas</h2></div><div class="setting-row"><div><strong>Calentamiento progresivo</strong><small>Sube el límite gradualmente según días con envíos reales.</small></div>${switchMarkup('warmup', 'Calentamiento progresivo', active('CALENTAMIENTO_ACTIVO'))}</div><div class="setting-row"><div><strong>Inicio / incremento</strong><small>Mensajes del primer día y aumento diario.</small></div><span class="inline-inputs"><input id="config-warmup-start" type="number" value="${Number(c.CALENTAMIENTO_INICIO || 20)}" min="1" max="100"><input id="config-warmup-increment" type="number" value="${Number(c.CALENTAMIENTO_INCREMENTO || 10)}" min="1" max="100"></span></div><div class="setting-row"><div><strong>Modo tandas automáticas</strong><small>Continúa con pausas entre tandas mientras el panel esté abierto.</small></div>${switchMarkup('batch-mode', 'Modo tandas automáticas', active('MODO_TANDAS'))}</div><div class="setting-row"><div><strong>Espera entre tandas</strong><small>Minutos.</small></div><input id="config-batch-wait" type="number" value="${Number(c.ESPERA_ENTRE_TANDAS_MINUTOS || 20)}" min="5" max="240"></div><div class="warning-note"><span class="material-symbols-outlined">warning</span>Estas protecciones reducen ráfagas, pero no garantizan evitar bloqueos. La API oficial sigue siendo el camino de producción.</div></section><section class="card section-card"><div class="section-title"><span class="number"><span class="material-symbols-outlined">schedule</span></span><h2>Programación y días</h2></div><div class="setting-row"><div><strong>Programación automática</strong><small>El panel debe permanecer abierto.</small></div>${switchMarkup('programacion', 'Programación automática', active('PROGRAMACION_ACTIVA'))}</div><div class="setting-row"><div><strong>Hora programada</strong><small>Formato de 24 horas.</small></div><input id="config-schedule-time" type="time" value="${esc(c.PROGRAMACION_HORA || '10:30')}"></div><div class="setting-row"><div><strong>Modo sólo respuestas</strong><small>Bloquea promociones.</small></div>${switchMarkup('solo-respuestas', 'Modo sólo respuestas', active('MODO_SOLO_RESPUESTAS'))}</div><div class="day-selector"><strong>Días sin envío</strong><div id="config-days-no-send">${dayMarkup}</div></div></section><section class="card section-card"><div class="section-title"><span class="number"><span class="material-symbols-outlined">forum</span></span><h2>Mensajes y objetivos</h2></div><label class="stack-field"><span>Saludos rotativos</span><textarea id="config-greetings" rows="4">${lines(c.SALUDOS)}</textarea></label><label class="stack-field"><span>Cierres rotativos</span><textarea id="config-closures" rows="4">${lines(c.CIERRES)}</textarea></label><div class="setting-row"><div><strong>Meta de pedidos diarios</strong><small>Se usa como referencia del panel.</small></div><input id="config-daily-target" type="number" value="${Number(c.META_PEDIDOS_DIA || 20)}" min="1" max="10000"></div><p class="settings-help">Una línea por saludo o cierre. Guardar cambios aplica estas opciones al motor local.</p></section></div>`;
+  return `<div class="page-head"><div class="page-title"><div class="page-icon"><span class="material-symbols-outlined">settings</span></div><div><div class="eyebrow">CENTRO OPERATIVO / CONFIGURACIÓN</div><h1>Configuración completa</h1><p>Todo lo que el motor puede modificar, agrupado por tarea y guardado en este proyecto.</p></div></div><button class="button primary" data-action="save-settings"><span class="material-symbols-outlined">save</span>Guardar cambios</button></div><div class="settings-grid full-settings"><section class="card section-card"><div class="section-title"><span class="number"><span class="material-symbols-outlined">storefront</span></span><h2>Identidad del delivery</h2></div><div class="setting-row"><div><strong>Nombre que verá el cliente</strong><small>Aparece en la vista previa de WhatsApp.</small></div><input id="config-business-name" type="text" value="${esc(c.NEGOCIO_NOMBRE || businessLabel())}" maxlength="80"></div><div class="setting-row"><div><strong>Descripción de la cuenta</strong><small>Texto corto debajo del nombre.</small></div><input id="config-business-status" type="text" value="${esc(c.NEGOCIO_ESTADO || 'Cuenta oficial del delivery')}" maxlength="80"></div><div class="setting-row"><div><strong>Logo vinculado</strong><small>Ruta actual usada por la previsualización.</small></div><input id="config-logo-path" type="text" value="${esc(c.NEGOCIO_LOGO || '/assets/logo.png')}" maxlength="300"></div><div class="brand-preview"><img class="whatsapp-brand-logo" src="${esc(c.NEGOCIO_LOGO || '/assets/logo.png')}" alt="Logo del delivery"><span>Logo activo en la previsualización</span></div></section><section class="card section-card"><div class="section-title"><span class="number"><span class="material-symbols-outlined">speed</span></span><h2>Ritmo y límites</h2></div><div class="setting-row"><div><strong>Pausa mínima / máxima</strong><small>Segundos entre mensajes.</small></div><span class="inline-inputs"><input id="config-delay-min" type="number" value="${seconds(c.DELAY_MIN_MS, 15000)}" min="0" max="300"><input id="config-delay-max" type="number" value="${seconds(c.DELAY_MAX_MS, 45000)}" min="0" max="300"></span></div><div class="setting-row"><div><strong>Máximo por tanda</strong><small>Mensajes en una corrida.</small></div><input id="config-max-run" type="number" value="${Number(c.MAX_POR_CORRIDA || 50)}" min="1" max="100"></div><div class="setting-row"><div><strong>Máximo por ventana</strong><small>Mensajes cada ${Number(c.VENTANA_CUPO_MINUTOS || 60)} minutos.</small></div><span class="inline-inputs"><input id="config-max-hour" type="number" value="${Number(c.MAX_POR_HORA || 0)}" min="0" max="1000"><input id="config-window-minutes" type="number" value="${Number(c.VENTANA_CUPO_MINUTOS || 60)}" min="1" max="240"></span></div><div class="setting-row"><div><strong>Reintentos</strong><small>Si falla un envío individual.</small></div><input id="config-retries" type="number" value="${Number(c.REINTENTOS || 0)}" min="0" max="3"></div><div class="setting-row"><div><strong>Pausa larga</strong><small>Cada tantos mensajes, durante tantos segundos.</small></div><span class="inline-inputs"><input id="config-pause-long" type="number" value="${Number(c.PAUSA_LARGA_CADA || 0)}" min="0" max="500"><input id="config-pause-long-seconds" type="number" value="${Number(c.PAUSA_LARGA_SEGUNDOS || 120)}" min="30" max="3600"></span></div></section><section class="card section-card"><div class="section-title"><span class="number"><span class="material-symbols-outlined">shield</span></span><h2>Protecciones</h2></div><div class="setting-row"><div><strong>No repetir el mismo día</strong><small>Evita duplicados.</small></div>${switchMarkup('no-repetir', 'No repetir el mismo día', active('NO_REPETIR_MISMO_DIA', true))}</div><div class="setting-row"><div><strong>Adjuntar PDF</strong><small>Incluye el menú si existe.</small></div>${switchMarkup('attach-pdf', 'Adjuntar PDF', active('ADJUNTAR_PDF', true))}</div><div class="setting-row"><div><strong>Baja automática</strong><small>Excluye a quien responde BAJA.</small></div>${switchMarkup('auto-optout', 'Baja automática', active('BAJA_AUTOMATICA', true))}</div><label class="stack-field"><span>Respuesta de baja</span><textarea id="config-baja-response" rows="2">${esc(c.BAJA_RESPUESTA || '')}</textarea></label><label class="stack-field"><span>Footer de baja</span><textarea id="config-optout-footer" rows="2">${esc(c.FOOTER_BAJA || '')}</textarea></label></section><section class="card section-card"><div class="section-title"><span class="number"><span class="material-symbols-outlined">model_training</span></span><h2>Calentamiento y tandas</h2></div><div class="setting-row"><div><strong>Calentamiento progresivo</strong><small>Sube el límite gradualmente según días con envíos reales.</small></div>${switchMarkup('warmup', 'Calentamiento progresivo', active('CALENTAMIENTO_ACTIVO'))}</div><div class="setting-row"><div><strong>Inicio / incremento</strong><small>Mensajes del primer día y aumento diario.</small></div><span class="inline-inputs"><input id="config-warmup-start" type="number" value="${Number(c.CALENTAMIENTO_INICIO || 20)}" min="1" max="100"><input id="config-warmup-increment" type="number" value="${Number(c.CALENTAMIENTO_INCREMENTO || 10)}" min="1" max="100"></span></div><div class="setting-row"><div><strong>Modo tandas automáticas</strong><small>Sigue sola con pausas entre tandas hasta cubrir la lista.</small></div>${switchMarkup('batch-mode', 'Modo tandas automáticas', active('MODO_TANDAS'))}</div><div class="setting-row"><div><strong>Espera entre tandas</strong><small>Minutos.</small></div><input id="config-batch-wait" type="number" value="${Number(c.ESPERA_ENTRE_TANDAS_MINUTOS || 20)}" min="5" max="240"></div><div class="warning-note"><span class="material-symbols-outlined">warning</span>Estas protecciones reducen ráfagas, pero no garantizan evitar bloqueos. La API oficial sigue siendo el camino de producción.</div></section><section class="card section-card"><div class="section-title"><span class="number"><span class="material-symbols-outlined">schedule</span></span><h2>Programación y días</h2></div><div class="setting-row"><div><strong>Programación automática</strong><small>Sale sola todos los días a esa hora. No hace falta tener el panel abierto.</small></div>${switchMarkup('programacion', 'Programación automática', active('PROGRAMACION_ACTIVA'))}</div><div class="setting-row"><div><strong>Hora programada</strong><small>Formato de 24 horas.</small></div><input id="config-schedule-time" type="time" value="${esc(c.PROGRAMACION_HORA || '10:30')}"></div><div class="setting-row"><div><strong>A quién manda</strong><small>Segmento o grupo de la corrida programada.</small></div>${scheduleSegmentSelect(c.PROGRAMACION_SEGMENTO)}</div><div class="setting-row"><div><strong>Modo sólo respuestas</strong><small>Bloquea promociones.</small></div>${switchMarkup('solo-respuestas', 'Modo sólo respuestas', active('MODO_SOLO_RESPUESTAS'))}</div><div class="day-selector"><strong>Días sin envío</strong><div id="config-days-no-send">${dayMarkup}</div></div></section><section class="card section-card"><div class="section-title"><span class="number"><span class="material-symbols-outlined">forum</span></span><h2>Mensajes y objetivos</h2></div><label class="stack-field"><span>Saludos rotativos</span><textarea id="config-greetings" rows="4">${lines(c.SALUDOS)}</textarea></label><label class="stack-field"><span>Cierres rotativos</span><textarea id="config-closures" rows="4">${lines(c.CIERRES)}</textarea></label><div class="setting-row"><div><strong>Meta de pedidos diarios</strong><small>Se usa como referencia del panel.</small></div><input id="config-daily-target" type="number" value="${Number(c.META_PEDIDOS_DIA || 20)}" min="1" max="10000"></div><p class="settings-help">Una línea por saludo o cierre. Guardar cambios aplica estas opciones al motor local.</p></section></div>`;
+}
+
+// Arma el texto igual que el servidor (mensaje.js): saludo + cuerpo + cierre + pie de baja.
+// El saludo y el cierre rotan al azar; la vista previa muestra el primero de cada lista.
+function previewMessage() {
+  const c = state.config || {};
+  const cuerpo = state.message.trim();
+  if (!cuerpo) return '';
+  const saludo = String((c.SALUDOS || [])[0] || '¡Hola{NOMBRE}!').replace(
+    /\{NOMBRE\}/gi,
+    ' Cliente'
+  );
+  let texto = /\{SALUDO\}/i.test(cuerpo)
+    ? cuerpo.replace(/\{SALUDO\}/gi, saludo)
+    : `${saludo}\n\n${cuerpo}`;
+  texto = texto.replace(/\{NOMBRE\}/gi, 'Cliente');
+  const cierre = (c.CIERRES || [])[0];
+  if (cierre) texto += `\n\n${cierre}`;
+  if (String(c.FOOTER_BAJA || '').trim()) texto += `\n\n${String(c.FOOTER_BAJA).trim()}`;
+  return texto.replace(/\n{3,}/g, '\n\n');
 }
 
 function renderWhatsappPreview() {
   const c = state.config || {};
-  const logo = panelPath(c.NEGOCIO_LOGO || '/assets/logo.png');
-  const name = c.NEGOCIO_NOMBRE || 'Modo Sabor Palermo';
-  const status = c.NEGOCIO_ESTADO || 'Cuenta oficial del delivery';
-  const media = panelPath(
-    state.media?.[0]?.dataUrl || state.media?.[0]?.url || '/assets/promo.png'
-  );
+  const name = c.NEGOCIO_NOMBRE || businessLabel();
+  const status = c.NEGOCIO_ESTADO || '';
+  const imagen = state.media?.[0]?.dataUrl || state.media?.[0]?.url || '';
   const pdf = state.pdf?.nombre || '';
-  const text = (state.message || 'Escribí el mensaje de la campaña para ver la vista previa.')
-    .replace(/\{NOMBRE\}/gi, 'Cliente')
-    .replace(/\{SALUDO\}/gi, '¡Hola Cliente! 👋');
-  const message = esc(text).replace(/\n/g, '<br>');
+  const texto = previewMessage();
+  const ahora = new Date().toLocaleTimeString('es-AR', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+  const message = texto
+    ? esc(texto).replace(/\n/g, '<br>')
+    : '<em>Escribí el mensaje en el paso 1 para ver cómo llega.</em>';
+  const extras =
+    state.media.length > 1
+      ? `<small class="wa-extra">+ ${state.media.length - 1} imagen(es) más, en mensajes aparte</small>`
+      : '';
   const documentMarkup = pdf
-    ? `<div class="wa-document"><span class="material-symbols-outlined">picture_as_pdf</span><div><strong>${esc(pdf)}</strong><small>PDF · Menú o promoción</small></div><span class="material-symbols-outlined">download</span></div>`
+    ? `<div class="wa-document"><span class="material-symbols-outlined">picture_as_pdf</span><div><strong>${esc(pdf)}</strong><small>PDF · se manda aparte</small></div></div>`
     : '';
-  return `<div class="card phone-card wa-preview"><div class="phone-head"><h3><span class="status-dot"></span> Vista previa de WhatsApp</h3><small>Mensaje real · sin enviar</small></div><div class="phone wa-phone"><div class="wa-status-bar"><span>WhatsApp</span><span>9:41</span></div><div class="phone-bar"><span class="material-symbols-outlined">arrow_back</span><img class="whatsapp-brand-logo phone-brand-logo" src="${esc(logo)}" alt="Logo de ${esc(name)}"><div class="phone-identity"><strong>${esc(name)} <span class="wa-business-check">✓</span></strong><small>en línea · ${esc(status)}</small></div><span class="material-symbols-outlined phone-action">videocam</span><span class="material-symbols-outlined phone-action">call</span><span class="material-symbols-outlined phone-menu">more_vert</span></div><div class="phone-body"><span class="date-chip">HOY</span><div class="wa-encryption"><span class="material-symbols-outlined">lock</span> Los mensajes están cifrados de extremo a extremo</div><div class="wa-bubble outgoing"><img class="wa-media-image" src="${esc(media)}" alt="Imagen de campaña"><div class="wa-message-copy">${message}</div>${documentMarkup}<time>18:45 <span>✓✓</span></time></div><div class="wa-action-row"><button data-action="preview-reply" data-reply="Ver menú">Ver menú</button><button data-action="preview-reply" data-reply="Quiero pedir">Quiero pedir</button></div></div><div class="wa-compose"><span class="material-symbols-outlined">add_circle</span><span class="material-symbols-outlined">photo_camera</span><span class="wa-compose-input">Escribí un mensaje...</span><span class="material-symbols-outlined">mic</span></div></div><p class="preview-disclaimer">Así lo verá el cliente en WhatsApp. Es una simulación local: no envía nada.</p></div>`;
+  return `<div class="card phone-card wa-preview"><div class="phone-head"><h3><span class="status-dot"></span> Vista previa de WhatsApp</h3><small>Así llega · no envía nada</small></div><div class="phone wa-phone"><div class="wa-status-bar"><span>WhatsApp</span><span>${esc(ahora)}</span></div><div class="phone-bar"><span class="material-symbols-outlined">arrow_back</span><img class="whatsapp-brand-logo phone-brand-logo" src="${esc(previewLogo())}" alt="Logo de ${esc(name)}"><div class="phone-identity"><strong>${esc(name)}</strong>${status ? `<small>${esc(status)}</small>` : ''}</div></div><div class="phone-body"><span class="date-chip">HOY</span><div class="wa-bubble outgoing">${imagen ? `<img class="wa-media-image" src="${esc(assetUrl(imagen))}" alt="Flyer de la campaña">` : ''}<div class="wa-message-copy">${message}</div><time>${esc(ahora)}</time></div>${extras}${documentMarkup}</div></div><p class="preview-disclaimer">El saludo y el cierre rotan al azar entre los que configuraste; {NOMBRE} usa el nombre de cada contacto.</p></div>`;
 }
 
 function render() {
@@ -678,10 +1063,7 @@ function render() {
     configuracion: renderConfiguracionCompleta,
   };
   const app = $('#app');
-  let rendered = views[state.route]();
-  if (state.route === 'campana') {
-    rendered = rendered.replace('Confirmar y Programar Envío', 'Preparar y revisar envío');
-  }
+  const rendered = views[state.route]();
   app.innerHTML = rendered;
   if (state.route === 'campana' && state.campaignPlan) {
     const plan = document.createElement('section');
@@ -748,7 +1130,7 @@ function openQr() {
     : state.status?.whatsappDetalle ||
       (qr ? 'QR disponible para escanear' : 'El backend todavía no generó un QR');
   $('#modal-root').innerHTML =
-    `<div class="modal-backdrop" data-action="close-modal"><div class="modal"><div class="modal-head"><h2>${connected ? 'WhatsApp vinculado' : 'Conectar WhatsApp Web'}</h2><button class="close" data-action="close-modal">×</button></div><p style="color:var(--brown);font-size:12px;line-height:18px">${connected ? 'La sesión persistente está activa en Railway.' : 'Abrí WhatsApp en tu teléfono, entrá a Dispositivos vinculados y escaneá este código. La sesión se guardará sólo en este proyecto.'}</p>${qrMarkup}<div class="empty-state" style="padding:12px"><strong>${esc(detail)}</strong>${connected ? ' Ya podés cerrar esta ventana y usar el panel.' : ' Podés cerrar esta ventana y volver a revisar el estado.'}</div></div></div>`;
+    `<div class="modal-backdrop" data-action="close-modal"><div class="modal"><div class="modal-head"><h2>${connected ? 'WhatsApp vinculado' : 'Conectar WhatsApp Web'}</h2><button class="close" data-action="close-modal">×</button></div><p style="color:var(--brown);font-size:12px;line-height:18px">${connected ? 'La sesión queda guardada en el servidor.' : 'Abrí WhatsApp en tu teléfono, entrá a Dispositivos vinculados y escaneá este código. La sesión queda guardada en el servidor.'}</p>${qrMarkup}<div class="empty-state" style="padding:12px"><strong>${esc(detail)}</strong>${connected ? ' Ya podés cerrar esta ventana y usar el panel.' : ' Podés cerrar esta ventana y volver a revisar el estado.'}</div></div></div>`;
 }
 
 async function refresh() {
@@ -777,6 +1159,8 @@ async function refresh() {
   if (results[6].status === 'fulfilled' && results[6].value.texto)
     state.message = results[6].value.texto.trim();
   if (results[7].status === 'fulfilled') state.groups = results[7].value.grupos || [];
+  if (state.status?.motor)
+    state.motor = { ...state.status.motor, stats: state.status.stats || state.motor.stats };
   state.busy = false;
   syncShell();
   render();
@@ -789,6 +1173,11 @@ async function refresh() {
       render();
     })
     .catch(() => {});
+  Promise.allSettled([api('/api/operador'), api('/api/logs')]).then(([operador, logs]) => {
+    if (operador.status === 'fulfilled') state.operador = operador.value;
+    if (logs.status === 'fulfilled') state.logs = logs.value.lineas || [];
+    if (state.route === 'inicio' || state.route === 'resultados') render();
+  });
   api('/api/conversaciones', { signal: AbortSignal.timeout(10000) })
     .then(async (chats) => {
       state.conversations = chats.conversaciones || [];
@@ -899,7 +1288,67 @@ function connectLive() {
     }
     if (info.tipo === 'error') showToast(info.error || 'No se pudieron actualizar las fotos.');
   });
-  stream.addEventListener('fin', () => {
+  // Motor de envío en vivo: progreso, esperas, tandas y log.
+  const liveRender = () => {
+    syncShell();
+    if (state.route === 'inicio' || state.route === 'campana') render();
+  };
+  stream.addEventListener('motor', (event) => {
+    const info = JSON.parse(event.data || '{}');
+    state.motor = {
+      corriendo: Boolean(info.corriendo),
+      pausado: Boolean(info.pausado),
+      stats: info.stats || {},
+    };
+    if (!state.motor.corriendo) state.wait = null;
+    liveRender();
+  });
+  stream.addEventListener('progreso', (event) => {
+    state.progress = JSON.parse(event.data || '{}');
+    state.wait = null;
+    liveRender();
+  });
+  stream.addEventListener('espera', (event) => {
+    const info = JSON.parse(event.data || '{}');
+    state.wait = { tipo: info.tipo, hasta: Date.now() + Number(info.segundos || 0) * 1000 };
+    tickWait();
+  });
+  stream.addEventListener('tanda', (event) => {
+    const info = JSON.parse(event.data || '{}');
+    state.tanda = info;
+    if (info.tipo === 'espera')
+      state.wait = { tipo: 'tanda', hasta: Date.now() + Number(info.minutos || 0) * 60000 };
+    liveRender();
+  });
+  stream.addEventListener('log', (event) => {
+    let linea = event.data || '';
+    try {
+      linea = JSON.parse(linea);
+    } catch (e) {
+      /* ya es texto */
+    }
+    state.logs = [...state.logs, String(linea)].slice(-300);
+    if (state.route === 'inicio') {
+      const feed = $('.activity');
+      if (feed) render();
+    }
+  });
+  stream.addEventListener('programado', () => {
+    showToast('Arrancó el envío programado.');
+  });
+  stream.addEventListener('baja', () => {
+    showToast('Un contacto pidió la BAJA: quedó excluido.');
+    refresh();
+  });
+  stream.addEventListener('fin', (event) => {
+    const info = JSON.parse(event.data || '{}');
+    state.wait = null;
+    state.progress = null;
+    showToast(
+      info.error
+        ? `La campaña se cortó: ${info.error}`
+        : `${info.detenido ? 'Campaña detenida' : 'Campaña terminada'}: ${Number(info.ok || 0)} enviados, ${Number(info.fallidos || 0)} fallidos.`
+    );
     refresh();
   });
   stream.onerror = () => {
@@ -941,6 +1390,7 @@ function settingsPayload() {
     MODO_TANDAS: enabled('batch-mode'),
     PROGRAMACION_ACTIVA: enabled('programacion'),
     PROGRAMACION_HORA: $('#config-schedule-time')?.value || '10:30',
+    PROGRAMACION_SEGMENTO: $('#config-schedule-segment')?.value || 'todos',
     MODO_SOLO_RESPUESTAS: enabled('solo-respuestas'),
     DIAS_NO_ENVIO: [...document.querySelectorAll('.config-day:checked')].map((input) =>
       Number(input.value)
@@ -981,8 +1431,6 @@ async function action(name, value) {
           : 'Borrador guardado.'
       );
     }
-    if (name === 'preview-reply')
-      return showToast(`Respuesta simulada: ${value || 'sin texto'}. No se envió nada.`);
     if (name === 'refresh') {
       await api('/api/listar', { method: 'POST', body: '{}' });
       return showToast('Sincronización iniciada; te aviso al terminar.');
@@ -1236,8 +1684,51 @@ async function action(name, value) {
       await loadConversation(chat.numero);
       return showToast('Mensaje enviado.');
     }
-    if (name === 'note' || name === 'template')
-      return showToast('Esta acción quedará disponible dentro de la conversación real.');
+    if (name === 'motor-pausar') {
+      await api('/api/pausar', { method: 'POST', body: '{}' });
+      return showToast('Campaña en pausa: no sale nada hasta que la reanudes.');
+    }
+    if (name === 'motor-reanudar') {
+      await api('/api/reanudar', { method: 'POST', body: '{}' });
+      return showToast('Campaña reanudada.');
+    }
+    if (name === 'motor-detener') {
+      if (!window.confirm('¿Detener la campaña? Los que faltan no reciben el mensaje.')) return;
+      await api('/api/detener', { method: 'POST', body: '{}' });
+      return showToast('Deteniendo: termina el mensaje en curso y frena.');
+    }
+    if (name === 'note') {
+      const numero = state.selectedDetail?.cliente?.numero || state.selectedContact?.numero;
+      if (!numero) return showToast('Elegí un contacto.');
+      const actual = state.selectedDetail?.nota?.texto || '';
+      const nota = window.prompt('Nota para este cliente:', actual);
+      if (nota == null) return;
+      await api('/api/cliente-nota', { method: 'POST', body: JSON.stringify({ numero, nota }) });
+      state.selectedDetail = await api(`/api/cliente-detalle?numero=${encodeURIComponent(numero)}`);
+      render();
+      return showToast('Nota guardada.');
+    }
+    if (name === 'campaign-detail') {
+      state.campaignDetail = await api(`/api/campanas/${encodeURIComponent(value)}`);
+      return render();
+    }
+    if (name === 'close-campaign-detail') {
+      state.campaignDetail = null;
+      return render();
+    }
+    if (name === 'retry-failed') {
+      const plan = await api('/api/preparar-envio', {
+        method: 'POST',
+        body: JSON.stringify({ simulacro: false, segmento: `reintento:${value}` }),
+      });
+      if (!plan.total)
+        return showToast('No quedan fallidos para reintentar (o ya recibieron hoy).');
+      state.campaignPlan = plan;
+      state.campaignDetail = null;
+      state.route = 'campana';
+      render();
+      return showToast(`Reintento preparado para ${plan.total} contactos: revisalo y confirmá.`);
+    }
   } catch (error) {
     showToast(error.message);
   }
@@ -1283,7 +1774,8 @@ document.addEventListener('click', (event) => {
         actionButton.dataset.filter ||
         actionButton.dataset.tab ||
         actionButton.dataset.reply ||
-        actionButton.dataset.number
+        actionButton.dataset.number ||
+        actionButton.dataset.id
     );
     return;
   }
@@ -1323,6 +1815,8 @@ document.addEventListener('input', (event) => {
   if (event.target.id === 'campaign-message') {
     state.message = event.target.value;
     updateMessageCount();
+    const copy = $('.wa-message-copy');
+    if (copy) copy.innerHTML = esc(previewMessage()).replace(/\n/g, '<br>');
   }
   if (event.target.id === 'contact-search') {
     state.contactQuery = event.target.value;
@@ -1435,4 +1929,6 @@ document.addEventListener('change', async (event) => {
 syncShell();
 render();
 refresh();
+loadIdentity();
 connectLive();
+waitTimer = setInterval(tickWait, 1000);

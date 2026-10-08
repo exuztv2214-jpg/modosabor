@@ -521,3 +521,122 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* ---------- Campaña en vivo, resultados y chequeos reales ---------- */
+.live-progress {
+  height: 10px;
+  border-radius: 99px;
+  background: #dce2f7;
+  overflow: hidden;
+  margin: 14px 0 6px;
+}
+.live-progress i {
+  display: block;
+  height: 100%;
+  background: var(--green);
+  border-radius: inherit;
+  transition: width 0.4s ease;
+}
+.live-last,
+.live-wait,
+.muted-copy {
+  font-size: 12px;
+  color: var(--brown);
+  margin: 8px 0 0;
+}
+.live-last.bad {
+  color: var(--coral-dark);
+}
+.live-wait {
+  font-weight: 600;
+}
+.check-row.bad {
+  background: #ffe9e5;
+}
+.check-row.bad .material-symbols-outlined {
+  color: var(--coral-dark);
+}
+.check-row.warn .material-symbols-outlined {
+  color: var(--brown);
+}
+.next-step-notes {
+  margin: 8px 0 12px;
+  padding-left: 18px;
+  font-size: 12px;
+  color: var(--brown);
+}
+.campaign-rows,
+.recipient-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 360px;
+  overflow-y: auto;
+}
+.campaign-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 10px;
+  align-items: center;
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #fff;
+  padding: 10px 12px;
+  cursor: pointer;
+  font: inherit;
+}
+.campaign-row:hover {
+  border-color: #8f9ee0;
+}
+.campaign-row strong,
+.campaign-row small,
+.recipient-row strong,
+.recipient-row small {
+  display: block;
+}
+.campaign-row small,
+.campaign-row-stats,
+.recipient-row small {
+  font-size: 11px;
+  color: var(--brown);
+}
+.campaign-row-stats {
+  grid-column: 1 / -1;
+}
+.recipient-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #eff1ff;
+  font-size: 12px;
+}
+.recipient-row.bad {
+  background: #ffe9e5;
+}
+.recipient-row > small {
+  grid-column: 1 / -1;
+}
+.log-list {
+  max-height: 260px;
+  overflow-y: auto;
+  font:
+    11px/1.5 ui-monospace,
+    SFMono-Regular,
+    Consolas,
+    monospace;
+  color: var(--brown);
+  overflow-wrap: anywhere;
+}
+.wa-extra {
+  display: block;
+  font-size: 11px;
+  color: #667781;
+  margin: 4px 0;
+}
+.branch-select {
+  cursor: default;
+}

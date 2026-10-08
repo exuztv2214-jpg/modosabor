@@ -88,7 +88,7 @@ function verifyFrontendContract() {
   assert.match(app, /parseImportedContacts/);
   assert.doesNotMatch(app, /onclick="event\.stopPropagation\(\)"/);
   assert.match(app, /data-action="campaign-tab"/);
-  assert.match(app, /data-action="preview-reply"/);
+  assert.doesNotMatch(app, /data-action="preview-reply"/); // sin botones falsos en la vista previa
   assert.match(app, /data-route="contactos"/);
   assert.match(app, /data-number="\$\{esc\(numero\)\}"/);
   assert.match(app, /state\.route = 'conversaciones'/);
@@ -139,7 +139,7 @@ function verifyFrontendContract() {
   assert.match(app, /token: state\.campaignPlan\.token/);
   assert.doesNotMatch(app, /32 ms/);
   assert.doesNotMatch(app, /Fase 1/);
-  assert.match(app, /const warmupLabel = connected/);
+  assert.match(app, /function healthCard\(connected\)/);
   assert.match(app, /Preparar y revisar envío/);
   assert.match(app, /renderWhatsappPreview/);
   assert.match(app, /WhatsApp ya está vinculado/);
@@ -155,8 +155,7 @@ function verifyFrontendContract() {
   assert.match(app, /wa-preview/);
   assert.match(app, /whatsapp-brand-logo/);
   assert.match(app, /wa-status-bar/);
-  assert.match(app, /wa-business-check/);
-  assert.match(app, /wa-action-row/);
+  assert.doesNotMatch(app, /wa-action-row/); // WhatsApp común no tiene botones
   assert.match(app, /wa-document/);
   assert.match(app, /config-pause-long/);
   assert.match(app, /config-retries/);
@@ -239,6 +238,31 @@ function verifyFrontendContract() {
     server,
     /client\.on\('message_create'[\s\S]{0,200}guardarMensajeConversacion\(msg, msg\.to\)/
   );
+  // Sin datos inventados: usuario y negocio salen del sistema.
+  for (const relleno of [
+    /Facundo/,
+    /Jefe de Sal/,
+    /Palermo/,
+    /Calentamiento OK/,
+    /RIESGO CONTROLADO/,
+  ]) {
+    assert.doesNotMatch(html + app + server, relleno);
+  }
+  assert.match(app, /fetch\('\/api\/auth\/me'/);
+  assert.match(app, /fetch\('\/api\/configuracion'/);
+  assert.match(html, /id="shell-user"/);
+  assert.doesNotMatch(app, /Simulación de Rendimiento|Reservas \/ Mesas/);
+  // Control de la campaña en curso.
+  for (const ruta of ['/api/pausar', '/api/reanudar', '/api/detener'])
+    assert.ok(app.includes(ruta));
+  for (const evento of ['motor', 'progreso', 'espera', 'tanda', 'log'])
+    assert.match(app, new RegExp(`addEventListener\\('${evento}'`));
+  assert.match(server, /async function esperarMotor\(/);
+  assert.match(server, /app\.get\('\/api\/campanas\/:id'/);
+  assert.match(server, /numerosFallidosCampana\(segmento\.slice\(10\)\)/);
+  // Pedidos reales del sistema.
+  assert.match(server, /\/api\/masivos-datos\/pedidos-por-telefono/);
+  assert.match(server, /cruzarPedidos\(clientes,/);
   // Hora argentina aunque el contenedor arranque en UTC.
   assert.match(
     server,

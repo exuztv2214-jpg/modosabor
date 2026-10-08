@@ -3,7 +3,7 @@
 
 module.exports = {
   // ---------- Identidad mostrada en la previsualización ----------
-  NEGOCIO_NOMBRE: 'Modo Sabor Palermo',
+  NEGOCIO_NOMBRE: 'Modo Sabor',
   NEGOCIO_LOGO: '/assets/logo.png',
   NEGOCIO_ESTADO: 'Cuenta oficial del delivery',
 

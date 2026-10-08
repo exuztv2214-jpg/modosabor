@@ -31,6 +31,7 @@ const {
 const { nombreArchivoFoto, vincularFotosExistentes } = require('./photo-cache');
 const { armarMensaje, normalizarSegmento } = require('./mensaje');
 const { moverMediosAlVolumen } = require('./media');
+const { cruzarPedidos } = require('./pedidos-reales');
 
 const PORT = Number(process.env.PORT || 3867);
 const HOST = process.env.HOST || '127.0.0.1';
@@ -69,6 +70,9 @@ const ARCHIVO_GRUPOS_ENVIO = path.join(DIR_DATA, 'grupos-envio.json');
 // Flyers y menú viven dentro de data/ para sobrevivir a los redeploys (volumen en Railway).
 const DIR_MEDIA = path.join(DIR_DATA, 'media');
 const ARCHIVO_PDF = path.join(DIR_MEDIA, 'menu.pdf');
+// Pedidos del sistema Modo Sabor (se descargan cada 10 min si MODOSABOR_API_URL está configurado).
+const ARCHIVO_PEDIDOS_REALES = path.join(DIR_DATA, 'pedidos-reales.json');
+const MODOSABOR_API_URL = String(process.env.MODOSABOR_API_URL || '').replace(/\/+$/, '');
 
 fs.mkdirSync(DIR_DATA, { recursive: true });
 moverMediosAlVolumen(ROOT, DIR_MEDIA);
@@ -501,6 +505,22 @@ function guardarCampana(campana) {
   }
 }
 
+const RE_ID_CAMPANA = /^campana-[\w-]+$/;
+
+function leerCampana(id) {
+  if (!RE_ID_CAMPANA.test(String(id || ''))) return null;
+  return leerJsonSeguro(path.join(DIR_CAMPANAS, `${id}.json`), null);
+}
+
+// Destinatarios a los que no les llegó la campaña (falló o se detuvo antes).
+function numerosFallidosCampana(id) {
+  const campana = leerCampana(id);
+  if (!campana || campana.simulacro || !Array.isArray(campana.destinatarios)) return [];
+  return campana.destinatarios
+    .filter((d) => d.estado === 'fallido' || d.estado === 'detenido')
+    .map((d) => d.numero);
+}
+
 function crearCampanaPersistente(simulacro, opciones, objetivo, config) {
   const id = `campana-${hoy()}-${Date.now().toString(36)}`;
   const campana = {
@@ -550,9 +570,12 @@ const PRIORIDAD_CAMPANA = [
   'pidio_ayer',
   'pidio',
   'activo',
+  'frecuente',
+  'cliente',
   'nuevo_sin_enviar',
   'nuevo',
   'respondio',
+  'inactivo_30',
   'sin_enviar',
   'frio',
   'viejo',
@@ -806,6 +829,9 @@ async function manejarEntrante(msg) {
 const SEGMENTOS_AUTO = [
   { id: 'pidio', nombre: 'Pidieron / posible pedido' },
   { id: 'pidio_ayer', nombre: 'Pidieron ayer' },
+  { id: 'cliente', nombre: 'Ya compraron (sistema)' },
+  { id: 'frecuente', nombre: 'Frecuentes (4+ pedidos)' },
+  { id: 'inactivo_30', nombre: 'No piden hace 30 días' },
   { id: 'respondio', nombre: 'Respondieron' },
   { id: 'nuevo', nombre: 'Nuevos' },
   { id: 'nuevo_sin_enviar', nombre: 'Nuevos sin enviar' },
@@ -1022,7 +1048,8 @@ function enriquecerCliente(cliente, contexto) {
   const enviados = contexto.enviadosPorNumero.get(cliente.numero) || [];
   const respuestas = contexto.respuestasPorNumero.get(cliente.numero) || [];
   const ultimaRespuesta = respuestas[respuestas.length - 1] || null;
-  const pidio = respuestas.some((r) => r.posiblePedido);
+  const real = (contexto.pedidosReales && contexto.pedidosReales.get(cliente.numero)) || null;
+  const pidio = respuestas.some((r) => r.posiblePedido) || Boolean(real && real.pedidos);
   const ayer = sumarDias(hoy(), -1);
   const diasUltimoMensaje = diasDesde(cliente.ultimoMensaje);
   const diasUltimaRespuesta = ultimaRespuesta ? diasDesde(ultimaRespuesta.fecha) : null;
@@ -1030,7 +1057,16 @@ function enriquecerCliente(cliente, contexto) {
 
   if (contexto.excluidos.has(cliente.numero)) segmentos.push('excluido');
   if (pidio) segmentos.push('pidio');
-  if (respuestas.some((r) => r.posiblePedido && r.fecha === ayer)) segmentos.push('pidio_ayer');
+  if (
+    respuestas.some((r) => r.posiblePedido && r.fecha === ayer) ||
+    (real && real.ultimoPedido === ayer)
+  )
+    segmentos.push('pidio_ayer');
+  // Pedidos reales del sistema Modo Sabor (cruce por teléfono).
+  if (real && real.pedidos > 0) segmentos.push('cliente');
+  if (real && real.pedidos >= 4) segmentos.push('frecuente');
+  if (real && real.ultimoPedido && diasDesde(real.ultimoPedido) >= 30)
+    segmentos.push('inactivo_30');
   if (respuestas.length) segmentos.push('respondio');
   if (diasUltimoMensaje !== null && diasUltimoMensaje <= 7 && enviados.length <= 1)
     segmentos.push('nuevo');
@@ -1066,6 +1102,8 @@ function enriquecerCliente(cliente, contexto) {
       ultimaRespuestaFecha: ultimaRespuesta ? ultimaRespuesta.fecha : null,
       diasUltimoMensaje,
       diasUltimaRespuesta,
+      pedidosReales: real ? real.pedidos : null,
+      ultimoPedido: real ? real.ultimoPedido : null,
     },
   };
 }
@@ -1076,6 +1114,7 @@ function leerClientesEnriquecidos() {
   const contexto = {
     ...construirHistorialClientes(),
     excluidos: leerExcluidos(),
+    pedidosReales: cruzarPedidos(clientes, leerJsonSeguro(ARCHIVO_PEDIDOS_REALES, {}).clientes),
   };
   return clientes.map((c) => {
     const enriched = enriquecerCliente(c, contexto);
@@ -1988,6 +2027,13 @@ const motor = {
 
 let confirmacionCampana = null;
 
+// Espera que se corta enseguida si se pide detener (antes, "Detener" tardaba hasta
+// que terminara la pausa entre mensajes, que puede ser de varios minutos).
+async function esperarMotor(ms) {
+  const fin = Date.now() + ms;
+  while (!motor.detener && Date.now() < fin) await esperar(Math.min(500, fin - Date.now()));
+}
+
 function emitirMotor() {
   emit('motor', { corriendo: motor.corriendo, pausado: motor.pausado, stats: motor.stats });
 }
@@ -2002,12 +2048,17 @@ function calcularObjetivoCampana(config, opciones = {}) {
     ? segmento.slice(6)
     : String(opciones.grupoId || '');
   const grupo = grupoId ? grupoEnvioPorId(grupoId) : null;
+  const reintento = segmento.startsWith('reintento:')
+    ? numerosFallidosCampana(segmento.slice(10))
+    : null;
   const forzarFriosRecientes = !!opciones.forzarFriosRecientes;
   const candidatos = grupo
     ? clientes.filter((c) => grupo.numeros.includes(c.numero))
-    : segmento
-      ? clientes.filter((c) => (c.segmentosAuto || []).includes(segmento))
-      : ordenarPorPrioridadCampana(clientes);
+    : reintento
+      ? clientes.filter((c) => reintento.includes(c.numero))
+      : segmento
+        ? clientes.filter((c) => (c.segmentosAuto || []).includes(segmento))
+        : ordenarPorPrioridadCampana(clientes);
   const pendientes = ordenarPorPrioridadCampana(
     candidatos.filter((c) => {
       if (excluidos.has(c.numero) || pausados[c.numero] || enviadosHoy.has(c.numero)) return false;
@@ -2345,7 +2396,7 @@ async function correrEnvio(simulacro, opciones = {}) {
     if (cada > 0 && (i + 1) % cada === 0 && i < objetivo.length - 1) {
       const pausaSeg = numeroAcotado(config.PAUSA_LARGA_SEGUNDOS, 120, 30, 3600);
       emit('espera', { tipo: 'larga', segundos: pausaSeg });
-      await esperar(pausaSeg * 1000);
+      await esperarMotor(pausaSeg * 1000);
       continue;
     }
 
@@ -2353,7 +2404,7 @@ async function correrEnvio(simulacro, opciones = {}) {
       const espera = Math.floor(Math.random() * (DELAY_MAX - DELAY_MIN + 1)) + DELAY_MIN;
       if (espera > 0) {
         emit('espera', { tipo: 'normal', segundos: Math.round(espera / 1000) });
-        await esperar(espera);
+        await esperarMotor(espera);
       }
     }
   }
@@ -2736,6 +2787,7 @@ app.get('/api/status', (req, res) => {
     },
     analisis: { corriendo: analisis.corriendo, hechos: analisis.hechos, total: analisis.total },
     fotosJob: { corriendo: fotosJob.corriendo, hechos: fotosJob.hechos, total: fotosJob.total },
+    pedidosReales: estadoPedidosReales(),
   });
 });
 
@@ -2828,7 +2880,7 @@ app.delete('/api/grupos-envio/:id', (req, res) => {
 app.get('/api/config', (req, res) => {
   const c = getConfig();
   res.json({
-    NEGOCIO_NOMBRE: c.NEGOCIO_NOMBRE || 'Modo Sabor Palermo',
+    NEGOCIO_NOMBRE: c.NEGOCIO_NOMBRE || 'Modo Sabor',
     NEGOCIO_LOGO: c.NEGOCIO_LOGO || '/assets/logo.png',
     NEGOCIO_ESTADO: c.NEGOCIO_ESTADO || 'Cuenta oficial del delivery',
     DELAY_MIN_MS: c.DELAY_MIN_MS,
@@ -2848,6 +2900,7 @@ app.get('/api/config', (req, res) => {
     BAJA_RESPUESTA: c.BAJA_RESPUESTA || '',
     PROGRAMACION_ACTIVA: !!c.PROGRAMACION_ACTIVA,
     PROGRAMACION_HORA: c.PROGRAMACION_HORA || '10:30',
+    PROGRAMACION_SEGMENTO: c.PROGRAMACION_SEGMENTO || 'todos',
     DIAS_NO_ENVIO: Array.isArray(c.DIAS_NO_ENVIO) ? c.DIAS_NO_ENVIO : [],
     MAX_POR_HORA: Number(c.MAX_POR_HORA) || 0,
     VENTANA_CUPO_MINUTOS: Number(c.VENTANA_CUPO_MINUTOS) || 60,
@@ -2909,6 +2962,12 @@ app.post('/api/config', (req, res) => {
     /^([01]\d|2[0-3]):[0-5]\d$/.test(b.PROGRAMACION_HORA)
   ) {
     override.PROGRAMACION_HORA = b.PROGRAMACION_HORA;
+  }
+  if (
+    typeof b.PROGRAMACION_SEGMENTO === 'string' &&
+    /^(todos|[a-z_0-9]{1,30}|grupo:[\w-]{1,60})$/.test(b.PROGRAMACION_SEGMENTO)
+  ) {
+    override.PROGRAMACION_SEGMENTO = b.PROGRAMACION_SEGMENTO;
   }
   if (typeof b.CALENTAMIENTO_ACTIVO === 'boolean')
     override.CALENTAMIENTO_ACTIVO = b.CALENTAMIENTO_ACTIVO;
@@ -3496,6 +3555,7 @@ app.post('/api/listar', async (req, res) => {
           agenda: contactos.length,
         });
         if (!analisis.corriendo) vincularFotosCache();
+        actualizarPedidosReales();
       } catch (error) {
         registrarLog(`❌ Error completando la sincronización: ${error.message}`);
         emit('lista', { tipo: 'error', error: error.message });
@@ -3740,6 +3800,12 @@ app.get('/api/campanas', (req, res) => {
   res.json({ campanas });
 });
 
+app.get('/api/campanas/:id', (req, res) => {
+  const campana = leerCampana(req.params.id);
+  if (!campana) return res.status(404).json({ error: 'Campaña no encontrada.' });
+  res.json(campana);
+});
+
 app.post('/api/preparar-envio', (req, res) => {
   if (estadoWA.estado !== 'listo')
     return res.status(409).json({ error: 'WhatsApp no está listo.' });
@@ -3867,6 +3933,7 @@ app.post('/api/reanudar', (req, res) => {
 app.post('/api/detener', (req, res) => {
   motor.detener = true;
   motor.pausado = false;
+  emitirMotor();
   res.json({ ok: true });
 });
 
@@ -3896,6 +3963,46 @@ servidor.on('error', (e) => {
   process.exit(1);
 });
 
+// ---------- Pedidos reales del sistema Modo Sabor ----------
+
+const pedidosReales = { ultimoError: null, conPedidos: 0 };
+
+async function actualizarPedidosReales() {
+  if (!MODOSABOR_API_URL || !PANEL_PROXY_TOKEN) return;
+  try {
+    const resp = await fetch(`${MODOSABOR_API_URL}/api/masivos-datos/pedidos-por-telefono`, {
+      headers: { 'x-masivos-proxy-token': PANEL_PROXY_TOKEN },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!resp.ok) throw new Error(`el sistema respondió ${resp.status}`);
+    const data = await resp.json();
+    const clientes = Array.isArray(data.clientes) ? data.clientes : [];
+    escribirJsonSeguro(ARCHIVO_PEDIDOS_REALES, { actualizado: new Date().toISOString(), clientes });
+    const cruce = cruzarPedidos(leerJsonSeguro(ARCHIVO_CLIENTES, []), clientes);
+    if (pedidosReales.ultimoError || !pedidosReales.conPedidos)
+      registrarLog(`🧾 Pedidos de Modo Sabor: ${cruce.size} contactos de WhatsApp con pedidos.`);
+    pedidosReales.ultimoError = null;
+    pedidosReales.conPedidos = cruce.size;
+  } catch (e) {
+    if (pedidosReales.ultimoError !== e.message)
+      registrarLog(`⚠️ No se pudieron leer los pedidos de Modo Sabor: ${e.message}`);
+    pedidosReales.ultimoError = e.message;
+  }
+}
+
+function estadoPedidosReales() {
+  const guardado = leerJsonSeguro(ARCHIVO_PEDIDOS_REALES, {});
+  return {
+    configurado: Boolean(MODOSABOR_API_URL),
+    actualizado: guardado.actualizado || null,
+    contactosConPedidos: pedidosReales.conPedidos,
+    error: pedidosReales.ultimoError,
+  };
+}
+
+setTimeout(actualizarPedidosReales, 5000);
+setInterval(actualizarPedidosReales, 10 * 60 * 1000);
+
 // ---------- Envío programado (sale solo todos los días) ----------
 
 let ultimaCorridaProgramada = null;
@@ -3921,7 +4028,7 @@ setInterval(() => {
     registrarLog(`⏰ Envío programado (${hhmm}) iniciado automáticamente.`);
     emit('programado', { hora: hhmm });
     emitirMotor();
-    correrEnvio(false).catch((e) => {
+    correrEnvio(false, { segmento: config.PROGRAMACION_SEGMENTO || '' }).catch((e) => {
       motor.corriendo = false;
       registrarLog(`❌ Error en la corrida programada: ${e.message}`);
       emitirMotor();
