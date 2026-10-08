@@ -136,6 +136,9 @@ function verifyFrontendContract() {
   assert.match(app, /WhatsApp vinculado correctamente/);
   assert.match(app, /stream\.addEventListener\('lista'/);
   assert.match(app, /Contactos sincronizados:/);
+  assert.match(app, /async function refreshQrStatus\(\)/);
+  assert.match(app, /setInterval\(refreshQrStatus, 3000\)/);
+  assert.doesNotMatch(app, /qr:\s*state\.status\?\.qr \|\| results\[0\]\.value\.qr/);
   assert.match(app, /wa-preview/);
   assert.match(app, /whatsapp-brand-logo/);
   assert.match(app, /wa-status-bar/);

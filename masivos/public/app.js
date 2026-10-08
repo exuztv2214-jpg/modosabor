@@ -32,6 +32,7 @@ const state = {
   contactQuery: '',
   busy: false,
 };
+let qrRefreshTimer = null;
 
 const PANEL_BASE_PATH = String(window.__MODO_SABOR_MASIVOS_BASE_PATH__ || '').replace(/\/+$/, '');
 const panelPath = (value) => {
@@ -712,8 +713,39 @@ function updateMessageCount() {
   const count = $('#message-count');
   if (input && count) count.textContent = `${input.value.length} caracteres`;
 }
+
+function closeQrModal() {
+  if (qrRefreshTimer) clearInterval(qrRefreshTimer);
+  qrRefreshTimer = null;
+  $('#modal-root').innerHTML = '';
+}
+
+function syncAfterWhatsAppLink() {
+  closeQrModal();
+  showToast('WhatsApp vinculado correctamente. Sincronizando contactos…');
+  api('/api/listar', { method: 'POST', body: '{}' }).catch((error) =>
+    showToast(error.message || 'No se pudieron sincronizar los contactos.')
+  );
+}
+
+async function refreshQrStatus() {
+  if (!$('#modal-root')?.innerHTML) return closeQrModal();
+  const live = await api('/api/status').catch(() => null);
+  if (!live) return;
+  const wasConnected = state.status?.whatsapp === 'listo';
+  state.status = { ...(state.status || {}), ...live, qr: live.qr || null };
+  if (!wasConnected && state.status.whatsapp === 'listo') {
+    syncAfterWhatsAppLink();
+  } else {
+    syncShell();
+    openQr();
+  }
+}
+
 function openQr() {
   const connected = state.status?.whatsapp === 'listo';
+  if (connected) closeQrModal();
+  else if (!qrRefreshTimer) qrRefreshTimer = setInterval(refreshQrStatus, 3000);
   const qr = state.status?.qr;
   const qrMarkup = connected
     ? '<div class="qr-box"><b style="font:700 72px/1 sans-serif;color:var(--green)">✓</b></div>'
@@ -744,7 +776,7 @@ async function refresh() {
     state.status = {
       ...(state.status || {}),
       ...results[0].value,
-      qr: state.status?.qr || results[0].value.qr,
+      qr: results[0].value.qr || null,
     };
   if (results[1].status === 'fulfilled') state.contacts = results[1].value.clientes || [];
   if (results[2].status === 'fulfilled') state.crm = results[2].value.respuestas || [];
@@ -824,11 +856,7 @@ function connectLive() {
     };
     const modal = $('#modal-root');
     if (!wasConnected && liveWhatsapp === 'listo') {
-      modal.innerHTML = '';
-      showToast('WhatsApp vinculado correctamente.');
-      api('/api/listar', { method: 'POST', body: '{}' }).catch((error) =>
-        showToast(error.message || 'No se pudieron sincronizar los contactos.')
-      );
+      syncAfterWhatsAppLink();
     } else if (modal?.innerHTML) {
       openQr();
     }
@@ -920,7 +948,7 @@ async function action(name, value) {
   try {
     if (name === 'save-settings') return saveSettings();
     if (name === 'qr') return openQr();
-    if (name === 'close-modal') return ($('#modal-root').innerHTML = '');
+    if (name === 'close-modal') return closeQrModal();
     if (name === 'campaign-tab') {
       state.campaignTab = value || 'general';
       return render();
