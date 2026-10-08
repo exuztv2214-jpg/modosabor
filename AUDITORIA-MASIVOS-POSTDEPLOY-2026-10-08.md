@@ -208,4 +208,3 @@ Para botones: el commit instalado de [whatsapp-web.js](https://github.com/wwebjs
 - El launcher de Windows no se ejecutó contra la sesión operativa en esta publicación. No se verificaron credenciales o plantillas de una cuenta Business Platform.
 - Las dependencias se evaluaron sobre el lock y versiones instaladas. Se distinguió un aviso de seguridad de un ataque demostrado; no se hizo pentesting externo ni se aplicaron actualizaciones forzadas.
 - Los informes anteriores conservan su fecha y contexto. Este documento y la bitácora reflejan el estado después de publicar `8f91551`.
-
