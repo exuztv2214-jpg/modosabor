@@ -22,6 +22,7 @@ const {
   normalizarMapeosLid,
   conTiempoLimite,
 } = require('./contact-sync');
+const { nombreArchivoFoto, vincularFotosExistentes } = require('./photo-cache');
 
 const PORT = Number(process.env.PORT || 3867);
 const HOST = process.env.HOST || '127.0.0.1';
@@ -2471,10 +2472,6 @@ async function correrAnalisis(limite) {
 const fotosJob = { corriendo: false, hechos: 0, total: 0 };
 const DIR_FOTOS = path.join(ROOT, 'data', 'fotos');
 
-function nombreArchivoFoto(numero) {
-  return numero.replace(/[^a-zA-Z0-9]/g, '_') + '.jpg';
-}
-
 async function descargarBuffer(url, destino) {
   const resp = await fetch(url, { signal: AbortSignal.timeout(15000) });
   if (!resp.ok) throw new Error('HTTP ' + resp.status);
@@ -2505,6 +2502,12 @@ async function correrFotos() {
   const clientes = leerJsonSeguro(ARCHIVO_CLIENTES, []);
   const chats = leerJsonSeguro(ARCHIVO_CHATS, []);
   fs.mkdirSync(DIR_FOTOS, { recursive: true });
+  const fotosClientes = vincularFotosExistentes(clientes, DIR_FOTOS);
+  const fotosChats = vincularFotosExistentes(chats, DIR_FOTOS);
+  escribirJsonSeguro(ARCHIVO_CLIENTES, clientes);
+  escribirJsonSeguro(ARCHIVO_CHATS, chats);
+  if (fotosClientes || fotosChats)
+    registrarLog(`📸 Caché recuperada: ${fotosClientes} contactos y ${fotosChats} chats.`);
   const contactosPorNumero = new Map(clientes.map((c) => [c.numero, c]));
   const pendientes = [
     ...chats

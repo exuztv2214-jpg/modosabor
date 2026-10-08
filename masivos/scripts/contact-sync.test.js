@@ -121,6 +121,23 @@ void (async () => {
     'deduplica LID y teléfono cuando la relación ya fue resuelta y guardada'
   );
   assert.equal(duplicadosHistoricos[0].numero, 'cliente-duplicado@lid');
+  const duplicadoDetectadoEnAgenda = sync.mergeSyncedContacts(
+    [],
+    [
+      {
+        id: { _serialized: 'cliente-agenda@lid' },
+        phoneNumber: { _serialized: '5493812223344@c.us' },
+        name: 'Cliente agenda',
+      },
+    ],
+    [{ numero: '5493812223344@c.us', nombre: 'Cliente agenda' }]
+  );
+  assert.equal(
+    duplicadoDetectadoEnAgenda.length,
+    1,
+    'deduplica el teléfono cuando la propia agenda informa su LID'
+  );
+  assert.equal(duplicadoDetectadoEnAgenda[0].numero, 'cliente-agenda@lid');
   console.log('contact and chat sync: OK');
 })().catch((error) => {
   console.error(error);

@@ -7,7 +7,7 @@
   "type": "commonjs",
   "scripts": {
     "panel": "node server.js",
-    "verify": "node scripts/verify.js"
+    "verify": "node scripts/verify.js && node scripts/contact-sync.test.js && node scripts/photo-cache.test.js"
   },
   "dependencies": {
     "express": "^5.2.1",

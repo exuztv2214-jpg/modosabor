@@ -33,6 +33,10 @@ function mergeSyncedContacts(chats, contacts, previous, lidMappings = []) {
   const phoneByLid = new Map();
   for (const item of [
     ...(previous || []).map((contact) => ({ lid: contact?.numero, pn: contact?.telefono })),
+    ...(contacts || []).map((contact) => ({
+      lid: contact?.id || contact?.numero,
+      pn: contact?.number || contact?.phoneNumber || contact?.userid,
+    })),
     ...lidMappings,
   ]) {
     const lid = serializedId(item?.lid);
