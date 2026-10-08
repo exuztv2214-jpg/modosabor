@@ -47,6 +47,7 @@ const state = {
   campaignDetail: null,
   logs: [],
   campaignStep: 1,
+  incluirSinEntrega: false,
   contactsLimit: 60,
   chatsLimit: 80,
   historyRequested: {},
@@ -435,6 +436,8 @@ const SEGMENT_NAMES = {
   empresa: 'Empresa',
   excluido: 'Excluido',
   pausado: 'Pausado',
+  sin_entrega: 'Posible bloqueo',
+  no_lee: 'No lee',
 };
 
 function lastCampaignCard() {
@@ -613,7 +616,14 @@ function audienceStep() {
   const grupos = state.groups.length
     ? `<label class="field section-gap"><span>O un grupo guardado</span><select id="campaign-group"><option value="">Ninguno</option>${state.groups.map((g) => `<option value="${esc(g.id)}" ${state.campaignGroup === g.id ? 'selected' : ''}>${esc(g.nombre)} · ${g.numeros.length} contactos</option>`).join('')}</select><small>Los grupos se arman en Contactos, seleccionando y tocando "Guardar grupo".</small></label>`
     : `<p class="notice section-gap">${icon('bookmark_add')}<span>Para mandarle a pocos (por ejemplo una prueba), seleccioná contactos en <button class="link-button" data-route="contactos">Contactos</button> y guardalos como grupo.</span></p>`;
-  return `${cardHead('Destinatarios', 'Siempre quedan afuera los excluidos, los pausados y quienes ya recibieron hoy.')}<div class="audience-grid">${audienceOption('todos', 'Todos los habilitados', 'Todos los que no están excluidos ni pausados.', n(s.total))}${reales}${audienceOption('activo', 'Activos', 'Respondieron en los últimos 14 días.', n(s.recurrentes))}${audienceOption('nuevo', 'Nuevos', 'Chats de los últimos 7 días sin promo.', n(s.nuevos))}${audienceOption('frio', 'Fríos', '3 o más promos sin respuesta.', n(s.frios))}</div>${grupos}`;
+  return `${cardHead('Destinatarios', 'Siempre quedan afuera los excluidos, los pausados y quienes ya recibieron hoy.')}<div class="audience-grid">${audienceOption('todos', 'Todos los habilitados', 'Todos los que no están excluidos ni pausados.', n(s.total))}${reales}${audienceOption('activo', 'Activos', 'Respondieron en los últimos 14 días.', n(s.recurrentes))}${audienceOption('nuevo', 'Nuevos', 'Chats de los últimos 7 días sin promo.', n(s.nuevos))}${audienceOption('frio', 'Fríos', '3 o más promos sin respuesta.', n(s.frios))}</div>${grupos}${riesgoEntrega(s)}`;
+}
+
+// Posibles bloqueos: se omiten por defecto (insistir con quien no recibe sube el
+// riesgo de baneo). Es una pista, no una prueba: se puede incluir a mano.
+function riesgoEntrega(s) {
+  if (!s.sinEntrega && !s.noLee) return '';
+  return `<div class="notice warn section-gap" style="flex-direction:column;gap:8px">${s.sinEntrega ? `<label style="display:flex;gap:10px;align-items:flex-start;cursor:pointer"><input type="checkbox" id="incluir-sin-entrega" ${state.incluirSinEntrega ? 'checked' : ''}><span><b>Incluir ${fmt(s.sinEntrega)} posibles bloqueos.</b> Recibieron 2 o más promos y ninguna se entregó (quedaron en un tilde). Suele ser bloqueo o número sin uso; mandarles de nuevo aumenta el riesgo de que WhatsApp restrinja el número.</span></label>` : ''}${s.noLee ? `<span>${icon('visibility_off')} ${fmt(s.noLee)} contactos reciben las promos pero nunca las leen. Revisalos en <button class="link-button" data-route="contactos" data-filter-target="no_lee">Contactos → No leen</button> y pausalos si querés bajar volumen.</span>` : ''}</div>`;
 }
 
 // Paso 4: chequeos calculados con el estado real; nada está tildado de antemano.
@@ -709,7 +719,7 @@ function campaignPlanMarkup() {
   const plan = state.campaignPlan;
   if (!plan) return '';
   const executeAction = plan.simulacro ? 'run-simulation' : 'run-campaign';
-  return `${cardHead(plan.simulacro ? 'Simulacro listo' : 'Envío listo para confirmar', `${esc(segmentLabel(plan.segmento))}. Todavía no salió ningún mensaje.`, `<span class="badge ${plan.simulacro ? '' : 'red'}">${plan.simulacro ? 'Simulacro' : 'Envío real'}</span>`)}<div class="kv"><div><small>Destinatarios</small><strong>${fmt(plan.total || 0)}</strong></div><div><small>Tandas</small><strong>${fmt(plan.config?.tandas || 1)}</strong></div><div><small>Pausa</small><strong>${fmt(plan.config?.delayMinSeg)}–${fmt(plan.config?.delayMaxSeg)} s</strong></div></div><div class="card-foot"><button class="button ghost" data-action="clear-plan">Cancelar</button><button class="button ${plan.simulacro ? 'secondary' : 'primary'}" data-action="${executeAction}">${icon(plan.simulacro ? 'play_circle' : 'send')}${plan.simulacro ? 'Ejecutar simulacro' : 'Enviar ahora'}</button></div>`;
+  return `${cardHead(plan.simulacro ? 'Simulacro listo' : 'Envío listo para confirmar', `${esc(segmentLabel(plan.segmento))}. Todavía no salió ningún mensaje.`, `<span class="badge ${plan.simulacro ? '' : 'red'}">${plan.simulacro ? 'Simulacro' : 'Envío real'}</span>`)}<div class="kv"><div><small>Destinatarios</small><strong>${fmt(plan.total || 0)}</strong></div><div><small>Tandas</small><strong>${fmt(plan.config?.tandas || 1)}</strong></div><div><small>Pausa</small><strong>${fmt(plan.config?.delayMinSeg)}–${fmt(plan.config?.delayMaxSeg)} s</strong></div></div>${plan.omitidosSinEntrega ? `<p class="notice section-gap">${icon('shield')}<span>Se omitieron ${fmt(plan.omitidosSinEntrega)} posibles bloqueos (promos que nunca se entregaron).</span></p>` : ''}<div class="card-foot"><button class="button ghost" data-action="clear-plan">Cancelar</button><button class="button ${plan.simulacro ? 'secondary' : 'primary'}" data-action="${executeAction}">${icon(plan.simulacro ? 'play_circle' : 'send')}${plan.simulacro ? 'Ejecutar simulacro' : 'Enviar ahora'}</button></div>`;
 }
 
 function contactMatchesFilter(contact, filter) {
@@ -724,6 +734,8 @@ function contactMatchesFilter(contact, filter) {
   if (filter === 'nuevos') return segments.includes('nuevo');
   if (filter === 'frios') return segments.includes('frio') || segments.includes('frío');
   if (filter === 'clientes') return segments.includes('cliente');
+  if (filter === 'sin_entrega') return segments.includes('sin_entrega');
+  if (filter === 'no_lee') return segments.includes('no_lee');
   return true;
 }
 
@@ -741,6 +753,8 @@ function campaignSegmentCounts() {
     clientes: count('cliente'),
     frecuentes: count('frecuente'),
     inactivos: count('inactivo_30'),
+    sinEntrega: count('sin_entrega'),
+    noLee: count('no_lee'),
   };
 }
 
@@ -906,10 +920,9 @@ function renderContactos() {
   const visible = todosVisibles.slice(0, state.contactsLimit);
   const selected = state.selectedDetail?.cliente || state.selectedContact || visible[0];
   const counts = Object.fromEntries(
-    ['todos', 'activos', 'clientes', 'nuevos', 'frios', 'excluidos'].map((f) => [
-      f,
-      state.contacts.filter((c) => contactMatchesFilter(c, f)).length,
-    ])
+    ['todos', 'activos', 'clientes', 'nuevos', 'frios', 'sin_entrega', 'no_lee', 'excluidos'].map(
+      (f) => [f, state.contacts.filter((c) => contactMatchesFilter(c, f)).length]
+    )
   );
   const chips = [
     ['todos', 'Todos'],
@@ -917,6 +930,8 @@ function renderContactos() {
     ...(state.status?.pedidosReales?.configurado ? [['clientes', 'Ya compraron']] : []),
     ['nuevos', 'Nuevos'],
     ['frios', 'Fríos'],
+    ['sin_entrega', 'Posible bloqueo'],
+    ['no_lee', 'No leen'],
     ['excluidos', 'Excluidos / pausados'],
   ];
   const lista = visible.length
@@ -1906,7 +1921,16 @@ async function action(name, value) {
       return render();
     }
     if (name === 'contacts-filter') {
-      state.contactsFilter = ['todos', 'activos', 'nuevos', 'frios', 'excluidos'].includes(value)
+      state.contactsFilter = [
+        'todos',
+        'activos',
+        'clientes',
+        'nuevos',
+        'frios',
+        'sin_entrega',
+        'no_lee',
+        'excluidos',
+      ].includes(value)
         ? value
         : 'todos';
       state.selectedContact = null;
@@ -2072,7 +2096,7 @@ async function action(name, value) {
       });
       const plan = await api('/api/preparar-envio', {
         method: 'POST',
-        body: JSON.stringify({ simulacro, segmento }),
+        body: JSON.stringify({ simulacro, segmento, incluirSinEntrega: !!state.incluirSinEntrega }),
       });
       state.campaignPlan = plan;
       state.route = 'campana';
@@ -2280,9 +2304,15 @@ document.addEventListener('click', (event) => {
     action('remove-pdf');
     return;
   }
-  const route = event.target.closest('[data-route]')?.dataset.route;
+  const routeEl = event.target.closest('[data-route]');
+  const route = routeEl?.dataset.route;
   if (route) {
     state.route = route;
+    // Enlaces que abren Contactos con un filtro ya elegido.
+    if (routeEl.dataset.filterTarget) {
+      state.contactsFilter = routeEl.dataset.filterTarget;
+      state.contactsLimit = 60;
+    }
     document.body.classList.remove('nav-open');
     if (location.hash !== `#${route}`) history.pushState(null, '', `#${route}`);
     render();
@@ -2439,6 +2469,10 @@ document.addEventListener('change', async (event) => {
     state.campaignGroup = '';
     const grupo = $('#campaign-group');
     if (grupo) grupo.value = '';
+    return;
+  }
+  if (event.target.id === 'incluir-sin-entrega') {
+    state.incluirSinEntrega = event.target.checked;
     return;
   }
   if (event.target.id === 'campaign-group') {

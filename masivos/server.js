@@ -36,6 +36,7 @@ const { nombreArchivoFoto, vincularFotosExistentes } = require('./photo-cache');
 const { armarMensaje, normalizarSegmento } = require('./mensaje');
 const { moverMediosAlVolumen } = require('./media');
 const { cruzarPedidos } = require('./pedidos-reales');
+const { senalesEntrega } = require('./entrega');
 const { claveTurno } = require('./turnos');
 const { imagenIdentidad, usuarioPerfil } = require('./identidad');
 
@@ -908,6 +909,8 @@ const SEGMENTOS_AUTO = [
   { id: 'empresa', nombre: 'Empresas' },
   { id: 'pausado', nombre: 'Pausados' },
   { id: 'excluido', nombre: 'Excluidos' },
+  { id: 'sin_entrega', nombre: 'Posible bloqueo (nunca entregado)' },
+  { id: 'no_lee', nombre: 'No lee las promos' },
 ];
 
 const PALABRAS_PEDIDO = [
@@ -996,117 +999,23 @@ function construirHistorialClientes() {
     }
   }
 
-  return { enviadosPorNumero, respuestasPorNumero };
-}
+  // Tildes vistos por contacto (de cualquier día: una lectura puede llegar al día
+  // siguiente del envío y queda guardada en el archivo de ese día).
+  const acksPorNumero = new Map();
+  const archivosAcks = archivosPorPatron(/^acks-\d{4}-\d{2}-\d{2}\.json$/);
+  // Antes de este día no se guardaban los tildes: esos envíos no cuentan para las señales.
+  const primerAck = archivosAcks.length ? archivosAcks[0].match(/(\d{4}-\d{2}-\d{2})/)[1] : null;
+  for (const f of archivosAcks) {
+    const datos = leerJsonSeguro(path.join(DIR_DATA, f), {});
+    for (const [numero, estado] of Object.entries(datos || {})) {
+      const id = resolver(numero);
+      if (!id) continue;
+      if (!acksPorNumero.has(id)) acksPorNumero.set(id, new Set());
+      acksPorNumero.get(id).add(estado);
+    }
+  }
 
-function leerNotasClientes() {
-  return leerJsonSeguro(ARCHIVO_NOTAS, {});
-}
-
-function guardarNotaCliente(numero, nota) {
-  const notas = leerNotasClientes();
-  const id = String(numero || '').trim();
-  if (!id) throw new Error('Falta número de cliente.');
-  notas[id] = { texto: String(nota || '').trim(), actualizado: new Date().toISOString() };
-  escribirJsonSeguro(ARCHIVO_NOTAS, notas);
-  return notas[id];
-}
-
-function leerRecordatorios() {
-  const arr = leerJsonSeguro(ARCHIVO_RECORDATORIOS, []);
-  return Array.isArray(arr) ? arr : [];
-}
-
-function guardarRecordatorios(arr) {
-  escribirJsonSeguro(ARCHIVO_RECORDATORIOS, arr.slice(-500));
-}
-
-function crearRecordatorio(numero, texto, minutos) {
-  const id = String(numero || '').trim();
-  if (!id) throw new Error('Falta número de cliente.');
-  const min = Math.max(5, Math.min(10080, Number(minutos) || 30));
-  const arr = leerRecordatorios();
-  const item = {
-    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    numero: id,
-    texto: String(texto || 'Volver a contactar').trim(),
-    vence: new Date(Date.now() + min * 60000).toISOString(),
-    creado: new Date().toISOString(),
-    hecho: false,
-  };
-  arr.push(item);
-  guardarRecordatorios(arr);
-  return item;
-}
-
-function completarRecordatorio(id) {
-  const arr = leerRecordatorios();
-  const item = arr.find((r) => r.id === id);
-  if (!item) throw new Error('Recordatorio no encontrado.');
-  item.hecho = true;
-  item.completado = new Date().toISOString();
-  guardarRecordatorios(arr);
-  return item;
-}
-
-function recordatoriosPendientes(limite = 30) {
-  return leerRecordatorios()
-    .filter((r) => !r.hecho)
-    .sort((a, b) => String(a.vence).localeCompare(String(b.vence)))
-    .slice(0, limite);
-}
-
-function detalleCliente(numero) {
-  const id = String(numero || '').trim();
-  if (!id) throw new Error('Falta número de cliente.');
-  const clientes = leerClientesEnriquecidos();
-  const cliente = clientes.find((c) => c.numero === id) || {
-    numero: id,
-    nombre: '',
-    telefono: '',
-    segmentosAuto: [],
-    scoreAuto: 0,
-    metricas: {},
-  };
-
-  const historial = construirHistorialClientes();
-  const mapaTags = leerEtiquetas();
-  const excluidos = leerExcluidos();
-  const pausados = leerPausados();
-  const acks = acksDelDia();
-  const enviados = (historial.enviadosPorNumero.get(id) || []).slice().sort();
-  const notas = leerNotasClientes();
-  const recordatorios = leerRecordatorios().filter((r) => r.numero === id && !r.hecho);
-  const respuestas = respuestasRecientes(500)
-    .filter((r) => r.numero === id)
-    .map((r) => ({
-      id: r.id,
-      fecha: r.fecha,
-      hora: r.hora || '',
-      texto: r.texto || '',
-      estado: r.estado,
-      posiblePedido: parecePedido(r.texto),
-    }));
-
-  return {
-    cliente,
-    tags: mapaTags[id] || [],
-    excluido: excluidos.has(id),
-    pausado: pausados[id] || null,
-    estadoAck: acks.get(id) || null,
-    abrirUrl: cliente.telefono ? `https://wa.me/${cliente.telefono}` : '',
-    nota: notas[id] || null,
-    recordatorios,
-    enviados,
-    respuestas,
-    metricas: {
-      enviadosTotal: enviados.length,
-      respuestasTotal: respuestas.length,
-      pedidosProbables: respuestas.filter((r) => r.posiblePedido).length,
-      ultimoEnvio: enviados[enviados.length - 1] || null,
-      ultimaRespuesta: respuestas[0] || null,
-    },
-  };
+  return { enviadosPorNumero, respuestasPorNumero, acksPorNumero, primerAck };
 }
 
 function enriquecerCliente(cliente, contexto) {
@@ -1148,6 +1057,14 @@ function enriquecerCliente(cliente, contexto) {
   if (cliente.analizado && !cliente.telefono) segmentos.push('sin_numero');
   if (cliente.analizado && cliente.telefono && cliente.pais !== '54') segmentos.push('otro_pais');
   if (cliente.negocio) segmentos.push('empresa');
+  const entrega = senalesEntrega(
+    contexto.primerAck ? enviados.filter((fecha) => fecha >= contexto.primerAck) : [],
+    respuestas,
+    contexto.acksPorNumero && contexto.acksPorNumero.get(cliente.numero),
+    hoy()
+  );
+  if (entrega.sinEntrega) segmentos.push('sin_entrega');
+  if (entrega.noLee) segmentos.push('no_lee');
 
   const score =
     (pidio ? 50 : 0) +
@@ -1172,6 +1089,8 @@ function enriquecerCliente(cliente, contexto) {
       diasUltimaRespuesta,
       pedidosReales: real ? real.pedidos : null,
       ultimoPedido: real ? real.ultimoPedido : null,
+      algunaEntrega: entrega.entregado,
+      algunaLectura: entrega.leido,
     },
   };
 }
@@ -2139,6 +2058,8 @@ function calcularObjetivoCampana(config, opciones = {}) {
     ? numerosFallidosCampana(segmento.slice(10))
     : null;
   const forzarFriosRecientes = !!opciones.forzarFriosRecientes;
+  const incluirSinEntrega = !!opciones.incluirSinEntrega;
+  let omitidosSinEntrega = 0;
   const candidatos = grupo
     ? clientes.filter((c) => grupo.numeros.includes(c.numero))
     : reintento
@@ -2149,6 +2070,11 @@ function calcularObjetivoCampana(config, opciones = {}) {
   const pendientes = ordenarPorPrioridadCampana(
     candidatos.filter((c) => {
       if (excluidos.has(c.numero) || pausados[c.numero] || enviadosHoy.has(c.numero)) return false;
+      // Nunca se entregó ninguna promo: posible bloqueo. Insistir sube el riesgo de baneo.
+      if ((c.segmentosAuto || []).includes('sin_entrega') && !incluirSinEntrega) {
+        omitidosSinEntrega++;
+        return false;
+      }
       if (
         (c.segmentosAuto || []).includes('frio') &&
         fueEnviadoDesde(c.numero, 7) &&
@@ -2181,6 +2107,8 @@ function calcularObjetivoCampana(config, opciones = {}) {
     tamanoTanda,
     segmento,
     forzarFriosRecientes,
+    incluirSinEntrega,
+    omitidosSinEntrega,
   };
 }
 
@@ -2199,6 +2127,8 @@ function crearResumenCampana(simulacro, opciones = {}) {
     simulacro: !!simulacro,
     segmento: calc.segmento || '',
     forzarFriosRecientes: !!calc.forzarFriosRecientes,
+    incluirSinEntrega: !!calc.incluirSinEntrega,
+    omitidosSinEntrega: calc.omitidosSinEntrega,
     totalClientes: calc.clientes.length,
     candidatos: calc.candidatos.length,
     pendientes: calc.pendientes.length,
@@ -2259,6 +2189,7 @@ function validarConfirmacion(token, simulacro, segmento) {
   const calculo = calcularObjetivoCampana(config, {
     segmento: confirmacionCampana.segmento,
     forzarFriosRecientes: confirmacionCampana.forzarFriosRecientes,
+    incluirSinEntrega: confirmacionCampana.incluirSinEntrega,
   });
   return confirmacionCampana.huella === huellaCampana(config, calculo);
 }
@@ -4260,7 +4191,12 @@ app.post('/api/preparar-envio', (req, res) => {
 
   const segmento = req.body && typeof req.body.segmento === 'string' ? req.body.segmento : '';
   const forzarFriosRecientes = !!(req.body && req.body.forzarFriosRecientes);
-  const resumen = crearResumenCampana(simulacro, { segmento, forzarFriosRecientes });
+  const incluirSinEntrega = !!(req.body && req.body.incluirSinEntrega);
+  const resumen = crearResumenCampana(simulacro, {
+    segmento,
+    forzarFriosRecientes,
+    incluirSinEntrega,
+  });
   res.json(resumen);
 });
 
@@ -4341,12 +4277,13 @@ app.post('/api/enviar', (req, res) => {
     });
   }
   const forzarFriosRecientes = !!(confirmacionCampana && confirmacionCampana.forzarFriosRecientes);
+  const incluirSinEntrega = !!(confirmacionCampana && confirmacionCampana.incluirSinEntrega);
   motor.corriendo = true;
   motor.pausado = false;
   motor.detener = false;
   confirmacionCampana = null;
   emitirMotor();
-  correrEnvio(simulacro, { segmento, forzarFriosRecientes }).catch((e) => {
+  correrEnvio(simulacro, { segmento, forzarFriosRecientes, incluirSinEntrega }).catch((e) => {
     motor.corriendo = false;
     registrarLog(`❌ Error en la corrida: ${e.message}`);
     emit('fin', { ...motor.stats, error: e.message });

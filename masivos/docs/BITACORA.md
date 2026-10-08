@@ -1,5 +1,22 @@
 # Bitácora de Masivos
 
+## 2026-10-08 — Posibles bloqueos y contactos que no leen (Claude)
+
+Pedido: saber qué contactos tienen bloqueado al negocio o no leen, para sacarlos de las listas y bajar el riesgo de baneo. Se tomó también el trabajo de "listas de 100" que Codex dejó terminado sin commit (`2770fac`).
+
+WhatsApp no informa bloqueos. La única señal es que un mensaje nunca pase de un tilde. Se juntan los tildes de todos los días por contacto (una lectura puede llegar al día siguiente del envío) y se marcan dos segmentos, con reglas conservadoras ([entrega.js](../entrega.js)):
+
+- **Posible bloqueo** (`sin_entrega`): 2 o más promos, la última hace 2 o más días, sin ninguna entrega ni respuesta.
+- **No lee** (`no_lee`): 3 o más promos entregadas, ninguna leída, sin respuestas.
+
+Una respuesta del contacto lo saca de ambos. Sólo cuentan los envíos desde el primer día con tildes registrados, para no marcar a quienes recibieron antes de que existiera el registro.
+
+Uso: Contactos → filtros "Posible bloqueo" y "No leen" → seleccionar → pausar o excluir (reversible). Las campañas **omiten por defecto los posibles bloqueos**; en Destinatarios hay una casilla para incluirlos, y el plan muestra cuántos se omitieron. La opción queda atada al plan confirmado. La programación automática también los omite. "No lee" sólo se informa: puede ser alguien con las confirmaciones de lectura desactivadas.
+
+Nada de esto es prueba: un teléfono apagado o un número dado de baja dan la misma señal. No se borra a nadie ni se lo marca como bloqueado por inferencia.
+
+Verificación: pruebas nuevas de las reglas (`scripts/entrega.test.js`) y suite completa de Masivos correcta. Navegador local: filtros, aviso y casilla visibles, sin errores. No se enviaron mensajes.
+
 ## 2026-10-08 — Listas de 100 y prioridad por compras
 
 Se agregó en Contactos **Crear listas de 100**, para todos los habilitados o sólo los seleccionados. El modal revisa cantidad y nombre; cancelar no guarda. Los grupos se agregan sin borrar los anteriores y no se envía ningún mensaje al crearlos. Se respetan exclusiones/pausas y equivalencias teléfono/LID, incluso cuando una sincronización cambia la representación de un contacto seleccionado. Si no hay espacio para nuevos grupos, se rechaza la operación sin perder los existentes.
