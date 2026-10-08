@@ -1,6 +1,6 @@
 const assert = require('assert');
 const http = require('http');
-const { PassThrough } = require('stream');
+const { PassThrough, Readable } = require('stream');
 const { gzipSync } = require('zlib');
 
 async function run() {
@@ -31,6 +31,44 @@ async function run() {
 
     assert.equal(Buffer.concat(chunks).toString(), '<main>Masivos</main>');
     assert.equal(headers.has('content-encoding'), false, 'No anunciar gzip tras descomprimir');
+
+    const failedResponse = new PassThrough();
+    let failureStatus = null;
+    failedResponse.headersSent = false;
+    failedResponse.status = (status) => {
+      failureStatus = status;
+      return failedResponse;
+    };
+    failedResponse.setHeader = () => {};
+    failedResponse.json = (body) => {
+      failedResponse.end(JSON.stringify(body));
+      return failedResponse;
+    };
+    const failed = new Promise((resolve) => failedResponse.once('finish', resolve));
+    const originalFetch = global.fetch;
+    global.fetch = async () => ({
+      status: 200,
+      headers: new Map(),
+      body: Readable.toWeb(
+        new Readable({
+          read() {
+            this.destroy(new Error('upstream socket closed'));
+          },
+        })
+      ),
+    });
+    try {
+      await proxyMasivos(
+        { originalUrl: '/masivos/api/status', headers: {}, method: 'GET' },
+        failedResponse,
+        'https://masivos.invalid',
+        'test-token'
+      );
+      await failed;
+      assert.equal(failureStatus, 502, 'un corte del upstream debe responder 502 sin tumbar Node');
+    } finally {
+      global.fetch = originalFetch;
+    }
   } finally {
     await new Promise((resolve) => upstream.close(resolve));
   }

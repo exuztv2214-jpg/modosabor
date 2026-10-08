@@ -27,7 +27,15 @@ async function proxyMasivos(req, res, upstreamUrl, proxyToken) {
       }
     });
     if (!upstream.body) return res.end();
-    return Readable.fromWeb(upstream.body).pipe(res);
+    const stream = Readable.fromWeb(upstream.body);
+    stream.on('error', (error) => {
+      logger.error('Respuesta de Masivos interrumpida', { message: error.message, target });
+      if (res.destroyed) return;
+      if (res.headersSent) return res.destroy();
+      return res.status(502).json({ error: 'Centro Masivos no disponible' });
+    });
+    res.once('close', () => stream.destroy());
+    return stream.pipe(res);
   } catch (error) {
     logger.error('Proxy de Masivos no disponible', { message: error.message, target });
     return res.status(502).json({ error: 'Centro Masivos no disponible' });
