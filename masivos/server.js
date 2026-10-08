@@ -2517,7 +2517,12 @@ async function correrFotos() {
   const chats = leerJsonSeguro(ARCHIVO_CHATS, []);
   fs.mkdirSync(DIR_FOTOS, { recursive: true });
   const contactosPorNumero = new Map(clientes.map((c) => [c.numero, c]));
-  const pendientes = [...contactosPorNumero.values(), ...chats.filter((c) => c.grupo)]
+  const pendientes = [
+    ...chats
+      .filter((chat) => !chat.grupo && !chat.canal)
+      .map((chat) => contactosPorNumero.get(chat.numero) || chat),
+    ...chats.filter((chat) => chat.grupo),
+  ]
     .filter(
       (item, index, all) => item.numero && all.findIndex((c) => c.numero === item.numero) === index
     )
@@ -3391,12 +3396,19 @@ app.post('/api/listar', async (req, res) => {
                 window
                   .require('WAWebCollections')
                   .Contact.getModelsArray()
-                  .map((contact) => ({
-                    id: contact.id?._serialized || null,
-                    name: contact.name || contact.pushname || contact.shortName || '',
-                    phoneNumber: contact.phoneNumber?._serialized || contact.phoneNumber || '',
-                    userid: contact.userid || '',
-                  }))
+                  .map((contact) => {
+                    const model = window.WWebJS.getContactModel(contact);
+                    return {
+                      id: model.id?._serialized || model.id || null,
+                      name: model.name || model.pushname || model.shortName || '',
+                      phoneNumber: model.phoneNumber?._serialized || model.phoneNumber || '',
+                      userid: model.userid || '',
+                      isGroup: model.isGroup,
+                      isMe: model.isMe,
+                      isUser: model.isUser,
+                      isWAContact: model.isWAContact,
+                    };
+                  })
               ),
               15000,
               'Colección de contactos'

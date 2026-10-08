@@ -57,11 +57,18 @@ void (async () => {
       id: { _serialized: 'cliente-a@lid' },
       phoneNumber: { _serialized: '5493812345678@c.us' },
       pushname: 'Cliente A',
+      isUser: true,
+      isWAContact: true,
     },
+    { id: { _serialized: 'miembro-grupo@lid' }, name: 'Miembro', isGroup: true, isUser: false },
   ]);
-  assert.deepEqual(contactosLivianos, [
-    { id: 'cliente-a@lid', name: 'Cliente A', number: '5493812345678@c.us' },
-  ]);
+  assert.equal(contactosLivianos.length, 2);
+  assert.equal(contactosLivianos[0].number, '5493812345678@c.us');
+  assert.equal(
+    sync.mergeSyncedContacts([], contactosLivianos, []).length,
+    1,
+    'no agrega participantes de grupos como contactos'
+  );
   console.log('contact and chat sync: OK');
 })().catch((error) => {
   console.error(error);

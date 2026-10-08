@@ -116,6 +116,10 @@ function normalizarContactosLivianos(contacts) {
     id: serializedId(contact?.id),
     name: contact?.name || contact?.pushname || contact?.shortName || '',
     number: serializedId(contact?.phoneNumber) || serializedId(contact?.userid),
+    isGroup: Boolean(contact?.isGroup),
+    isMe: Boolean(contact?.isMe),
+    isUser: contact?.isUser !== false,
+    isWAContact: contact?.isWAContact !== false,
   }));
 }
 
