@@ -174,10 +174,12 @@ function verifyFrontendContract() {
   assert.match(server, /api\/reactivar-contactos/);
   assert.match(server, /api\/contactos\/importar/);
   assert.match(server, /app\.post\(["']\/api\/contactos["']/);
-  assert.match(server, /mergeSyncedContacts\(chatsRaw, contactos, previos, lidMappings\)/);
+  assert.match(server, /mergeSyncedContacts\(chatsRaw, \[\], previos\)/);
+  assert.match(server, /const actualizados = mergeSyncedContacts\(/);
   assert.match(server, /ARCHIVO_CHATS/);
   assert.match(server, /listaJob\.corriendo/);
-  assert.match(server, /getContactLidAndPhone/);
+  assert.match(server, /enforceLidAndPnRetrieval/);
+  assert.match(server, /listaJob\.enriqueciendo/);
   assert.match(server, /client\.getProfilePicUrl/);
   assert.match(app, /Sincronización iniciada; te aviso al terminar/);
   assert.match(server, /function sincronizarConversacionesEnCRM/);

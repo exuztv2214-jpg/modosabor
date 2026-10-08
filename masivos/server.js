@@ -2327,7 +2327,7 @@ async function correrEnvio(simulacro, opciones = {}) {
 // ---------- Análisis de números (LID → teléfono, país, característica, empresa) ----------
 
 const analisis = { corriendo: false, hechos: 0, total: 0, resumen: null };
-const listaJob = { corriendo: false };
+const listaJob = { corriendo: false, enriqueciendo: false };
 
 async function correrAnalisis(limite) {
   let clientes;
@@ -3276,7 +3276,7 @@ app.post('/api/reactivar-contactos', (req, res) => {
 app.post('/api/listar', async (req, res) => {
   if (estadoWA.estado !== 'listo')
     return res.status(409).json({ error: 'WhatsApp no está listo todavía.' });
-  if (listaJob.corriendo)
+  if (listaJob.corriendo || listaJob.enriqueciendo || analisis.corriendo || fotosJob.corriendo)
     return res.status(409).json({ error: 'La sincronización ya está en curso.' });
   listaJob.corriendo = true;
   res.json({ ok: true, iniciada: true });
@@ -3299,6 +3299,7 @@ app.post('/api/listar', async (req, res) => {
           }))
           .filter((chat) => chat.id)
       );
+      if (!chatsRaw.length) throw new Error('La colección no devolvió chats.');
     } catch (error) {
       try {
         chatsRaw = (await client.getChats()).map((chat) => ({
@@ -3314,56 +3315,57 @@ app.post('/api/listar', async (req, res) => {
         throw new Error(`No se pudieron leer los chats: ${fallbackError.message || error.message}`);
       }
     }
-    let contactos = [];
-    try {
-      contactos = await client.getContacts();
-    } catch (error) {
-      registrarLog(`⚠️ No se pudo leer la agenda de WhatsApp: ${error.message}`);
-    }
     const chats = normalizeChats(chatsRaw);
-    const ids = [
-      ...new Set(
-        [...chatsRaw.map((c) => c.id), ...contactos.map((c) => c.id?._serialized)].filter(
-          (id) => id && /@(?:c\.us|lid)$/i.test(id)
-        )
-      ),
-    ];
-    const lidMappings = [];
-    for (let i = 0; i < ids.length; i += 25) {
-      try {
-        lidMappings.push(...(await client.getContactLidAndPhone(ids.slice(i, i + 25))));
-      } catch (error) {
-        registrarLog(
-          `⚠️ No se pudieron resolver algunos teléfonos de WhatsApp (${Math.min(i + 25, ids.length)}/${ids.length}).`
-        );
-      }
-    }
     const previos = leerJsonSeguro(ARCHIVO_CLIENTES, []);
-    const listaSincronizada = mergeSyncedContacts(chatsRaw, contactos, previos, lidMappings);
+    const listaSincronizada = mergeSyncedContacts(chatsRaw, [], previos);
     hacerBackup('lista actualizada');
     escribirJsonSeguro(ARCHIVO_CLIENTES, listaSincronizada);
     escribirJsonSeguro(ARCHIVO_CHATS, chats);
-    const csv =
-      'numero;nombre;ultimo_mensaje\n' +
-      listaSincronizada
-        .map((c) => `${c.numero};${(c.nombre || '').replace(/;/g, ',')};${c.ultimoMensaje}`)
-        .join('\n');
-    fs.writeFileSync(ARCHIVO_CLIENTES.replace('.json', '.csv'), csv, 'utf8');
     const grupos = chats.filter((chat) => chat.grupo).length;
-    registrarLog(
-      `📋 Sincronización lista: ${listaSincronizada.length} contactos, ${chats.length} chats (${grupos} grupos; ${fuente}).`
-    );
+    registrarLog(`📋 Chats leídos: ${chats.length} (${grupos} grupos; ${fuente}).`);
     emit('lista', {
-      tipo: 'fin',
+      tipo: 'chats',
       total: listaSincronizada.length,
       chats: chats.length,
       grupos,
-      agenda: contactos.length,
     });
-    void correrFotos().catch((error) => {
-      fotosJob.corriendo = false;
-      emit('fotos', { tipo: 'error', error: error.message });
-    });
+    listaJob.enriqueciendo = true;
+    void (async () => {
+      try {
+        let contactos = [];
+        try {
+          contactos = await client.getContacts();
+        } catch (error) {
+          registrarLog(`⚠️ No se pudo leer la agenda de WhatsApp: ${error.message}`);
+        }
+        const actualizados = mergeSyncedContacts(
+          chatsRaw,
+          contactos,
+          leerJsonSeguro(ARCHIVO_CLIENTES, [])
+        );
+        escribirJsonSeguro(ARCHIVO_CLIENTES, actualizados);
+        const csv =
+          'numero;nombre;ultimo_mensaje\n' +
+          actualizados
+            .map((c) => `${c.numero};${(c.nombre || '').replace(/;/g, ',')};${c.ultimoMensaje}`)
+            .join('\n');
+        fs.writeFileSync(ARCHIVO_CLIENTES.replace('.json', '.csv'), csv, 'utf8');
+        emit('lista', {
+          tipo: 'fin',
+          total: actualizados.length,
+          chats: chats.length,
+          grupos,
+          agenda: contactos.length,
+        });
+        if (!analisis.corriendo) await correrAnalisis(0);
+        await correrFotos();
+      } catch (error) {
+        registrarLog(`❌ Error completando la sincronización: ${error.message}`);
+        emit('lista', { tipo: 'error', error: error.message });
+      } finally {
+        listaJob.enriqueciendo = false;
+      }
+    })();
   } catch (e) {
     registrarLog(`❌ Error actualizando la lista: ${e && e.stack ? e.stack : e.message}`);
     emit('lista', { tipo: 'error', error: e.message });

@@ -884,6 +884,12 @@ function connectLive() {
   stream.addEventListener('lista', (event) => {
     const info = JSON.parse(event.data || '{}');
     if (info.tipo === 'inicio') showToast('Sincronizando agenda y chats de WhatsApp…');
+    if (info.tipo === 'chats') {
+      refresh();
+      showToast(
+        `${info.chats || 0} chats cargados (${info.grupos || 0} grupos); completando agenda…`
+      );
+    }
     if (info.tipo === 'fin') {
       refresh();
       showToast(
