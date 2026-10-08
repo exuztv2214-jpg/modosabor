@@ -3297,6 +3297,12 @@ app.post('/api/listar', async (req, res) => {
     emit('lista', { tipo: 'inicio' });
     let chatsRaw;
     let fuente = 'getChats';
+    const pageReady = await conTiempoLimite(
+      client.pupPage.evaluate(() => document.readyState),
+      5000,
+      'Prueba de página WhatsApp'
+    );
+    registrarLog(`🔎 Página de WhatsApp responde (${pageReady}).`);
     try {
       registrarLog('📥 Leyendo conversaciones desde WhatsApp…');
       chatsRaw = (await conTiempoLimite(client.getChats(), 15000, 'getChats')).map((chat) => ({
