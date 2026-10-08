@@ -184,6 +184,13 @@ function panel(t, env = {}) {
         result = value;
         return this;
       },
+      send(value) {
+        result = value;
+        return this;
+      },
+      setHeader() {
+        return this;
+      },
     };
     routes.get(`${method} ${url}`)({ body, query: {}, params, headers }, res);
     return { status, body: result };
@@ -647,4 +654,72 @@ test('Inicio, ficha de cliente y recordatorios responden', (t) => {
     200
   );
   assert.equal(p.request('/api/recordatorios', {}, 'GET').body.recordatorios.length, 0);
+});
+
+test('una promo agendada sale con el mensaje congelado y no se repite tras reiniciar', async (t) => {
+  const p = panel(t);
+  p.run('calcularSaludNumero = () => ({ estado: "verde" })');
+  const manana = p.run('sumarDias(hoy(), 1)');
+  const r = p.request('/api/agenda', { fecha: manana, hora: '20:30', titulo: 'Pizza' });
+  assert.equal(r.status, 200);
+  assert.equal(p.request('/api/agenda', { fecha: '2000-01-01', hora: '10:00' }).status, 400);
+  fs.writeFileSync(path.join(p.root, 'data', 'mensaje-general.txt'), 'Otro texto');
+  // Simula que llegó el día y la hora.
+  p.run(
+    `leerAgenda = ((original) => () => original().map((a) => ({ ...a, fecha: hoy() })))(leerAgenda)`
+  );
+  const textos = [];
+  p.context.whatsapp.sendMessage = async (numero, contenido) => {
+    textos.push(String(contenido));
+    p.sent.push(numero);
+    return {};
+  };
+  p.run('tickAgenda(getConfig(), "20:31")');
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(p.sent.length, 2);
+  assert.ok(textos.every((t) => t.includes('Promo') && !t.includes('Otro texto')));
+  const agenda = JSON.parse(fs.readFileSync(path.join(p.root, 'data', 'agenda.json')));
+  assert.notEqual(agenda[0].estado, 'pendiente');
+  p.run('motor.corriendo = false');
+  p.run('tickAgenda(getConfig(), "20:32")');
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(p.sent.length, 2, 'no vuelve a salir');
+});
+
+test('una promo agendada que no pudo salir a tiempo queda vencida', (t) => {
+  const p = panel(t);
+  p.write('agenda.json', [
+    {
+      id: 'agenda-x',
+      titulo: 'Vieja',
+      fecha: '2000-01-01',
+      hora: '10:00',
+      estado: 'pendiente',
+      mensaje: 'x',
+    },
+  ]);
+  p.run('tickAgenda(getConfig(), "10:00")');
+  assert.equal(
+    JSON.parse(fs.readFileSync(path.join(p.root, 'data', 'agenda.json')))[0].estado,
+    'vencida'
+  );
+  assert.equal(p.sent.length, 0);
+});
+
+test('excluir varios a mano se puede deshacer', (t) => {
+  const p = panel(t);
+  const numeros = ['5493811111111@c.us', '5493812222222@c.us'];
+  assert.equal(p.request('/api/excluir', { numeros, excluir: true }).status, 200);
+  assert.equal(p.run('leerExcluidos().size'), 2);
+  assert.equal(p.request('/api/acciones-masivas/deshacer').status, 200);
+  assert.equal(p.run('leerExcluidos().size'), 0);
+});
+
+test('exportar contactos genera CSV seguro para Excel', (t) => {
+  const p = panel(t);
+  p.write('clientes.json', [{ numero: '5493811111111@c.us', nombre: '=HYPERLINK("x")' }]);
+  const r = p.request('/api/contactos/exportar', {}, 'GET');
+  assert.equal(r.status, 200);
+  assert.match(r.body, /^﻿Nombre;/);
+  assert.match(r.body, /'=HYPERLINK/, 'una fórmula queda como texto');
 });

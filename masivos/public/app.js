@@ -55,6 +55,13 @@ const state = {
   campaignSegment: '',
   campaignGroup: '',
   chatOpen: false,
+  operacion: null,
+  agenda: [],
+  reminders: [],
+  quickReplies: [],
+  massActions: [],
+  backups: null,
+  settingsDraft: null,
 };
 let qrRefreshTimer = null;
 let waitTimer = null;
@@ -73,7 +80,7 @@ function solicitarDialogo({
   const dialog = document.createElement('dialog');
   dialog.className = 'modal action-dialog';
   dialog.setAttribute('aria-labelledby', 'action-dialog-title');
-  dialog.innerHTML = `<form method="dialog"><div class="modal-head"><h2 id="action-dialog-title">${esc(titulo)}</h2><button class="button ghost icon" type="button" data-cancel-dialog aria-label="Cerrar">${icon('close')}</button></div>${mensaje ? `<p class="dialog-copy">${esc(mensaje)}</p>` : ''}${imagen ? `<img class="identity-preview" src="${esc(imagen)}" alt="Imagen seleccionada">` : ''}${campos.map((c) => `<label class="field section-gap"><span>${esc(c.label)}</span>${c.multiline ? `<textarea name="${esc(c.name)}" maxlength="${c.max || 2000}" ${c.required ? 'required' : ''}>${esc(c.value || '')}</textarea>` : `<input name="${esc(c.name)}" value="${esc(c.value || '')}" maxlength="${c.max || 120}" ${c.required ? 'required' : ''}>`}</label>`).join('')}<div class="modal-actions"><button type="button" class="button secondary" data-cancel-dialog>Cancelar</button><button type="submit" class="button ${peligro ? 'danger' : 'primary'}">${esc(aceptar)}</button></div></form>`;
+  dialog.innerHTML = `<form method="dialog"><div class="modal-head"><h2 id="action-dialog-title">${esc(titulo)}</h2><button class="button ghost icon" type="button" data-cancel-dialog aria-label="Cerrar">${icon('close')}</button></div>${mensaje ? `<p class="dialog-copy">${esc(mensaje)}</p>` : ''}${imagen ? `<img class="identity-preview" src="${esc(imagen)}" alt="Imagen seleccionada">` : ''}${campos.map((c) => `<label class="field section-gap"><span>${esc(c.label)}</span>${c.options ? `<select name="${esc(c.name)}">${c.options.map(([valor, texto]) => `<option value="${esc(valor)}" ${String(valor) === String(c.value ?? '') ? 'selected' : ''}>${esc(texto)}</option>`).join('')}</select>` : c.multiline ? `<textarea name="${esc(c.name)}" maxlength="${c.max || 2000}" ${c.required ? 'required' : ''}>${esc(c.value || '')}</textarea>` : `<input type="${esc(c.type || 'text')}" ${c.min ? `min="${esc(c.min)}"` : ''} name="${esc(c.name)}" value="${esc(c.value || '')}" maxlength="${c.max || 120}" ${c.required ? 'required' : ''}>`}</label>`).join('')}<div class="modal-actions"><button type="button" class="button secondary" data-cancel-dialog>Cancelar</button><button type="submit" class="button ${peligro ? 'danger' : 'primary'}">${esc(aceptar)}</button></div></form>`;
   document.body.append(dialog);
   activeDialog = dialog;
   return new Promise((resolve) => {
@@ -350,7 +357,7 @@ function renderInicio() {
     </div>
     <div class="grid main-side section-gap">
       <div class="stack">${lastCampaignCard()}${activityCard()}</div>
-      <div class="stack">${healthCard(connected)}<div class="card"><div class="page-actions" style="flex-direction:column;align-items:stretch">
+      <div class="stack">${healthCard(connected)}${systemCard()}${remindersCard()}<div class="card"><div class="page-actions" style="flex-direction:column;align-items:stretch">
         <button class="button secondary" data-action="test">${icon('send_to_mobile')}Enviar prueba a mi WhatsApp</button>
         <button class="button secondary" data-route="conversaciones">${icon('chat')}Revisar chats <b class="badge" data-unread-chats>0</b></button>
         <button class="button secondary" data-action="refresh">${icon('sync')}Actualizar contactos</button>
@@ -400,11 +407,19 @@ const CAMPAIGN_STATES = {
   corriendo: 'En curso',
   finalizada: 'Finalizada',
   detenida: 'Detenida',
+  interrumpida: 'Cortada',
 };
 
 function campaignBadge(c) {
   if (c.simulacro) return '<span class="badge">Simulacro</span>';
-  const tono = c.estado === 'detenida' ? 'red' : c.estado === 'corriendo' ? 'brand' : 'green';
+  const tono =
+    c.estado === 'detenida'
+      ? 'red'
+      : c.estado === 'interrumpida'
+        ? 'amber'
+        : c.estado === 'corriendo'
+          ? 'brand'
+          : 'green';
   return `<span class="badge ${tono}">${esc(CAMPAIGN_STATES[c.estado] || c.estado || '—')}</span>`;
 }
 
@@ -440,6 +455,18 @@ const SEGMENT_NAMES = {
   no_lee: 'No lee',
 };
 
+const ACTION_NAMES = {
+  excluir_manual: 'Excluir',
+  incluir_manual: 'Volver a incluir',
+  pausar_manual: 'Pausar',
+  reactivar_manual: 'Reactivar',
+  excluir_frios_extremos: 'Excluir fríos extremos',
+  pausar_frios_extremos: 'Pausar fríos extremos',
+  pausar_sin_respuesta: 'Pausar sin respuesta',
+  pausar_otros_paises: 'Pausar otros países',
+  reactivar_respondieron: 'Reactivar a quienes respondieron',
+};
+
 function lastCampaignCard() {
   const last = state.campaigns[0];
   const cfg = state.config || {};
@@ -454,7 +481,7 @@ function lastCampaignCard() {
         'Prepará la primera: mensaje, flyer y a quién mandarlo.'
       );
   return card(
-    `${cardHead('Última campaña', last ? `${esc(campaignTime(last.inicio))} · ${esc(segmentLabel(last.segmento))}` : '', last ? campaignBadge(last) : '')}${cuerpo}<p class="stat-foot" style="margin-top:12px">Programación: ${programacion} · máximo ${fmt(cfg.MAX_POR_CORRIDA || 50)} por tanda · ${Math.round(Number(cfg.DELAY_MIN_MS || 15000) / 1000)}–${Math.round(Number(cfg.DELAY_MAX_MS || 45000) / 1000)} s entre mensajes</p><div class="card-foot">${last ? `<button class="button secondary" data-route="resultados">${icon('monitoring')}Ver resultados</button>` : ''}<button class="button primary" data-route="campana">${icon('add')}Nueva campaña</button></div>`
+    `${cardHead('Última campaña', last ? `${esc(campaignTime(last.inicio))} · ${esc(segmentLabel(last.segmento))}` : '', last ? campaignBadge(last) : '')}${cuerpo}<p class="stat-foot" style="margin-top:12px">Programación: ${programacion} · máximo ${fmt(cfg.MAX_POR_CORRIDA || 50)} por tanda · ${Math.round(Number(cfg.DELAY_MIN_MS ?? 15000) / 1000)}–${Math.round(Number(cfg.DELAY_MAX_MS ?? 45000) / 1000)} s entre mensajes</p><div class="card-foot">${last ? `<button class="button secondary" data-route="resultados">${icon('monitoring')}Ver resultados</button>` : ''}<button class="button primary" data-route="campana">${icon('add')}Nueva campaña</button></div>`
   );
 }
 
@@ -469,6 +496,68 @@ function healthCard(connected) {
   const score = connected && h.score != null ? Number(h.score) : null;
   return card(
     `${cardHead('Salud del número', 'Cuida que WhatsApp no bloquee la cuenta')}${gauge(score ?? 0, HEALTH_TONES[h.estado] || '', score == null ? '—' : score, connected ? healthStateLabel(h) : 'Sin conexión')}<div class="kv section-gap"><div><small>Últimos ${fmt(h.ventanaCupoMin || cfg.VENTANA_CUPO_MINUTOS || 60)} min</small><strong>${maxVentana ? `${ventana}/${maxVentana}` : ventana}</strong></div><div><small>Respuesta hoy</small><strong>${connected && h.enviadosHoy ? `${Math.round(Number(h.tasaRespuesta || 0) * 100)}%` : '—'}</strong></div><div><small>Calentamiento</small><strong>${warmup?.calentamiento ? `Día ${Number(warmup.diasPrevios || 0) + 1}` : 'No'}</strong></div></div>${connected && h.recomendaciones?.[0] ? `<p class="notice section-gap">${icon('lightbulb')}<span>${esc(h.recomendaciones[0])}</span></p>` : ''}`
+  );
+}
+
+function haceCuanto(iso) {
+  const ms = Date.now() - Date.parse(iso || '');
+  if (!Number.isFinite(ms)) return 'nunca';
+  const min = Math.round(ms / 60000);
+  if (min < 2) return 'recién';
+  if (min < 60) return `hace ${min} min`;
+  const h = Math.round(min / 60);
+  return h < 48 ? `hace ${h} h` : `hace ${Math.round(h / 24)} días`;
+}
+
+// Estado del sistema: lo que tiene que estar al día para que las campañas salgan bien.
+function systemCard() {
+  const op = state.operacion;
+  if (!op) return '';
+  const alertas = op.alertas || [];
+  const disco = op.disco;
+  const filas = [
+    [
+      'Horarios de turnos',
+      op.turnos?.actualizado ? haceCuanto(op.turnos.actualizado) : 'sin sincronizar',
+      op.turnos?.vigente,
+    ],
+    [
+      'Pedidos de Modo Sabor',
+      op.pedidos?.actualizado ? haceCuanto(op.pedidos.actualizado) : 'sin datos',
+      !op.pedidos?.error && !!op.pedidos?.actualizado,
+    ],
+    [
+      'Último respaldo',
+      op.respaldo?.ultimo ? haceCuanto(op.respaldo.ultimo.creado) : 'ninguno',
+      !op.respaldo?.error && op.respaldo?.horas != null && op.respaldo.horas <= 30,
+    ],
+    [
+      'Espacio libre',
+      disco ? `${disco.porcentajeLibre}% (${formatBytes(disco.libre)})` : '—',
+      !disco || disco.porcentajeLibre >= 15,
+    ],
+  ];
+  const agenda = op.proximaAgenda
+    ? `<p class="stat-foot section-gap">${icon('event')} Próxima agendada: <b>${esc(op.proximaAgenda.titulo)}</b> · ${esc(op.proximaAgenda.fecha.split('-').reverse().join('/'))} ${esc(op.proximaAgenda.hora)}</p>`
+    : '';
+  return card(
+    `${cardHead('Estado del sistema', alertas.length ? `${alertas.length} cosa(s) para revisar` : 'Todo al día', alertas.length ? `<span class="badge ${alertas.some((a) => a.nivel === 'rojo') ? 'red' : 'amber'}">Revisar</span>` : '<span class="badge green">OK</span>')}${alertas.map((a) => `<p class="notice ${a.nivel === 'rojo' ? 'bad' : 'warn'}">${icon(a.nivel === 'rojo' ? 'error' : 'warning')}<span>${esc(a.texto)}</span></p>`).join('')}<div class="system-rows">${filas.map(([nombre, valor, ok]) => `<div><span>${esc(nombre)}</span><strong class="${ok ? '' : 'warn-text'}">${esc(valor)}</strong></div>`).join('')}</div>${agenda}${op.revisar?.interrumpidas || op.revisar?.inciertos ? `<div class="card-foot"><button class="button secondary" data-route="resultados">${icon('fact_check')}Revisar en Resultados</button></div>` : ''}`
+  );
+}
+
+function remindersCard() {
+  const lista = state.reminders || [];
+  if (!lista.length) return '';
+  const ahora = new Date().toISOString();
+  return card(
+    `${cardHead('Recordatorios', `${lista.length} pendiente(s)`)}<div class="reminder-list">${lista
+      .slice(0, 6)
+      .map((r) => {
+        const contacto = state.contacts.find((c) => c.numero === r.numero);
+        const vencido = String(r.vence) <= ahora;
+        return `<div class="reminder ${vencido ? 'due' : ''}"><div><strong>${esc(contacto?.nombre || r.numero)}</strong><small>${esc(r.texto)} · ${vencido ? 'para hacer ahora' : esc(campaignTime(r.vence))}</small></div><div class="reminder-actions"><button class="button ghost icon" data-action="open-chat-number" data-value="${esc(r.numero)}" aria-label="Abrir chat">${icon('chat')}</button><button class="button ghost icon" data-action="complete-reminder" data-value="${esc(r.id)}" aria-label="Marcar hecho">${icon('check')}</button></div></div>`;
+      })
+      .join('')}</div>`
   );
 }
 
@@ -565,7 +654,34 @@ function renderCampana() {
     step < 4
       ? `<button class="button primary" data-action="campaign-step" data-id="${step + 1}">Siguiente ${icon('arrow_forward')}</button>`
       : '';
-  return `${pageHead('Nueva campaña', 'Prepará el mensaje, revisalo y recién ahí se envía. Nada sale sin tu confirmación.')}${state.motor?.corriendo ? `<div class="section-gap" style="margin:0 0 20px">${liveCampaignCard()}</div>` : ''}${stepper}<div class="studio"><div>${state.campaignPlan ? `<section class="card campaign-plan">${campaignPlanMarkup()}</section>` : ''}${card(pasos[step]())}<div class="wizard-nav">${anterior}${siguiente}</div></div><aside class="preview-dock">${renderWhatsappPreview()}</aside></div>`;
+  return `${pageHead('Nueva campaña', 'Prepará el mensaje, revisalo y recién ahí se envía. Nada sale sin tu confirmación.')}${state.motor?.corriendo ? `<div class="section-gap" style="margin:0 0 20px">${liveCampaignCard()}</div>` : ''}${stepper}<div class="studio"><div>${state.campaignPlan ? `<section class="card campaign-plan">${campaignPlanMarkup()}</section>` : ''}${card(pasos[step]())}<div class="wizard-nav">${anterior}${siguiente}</div>${agendaCard()}</div><aside class="preview-dock">${renderWhatsappPreview()}</aside></div>`;
+}
+
+const AGENDA_ESTADOS = {
+  pendiente: ['Agendada', 'brand'],
+  corriendo: ['Saliendo', 'brand'],
+  hecha: ['Salió', 'green'],
+  detenida: ['Detenida', 'red'],
+  vencida: ['No salió', 'amber'],
+  interrumpida: ['Cortada', 'amber'],
+  cancelada: ['Cancelada', ''],
+};
+
+function agendaCard() {
+  const lista = (state.agenda || []).filter((a) => a.estado !== 'cancelada').slice(0, 10);
+  if (!lista.length) return '';
+  const fila = (a) => {
+    const [texto, tono] = AGENDA_ESTADOS[a.estado] || [a.estado, ''];
+    const cancelar =
+      a.estado === 'pendiente'
+        ? `<button class="button ghost icon" data-action="cancel-scheduled" data-value="${esc(a.id)}" aria-label="Cancelar">${icon('event_busy')}</button>`
+        : '';
+    return `<tr><td><strong>${esc(a.fecha.split('-').reverse().join('/'))}</strong><br><small>${esc(a.hora)}</small></td><td>${esc(a.titulo)}<br><small class="stat-foot">${esc(String(a.mensaje || '').slice(0, 60))}… · ${fmt((a.imagenes || []).length)} imagen(es)</small></td><td class="hide-sm">${esc(segmentLabel(a.segmento))}</td><td><span class="badge ${tono}">${esc(texto)}</span>${a.detalle ? `<br><small class="stat-foot">${esc(a.detalle)}</small>` : ''}</td><td>${cancelar}</td></tr>`;
+  };
+  return card(
+    `${cardHead('Promos agendadas', 'Salen solas con el mensaje y los archivos guardados al agendar')}<div class="table-wrap"><table class="table"><thead><tr><th>Cuándo</th><th>Promo</th><th class="hide-sm">A quién</th><th>Estado</th><th></th></tr></thead><tbody>${lista.map(fila).join('')}</tbody></table></div>`,
+    'section-gap'
+  );
 }
 
 function messageStep() {
@@ -679,7 +795,7 @@ function reviewStep() {
     [
       true,
       'Ritmo',
-      `${Math.round(Number(cfg.DELAY_MIN_MS || 15000) / 1000)}–${Math.round(Number(cfg.DELAY_MAX_MS || 45000) / 1000)} s entre mensajes · ${Number(cfg.MAX_POR_HORA || 0) ? `${cfg.MAX_POR_HORA} por hora` : 'sin límite por hora'} · máximo ${fmt(cfg.MAX_POR_CORRIDA || 50)} por tanda.`,
+      `${Math.round(Number(cfg.DELAY_MIN_MS ?? 15000) / 1000)}–${Math.round(Number(cfg.DELAY_MAX_MS ?? 45000) / 1000)} s entre mensajes · ${fmt(cfg.MAX_POR_HORA || 60)} cada ${fmt(cfg.VENTANA_CUPO_MINUTOS || 60)} min · máximo ${fmt(cfg.MAX_POR_CORRIDA || 50)} por tanda.`,
     ],
   ];
   const rows = checks
@@ -689,7 +805,7 @@ function reviewStep() {
     )
     .join('');
   const ocupado = state.motor?.corriendo;
-  return `${cardHead('Revisar y enviar', 'Primero hacé un simulacro o mandate una prueba; el envío real pide confirmación.')}<div class="checks">${rows}</div><div class="card-foot"><button class="button secondary" data-action="test" ${ocupado ? 'disabled' : ''}>${icon('send_to_mobile')}Enviar prueba a mi WhatsApp</button><button class="button secondary" data-action="simulate" ${ocupado ? 'disabled' : ''}>${icon('play_circle')}Hacer simulacro</button><button class="button primary" data-action="dispatch" ${ocupado ? 'disabled' : ''}>${icon('fact_check')}Preparar y revisar envío</button></div>${ocupado ? `<p class="notice warn section-gap">${icon('hourglass_top')}<span>Hay una campaña en curso: esperá a que termine o detenela.</span></p>` : ''}`;
+  return `${cardHead('Revisar y enviar', 'Primero hacé un simulacro o mandate una prueba; el envío real pide confirmación.')}<div class="checks">${rows}</div><div class="card-foot"><button class="button secondary" data-action="test" ${ocupado ? 'disabled' : ''}>${icon('send_to_mobile')}Enviar prueba a mi WhatsApp</button><button class="button secondary" data-action="simulate" ${ocupado ? 'disabled' : ''}>${icon('play_circle')}Hacer simulacro</button><button class="button secondary" data-action="schedule-campaign">${icon('event')}Agendar para otro momento</button><button class="button primary" data-action="dispatch" ${ocupado ? 'disabled' : ''}>${icon('fact_check')}Preparar y revisar envío</button></div>${ocupado ? `<p class="notice warn section-gap">${icon('hourglass_top')}<span>Hay una campaña en curso: esperá a que termine o detenela.</span></p>` : ''}`;
 }
 
 function pedidosRealesBadge() {
@@ -945,11 +1061,18 @@ function renderContactos() {
           ? 'Probá con otro nombre o teléfono.'
           : 'Conectá WhatsApp y tocá "Actualizar contactos".'
       );
-  return `${pageHead('Contactos', 'Tus contactos de WhatsApp con su historial de envíos, respuestas y pedidos.', `${pedidosRealesBadge()}<button class="button secondary" data-action="import">${icon('upload_file')}Importar</button><button class="button primary" data-action="add-contact">${icon('person_add')}Agregar</button>`)}
+  return `${pageHead('Contactos', 'Tus contactos de WhatsApp con su historial de envíos, respuestas y pedidos.', `${pedidosRealesBadge()}${undoButton()}<button class="button secondary" data-action="export-contacts">${icon('download')}Exportar</button><button class="button secondary" data-action="import">${icon('upload_file')}Importar</button><button class="button primary" data-action="add-contact">${icon('person_add')}Agregar</button>`)}
     <section class="card contacts-controls"><div class="toolbar"><label class="search-box"><span class="sr-only">Buscar contactos</span>${icon('search')}<input class="input" id="contact-search" placeholder="Buscar por nombre, teléfono o segmento" value="${esc(state.contactQuery)}"></label><div class="tabs contacts-view" role="group" aria-label="Vista"><button class="${state.contactsView === 'list' ? 'active' : ''}" data-action="contacts-view" data-view="list" aria-pressed="${state.contactsView === 'list'}">${icon('view_list')}</button><button class="${state.contactsView === 'cards' ? 'active' : ''}" data-action="contacts-view" data-view="cards" aria-pressed="${state.contactsView === 'cards'}">${icon('grid_view')}</button></div><button class="button secondary" data-action="photos">${icon('account_circle')}Fotos</button></div>
     <div class="filter-chips contacts-filter" style="margin-bottom:16px">${chips.map(([f, label]) => `<button class="filter-chip ${filter === f ? 'active' : ''}" data-action="contacts-filter" data-filter="${f}">${label} <b>${fmt(counts[f])}</b></button>`).join('')}</div>
     ${contactOperations()}</section>
     <div class="crm-layout">${card(`<p class="stat-foot" style="margin-bottom:8px">${fmt(todosVisibles.length)} de ${fmt(filteredContacts.length)} contactos</p>${lista}${todosVisibles.length > visible.length ? `<div class="card-foot" style="justify-content:center"><button class="button secondary" data-action="contacts-more">Ver ${fmt(Math.min(60, todosVisibles.length - visible.length))} más</button></div>` : ''}`)}${detailCard(selected)}</div>`;
+}
+
+// Deshacer la última exclusión/pausa en bloque: el estado anterior queda guardado.
+function undoButton() {
+  const ultima = (state.massActions || []).find((a) => !a.deshecha);
+  if (!ultima) return '';
+  return `<button class="button ghost" data-action="undo-mass-action" title="${esc(ACTION_NAMES[ultima.accion] || ultima.accion)} · ${fmt(ultima.total)} contactos">${icon('undo')}Deshacer: ${esc(ACTION_NAMES[ultima.accion] || 'última acción')} (${fmt(ultima.total)})</button>`;
 }
 
 function contactRow(c, selected) {
@@ -1067,7 +1190,8 @@ function messageLabel(message) {
 function formatBytes(bytes) {
   if (!bytes) return '—';
   if (bytes < 1024 * 1024) return `${Math.ceil(bytes / 1024)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  return `${(bytes / 1024 / 1024 / 1024).toFixed(1)} GB`;
 }
 
 function chatAttachmentVisual(file) {
@@ -1208,13 +1332,16 @@ function renderConversaciones() {
         : '')
     : empty('search_off', 'No hay chats', 'Probá con otro nombre o filtro.');
   const cabecera = chat.numero
-    ? `<div class="conversation-head"><button class="wa-back back-to-list" data-action="chat-back" aria-label="Volver a la lista">${icon('arrow_back_ios')}</button>${avatarMarkup(chat)}<div class="phone-identity"><strong>${esc(chatName(chat))}</strong><small>${esc(chatContactLabel(chat) || 'Contacto de WhatsApp')}</small></div><label class="sr-only" for="conversation-status">Clasificación</label><select class="chat-status" id="conversation-status" title="Clasificación">${estados.map(([value, label]) => `<option value="${value}" ${value === estadoActual ? 'selected' : ''}>${label}</option>`).join('')}</select></div>`
+    ? `<div class="conversation-head"><button class="wa-back back-to-list" data-action="chat-back" aria-label="Volver a la lista">${icon('arrow_back_ios')}</button>${avatarMarkup(chat)}<div class="phone-identity"><strong>${esc(chatName(chat))}</strong><small>${esc(chatContactLabel(chat) || 'Contacto de WhatsApp')}</small></div><button class="wa-icon-button" data-action="add-reminder" data-value="${esc(chat.numero)}" title="Recordatorio" aria-label="Crear recordatorio">${icon('alarm_add')}</button><label class="sr-only" for="conversation-status">Clasificación</label><select class="chat-status" id="conversation-status" title="Clasificación">${estados.map(([value, label]) => `<option value="${value}" ${value === estadoActual ? 'selected' : ''}>${label}</option>`).join('')}</select></div>`
     : '';
   const cuerpo = chat.numero
     ? `${state.loadingHistory === chat.numero ? '<span class="date-chip">Buscando mensajes anteriores…</span>' : ''}${conversationMessages(chat)}${pendingChatBubble()}`
     : `<div class="chat-placeholder">${icon('forum')}<strong>Elegí un chat</strong><span>Los mensajes aparecen acá.</span></div>`;
+  const rapidas = chat.numero
+    ? `<div class="quick-replies" role="group" aria-label="Respuestas rápidas">${(state.quickReplies || []).map((rr) => `<span class="quick-reply"><button data-action="quick-reply" data-value="${esc(rr.id)}" title="${esc(rr.texto)}">${esc(rr.titulo)}</button><button class="quick-reply-x" data-action="delete-quick-reply" data-value="${esc(rr.id)}" aria-label="Borrar ${esc(rr.titulo)}">×</button></span>`).join('')}<button class="quick-reply add" data-action="add-quick-reply" aria-label="Nueva respuesta rápida">${icon('add')}</button></div>`
+    : '';
   const composer = chat.numero
-    ? `<div class="wa-compose composer"><label class="chat-attach-button" title="Adjuntar imagen, PDF o audio">${icon('add')}<input id="chat-file" type="file" hidden accept="image/*,application/pdf,audio/*"></label>${state.chatAttachment ? `<button class="wa-icon-button" data-action="remove-chat-attachment" aria-label="Quitar adjunto">${icon('close')}</button>` : ''}<label class="sr-only" for="chat-message">Mensaje</label><input id="chat-message" type="text" value="${esc(state.chatDraft)}" placeholder="Mensaje" autocomplete="off"><button class="wa-send" data-action="send-chat" aria-label="Enviar">${icon('arrow_upward')}</button></div>`
+    ? `${rapidas}<div class="wa-compose composer"><label class="chat-attach-button" title="Adjuntar imagen, PDF o audio">${icon('add')}<input id="chat-file" type="file" hidden accept="image/*,application/pdf,audio/*"></label>${state.chatAttachment ? `<button class="wa-icon-button" data-action="remove-chat-attachment" aria-label="Quitar adjunto">${icon('close')}</button>` : ''}<label class="sr-only" for="chat-message">Mensaje</label><input id="chat-message" type="text" value="${esc(state.chatDraft)}" placeholder="Mensaje" autocomplete="off"><button class="wa-send" data-action="send-chat" aria-label="Enviar">${icon('arrow_upward')}</button></div>`
     : '';
   return `${pageHead('Chats', 'Tus conversaciones de WhatsApp: respondé, adjuntá y clasificá.', `<span class="badge ${conectado ? 'green' : 'red'}"><span class="dot"></span>${conectado ? 'WhatsApp conectado' : 'Sin conexión'}</span><button class="button secondary" data-action="refresh">${icon('sync')}Actualizar</button>`)}
   <div class="inbox-grid ${state.chatOpen && chat.numero ? 'chat-open' : ''}">
@@ -1247,7 +1374,13 @@ const DESTINATARIO_ESTADOS = {
   detenido: 'Detenido',
   simulado: 'Simulado',
   pendiente: 'No se envió',
+  incierto: 'Dudoso',
+  omitido: 'Omitido',
 };
+
+function pct(parte, total) {
+  return total ? `${Math.round((Number(parte || 0) / total) * 100)}%` : '—';
+}
 
 function campaignsTable() {
   if (!state.campaigns.length)
@@ -1256,36 +1389,94 @@ function campaignsTable() {
       'Sin campañas todavía',
       'Cada campaña o simulacro queda registrado acá.'
     );
-  return `<div class="table-wrap"><table class="table"><thead><tr><th>Fecha</th><th class="hide-sm">Destinatarios</th><th>Resultado</th><th>Estado</th></tr></thead><tbody>${state.campaigns
+  return `<div class="table-wrap"><table class="table"><thead><tr><th>Fecha</th><th class="hide-sm">Destinatarios</th><th>Enviados</th><th class="hide-sm">Leídos</th><th class="hide-sm">Pidieron</th><th>Estado</th></tr></thead><tbody>${state.campaigns
     .map((c) => {
       const s = c.stats || {};
-      return `<tr data-action="campaign-detail" data-id="${esc(c.id)}"><td><strong>${esc(campaignTime(c.inicio))}</strong></td><td class="hide-sm">${esc(segmentLabel(c.segmento))}</td><td class="num">${fmt(s.ok)} / ${fmt(s.total)}${s.fallidos ? ` · <span style="color:var(--error-700)">${fmt(s.fallidos)} fallidos</span>` : ''}</td><td>${campaignBadge(c)}</td></tr>`;
+      const r = c.resultados || {};
+      const avisos = [
+        s.fallidos ? `<span class="warn-text">${fmt(s.fallidos)} fallidos</span>` : '',
+        r.inciertos ? `<span class="warn-text">${fmt(r.inciertos)} dudosos</span>` : '',
+      ]
+        .filter(Boolean)
+        .join(' · ');
+      const origen =
+        c.origen === 'agendada' ? ' · agendada' : c.origen === 'programada' ? ' · automática' : '';
+      return `<tr data-action="campaign-detail" data-id="${esc(c.id)}"><td><strong>${esc(campaignTime(c.inicio))}</strong></td><td class="hide-sm">${esc(segmentLabel(c.segmento))}${esc(origen)}</td><td class="num">${fmt(s.ok)} / ${fmt(s.total)}${avisos ? `<br><small>${avisos}</small>` : ''}</td><td class="num hide-sm">${c.simulacro ? '—' : `${fmt(r.leidos)} <small>${pct(r.leidos, r.enviados)}</small>`}</td><td class="num hide-sm">${c.simulacro ? '—' : fmt(r.pidieron)}</td><td>${campaignBadge(c)}</td></tr>`;
     })
     .join('')}</tbody></table></div>`;
 }
+
+function campaignFunnel(c) {
+  const r = c.resultados || {};
+  if (c.simulacro || !r.enviados) return '';
+  const pasos = [
+    ['Enviados', r.enviados, ''],
+    ['Entregados', r.entregados, pct(r.entregados, r.enviados)],
+    ['Leídos', r.leidos, pct(r.leidos, r.enviados)],
+    ['Respondieron', r.respondieron, pct(r.respondieron, r.enviados)],
+    ['Pidieron', r.pidieron, pct(r.pidieron, r.enviados)],
+  ];
+  const ventana = r.ventanaPedidos
+    ? `${r.ventanaPedidos.desde.split('-').reverse().join('/')} al ${r.ventanaPedidos.hasta.split('-').reverse().join('/')}`
+    : '';
+  return `<div class="funnel">${pasos.map(([nombre, valor, porcentaje]) => `<div><small>${esc(nombre)}</small><strong>${fmt(valor)}</strong>${porcentaje ? `<span>${porcentaje}</span>` : ''}</div>`).join('')}</div><p class="stat-foot">Respondieron: escribieron dentro de las 48 h de recibir la promo. Pidieron: tienen un pedido en Modo Sabor del ${esc(ventana)}. Que pidan después no prueba que fue por la promo.</p>`;
+}
+
+const ACK_LABELS = { enviado: '1 tilde', entregado: 'Entregado', leido: 'Leído' };
 
 function campaignDetailCard() {
   const c = state.campaignDetail;
   if (!c) return '';
   const destinatarios = Array.isArray(c.destinatarios) ? c.destinatarios : [];
-  const fallidos = destinatarios.filter((d) => d.estado === 'fallido' || d.estado === 'detenido');
+  const corriendo = c.estado === 'corriendo';
+  const pendientes = destinatarios.filter((d) =>
+    ['fallido', 'detenido', 'pendiente'].includes(d.estado)
+  );
+  const dudosos = destinatarios.filter((d) => d.estado === 'incierto');
+  const textoRetomar =
+    c.estado === 'interrumpida'
+      ? `Retomar ${pendientes.length} que faltaron`
+      : `Reintentar ${pendientes.length} fallidos`;
   const reintento =
-    !c.simulacro && fallidos.length && c.estado !== 'corriendo'
-      ? `<button class="button primary" data-action="retry-failed" data-id="${esc(c.id)}">${icon('replay')}Reintentar ${fallidos.length} fallidos</button>`
+    !c.simulacro && pendientes.length && !corriendo
+      ? `<button class="button primary" data-action="retry-failed" data-id="${esc(c.id)}">${icon('replay')}${textoRetomar}</button>`
       : '';
+  const avisoCortada =
+    c.estado === 'interrumpida'
+      ? `<p class="notice warn">${icon('warning')}<span>La campaña se cortó por un reinicio del panel${c.retomada ? ' y ya se retomó' : ''}. Lo que faltó no se manda solo: revisalo y retomalo si corresponde.</span></p>`
+      : '';
+  const avisoDudosos = dudosos.length
+    ? `<div class="notice warn">${icon('help')}<span><b>${fmt(dudosos.length)} envío(s) dudosos:</b> WhatsApp no confirmó, pero el mensaje pudo haber salido. Mirá esos chats en el teléfono y marcá qué pasó. No se reintentan solos para no mandar dos veces.</span></div><div class="card-foot"><button class="button secondary" data-action="resolve-uncertain" data-id="${esc(c.id)}" data-value="llego">${icon('done_all')}Llegaron</button><button class="button secondary" data-action="resolve-uncertain" data-id="${esc(c.id)}" data-value="no-llego">${icon('replay')}No llegaron (reintentar)</button></div>`
+    : '';
+  const fila = (d) => {
+    const tono =
+      d.estado === 'enviado' || d.estado === 'simulado'
+        ? 'green'
+        : d.estado === 'pendiente' || d.estado === 'omitido'
+          ? ''
+          : d.estado === 'incierto'
+            ? 'amber'
+            : 'red';
+    const extra = [d.ack ? ACK_LABELS[d.ack] : '', d.respondio ? 'Respondió' : '']
+      .filter(Boolean)
+      .join(' · ');
+    return `<tr><td><div class="person"><div><strong>${esc(d.nombre || 'Sin nombre')}</strong><small>${esc(d.numero)}</small></div></div></td><td><span class="badge ${tono}">${esc(DESTINATARIO_ESTADOS[d.estado] || d.estado)}</span>${extra ? `<br><small class="stat-foot">${esc(extra)}</small>` : ''}</td><td class="hide-sm"><small class="stat-foot">${esc(d.error || '')}</small></td></tr>`;
+  };
   return card(
-    `${cardHead(`Campaña del ${esc(campaignTime(c.inicio))}`, `${esc(segmentLabel(c.segmento))} · pausa ${Math.round(Number(c.config?.delayMinMs || 0) / 1000)}–${Math.round(Number(c.config?.delayMaxMs || 0) / 1000)} s`, `<button class="button ghost icon" data-action="close-campaign-detail" aria-label="Cerrar detalle">${icon('close')}</button>`)}<div class="recipient-list">${destinatarios.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Contacto</th><th>Estado</th><th class="hide-sm">Motivo</th></tr></thead><tbody>${destinatarios.map((d) => `<tr><td><div class="person"><div><strong>${esc(d.nombre || 'Sin nombre')}</strong><small>${esc(d.numero)}</small></div></div></td><td><span class="badge ${d.estado === 'enviado' || d.estado === 'simulado' ? 'green' : d.estado === 'pendiente' ? '' : 'red'}">${esc(DESTINATARIO_ESTADOS[d.estado] || d.estado)}</span></td><td class="hide-sm"><small class="stat-foot">${esc(d.error || '')}</small></td></tr>`).join('')}</tbody></table></div>` : empty('group_off', 'Sin destinatarios', 'No había nadie pendiente.')}</div>${reintento ? `<div class="card-foot">${reintento}</div>` : ''}`,
+    `${cardHead(`Campaña del ${esc(campaignTime(c.inicio))}`, `${esc(segmentLabel(c.segmento))} · pausa ${Math.round(Number(c.config?.delayMinMs || 0) / 1000)}–${Math.round(Number(c.config?.delayMaxMs || 0) / 1000)} s`, `<button class="button ghost icon" data-action="close-campaign-detail" aria-label="Cerrar detalle">${icon('close')}</button>`)}${avisoCortada}${campaignFunnel(c)}${avisoDudosos}<div class="recipient-list">${destinatarios.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Contacto</th><th>Estado</th><th class="hide-sm">Motivo</th></tr></thead><tbody>${destinatarios.map(fila).join('')}</tbody></table></div>` : empty('group_off', 'Sin destinatarios', 'No había nadie pendiente.')}</div>${reintento ? `<div class="card-foot">${reintento}</div>` : ''}`,
     'section-gap'
   );
 }
 
 function renderResultados() {
   const stats = state.analytics || {};
-  const totals = stats.totales || {};
   const dias = Array.isArray(stats.dias) ? stats.dias.slice(0, 7).reverse() : [];
-  const enviados = Number(totals.enviados || 0);
-  const leidos = Number(totals.leidos || 0);
-  const tasaLectura = enviados ? `${Math.round((leidos / enviados) * 100)}%` : '—';
+  // Totales atribuidos a campañas reales (no cuentan charlas manuales).
+  const reales = state.campaigns.filter((c) => !c.simulacro);
+  const suma = (k) => reales.reduce((t, c) => t + Number(c.resultados?.[k] || 0), 0);
+  const enviados = suma('enviados');
+  const leidos = suma('leidos');
+  const tasaLectura = pct(leidos, enviados);
   const maxDia = Math.max(1, ...dias.map((dia) => Number(dia.enviados || 0)));
   const barras = dias.length
     ? `<div class="chart-bars">${dias.map((dia) => `<div class="bar" title="${esc(dia.fecha)}: ${fmt(dia.enviados)} enviados"><b>${fmt(dia.enviados)}</b><i class="${Number(dia.enviados || 0) ? '' : 'zero'}" style="height:${Number(dia.enviados || 0) ? Math.max(3, Math.round((Number(dia.enviados || 0) / maxDia) * 100)) : 0}%"></i><small>${esc(String(dia.fecha || '').slice(5))}</small></div>`).join('')}</div>`
@@ -1296,7 +1487,7 @@ function renderResultados() {
       );
   const logs = state.logs.slice(-80).reverse();
   return `${pageHead('Resultados', 'Lo que registró el motor de envío: campañas, entregas, lecturas y respuestas.', `<button class="button secondary" data-action="refresh">${icon('sync')}Actualizar</button>`)}
-    <div class="grid stats">${metric('Campañas', fmt(state.campaigns.length), 'campaign', `${state.campaigns.filter((c) => c.estado === 'finalizada' && !c.simulacro).length} reales`, 'brand')}${metric('Mensajes enviados', fmt(enviados), 'send', 'Histórico', 'blue')}${metric('Lecturas', fmt(leidos), 'done_all', `Tasa de lectura ${tasaLectura}`, 'green')}${metric('Respuestas', fmt(totals.respondieron), 'reply', 'Personas que escribieron', 'amber')}</div>
+    <div class="grid stats">${metric('Promos enviadas', fmt(enviados), 'send', `Últimas ${fmt(reales.length)} campañas`, 'blue')}${metric('Leídas', fmt(leidos), 'done_all', `Tasa de lectura ${tasaLectura}`, 'green')}${metric('Respondieron', fmt(suma('respondieron')), 'reply', 'Dentro de las 48 h', 'amber')}${metric('Pidieron', fmt(suma('pidieron')), 'shopping_bag', 'Pedido en los 2 días siguientes', 'brand')}</div>
     ${campaignDetailCard()}
     <div class="grid halves section-gap">${card(`${cardHead('Campañas', 'Tocá una para ver a quién le llegó')}${campaignsTable()}`)}<div class="stack">${card(`${cardHead('Enviados por día', 'Últimos 7 días con actividad')}${barras}`)}${card(`${cardHead('Log del motor', 'Últimos registros')}<div class="log-list">${logs.length ? logs.map((linea) => `<div>${esc(linea)}</div>`).join('') : 'Sin registros'}</div>`)}</div></div>`;
 }
@@ -1347,9 +1538,65 @@ function renderIdentidad() {
   );
 }
 
+function backupsCard() {
+  const b = state.backups;
+  if (!b) return '';
+  const daniados = (b.daniados || [])
+    .map(
+      (d) =>
+        `<p class="notice bad">${icon('error')}<span><b>${esc(d.archivo)}</b> no se puede leer. Las campañas están frenadas hasta restaurarlo. Se guardó una copia (${esc(d.copia || 'sin copia')}).</span></p>`
+    )
+    .join('');
+  const ultimo = b.estado?.ultimo;
+  const lista = (b.respaldos || []).slice(0, 6);
+  return card(
+    `${cardHead('Respaldos', 'Contactos, bajas, pausas, campañas, turnos y configuración. Se verifican al guardarse.')}${daniados}${b.estado?.error ? `<p class="notice bad">${icon('error')}<span>El último respaldo falló: ${esc(b.estado.error)}</span></p>` : ''}<p class="stat-foot">Último: ${ultimo ? `${esc(campaignTime(ultimo.creado))} · ${fmt(ultimo.archivos)} archivos · ${esc(formatBytes(ultimo.bytes))}` : 'ninguno'}. Se hace solo al arrancar, al actualizar contactos y una vez por día. Descargá uno de vez en cuando y guardalo fuera del servidor.</p>${lista.length ? `<div class="backup-list">${lista.map((r) => `<div class="backup-row"><div><strong>${esc(campaignTime(r.creado))}</strong><small>${esc(r.motivo || '')} · ${fmt(r.archivos.length)} archivos</small></div><div class="reminder-actions"><button class="button ghost icon" data-action="download-backup" data-value="${esc(r.stamp)}" aria-label="Descargar">${icon('download')}</button><button class="button ghost icon" data-action="restore-backup" data-value="${esc(r.stamp)}" aria-label="Restaurar">${icon('settings_backup_restore')}</button></div></div>`).join('')}</div>` : ''}<div class="card-foot"><button class="button secondary" data-action="backup-now">${icon('backup')}Hacer respaldo ahora</button></div>`
+  );
+}
+
+// Cambios de Configuración sin guardar: sobreviven a cualquier re-render (eventos en
+// vivo, respuestas tardías) hasta que se guardan o se descartan al recargar.
+function capturarBorradorConfig() {
+  const vista = $('#app');
+  if (!vista) return null;
+  const campos = {};
+  vista
+    .querySelectorAll('input[id^="config-"], textarea[id^="config-"], select[id^="config-"]')
+    .forEach((el) => {
+      campos[el.id] = el.type === 'checkbox' ? el.checked : el.value;
+    });
+  vista.querySelectorAll('.config-day').forEach((el) => {
+    campos[`day-${el.value}`] = el.checked;
+  });
+  vista.querySelectorAll('.switch[data-setting]').forEach((el) => {
+    campos[`switch-${el.dataset.setting}`] = el.classList.contains('on');
+  });
+  return campos;
+}
+
+function aplicarBorradorConfig(campos) {
+  const vista = $('#app');
+  for (const [clave, valor] of Object.entries(campos || {})) {
+    if (clave.startsWith('switch-')) {
+      const el = vista.querySelector(`.switch[data-setting="${clave.slice(7)}"]`);
+      if (el) {
+        el.classList.toggle('on', !!valor);
+        el.setAttribute('aria-pressed', valor ? 'true' : 'false');
+        el.setAttribute('aria-checked', valor ? 'true' : 'false');
+      }
+    } else if (clave.startsWith('day-')) {
+      const el = vista.querySelector(`.config-day[value="${clave.slice(4)}"]`);
+      if (el) el.checked = !!valor;
+    } else {
+      const el = document.getElementById(clave);
+      if (el) el.value = valor;
+    }
+  }
+}
+
 function renderConfiguracionCompleta() {
   const c = state.config || {};
-  const seconds = (ms, fallback) => Math.max(0, Math.round(Number(ms || fallback) / 1000));
+  const seconds = (ms, fallback) => Math.max(0, Math.round(Number(ms ?? fallback) / 1000));
   const active = (key, fallback = false) => (c[key] == null ? fallback : Boolean(c[key]));
   const days = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
   const selectedDays = Array.isArray(c.DIAS_NO_ENVIO) ? c.DIAS_NO_ENVIO : [];
@@ -1362,10 +1609,11 @@ function renderConfiguracionCompleta() {
   ${apariencia}
   <div class="settings-grid section-gap">
     ${renderIdentidad()}
-    ${card(`${cardHead('Ritmo y límites', 'Cuanto más lento, menos riesgo de bloqueo')}${settingRow('Pausa entre mensajes', 'Mínimo y máximo, en segundos.', `<span class="inline-inputs"><input id="config-delay-min" type="number" value="${seconds(c.DELAY_MIN_MS, 15000)}" min="0" max="300" aria-label="Pausa mínima"><input id="config-delay-max" type="number" value="${seconds(c.DELAY_MAX_MS, 45000)}" min="0" max="300" aria-label="Pausa máxima"></span>`)}${settingRow('Máximo por tanda', 'Mensajes en una corrida.', `<input id="config-max-run" type="number" value="${Number(c.MAX_POR_CORRIDA || 50)}" min="1" max="100">`)}${settingRow('Máximo por ventana', `Mensajes cada ${Number(c.VENTANA_CUPO_MINUTOS || 60)} minutos (0 = sin límite).`, `<span class="inline-inputs"><input id="config-max-hour" type="number" value="${Number(c.MAX_POR_HORA || 0)}" min="0" max="1000" aria-label="Mensajes"><input id="config-window-minutes" type="number" value="${Number(c.VENTANA_CUPO_MINUTOS || 60)}" min="1" max="240" aria-label="Minutos"></span>`)}${settingRow('Reintentos', 'Si falla un envío.', `<input id="config-retries" type="number" value="${Number(c.REINTENTOS || 0)}" min="0" max="3">`)}${settingRow('Pausa larga', 'Cada cuántos mensajes y cuántos segundos.', `<span class="inline-inputs"><input id="config-pause-long" type="number" value="${Number(c.PAUSA_LARGA_CADA || 0)}" min="0" max="500" aria-label="Cada cuántos mensajes"><input id="config-pause-long-seconds" type="number" value="${Number(c.PAUSA_LARGA_SEGUNDOS || 120)}" min="30" max="3600" aria-label="Segundos"></span>`)}`)}
+    ${card(`${cardHead('Ritmo y límites', 'Cuanto más lento, menos riesgo de bloqueo')}${settingRow('Pausa entre mensajes', 'Mínimo y máximo, en segundos. Nunca menos de 8.', `<span class="inline-inputs"><input id="config-delay-min" type="number" value="${seconds(c.DELAY_MIN_MS, 15000)}" min="8" max="300" aria-label="Pausa mínima"><input id="config-delay-max" type="number" value="${seconds(c.DELAY_MAX_MS, 45000)}" min="8" max="300" aria-label="Pausa máxima"></span>`)}${settingRow('Máximo por tanda', 'Mensajes en una corrida.', `<input id="config-max-run" type="number" value="${Number(c.MAX_POR_CORRIDA || 50)}" min="1" max="100">`)}${settingRow('Máximo por ventana', `Mensajes cada ${Number(c.VENTANA_CUPO_MINUTOS || 60)} minutos (entre 1 y 120).`, `<span class="inline-inputs"><input id="config-max-hour" type="number" value="${Number(c.MAX_POR_HORA || 60)}" min="1" max="120" aria-label="Mensajes"><input id="config-window-minutes" type="number" value="${Number(c.VENTANA_CUPO_MINUTOS || 60)}" min="1" max="240" aria-label="Minutos"></span>`)}${settingRow('Reintentos', 'Si falla un envío.', `<input id="config-retries" type="number" value="${Number(c.REINTENTOS || 0)}" min="0" max="3">`)}${settingRow('Pausa larga', 'Cada cuántos mensajes y cuántos segundos.', `<span class="inline-inputs"><input id="config-pause-long" type="number" value="${Number(c.PAUSA_LARGA_CADA || 0)}" min="0" max="500" aria-label="Cada cuántos mensajes"><input id="config-pause-long-seconds" type="number" value="${Number(c.PAUSA_LARGA_SEGUNDOS || 120)}" min="30" max="3600" aria-label="Segundos"></span>`)}`)}
     ${card(`${cardHead('Protecciones', 'Cuidan a tus clientes y al número')}${settingRow('No repetir en el mismo turno', 'Nadie recibe dos promos en el mismo turno, aunque cruce medianoche.', switchMarkup('no-repetir', 'No repetir en el mismo turno', active('NO_REPETIR_MISMO_TURNO', true)))}${settingRow('Adjuntar PDF', 'Manda el menú si lo subiste.', switchMarkup('attach-pdf', 'Adjuntar PDF', active('ADJUNTAR_PDF', true)))}${settingRow('Baja automática', 'Quien responde BAJA queda excluido.', switchMarkup('auto-optout', 'Baja automática', active('BAJA_AUTOMATICA', true)))}<label class="field section-gap"><span>Respuesta a la baja</span><textarea id="config-baja-response" rows="2">${esc(c.BAJA_RESPUESTA || '')}</textarea></label><label class="field section-gap"><span>Pie de cada promo</span><textarea id="config-optout-footer" rows="2">${esc(c.FOOTER_BAJA || '')}</textarea><small>Se agrega al final de cada mensaje. Vacío = sin pie.</small></label>`)}
     ${card(`${cardHead('Calentamiento y tandas', 'Para números nuevos o listas grandes')}${settingRow('Calentamiento progresivo', 'Sube el límite de a poco, día a día.', switchMarkup('warmup', 'Calentamiento progresivo', active('CALENTAMIENTO_ACTIVO')))}${settingRow('Inicio / aumento diario', 'Mensajes el primer día y cuánto sube.', `<span class="inline-inputs"><input id="config-warmup-start" type="number" value="${Number(c.CALENTAMIENTO_INICIO || 20)}" min="1" max="100" aria-label="Inicio"><input id="config-warmup-increment" type="number" value="${Number(c.CALENTAMIENTO_INCREMENTO || 10)}" min="1" max="100" aria-label="Aumento diario"></span>`)}${settingRow('Tandas automáticas', 'Sigue sola con pausas hasta cubrir la lista.', switchMarkup('batch-mode', 'Tandas automáticas', active('MODO_TANDAS')))}${settingRow('Espera entre tandas', 'Minutos.', `<input id="config-batch-wait" type="number" value="${Number(c.ESPERA_ENTRE_TANDAS_MINUTOS || 20)}" min="5" max="240">`)}<p class="notice warn section-gap">${icon('warning')}<span>Estas protecciones bajan el riesgo, pero no garantizan que WhatsApp no bloquee el número.</span></p>`)}
     ${card(`${cardHead('Programación', 'Envío automático diario')}${settingRow('Programación automática', 'No hace falta tener el panel abierto.', switchMarkup('programacion', 'Programación automática', active('PROGRAMACION_ACTIVA')))}${settingRow('Hora', 'Formato 24 h.', `<input id="config-schedule-time" type="time" value="${esc(c.PROGRAMACION_HORA || '10:30')}">`)}${settingRow('A quién manda', 'Segmento o grupo.', scheduleSegmentSelect(c.PROGRAMACION_SEGMENTO))}${settingRow('Modo sólo respuestas', 'Frena todas las promos; los chats siguen.', switchMarkup('solo-respuestas', 'Modo sólo respuestas', active('MODO_SOLO_RESPUESTAS')))}<div class="detail-block"><h3>Días sin envío</h3><div class="day-selector" id="config-days-no-send">${days.map((label, index) => `<label class="day-chip"><input class="config-day" type="checkbox" value="${index}" ${selectedDays.includes(index) ? 'checked' : ''}>${label}</label>`).join('')}</div></div>`)}
+    ${backupsCard()}
     ${card(`${cardHead('Saludos y cierres', 'Rotan al azar en cada mensaje')}<label class="field"><span>Saludos</span><textarea id="config-greetings" rows="4">${lines(c.SALUDOS)}</textarea><small>Uno por línea. {NOMBRE} pone el nombre del contacto.</small></label><label class="field section-gap"><span>Cierres</span><textarea id="config-closures" rows="4">${lines(c.CIERRES)}</textarea></label>${settingRow('Meta de pedidos por día', 'Referencia para el panel.', `<input id="config-daily-target" type="number" value="${Number(c.META_PEDIDOS_DIA || 20)}" min="1" max="10000">`)}`)}
   </div>`;
 }
@@ -1449,7 +1697,10 @@ function render() {
     configuracion: renderConfiguracionCompleta,
   };
   const app = $('#app');
+  const borrador =
+    state.route === 'configuracion' && state.settingsDraft ? capturarBorradorConfig() : null;
   app.innerHTML = views[state.route]();
+  if (borrador) aplicarBorradorConfig(borrador);
   document
     .querySelectorAll('.nav-item, .mobile-nav button')
     .forEach((button) => button.classList.toggle('active', button.dataset.route === state.route));
@@ -1511,6 +1762,26 @@ function openQr() {
     `<div class="modal-backdrop" data-action="close-modal"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="qr-title"><div class="modal-head"><h2 id="qr-title">${connected ? 'WhatsApp vinculado' : 'Conectar WhatsApp'}</h2><button class="button ghost icon" data-action="close-modal" aria-label="Cerrar">${icon('close')}</button></div><p class="muted">${connected ? 'La sesión queda guardada en el servidor.' : 'En tu teléfono: WhatsApp → Dispositivos vinculados → Vincular un dispositivo, y escaneá este código.'}</p>${qrMarkup}<p class="notice">${icon('info')}<span>${esc(detail)}</span></p></div></div>`;
 }
 
+// Estado del sistema, agenda, recordatorios, respuestas rápidas, acciones y respaldos.
+function refreshOperacion() {
+  return Promise.allSettled([
+    api('/api/operacion'),
+    api('/api/agenda'),
+    api('/api/recordatorios'),
+    api('/api/respuestas-rapidas'),
+    api('/api/acciones-masivas'),
+    api('/api/backups'),
+  ]).then(([op, agenda, rec, rapidas, acciones, respaldos]) => {
+    if (op.status === 'fulfilled') state.operacion = op.value;
+    if (agenda.status === 'fulfilled') state.agenda = agenda.value.agenda || [];
+    if (rec.status === 'fulfilled') state.reminders = rec.value.recordatorios || [];
+    if (rapidas.status === 'fulfilled') state.quickReplies = rapidas.value.respuestas || [];
+    if (acciones.status === 'fulfilled') state.massActions = acciones.value.acciones || [];
+    if (respaldos.status === 'fulfilled') state.backups = respaldos.value;
+    render();
+  });
+}
+
 async function refresh() {
   state.busy = true;
   const messageTab = state.campaignTab;
@@ -1564,6 +1835,7 @@ async function refresh() {
       render();
     })
     .catch(() => {});
+  refreshOperacion();
   Promise.allSettled([api('/api/operador'), api('/api/logs')]).then(([operador, logs]) => {
     if (operador.status === 'fulfilled') state.operador = operador.value;
     if (logs.status === 'fulfilled') state.logs = logs.value.lineas || [];
@@ -1802,13 +2074,26 @@ function settingsPayload() {
 }
 
 async function saveSettings() {
+  const revision = state.settingsDraft;
   await api('/api/config', { method: 'POST', body: JSON.stringify(settingsPayload()) });
   state.config = await api('/api/config');
+  // Si se siguió editando mientras se guardaba, esos cambios no se pisan.
+  if (state.settingsDraft === revision) state.settingsDraft = null;
   render();
   showToast('Configuración completa guardada.');
 }
 
-async function action(name, value) {
+// Descarga un archivo del panel (respeta el prefijo /masivos).
+function descargar(ruta) {
+  const enlace = document.createElement('a');
+  enlace.href = panelPath(ruta);
+  enlace.download = '';
+  document.body.append(enlace);
+  enlace.click();
+  enlace.remove();
+}
+
+async function action(name, value, data = {}) {
   try {
     if (name === 'choose-logo') return $('#identity-logo-file')?.click();
     if (name === 'choose-profile-photo') return $('#identity-profile-file')?.click();
@@ -2267,6 +2552,186 @@ async function action(name, value) {
       state.campaignDetail = null;
       return render();
     }
+    if (name === 'resolve-uncertain') {
+      const llego = data.value === 'llego';
+      const ok = await confirmAction(
+        llego
+          ? 'Se marcan como enviados. Usalo sólo si viste el mensaje en esos chats.'
+          : 'Se marcan como no enviados y quedan para el reintento. Usalo sólo si confirmaste que no les llegó.',
+        { titulo: llego ? 'Marcar como llegados' : 'Marcar para reintentar', aceptar: 'Confirmar' }
+      );
+      if (!ok) return;
+      await api(`/api/campanas/${encodeURIComponent(data.id)}/inciertos`, {
+        method: 'POST',
+        body: JSON.stringify({ resolucion: data.value }),
+      });
+      state.campaignDetail = await api(`/api/campanas/${encodeURIComponent(data.id)}`);
+      await refresh();
+      return showToast('Listo, quedaron revisados.');
+    }
+    if (name === 'complete-reminder') {
+      await api('/api/recordatorios/completar', {
+        method: 'POST',
+        body: JSON.stringify({ id: value }),
+      });
+      await refreshOperacion();
+      return showToast('Recordatorio hecho.');
+    }
+    if (name === 'open-chat-number') {
+      state.route = 'conversaciones';
+      state.selectedChatNumber = value;
+      state.chatOpen = true;
+      history.replaceState(null, '', '#conversaciones');
+      render();
+      return loadConversation(value);
+    }
+    if (name === 'add-reminder') {
+      const datos = await solicitarDialogo({
+        titulo: 'Recordatorio',
+        mensaje: 'Te aparece en Inicio cuando llegue el momento.',
+        campos: [
+          { name: 'texto', label: 'Qué hacer', value: 'Volver a escribirle', required: true },
+          {
+            name: 'minutos',
+            label: 'Cuándo',
+            value: '60',
+            options: [
+              ['30', 'En 30 minutos'],
+              ['60', 'En 1 hora'],
+              ['180', 'En 3 horas'],
+              ['1440', 'Mañana a esta hora'],
+              ['4320', 'En 3 días'],
+              ['10080', 'En una semana'],
+            ],
+          },
+        ],
+        aceptar: 'Guardar',
+      });
+      if (!datos) return;
+      await api('/api/recordatorios', {
+        method: 'POST',
+        body: JSON.stringify({ numero: value, texto: datos.texto, minutos: Number(datos.minutos) }),
+      });
+      await refreshOperacion();
+      return showToast('Recordatorio guardado.');
+    }
+    if (name === 'quick-reply') {
+      const rr = (state.quickReplies || []).find((x) => x.id === value);
+      if (!rr) return;
+      state.chatDraft = state.chatDraft ? `${state.chatDraft} ${rr.texto}` : rr.texto;
+      render();
+      return $('#chat-message')?.focus();
+    }
+    if (name === 'add-quick-reply') {
+      const datos = await solicitarDialogo({
+        titulo: 'Nueva respuesta rápida',
+        campos: [
+          { name: 'titulo', label: 'Nombre corto', max: 30, required: true },
+          { name: 'texto', label: 'Texto', multiline: true, max: 1000, required: true },
+        ],
+        aceptar: 'Guardar',
+      });
+      if (!datos) return;
+      await api('/api/respuestas-rapidas', { method: 'POST', body: JSON.stringify(datos) });
+      await refreshOperacion();
+      return showToast('Respuesta rápida guardada.');
+    }
+    if (name === 'delete-quick-reply') {
+      const rr = (state.quickReplies || []).find((x) => x.id === value);
+      if (
+        !rr ||
+        !(await confirmAction(`¿Borrar la respuesta rápida "${rr.titulo}"?`, {
+          peligro: true,
+          aceptar: 'Borrar',
+        }))
+      )
+        return;
+      await api(`/api/respuestas-rapidas?id=${encodeURIComponent(value)}`, { method: 'DELETE' });
+      await refreshOperacion();
+      return showToast('Respuesta rápida borrada.');
+    }
+    if (name === 'undo-mass-action') {
+      const ultima = (state.massActions || []).find((a) => !a.deshecha);
+      if (!ultima) return showToast('No hay acciones para deshacer.');
+      const ok = await confirmAction(
+        `Vuelven al estado anterior ${ultima.total} contacto(s): "${ACTION_NAMES[ultima.accion] || ultima.accion}" del ${campaignTime(ultima.fecha)}.`,
+        { titulo: 'Deshacer última acción', aceptar: 'Deshacer' }
+      );
+      if (!ok) return;
+      await api('/api/acciones-masivas/deshacer', { method: 'POST', body: '{}' });
+      await refresh();
+      return showToast('Acción deshecha.');
+    }
+    if (name === 'export-contacts') {
+      descargar('/api/contactos/exportar');
+      return showToast('Descargando contactos…');
+    }
+    if (name === 'backup-now') {
+      const r = await api('/api/backups', { method: 'POST', body: '{}' });
+      await refreshOperacion();
+      return showToast(`Respaldo hecho y verificado (${r.archivos} archivos).`);
+    }
+    if (name === 'download-backup') {
+      descargar(`/api/backups/${encodeURIComponent(value)}/descargar`);
+      return showToast('Descargando respaldo. Guardá una copia fuera del servidor.');
+    }
+    if (name === 'restore-backup') {
+      const respaldo = state.backups?.respaldos?.find((b) => b.stamp === value);
+      const ok = await confirmAction(
+        `Se reemplazan los datos actuales por los del respaldo del ${campaignTime(respaldo?.creado)}. Antes se guarda una copia de lo actual, así que se puede volver atrás.`,
+        { titulo: 'Restaurar respaldo', aceptar: 'Restaurar', peligro: true }
+      );
+      if (!ok) return;
+      const r = await api(`/api/backups/${encodeURIComponent(value)}/restaurar`, {
+        method: 'POST',
+        body: '{}',
+      });
+      state.messageLoaded = false;
+      await refresh();
+      return showToast(r.bloqueo || `Restaurado: ${r.restaurados.length} archivos.`);
+    }
+    if (name === 'schedule-campaign') {
+      const manana = new Date(Date.now() + 86400000);
+      const fecha = `${manana.getFullYear()}-${String(manana.getMonth() + 1).padStart(2, '0')}-${String(manana.getDate()).padStart(2, '0')}`;
+      const datos = await solicitarDialogo({
+        titulo: 'Agendar promo',
+        mensaje:
+          'Se guarda una copia del mensaje y los archivos de ahora: si cambiás el editor después, la promo agendada no cambia. Sale sola a esa hora si WhatsApp está conectado; si no puede salir en 20 minutos, no sale tarde.',
+        campos: [
+          { name: 'titulo', label: 'Nombre', value: 'Promo', max: 60 },
+          { name: 'fecha', label: 'Fecha', type: 'date', value: fecha, required: true },
+          { name: 'hora', label: 'Hora', type: 'time', value: '20:30', required: true },
+        ],
+        aceptar: 'Agendar',
+      });
+      if (!datos) return;
+      await api('/api/agenda', {
+        method: 'POST',
+        body: JSON.stringify({
+          ...datos,
+          segmento: state.campaignGroup
+            ? `grupo:${state.campaignGroup}`
+            : state.campaignSegment || '',
+        }),
+      });
+      await refreshOperacion();
+      return showToast('Promo agendada.');
+    }
+    if (name === 'cancel-scheduled') {
+      if (
+        !(await confirmAction('¿Cancelar esta promo agendada?', {
+          aceptar: 'Cancelar promo',
+          peligro: true,
+        }))
+      )
+        return;
+      await api(`/api/agenda/${encodeURIComponent(value)}/cancelar`, {
+        method: 'POST',
+        body: '{}',
+      });
+      await refreshOperacion();
+      return showToast('Promo agendada cancelada.');
+    }
     if (name === 'retry-failed') {
       const plan = await api('/api/preparar-envio', {
         method: 'POST',
@@ -2293,6 +2758,7 @@ document.addEventListener('click', (event) => {
       'aria-pressed',
       settingSwitch.classList.contains('on') ? 'true' : 'false'
     );
+    marcarBorradorConfig(settingSwitch);
     return;
   }
   const removeImage = event.target.closest('[data-remove-image]')?.dataset.removeImage;
@@ -2342,7 +2808,9 @@ document.addEventListener('click', (event) => {
         actionButton.dataset.tab ||
         actionButton.dataset.reply ||
         actionButton.dataset.number ||
-        actionButton.dataset.id
+        actionButton.dataset.id ||
+        actionButton.dataset.value,
+      actionButton.dataset
     );
     return;
   }
@@ -2382,7 +2850,21 @@ document.addEventListener('click', (event) => {
     }
   }
 });
+function marcarBorradorConfig(target) {
+  if (
+    state.route === 'configuracion' &&
+    target &&
+    (String(target.id || '').startsWith('config-') ||
+      target.classList?.contains('config-day') ||
+      target.closest?.('.switch[data-setting]'))
+  )
+    state.settingsDraft = (state.settingsDraft || 0) + 1;
+}
+
+document.addEventListener('change', (event) => marcarBorradorConfig(event.target));
+
 document.addEventListener('input', (event) => {
+  marcarBorradorConfig(event.target);
   if (event.target.id === 'profile-name') {
     state.profileDraft = event.target.value;
     state.profileRevision++;

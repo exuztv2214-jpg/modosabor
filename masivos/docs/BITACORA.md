@@ -1,5 +1,42 @@
 # Bitácora de Masivos
 
+## 2026-10-08 — Pendientes de las auditorías, salvo Chispita (Claude)
+
+Pedido: "ve con todos menos chispita" sobre la lista de faltantes (auditoría de Codex + la propia).
+
+**Regresión corregida y publicada primero (`1e1c49b`):** el commit `4cf99c2` había borrado por error notas, recordatorios y ficha de cliente; Inicio fallaba en producción con `recordatoriosPendientes is not defined`. Se restauraron y quedó una prueba que llama a Inicio y a recordatorios.
+
+Protección de envíos y datos:
+
+- **Envíos dudosos:** si WhatsApp no confirma (timeout, corte), el contacto queda "Dudoso", no se reintenta y cuenta como enviado en el turno. Se resuelve a mano en Resultados: "Llegaron" o "No llegaron (reintentar)". Sólo se reintentan errores que ocurren antes de enviar ([resguardo.js](../resguardo.js)).
+- **Bajas y pausas dañadas:** si `excluidos.json` o `pausados.json` existen pero no se pueden leer, las campañas y la programación se frenan, se guarda una copia del archivo dañado y no se permite pisarlo. Se destraba al restaurar un respaldo.
+- **Respaldo completo y verificado:** contactos, bajas, pausas, grupos, mensaje, configuración, registro por turno, perfiles, CRM, notas, recordatorios, agenda, campañas, etc. Cada copia se relee y compara por hash. Se hace al arrancar, al actualizar contactos y una vez por día; se puede hacer a mano, descargar en un solo archivo y restaurar (antes de restaurar se respalda lo actual). La sesión de WhatsApp queda afuera a propósito.
+- **Campañas cortadas:** al arrancar, las que quedaron "corriendo" pasan a "Cortada"; Railway manda SIGTERM en cada deploy y ahora se detiene el motor ordenadamente. No se reanudan solas: Resultados ofrece "Retomar N que faltaron".
+- **Programación diaria:** el estado (bloqueada / corriendo / finalizada) se guarda en disco antes de empezar; un reinicio en el mismo minuto no vuelve a mandar.
+- **Turnos vencidos:** si los horarios no se sincronizan hace más de 48 h, no se arman campañas. La migración del registro por turno incluye lo enviado ayer.
+- **Flyers y PDF:** el archivo nuevo se escribe aparte y recién después se reemplaza el anterior. Campañas, etiquetas, contactos y configuración usan escritura atómica.
+- **Pisos contra el baneo:** nunca menos de 8 s entre mensajes ni más de 120 por ventana; "0 = sin límite" dejó de existir (0 usa 60).
+- **Dependencias:** proxy-addr 2.0.8 y qs 6.16.0 (se fueron el aviso crítico y el moderado). Quedan 9 avisos altos en la cadena Puppeteer/whatsapp-web.js sin arreglo disponible sin cambiar la versión de WhatsApp; no se forzó.
+
+Resultados atribuidos:
+
+- Cada promo guarda su ID de mensaje; los tildes se cuentan para la campaña que los generó. Una respuesta cuenta si llega dentro de las 48 h de la promo.
+- "Pidieron": contactos con un pedido real en Modo Sabor el día de la campaña o los 2 siguientes. La API principal ahora devuelve los días con pedido (`fechas`, últimos 30). Es coincidencia en el tiempo, no prueba que fue por la promo, y así se aclara en pantalla.
+- Resultados muestra por campaña enviados → entregados → leídos → respondieron → pidieron.
+
+Funciones nuevas:
+
+- **Agenda de promos** (Campaña → Revisar → "Agendar para otro momento"): fecha y hora, mensaje y archivos congelados en una copia. Si no puede salir dentro de 20 minutos, queda "No salió" en vez de mandarse tarde. Una por vez; se puede cancelar.
+- **Estado del sistema** en Inicio: horarios, pedidos, último respaldo, espacio en disco, campañas cortadas y envíos dudosos, con alertas.
+- **Recordatorios** desde Chats (botón de alarma) y lista en Inicio.
+- **Respuestas rápidas** en Chats (agregar, usar, borrar).
+- **Deshacer** la última exclusión/pausa/reactivación en bloque (Contactos).
+- **Exportar contactos** a CSV para Excel (con protección contra fórmulas).
+- Imágenes: `/api/imagen` devuelve URLs en lugar de 5 MB en base64.
+- Configuración: la pausa 0 ya no se muestra como 15/45 y los cambios sin guardar no se pierden si el panel se refresca.
+
+Verificación: 47 pruebas de Masivos (nuevas: dudosos, bajas dañadas, campañas cortadas, programador persistente, respaldo/restauración, reemplazo de flyers con disco lleno, agenda congelada y vencida, deshacer, exportar, recordatorios) y la prueba de la ruta de datos de la API. Navegador local con datos de ejemplo inyectados sólo en la página: Inicio, Resultados, Campaña, Contactos, Chats y Configuración sin errores ni desborde horizontal en ancho de celular. No se enviaron mensajes.
+
 ## 2026-10-08 — Posibles bloqueos y contactos que no leen (Claude)
 
 Pedido: saber qué contactos tienen bloqueado al negocio o no leen, para sacarlos de las listas y bajar el riesgo de baneo. Se tomó también el trabajo de "listas de 100" que Codex dejó terminado sin commit (`2770fac`).

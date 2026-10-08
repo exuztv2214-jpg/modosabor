@@ -135,7 +135,7 @@ function verifyFrontendContract() {
   assert.match(app, /campaignPlan/);
   assert.match(app, /state\.analytics/);
   assert.match(app, /api\('\/api\/estadisticas'\)/);
-  assert.match(app, /stats\.totales/);
+  assert.match(app, /c\.resultados\?\.\[k\]/);
   assert.match(app, /¿Enviar.*chat/);
   assert.match(app, /run-campaign/);
   assert.match(app, /run-simulation/);

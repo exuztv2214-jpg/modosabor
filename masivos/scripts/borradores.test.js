@@ -58,6 +58,7 @@ test('refrescar no pisa el borrador de la plantilla seleccionada', async () => {
     AbortSignal,
   });
   load('refresh', context);
+  load('refreshOperacion', context);
   await context.refresh();
   assert.equal(context.state.message, 'Borrador nuevo');
   assert.equal(urls.includes('/api/mensaje'), false);
@@ -86,6 +87,7 @@ test('una carga de mensaje pendiente no pisa texto escrito mientras esperaba', a
     AbortSignal,
   });
   load('refresh', context);
+  load('refreshOperacion', context);
   const pending = context.refresh();
   context.state.message = 'Texto recién escrito';
   context.state.messageLoaded = true;

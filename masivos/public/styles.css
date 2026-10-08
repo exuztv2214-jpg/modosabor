@@ -2666,3 +2666,116 @@ button.connection-chip:hover {
 .wa-preview .wa-bubble .ticks {
   color: #34b7f1;
 }
+
+/* ---------- Estado del sistema, recordatorios, embudo, respuestas rápidas, respaldos ---------- */
+.warn-text {
+  color: var(--warning-700);
+}
+.system-rows,
+.reminder-list,
+.backup-list {
+  display: grid;
+  gap: var(--s2);
+  margin-top: var(--s3);
+}
+.system-rows > div,
+.reminder,
+.backup-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+  padding: var(--s2) var(--s3);
+  border-radius: var(--radius-md);
+  background: var(--gray-50);
+  font-size: var(--text-sm);
+}
+.system-rows span {
+  color: var(--text-muted);
+}
+.reminder > div:first-child,
+.backup-row > div:first-child {
+  min-width: 0;
+}
+.reminder strong,
+.backup-row strong {
+  display: block;
+}
+.reminder small,
+.backup-row small {
+  display: block;
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+}
+.reminder.due {
+  background: var(--warning-50);
+}
+.reminder-actions {
+  display: flex;
+  gap: var(--s1);
+  flex-shrink: 0;
+}
+.funnel {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: var(--s2);
+  margin: var(--s3) 0 var(--s2);
+}
+.funnel > div {
+  padding: var(--s3);
+  border-radius: var(--radius-md);
+  background: var(--gray-50);
+}
+.funnel small,
+.funnel span {
+  display: block;
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+.funnel strong {
+  display: block;
+  font-size: var(--text-xl);
+  color: var(--text-strong);
+}
+.quick-replies {
+  display: flex;
+  gap: var(--s2);
+  padding: var(--s2) var(--s3) 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.quick-reply {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  font-size: var(--text-xs);
+}
+.quick-reply > button {
+  border: 0;
+  background: none;
+  padding: 6px 10px;
+  font: inherit;
+  color: var(--text);
+  cursor: pointer;
+}
+.quick-reply > .quick-reply-x {
+  padding: 6px 8px 6px 0;
+  color: var(--text-muted);
+}
+button.quick-reply.add {
+  padding: 4px 8px;
+  cursor: pointer;
+  color: var(--text-muted);
+}
+button.quick-reply.add .material-symbols-outlined {
+  font-size: 16px;
+}
+@media (max-width: 720px) {
+  .funnel {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}

@@ -1982,7 +1982,7 @@ function deshacerUltimaAccionMasiva() {
   if (!idx) throw new Error('No hay acciones masivas para deshacer.');
   const item = idx.a;
   const snapshot = item.snapshot || {};
-  if (item.accion === 'excluir_frios_extremos') {
+  if (snapshot.excluidos) {
     const excluidos = leerExcluidos();
     for (const [numero, estaba] of Object.entries(snapshot.excluidos || {})) {
       if (estaba) excluidos.add(numero);
@@ -1990,14 +1990,7 @@ function deshacerUltimaAccionMasiva() {
     }
     guardarExcluidos(excluidos);
   }
-  if (
-    [
-      'pausar_frios_extremos',
-      'pausar_sin_respuesta',
-      'pausar_otros_paises',
-      'reactivar_respondieron',
-    ].includes(item.accion)
-  ) {
+  if (snapshot.pausados) {
     const pausados = leerPausados();
     for (const [numero, previo] of Object.entries(snapshot.pausados || {})) {
       if (previo) pausados[numero] = previo;
@@ -2635,6 +2628,14 @@ async function correrEnvio(simulacro, opciones = {}) {
     config
   );
   campanaActiva = campana;
+  const retomada = /^reintento:(campana-[\w-]+)$/.exec(String(opciones.segmento || ''));
+  if (retomada && !simulacro) {
+    const original = leerCampana(retomada[1]);
+    if (original) {
+      original.retomada = campana.id;
+      guardarCampana(original);
+    }
+  }
   registrarLog(
     `${simulacro ? '[SIMULACRO] ' : ''}Corrida iniciada desde el panel. Campaña: ${campana.id} | Pendientes: ${pendientes.length} | Esta corrida: ${objetivo.length}` +
       (calc.segmento ? ` | Segmento: ${calc.segmento}` : '') +
@@ -4100,17 +4101,34 @@ app.post('/api/acciones-masivas/deshacer', (req, res) => {
   }
 });
 
+// Estado previo de bajas y pausas de esos contactos, para poder deshacer.
+function fotoProteccion(numeros) {
+  const excluidos = leerExcluidos();
+  const pausados = leerPausados();
+  const ids = [...new Set(numeros.map(resolverNumerosContacto()))];
+  return {
+    ids,
+    snapshot: {
+      excluidos: Object.fromEntries(ids.map((n) => [n, excluidos.has(n)])),
+      pausados: Object.fromEntries(ids.map((n) => [n, pausados[n] || null])),
+    },
+  };
+}
+
 app.post('/api/excluir', (req, res) => {
   const { numeros, excluir } = req.body || {};
   if (!Array.isArray(numeros) || typeof excluir !== 'boolean') {
     return res.status(400).json({ error: 'Faltan datos (numeros[], excluir).' });
   }
+  const foto = fotoProteccion(numeros);
   const set = leerExcluidos();
   for (const n of numeros.map(resolverNumerosContacto())) {
     if (excluir) set.add(n);
     else set.delete(n);
   }
   guardarExcluidos(set);
+  if (foto.ids.length > 1)
+    registrarAccionMasiva(excluir ? 'excluir_manual' : 'incluir_manual', foto.ids, foto.snapshot);
   res.json({ ok: true, totalExcluidos: set.size });
 });
 
@@ -4120,11 +4138,13 @@ app.post('/api/pausar-contactos', (req, res) => {
     : [];
   const dias = numeroAcotado(req.body && req.body.dias, 7, 1, 365);
   if (!numeros.length) return res.status(400).json({ error: 'Seleccioná al menos un contacto.' });
+  const foto = fotoProteccion(numeros);
   const result = pausarNumeros(
     numeros,
     dias,
     String((req.body && req.body.motivo) || 'pausa manual').slice(0, 120)
   );
+  if (foto.ids.length > 1) registrarAccionMasiva('pausar_manual', foto.ids, foto.snapshot);
   res.json({ ok: true, ...result });
 });
 
@@ -4133,10 +4153,12 @@ app.post('/api/reactivar-contactos', (req, res) => {
     ? req.body.numeros.map((n) => String(n || '').trim()).filter(Boolean)
     : [];
   if (!numeros.length) return res.status(400).json({ error: 'Seleccioná al menos un contacto.' });
+  const foto = fotoProteccion(numeros);
   const excluidos = leerExcluidos();
   for (const numero of numeros.map(resolverNumerosContacto())) excluidos.delete(numero);
   guardarExcluidos(excluidos);
   const resultado = reactivarNumeros(numeros);
+  if (foto.ids.length > 1) registrarAccionMasiva('reactivar_manual', foto.ids, foto.snapshot);
   res.json({ ok: true, total: numeros.length, reactivados: resultado.total });
 });
 
@@ -4850,6 +4872,297 @@ app.get('/api/logs', (req, res) => {
   if (!fs.existsSync(ARCHIVO_LOG)) return res.json({ lineas: [] });
   const lineas = fs.readFileSync(ARCHIVO_LOG, 'utf8').trim().split('\n');
   res.json({ lineas: lineas.slice(-300) });
+});
+
+// ---------- Estado operativo (salud del sistema) ----------
+
+function espacioDisco() {
+  try {
+    const s = fs.statfsSync(DIR_DATA);
+    const total = s.blocks * s.bsize;
+    const libre = s.bavail * s.bsize;
+    return { total, libre, porcentajeLibre: total ? Math.round((libre / total) * 100) : null };
+  } catch (e) {
+    return null;
+  }
+}
+
+function estadoOperacion() {
+  const turnos = estadoTurnos();
+  const pedidos = estadoPedidosReales();
+  const respaldo = ultimoRespaldo();
+  const disco = espacioDisco();
+  const programacion = leerEstadoProgramacion();
+  const proximaAgenda =
+    leerAgenda()
+      .filter((a) => a.estado === 'pendiente')
+      .sort((a, b) => `${a.fecha} ${a.hora}`.localeCompare(`${b.fecha} ${b.hora}`))[0] || null;
+  const alertas = [];
+  const daniados = bloqueoIntegridad();
+  if (daniados) alertas.push({ nivel: 'rojo', texto: daniados });
+  if (MODOSABOR_API_URL && !turnos.vigente)
+    alertas.push({
+      nivel: 'rojo',
+      texto: turnos.actualizado
+        ? `Los horarios de turnos no se sincronizan hace ${turnos.horas} h: las campañas quedan frenadas.`
+        : 'Todavía no se sincronizaron los horarios de turnos.',
+    });
+  if (pedidos.error)
+    alertas.push({ nivel: 'amarillo', texto: `No se pudieron leer los pedidos: ${pedidos.error}` });
+  const horasRespaldo = respaldo.ultimo
+    ? Math.floor((Date.now() - Date.parse(respaldo.ultimo.creado)) / 3600000)
+    : null;
+  if (respaldo.error)
+    alertas.push({ nivel: 'rojo', texto: `El último respaldo falló: ${respaldo.error}` });
+  else if (horasRespaldo == null || horasRespaldo > 30)
+    alertas.push({ nivel: 'amarillo', texto: 'No hay un respaldo de las últimas 30 h.' });
+  if (disco && disco.porcentajeLibre != null && disco.porcentajeLibre < 15)
+    alertas.push({
+      nivel: disco.porcentajeLibre < 5 ? 'rojo' : 'amarillo',
+      texto: `Queda ${disco.porcentajeLibre}% de espacio en el disco del panel.`,
+    });
+  const revisar = campanasParaRevisar();
+  if (revisar.interrumpidas)
+    alertas.push({
+      nivel: 'amarillo',
+      texto: `${revisar.interrumpidas} campaña(s) quedaron cortadas por un reinicio.`,
+    });
+  if (revisar.inciertos)
+    alertas.push({
+      nivel: 'amarillo',
+      texto: `${revisar.inciertos} envío(s) dudosos para revisar en Resultados.`,
+    });
+  return {
+    turnos,
+    pedidos,
+    respaldo: { ...respaldo, horas: horasRespaldo },
+    disco,
+    programacion,
+    proximaAgenda,
+    revisar,
+    alertas,
+  };
+}
+
+// Campañas recientes que piden una decisión: cortadas o con envíos dudosos.
+function campanasParaRevisar() {
+  let interrumpidas = 0;
+  let inciertos = 0;
+  try {
+    for (const f of fs
+      .readdirSync(DIR_CAMPANAS)
+      .filter((x) => /^campana-.*\.json$/.test(x))
+      .sort()
+      .slice(-20)) {
+      const c = leerJsonSeguro(path.join(DIR_CAMPANAS, f), null);
+      if (!c || c.simulacro) continue;
+      if (c.estado === 'interrumpida' && !c.retomada) interrumpidas++;
+      inciertos += (c.destinatarios || []).filter((d) => d.estado === 'incierto').length;
+    }
+  } catch (e) {
+    /* sin campañas */
+  }
+  return { interrumpidas, inciertos };
+}
+
+app.get('/api/operacion', (req, res) => {
+  res.json(estadoOperacion());
+});
+
+// ---------- Agenda de promos ----------
+// Una promo agendada guarda una copia del mensaje y de los archivos del momento:
+// cambiar el editor después no altera lo que va a salir.
+
+const RE_ID_AGENDA = /^agenda-[a-z0-9-]+$/;
+
+app.get('/api/agenda', (req, res) => {
+  res.json({
+    agenda: leerAgenda()
+      .slice()
+      .sort((a, b) => `${b.fecha} ${b.hora}`.localeCompare(`${a.fecha} ${a.hora}`))
+      .slice(0, 50)
+      .map((a) => ({ ...a, mensaje: String(a.mensaje || '').slice(0, 400) })),
+  });
+});
+
+app.post('/api/agenda', (req, res) => {
+  const b = req.body || {};
+  const fecha = String(b.fecha || '');
+  const hora = String(b.hora || '');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha) || !/^\d{2}:\d{2}$/.test(hora))
+    return res.status(400).json({ error: 'Elegí fecha y hora.' });
+  if (minutosDelDia(hora) == null || minutosDelDia(hora) >= 24 * 60)
+    return res.status(400).json({ error: 'Hora inválida.' });
+  const ahora = new Date();
+  const hhmm = `${String(ahora.getHours()).padStart(2, '0')}:${String(ahora.getMinutes()).padStart(2, '0')}`;
+  if (fecha < hoy() || (fecha === hoy() && hora <= hhmm))
+    return res.status(400).json({ error: 'La fecha y hora tienen que ser futuras.' });
+  if (fecha > sumarDias(hoy(), 60))
+    return res.status(400).json({ error: 'Se puede agendar hasta 60 días adelante.' });
+  const mensaje = fs.existsSync(ARCHIVO_MENSAJE)
+    ? fs.readFileSync(ARCHIVO_MENSAJE, 'utf8').trim()
+    : '';
+  if (!mensaje) return res.status(400).json({ error: 'El mensaje está vacío.' });
+  const segmento = typeof b.segmento === 'string' ? b.segmento : '';
+  const agenda = leerAgenda();
+  if (agenda.filter((a) => a.estado === 'pendiente').length >= 20)
+    return res.status(409).json({ error: 'Ya hay 20 promos agendadas.' });
+  const id = `agenda-${Date.now().toString(36)}`;
+  const dir = path.join(DIR_AGENDA, id);
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    const imagenes = buscarImagenesPromo().map((p) => {
+      const nombre = path.basename(p);
+      fs.copyFileSync(p, path.join(dir, nombre));
+      return nombre;
+    });
+    const config = getConfig();
+    let pdf = null;
+    if (config.ADJUNTAR_PDF !== false && fs.existsSync(ARCHIVO_PDF)) {
+      fs.copyFileSync(ARCHIVO_PDF, path.join(dir, 'menu.pdf'));
+      pdf = 'menu.pdf';
+    }
+    const item = {
+      id,
+      titulo:
+        String(b.titulo || '')
+          .trim()
+          .slice(0, 60) || `Promo ${fecha} ${hora}`,
+      fecha,
+      hora,
+      segmento,
+      mensaje,
+      imagenes,
+      pdf,
+      estado: 'pendiente',
+      creado: new Date().toISOString(),
+      creadoPor: String(req.headers['x-masivos-user-id'] || ''),
+    };
+    agenda.push(item);
+    guardarAgenda(agenda);
+    registrarLog(`🗓️ Promo agendada "${item.titulo}" para el ${fecha} a las ${hora}.`);
+    res.json({ ok: true, agenda: item });
+  } catch (e) {
+    fs.rmSync(dir, { recursive: true, force: true });
+    res.status(500).json({ error: `No se pudo agendar: ${e.message}` });
+  }
+});
+
+app.post('/api/agenda/:id/cancelar', (req, res) => {
+  const id = String(req.params.id || '');
+  if (!RE_ID_AGENDA.test(id)) return res.status(400).json({ error: 'ID inválido.' });
+  const agenda = leerAgenda();
+  const item = agenda.find((a) => a.id === id);
+  if (!item) return res.status(404).json({ error: 'No existe.' });
+  if (item.estado !== 'pendiente')
+    return res.status(409).json({ error: 'Sólo se cancela una promo que todavía no salió.' });
+  item.estado = 'cancelada';
+  item.cancelada = new Date().toISOString();
+  guardarAgenda(agenda);
+  fs.rmSync(path.join(DIR_AGENDA, id), { recursive: true, force: true });
+  registrarLog(`🗓️ Promo agendada "${item.titulo}" cancelada.`);
+  res.json({ ok: true });
+});
+
+// ---------- Respuestas rápidas para Chats ----------
+
+const ARCHIVO_RESPUESTAS_RAPIDAS = path.join(DIR_DATA, 'respuestas-rapidas.json');
+
+function leerRespuestasRapidas() {
+  const data = leerJsonSeguro(ARCHIVO_RESPUESTAS_RAPIDAS, null);
+  if (Array.isArray(data)) return data;
+  return [
+    { id: 'menu', titulo: 'Menú', texto: '¡Hola! Te paso el menú de hoy 👇' },
+    {
+      id: 'demora',
+      titulo: 'Demora',
+      texto: 'El delivery está demorando unos 40 minutos. ¡Gracias por esperar!',
+    },
+    { id: 'gracias', titulo: 'Gracias', texto: '¡Gracias por tu pedido! Que lo disfrutes 🙌' },
+  ];
+}
+
+app.get('/api/respuestas-rapidas', (req, res) => {
+  res.json({ respuestas: leerRespuestasRapidas() });
+});
+
+app.post('/api/respuestas-rapidas', (req, res) => {
+  const titulo = String((req.body && req.body.titulo) || '')
+    .trim()
+    .slice(0, 30);
+  const texto = String((req.body && req.body.texto) || '')
+    .trim()
+    .slice(0, 1000);
+  if (!titulo || !texto) return res.status(400).json({ error: 'Completá el nombre y el texto.' });
+  const lista = leerRespuestasRapidas();
+  if (lista.length >= 30) return res.status(409).json({ error: 'Máximo 30 respuestas rápidas.' });
+  const item = { id: `rr-${Date.now().toString(36)}`, titulo, texto };
+  lista.push(item);
+  escribirJsonSeguro(ARCHIVO_RESPUESTAS_RAPIDAS, lista);
+  res.json({ ok: true, respuesta: item });
+});
+
+app.delete('/api/respuestas-rapidas', (req, res) => {
+  const id = String(req.query.id || '');
+  const lista = leerRespuestasRapidas();
+  const nueva = lista.filter((r) => r.id !== id);
+  if (nueva.length === lista.length) return res.status(404).json({ error: 'No existe.' });
+  escribirJsonSeguro(ARCHIVO_RESPUESTAS_RAPIDAS, nueva);
+  res.json({ ok: true });
+});
+
+// ---------- Exportar contactos ----------
+
+function celdaCsv(valor) {
+  let t = String(valor ?? '');
+  // Una celda que empieza con = + - @ se ejecutaría como fórmula en Excel.
+  if (/^[=+\-@]/.test(t)) t = `'${t}`;
+  return /[",;\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
+}
+
+app.get('/api/contactos/exportar', (req, res) => {
+  const excluidos = leerExcluidos();
+  const pausados = leerPausados();
+  const etiquetas = leerEtiquetas();
+  const filas = [
+    [
+      'Nombre',
+      'Teléfono',
+      'ID WhatsApp',
+      'Estado',
+      'Etiquetas',
+      'Segmentos',
+      'Pedidos',
+      'Último pedido',
+      'Promos recibidas',
+      'Respuestas',
+    ],
+  ];
+  for (const c of leerClientesEnriquecidos()) {
+    const estado = excluidos.has(c.numero)
+      ? 'Excluido'
+      : pausados[c.numero]
+        ? `Pausado hasta ${pausados[c.numero].hasta}`
+        : 'Habilitado';
+    const m = c.metricas || {};
+    filas.push([
+      c.nombre || '',
+      c.telefono || '',
+      c.numero,
+      estado,
+      (etiquetas[c.numero] || []).join(' '),
+      (c.segmentosAuto || []).join(' '),
+      m.pedidosReales ?? '',
+      m.ultimoPedido || '',
+      m.enviadosTotal ?? '',
+      m.respondioTotal ?? '',
+    ]);
+  }
+  // BOM para que Excel abra bien los acentos; punto y coma, como usa Excel en español.
+  const csv = '﻿' + filas.map((f) => f.map(celdaCsv).join(';')).join('\r\n');
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="contactos-modosabor-${hoy()}.csv"`);
+  res.send(csv);
 });
 
 // ---------- Arranque ----------
