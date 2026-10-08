@@ -22,7 +22,24 @@ import MarketingCampanas from './Marketing/MarketingCampanas.jsx';
 import MarketingBiblioteca from './Marketing/MarketingBiblioteca.jsx';
 import MarketingAgenda from './Marketing/MarketingAgenda.jsx';
 import MarketingHub from './Marketing/MarketingHub.jsx';
-import MarketingWhatsapp from './Marketing/MarketingWhatsapp.jsx';
+// Los envíos masivos viven en el panel Masivos (/masivos); el módulo viejo
+// de esta pestaña usaba una conexión de WhatsApp que en producción está apagada.
+function IrAMasivos() {
+  return (
+    <div className="rounded-2xl border border-gray-200 bg-white p-6">
+      <h2 className="text-lg font-semibold text-gray-900">Envíos masivos por WhatsApp</h2>
+      <p className="mt-1 text-[13px] text-gray-500">
+        Campañas, contactos, chats y resultados se manejan desde el panel Masivos.
+      </p>
+      <a
+        href="/masivos"
+        className="mt-4 inline-flex rounded-xl bg-gray-900 px-4 py-2 text-sm font-medium text-white"
+      >
+        Abrir panel Masivos
+      </a>
+    </div>
+  );
+}
 import {
   CALENDAR_STATES,
   CHANNELS,
@@ -185,7 +202,6 @@ export default function MarketingDigital() {
     permiso de marketing— la portada muestra el cuadro sin número en vez de
     romperse entera.
   */
-  const [whatsapp, setWhatsapp] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [dashboard, setDashboard] = useState(null);
@@ -371,22 +387,6 @@ export default function MarketingDigital() {
 
   const pedirBorrar = (recurso, item, label) => setDeleteDialog({ recurso, id: item.id, label });
 
-  useEffect(() => {
-    if (tab !== 'inicio') return undefined;
-    let vivo = true;
-    const traer = () =>
-      api
-        .get('/whatsapp/estado')
-        .then((d) => vivo && setWhatsapp(d))
-        .catch(() => vivo && setWhatsapp(null));
-    traer();
-    const timer = setInterval(traer, 15000);
-    return () => {
-      vivo = false;
-      clearInterval(timer);
-    };
-  }, [tab]);
-
   const accionPrincipal = {
     campanas: { label: 'Nueva campaña', onClick: () => openModal('campana') },
     biblioteca: { label: 'Nueva promo', onClick: () => openModal('promo') },
@@ -476,12 +476,11 @@ export default function MarketingDigital() {
                 contenidos={contenidos}
                 promos={promos}
                 calendario={calendario}
-                whatsapp={whatsapp}
                 onIr={setTab}
               />
             )}
 
-            {tab === 'whatsapp' && <MarketingWhatsapp />}
+            {tab === 'whatsapp' && <IrAMasivos />}
 
             {tab === 'resumen' && (
               <MarketingResumen

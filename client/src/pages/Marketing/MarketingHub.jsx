@@ -104,7 +104,6 @@ export default function MarketingHub({
   contenidos = [],
   promos = [],
   calendario = [],
-  whatsapp,
   onIr,
 }) {
   const campanasVivas = campanas.filter((c) => c.estado === 'activa' || c.estado === 'activo');
@@ -121,19 +120,6 @@ export default function MarketingHub({
     (c) => c.estado === 'pendiente' && c.fecha && new Date(c.fecha).getTime() >= inicioHoy.getTime()
   ).length;
 
-  /* El estado de WhatsApp lo trae el propio módulo desde el servidor; acá
-     sólo se muestra el resumen que ya viene cargado con el resto. */
-  const conectado = whatsapp?.whatsapp?.estado === 'conectado';
-  const enviadosHoy = Number(whatsapp?.hoy?.enviados || 0);
-  const motorCorriendo = Boolean(whatsapp?.motor?.corriendo);
-
-  const pastillaWhatsapp = () => {
-    if (!whatsapp) return null;
-    if (motorCorriendo) return { tono: 'ok', texto: 'Enviando ahora' };
-    if (conectado) return { tono: 'ok', texto: 'Conectado' };
-    return { tono: 'aviso', texto: 'Falta vincular' };
-  };
-
   return (
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
       <Cuadro
@@ -149,12 +135,10 @@ export default function MarketingHub({
       <Cuadro
         icon={MessageCircle}
         titulo="WhatsApp"
-        bajada="Promos a tus clientes, con control de ritmo"
-        valor={whatsapp ? enviadosHoy : '—'}
-        unidad={whatsapp ? 'hoy' : null}
-        pie={whatsapp ? null : 'vinculá el número para ver'}
-        pastilla={pastillaWhatsapp()}
-        onClick={() => onIr('whatsapp')}
+        bajada="Promos masivas: se manejan desde el panel Masivos"
+        valor="Abrir"
+        pie="panel de envíos masivos"
+        onClick={() => window.location.assign('/masivos')}
         destacado
       />
 
