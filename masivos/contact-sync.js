@@ -13,6 +13,20 @@ function phoneDigits(value) {
   return digits.length >= 8 && digits.length <= 16 ? digits : '';
 }
 
+async function conTiempoLimite(promise, ms, etiqueta) {
+  let timer;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`${etiqueta} excedió ${ms / 1000}s`)), ms);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function mergeSyncedContacts(chats, contacts, previous, lidMappings = []) {
   const phoneToLid = new Map();
   const phoneByLid = new Map();
@@ -128,4 +142,5 @@ module.exports = {
   normalizeChats,
   leerChatsConRespaldo,
   normalizarContactosLivianos,
+  conTiempoLimite,
 };

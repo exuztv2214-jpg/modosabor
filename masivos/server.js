@@ -19,6 +19,7 @@ const {
   normalizeChats,
   leerChatsConRespaldo,
   normalizarContactosLivianos,
+  conTiempoLimite,
 } = require('./contact-sync');
 
 const PORT = Number(process.env.PORT || 3867);
@@ -135,19 +136,6 @@ function grupoEnvioPorId(id) {
 // ---------- Utilidades ----------
 
 const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
-async function conTiempoLimite(promise, ms, etiqueta) {
-  let timer;
-  try {
-    return await Promise.race([
-      promise,
-      new Promise((_, reject) => {
-        timer = setTimeout(() => reject(new Error(`${etiqueta} excedió ${ms / 1000}s`)), ms);
-      }),
-    ]);
-  } finally {
-    clearTimeout(timer);
-  }
-}
 async function recuperarPaginaWhatsApp() {
   try {
     return await conTiempoLimite(
@@ -2536,7 +2524,11 @@ async function correrFotos() {
   let conFoto = 0;
   for (const c of pendientes) {
     try {
-      const url = await obtenerFotoPerfil(c.numero, c.telefono);
+      const url = await conTiempoLimite(
+        obtenerFotoPerfil(c.numero, c.telefono),
+        5000,
+        'Foto de perfil'
+      );
       if (url) {
         const archivo = nombreArchivoFoto(c.numero);
         await descargarBuffer(url, path.join(DIR_FOTOS, archivo));

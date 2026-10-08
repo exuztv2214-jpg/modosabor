@@ -8,6 +8,7 @@ assert.equal(typeof sync.mergeSyncedContacts, 'function');
 assert.equal(typeof sync.normalizeChats, 'function');
 assert.equal(typeof sync.leerChatsConRespaldo, 'function');
 assert.equal(typeof sync.normalizarContactosLivianos, 'function');
+assert.equal(typeof sync.conTiempoLimite, 'function');
 
 const chats = [
   { id: { _serialized: 'lid-a@lid' }, name: 'Chat A', timestamp: 10 },
@@ -41,6 +42,11 @@ const manyChats = sync.normalizeChats(
 assert.equal(manyChats.length, 566, 'no se trunca la bandeja cuando supera 500 chats');
 
 void (async () => {
+  await assert.rejects(
+    sync.conTiempoLimite(new Promise(() => {}), 5, 'foto de perfil'),
+    /foto de perfil excedió 0\.005s/
+  );
+
   let lecturaPesada = false;
   const lectura = await sync.leerChatsConRespaldo(
     async () => manyChats,
