@@ -17,6 +17,7 @@ const { liberarSesionWhatsApp } = require('./session-utils');
 const {
   mergeSyncedContacts,
   normalizeChats,
+  appendChatMessage,
   leerChatsConRespaldo,
   normalizarContactosLivianos,
   normalizarMapeosLid,
@@ -461,6 +462,13 @@ function escribirJsonSeguro(archivo, data) {
     fs.rmSync(temporal, { force: true });
     throw e;
   }
+}
+
+function guardarMensajeConversacion(msg, numero) {
+  const id = String(numero || '').trim();
+  if (!id || id === 'status@broadcast') return;
+  const chats = leerJsonSeguro(ARCHIVO_CHATS, []);
+  if (appendChatMessage(chats, msg, id)) escribirJsonSeguro(ARCHIVO_CHATS, chats);
 }
 
 function parseFechaLocal(fecha) {
@@ -1936,6 +1944,7 @@ function iniciarWhatsApp() {
   client.on('message', (msg) => {
     // Los estados de WhatsApp llegan como mensajes de status@broadcast: no son respuestas.
     if (msg.from === 'status@broadcast' || msg.isStatus) return;
+    guardarMensajeConversacion(msg, msg.from);
     if (!msg.fromMe) {
       registrarRespuesta(msg);
       const tipo = clasificarRespuestaTexto(msg.body);
@@ -3082,6 +3091,7 @@ app.post('/api/conversacion/mensaje', async (req, res) => {
     return res.status(409).json({ error: 'WhatsApp no está listo.' });
   try {
     const enviado = await client.sendMessage(numero, texto, { sendSeen: false });
+    guardarMensajeConversacion(enviado, numero);
     res.json({
       ok: true,
       numero,
@@ -3128,6 +3138,7 @@ app.post('/api/conversacion/adjunto', async (req, res) => {
       caption: texto || undefined,
       sendSeen: false,
     });
+    guardarMensajeConversacion(enviado, numero);
     res.json({
       ok: true,
       numero,

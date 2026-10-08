@@ -6,6 +6,7 @@ const modulePath = path.join(__dirname, '..', 'contact-sync.js');
 const sync = fs.existsSync(modulePath) ? require(modulePath) : {};
 assert.equal(typeof sync.mergeSyncedContacts, 'function');
 assert.equal(typeof sync.normalizeChats, 'function');
+assert.equal(typeof sync.appendChatMessage, 'function');
 assert.equal(typeof sync.leerChatsConRespaldo, 'function');
 assert.equal(typeof sync.normalizarContactosLivianos, 'function');
 assert.equal(typeof sync.normalizarMapeosLid, 'function');
@@ -65,6 +66,28 @@ const manyChats = sync.normalizeChats(
   }))
 );
 assert.equal(manyChats.length, 566, 'no se trunca la bandeja cuando supera 500 chats');
+
+const liveChats = [{ id: 'cliente@lid', foto: 'cliente.jpg', mensajes: [] }];
+assert.equal(
+  sync.appendChatMessage(
+    liveChats,
+    { id: { _serialized: 'mensaje-1' }, body: 'Mensaje nuevo', timestamp: 30 },
+    'cliente@lid'
+  ),
+  true,
+  'agrega el mensaje entrante al chat existente'
+);
+assert.equal(liveChats[0].mensajes[0].body, 'Mensaje nuevo');
+assert.equal(liveChats[0].foto, 'cliente.jpg', 'no pierde la foto ni los metadatos del chat');
+assert.equal(
+  sync.appendChatMessage(
+    liveChats,
+    { id: { _serialized: 'mensaje-1' }, body: 'Duplicado', timestamp: 30 },
+    'cliente@lid'
+  ),
+  false,
+  'no duplica un mensaje ya guardado'
+);
 
 void (async () => {
   await assert.rejects(

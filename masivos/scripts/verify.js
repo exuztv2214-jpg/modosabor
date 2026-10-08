@@ -205,6 +205,16 @@ function verifyFrontendContract() {
   assert.match(server, /estadoAutomaticoDesdeTipo/);
   assert.match(server, /clasificarRespuestaTexto\(msg\.body\)/);
   assert.match(server, /estado: estadoAutomaticoDesdeTipo/);
+  assert.match(server, /function guardarMensajeConversacion/);
+  assert.match(
+    server,
+    /client\.on\(['"]message['"][\s\S]*guardarMensajeConversacion\(msg, msg\.from\)/
+  );
+  assert.match(
+    server,
+    /client\.sendMessage\(numero, texto[\s\S]*guardarMensajeConversacion\(enviado, numero\)/
+  );
+  assert.doesNotMatch(app, /¡Hola <b>Martín<\/b>/);
   assert.match(server, /NEGOCIO_NOMBRE/);
   assert.match(server, /NEGOCIO_LOGO/);
   assert.match(app, /function campaignSegmentCounts/);

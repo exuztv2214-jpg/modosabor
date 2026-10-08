@@ -153,6 +153,32 @@ function normalizeChats(chats) {
     .filter(Boolean);
 }
 
+function appendChatMessage(chats, message, numero) {
+  const id = serializedId(numero);
+  if (!id || id === 'status@broadcast' || !Array.isArray(chats)) return false;
+  let chat = chats.find((item) => (serializedId(item?.numero) || serializedId(item?.id)) === id);
+  if (!chat) {
+    chat = { id, name: '', timestamp: 0, isGroup: id.endsWith('@g.us'), mensajes: [] };
+    chats.unshift(chat);
+  }
+  const item = {
+    id: serializedId(message?.id) || null,
+    fromMe: Boolean(message?.fromMe || message?.id?.fromMe),
+    body: String(message?.body || message?.caption || ''),
+    type: message?.type || 'chat',
+    hasMedia: Boolean(message?.hasMedia || message?.mediaData),
+    timestamp: Number(message?.timestamp || message?.t || Math.floor(Date.now() / 1000)),
+    ack: message?.ack ?? null,
+  };
+  if (item.id && (chat.mensajes || []).some((saved) => saved?.id === item.id)) return false;
+  chat.mensajes = [...(Array.isArray(chat.mensajes) ? chat.mensajes : []), item].slice(-100);
+  chat.timestamp = item.timestamp;
+  chat.lastMessageBody = item.body;
+  chat.lastMessageType = item.type;
+  chat.lastMessageFromMe = item.fromMe;
+  return true;
+}
+
 async function leerChatsConRespaldo(lecturaLigera, lecturaCompleta) {
   try {
     const chats = await lecturaLigera();
@@ -184,6 +210,7 @@ function normalizarMapeosLid(items) {
 module.exports = {
   mergeSyncedContacts,
   normalizeChats,
+  appendChatMessage,
   leerChatsConRespaldo,
   normalizarContactosLivianos,
   normalizarMapeosLid,
