@@ -172,7 +172,7 @@ function panel(t, env = {}) {
     },
   };
   run('client = whatsapp');
-  function request(url, body = {}, method = 'POST', headers = {}) {
+  function request(url, body = {}, method = 'POST', headers = {}, params = {}) {
     let status = 200,
       result;
     const res = {
@@ -185,7 +185,7 @@ function panel(t, env = {}) {
         return this;
       },
     };
-    routes.get(`${method} ${url}`)({ body, query: {}, params: {}, headers }, res);
+    routes.get(`${method} ${url}`)({ body, query: {}, params, headers }, res);
     return { status, body: result };
   }
   return { root, context, run, write, sent, request, intervals };
@@ -230,7 +230,12 @@ test('el perfil se guarda por usuario y subir el logo conserva los otros ajustes
   assert.equal(p.request('/api/perfil', {}, 'GET', { 'x-masivos-user-id': '2' }).body.imagen, '');
   assert.equal(p.request('/api/perfil', {}, 'GET', { 'x-masivos-user-id': '../otro' }).status, 400);
   assert.equal(p.request('/api/logo', { data }).status, 200);
-  assert.equal(p.run('getConfig().DELAY_MIN_MS'), 0);
+  assert.equal(
+    JSON.parse(fs.readFileSync(path.join(p.root, 'data', 'config-override.json'))).DELAY_MIN_MS,
+    0,
+    'el logo no pisa los otros ajustes guardados'
+  );
+  assert.equal(p.run('getConfig().DELAY_MIN_MS'), 8000, 'el motor aplica el piso de 8 s');
   assert.equal(p.request('/api/logo', { data: 'data:image/svg+xml;base64,PHN2Zz4=' }).status, 400);
 });
 
@@ -277,7 +282,10 @@ test('una integración sin turnos sincronizados bloquea la preparación y conser
       : { ok: true, json: async () => ({ clientes: [] }) };
   await p.run('actualizarPedidosReales()');
   assert.ok(fs.existsSync(path.join(p.root, 'data', 'pedidos-reales.json')));
-  p.write('turnos-negocio.json', { turnos: [{ id: 'noche', desde: '20:00', hasta: '02:00' }] });
+  const turnos = [{ id: 'noche', desde: '20:00', hasta: '02:00' }];
+  p.write('turnos-negocio.json', { actualizado: '2000-01-01T00:00:00.000Z', turnos });
+  assert.equal(p.request('/api/preparar-envio').status, 409, 'horarios viejos no sirven');
+  p.write('turnos-negocio.json', { actualizado: new Date().toISOString(), turnos });
   assert.equal(p.request('/api/preparar-envio').status, 200);
 });
 
@@ -286,11 +294,50 @@ test('Detener durante la espera de reintento no permite otro mensaje', async (t)
   let attempts = 0;
   p.context.whatsapp.sendMessage = async () => {
     attempts++;
-    throw new Error('Falla transitoria');
+    throw new Error('invalid wid');
   };
   p.context.onDelay = () => p.run('motor.detener = true');
   await p.run('motor.corriendo = true; correrEnvio(false)');
   assert.equal(attempts, 1);
+});
+
+test('un error ambiguo queda dudoso: no se reintenta ni se repite en el turno', async (t) => {
+  const p = panel(t);
+  const intentos = [];
+  p.context.whatsapp.sendMessage = async (numero) => {
+    intentos.push(numero);
+    throw new Error('Timeout esperando respuesta');
+  };
+  await p.run('motor.corriendo = true; correrEnvio(false)');
+  assert.deepEqual(
+    intentos,
+    ['5493811111111@c.us', '5493812222222@c.us'],
+    'un intento por contacto'
+  );
+  const campana = p.run(
+    'JSON.stringify(leerCampana(fs.readdirSync(DIR_CAMPANAS)[0].replace(".json", "")))'
+  );
+  const c = JSON.parse(campana);
+  assert.deepEqual(
+    c.destinatarios.map((d) => d.estado),
+    ['incierto', 'incierto']
+  );
+  assert.equal(c.stats.inciertos, 2);
+  assert.equal(p.run('enviadosEnTurno().size'), 2, 'no vuelven a salir en este turno');
+  assert.deepEqual(
+    Array.from(p.run('numerosFallidosCampana(' + JSON.stringify(c.id) + ')')),
+    [],
+    'el reintento no los toma'
+  );
+  const r = p.request(
+    '/api/campanas/:id/inciertos',
+    { resolucion: 'no-llego' },
+    'POST',
+    {},
+    { id: c.id }
+  );
+  assert.equal(r.status, 200);
+  assert.equal(p.run('numerosFallidosCampana(' + JSON.stringify(c.id) + ').length'), 2);
 });
 
 test('Detener mientras espera un adjunto impide enviarlo', async (t) => {
@@ -479,4 +526,125 @@ test('un alias importado no borra la última conversación conocida del contacto
     [lid]
   );
   assert.equal(merged[0].ultimoMensaje, '2026-10-08');
+});
+
+test('bajas o pausas dañadas frenan campañas en vez de leerse vacías', (t) => {
+  const p = panel(t);
+  fs.writeFileSync(path.join(p.root, 'data', 'excluidos.json'), '{roto');
+  const r = p.request('/api/preparar-envio');
+  assert.equal(r.status, 409);
+  assert.match(r.body.error, /excluidos\.json/);
+  assert.throws(() => p.run('guardarExcluidos(new Set(["x@c.us"]))'), /dañado/);
+  assert.equal(fs.readFileSync(path.join(p.root, 'data', 'excluidos.json'), 'utf8'), '{roto');
+  assert.ok(
+    fs.readdirSync(path.join(p.root, 'data')).some((f) => f.startsWith('excluidos.json.daniado-'))
+  );
+  p.write('excluidos.json', []);
+  assert.equal(p.request('/api/preparar-envio').status, 200, 'al restaurarlo se destraba');
+});
+
+test('una campaña que quedó corriendo se marca interrumpida y se puede retomar', (t) => {
+  const p = panel(t);
+  p.write('campanas/campana-2026-10-08-x.json', {
+    id: 'campana-2026-10-08-x',
+    fecha: '2026-10-08',
+    estado: 'corriendo',
+    destinatarios: [
+      { numero: '5493811111111@c.us', estado: 'enviado' },
+      { numero: '5493812222222@c.us', estado: 'pendiente' },
+    ],
+  });
+  assert.equal(p.run('marcarCampanasInterrumpidas()'), 1);
+  assert.equal(p.run("leerCampana('campana-2026-10-08-x').estado"), 'interrumpida');
+  assert.deepEqual(Array.from(p.run("numerosFallidosCampana('campana-2026-10-08-x')")), [
+    '5493812222222@c.us',
+  ]);
+});
+
+test('el programador recuerda en disco que ya salió hoy', async (t) => {
+  const p = panel(t);
+  const config = JSON.parse(fs.readFileSync(path.join(p.root, 'data', 'config-override.json')));
+  p.write('config-override.json', {
+    ...config,
+    PROGRAMACION_ACTIVA: true,
+    PROGRAMACION_HORA: '10:30',
+  });
+  p.run('calcularSaludNumero = () => ({ estado: "verde" })');
+  p.run('tickProgramacionDiaria(getConfig(), "10:30")');
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  const estado = JSON.parse(fs.readFileSync(path.join(p.root, 'data', 'programacion-estado.json')));
+  assert.equal(estado.fecha, p.run('hoy()'));
+  const enviados = p.sent.length;
+  assert.ok(enviados > 0);
+  // Reinicio: la marca en memoria se pierde, la del disco no.
+  p.run(
+    'ultimaCorridaProgramada = leerEstadoProgramacion().fecha || null; motor.corriendo = false'
+  );
+  p.run('tickProgramacionDiaria(getConfig(), "10:30")');
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(p.sent.length, enviados);
+});
+
+test('el respaldo incluye pausas, turno, campañas y configuración y se restaura', (t) => {
+  const p = panel(t);
+  p.write('pausados.json', { 'a@c.us': { hasta: '2099-01-01' } });
+  p.write('envios-turno.json', { '2026-10-08:noche': ['a@c.us'] });
+  p.write('campanas/campana-2026-10-08-y.json', {
+    id: 'campana-2026-10-08-y',
+    estado: 'finalizada',
+  });
+  const m = p.run('hacerBackup("prueba")');
+  const rutas = Array.from(m.archivos.map((a) => a.ruta));
+  for (const r of [
+    'pausados.json',
+    'envios-turno.json',
+    'config-override.json',
+    'campanas/campana-2026-10-08-y.json',
+  ])
+    assert.ok(rutas.includes(r), r);
+  fs.writeFileSync(path.join(p.root, 'data', 'pausados.json'), 'roto');
+  const r = p.request(
+    '/api/backups/:stamp/restaurar',
+    { rutas: ['pausados.json'] },
+    'POST',
+    {},
+    { stamp: m.stamp }
+  );
+  assert.equal(r.status, 200);
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(p.root, 'data', 'pausados.json'))), {
+    'a@c.us': { hasta: '2099-01-01' },
+  });
+});
+
+test('reemplazar flyers con un disco que falla conserva los anteriores', (t) => {
+  const p = panel(t);
+  const media = path.join(p.root, 'data', 'media');
+  fs.mkdirSync(media, { recursive: true });
+  fs.writeFileSync(path.join(media, 'promo.jpg'), 'ORIGINAL');
+  p.context.fsFalla = true;
+  p.run(`fs.writeFileSync = ((original) => (archivo, ...rest) => {
+    if (fsFalla && String(archivo).endsWith('.tmp')) throw new Error('ENOSPC');
+    return original(archivo, ...rest);
+  })(fs.writeFileSync)`);
+  const data = 'data:image/jpeg;base64,' + Buffer.from('NUEVA-IMAGEN').toString('base64');
+  const r = p.request('/api/imagen', { nombre: 'x.jpg', data, reemplazarTodo: true });
+  assert.equal(r.status, 500);
+  assert.equal(fs.readFileSync(path.join(media, 'promo.jpg'), 'utf8'), 'ORIGINAL');
+});
+
+test('Inicio, ficha de cliente y recordatorios responden', (t) => {
+  const p = panel(t);
+  assert.equal(p.request('/api/operador', {}, 'GET').status, 200);
+  const creado = p.request('/api/recordatorios', {
+    numero: '5493811111111@c.us',
+    texto: 'Volver a escribirle',
+    minutos: 60,
+  });
+  assert.equal(creado.status, 200);
+  assert.equal(p.request('/api/recordatorios', {}, 'GET').body.recordatorios.length, 1);
+  assert.equal(
+    p.request('/api/recordatorios/completar', { id: creado.body.recordatorio.id }).status,
+    200
+  );
+  assert.equal(p.request('/api/recordatorios', {}, 'GET').body.recordatorios.length, 0);
 });

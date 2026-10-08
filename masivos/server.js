@@ -37,6 +37,7 @@ const { armarMensaje, normalizarSegmento } = require('./mensaje');
 const { moverMediosAlVolumen } = require('./media');
 const { cruzarPedidos } = require('./pedidos-reales');
 const { senalesEntrega } = require('./entrega');
+const resguardo = require('./resguardo');
 const { claveTurno } = require('./turnos');
 const { imagenIdentidad, usuarioPerfil } = require('./identidad');
 
@@ -149,7 +150,24 @@ function getConfig() {
   } catch (e) {
     /* sin override */
   }
-  return Object.assign({}, configBase, ov);
+  return aplicarPisosSeguridad(Object.assign({}, configBase, ov));
+}
+
+// Pisos contra el baneo: aunque se guarde otra cosa, nunca menos de 8 s entre
+// mensajes ni más de 120 por ventana. 0 por ventana ya no significa 'sin límite'.
+const PISO_DELAY_MS = 8000;
+const TOPE_POR_VENTANA = 120;
+
+function aplicarPisosSeguridad(config) {
+  const min = Math.max(PISO_DELAY_MS, Number(config.DELAY_MIN_MS) || 0);
+  const max = Math.max(min, Number(config.DELAY_MAX_MS) || 0);
+  const porVentana = Number(config.MAX_POR_HORA) || 0;
+  return {
+    ...config,
+    DELAY_MIN_MS: min,
+    DELAY_MAX_MS: max,
+    MAX_POR_HORA: porVentana > 0 ? Math.min(porVentana, TOPE_POR_VENTANA) : 60,
+  };
 }
 
 function leerGruposEnvio() {
@@ -257,14 +275,36 @@ function turnoActual() {
   return claveTurno(leerJsonSeguro(ARCHIVO_TURNOS, []).turnos || []);
 }
 
+// Los horarios se sincronizan cada 10 minutos. Si hace más de este tiempo que no se
+// pudo, pueden haber cambiado: no se arman campañas nuevas hasta revalidarlos.
+const TOLERANCIA_TURNOS_HORAS = 48;
+
+function estadoTurnos() {
+  const cache = leerJsonSeguro(ARCHIVO_TURNOS, {});
+  const edadMs = Date.now() - Date.parse(cache.actualizado || '');
+  return {
+    actualizado: cache.actualizado || null,
+    horas: Number.isFinite(edadMs) ? Math.floor(edadMs / 3600000) : null,
+    vigente:
+      Array.isArray(cache.turnos) &&
+      Number.isFinite(edadMs) &&
+      edadMs <= TOLERANCIA_TURNOS_HORAS * 3600000,
+  };
+}
+
 function turnosDisponibles() {
-  return !MODOSABOR_API_URL || Array.isArray(leerJsonSeguro(ARCHIVO_TURNOS, {}).turnos);
+  return !MODOSABOR_API_URL || estadoTurnos().vigente;
 }
 
 function leerEnviosTurno() {
   if (!fs.existsSync(ARCHIVO_ENVIOS_TURNO)) {
-    // Migración conservadora: lo ya enviado hoy queda bloqueado en el primer turno.
-    escribirJsonSeguro(ARCHIVO_ENVIOS_TURNO, { [turnoActual()]: [...cargarEnviadosHoy()] });
+    // Migración conservadora: lo enviado hoy y ayer queda bloqueado en el turno
+    // actual (una noche que cruza la medianoche empezó ayer).
+    const ayer = leerJsonSeguro(path.join(DIR_DATA, `enviados-${sumarDias(hoy(), -1)}.json`), []);
+    const previos = [...cargarEnviadosHoy(), ...(Array.isArray(ayer) ? ayer : [])];
+    escribirJsonSeguro(ARCHIVO_ENVIOS_TURNO, {
+      [turnoActual()]: [...new Set(previos.map(resolverNumerosContacto()))],
+    });
   }
   return JSON.parse(fs.readFileSync(ARCHIVO_ENVIOS_TURNO, 'utf8'));
 }
@@ -338,17 +378,60 @@ function primerSlotLibrePromo() {
   return null;
 }
 
-function leerExcluidos() {
-  try {
-    return new Set(
-      JSON.parse(fs.readFileSync(ARCHIVO_EXCLUIDOS, 'utf8')).map(resolverNumerosContacto())
-    );
-  } catch (e) {
-    return new Set();
+// Archivos de protección (bajas, pausas) que existen pero no se pueden leer. Mientras
+// haya alguno, no sale ninguna campaña: leerlos como vacíos le escribiría a quien
+// pidió la baja.
+const archivosDaniados = new Map();
+
+function leerProteccion(archivo, fallback, validar) {
+  const { data, danio } = resguardo.leerJsonProtegido(archivo, fallback, validar);
+  if (!danio) {
+    archivosDaniados.delete(archivo);
+    return data;
   }
+  if (!archivosDaniados.has(archivo)) {
+    let copia = null;
+    try {
+      copia = `${archivo}.daniado-${Date.now()}`;
+      fs.copyFileSync(archivo, copia);
+    } catch (e) {
+      copia = null;
+    }
+    archivosDaniados.set(archivo, { desde: new Date().toISOString(), error: danio, copia });
+    registrarLog(
+      `⛔ ${path.basename(archivo)} no se puede leer (${danio}). Campañas frenadas hasta restaurarlo.`
+    );
+  }
+  return fallback;
+}
+
+function bloqueoIntegridad() {
+  // Se releen acá: un archivo puede dañarse (o repararse) entre una campaña y otra.
+  for (const [archivo, validar] of [
+    [ARCHIVO_EXCLUIDOS, Array.isArray],
+    [ARCHIVO_PAUSADOS, (d) => d && typeof d === 'object' && !Array.isArray(d)],
+  ])
+    leerProteccion(archivo, null, validar);
+  if (!archivosDaniados.size) return null;
+  const nombres = [...archivosDaniados.keys()].map((a) => path.basename(a)).join(', ');
+  return `No se puede leer ${nombres}. Las campañas quedan frenadas para no escribirle a quien pidió la baja. Restaurá un respaldo desde Configuración.`;
+}
+
+function exigirIntegro(archivo) {
+  if (archivosDaniados.has(archivo))
+    throw new Error(
+      `${path.basename(archivo)} está dañado. Restaurá un respaldo antes de cambiarlo.`
+    );
+}
+
+function leerExcluidos() {
+  return new Set(
+    leerProteccion(ARCHIVO_EXCLUIDOS, [], Array.isArray).map(resolverNumerosContacto())
+  );
 }
 
 function guardarExcluidos(set) {
+  exigirIntegro(ARCHIVO_EXCLUIDOS);
   fs.mkdirSync(path.dirname(ARCHIVO_EXCLUIDOS), { recursive: true });
   escribirJsonSeguro(ARCHIVO_EXCLUIDOS, [...new Set([...set].map(resolverNumerosContacto()))]);
 }
@@ -358,7 +441,11 @@ function resolverNumerosContacto() {
 }
 
 function leerPausados() {
-  const guardados = leerJsonSeguro(ARCHIVO_PAUSADOS, {});
+  const guardados = leerProteccion(
+    ARCHIVO_PAUSADOS,
+    {},
+    (d) => d && typeof d === 'object' && !Array.isArray(d)
+  );
   const resolver = resolverNumerosContacto();
   const raw = {};
   for (const [numero, info] of Object.entries(guardados)) {
@@ -373,11 +460,12 @@ function leerPausados() {
       cambio = true;
     }
   }
-  if (cambio) escribirJsonSeguro(ARCHIVO_PAUSADOS, raw);
+  if (cambio && !archivosDaniados.has(ARCHIVO_PAUSADOS)) escribirJsonSeguro(ARCHIVO_PAUSADOS, raw);
   return raw;
 }
 
 function guardarPausados(obj) {
+  exigirIntegro(ARCHIVO_PAUSADOS);
   escribirJsonSeguro(ARCHIVO_PAUSADOS, obj);
 }
 
@@ -551,14 +639,139 @@ function archivosPorPatron(patron) {
 
 function guardarCampana(campana) {
   try {
-    fs.mkdirSync(DIR_CAMPANAS, { recursive: true });
-    fs.writeFileSync(
-      path.join(DIR_CAMPANAS, `${campana.id}.json`),
-      JSON.stringify(campana, null, 2)
-    );
+    escribirJsonSeguro(path.join(DIR_CAMPANAS, `${campana.id}.json`), campana);
   } catch (e) {
-    /* no crítico */
+    registrarLog(`⚠️ No se pudo guardar la campaña ${campana.id}: ${e.message}`);
   }
+}
+
+// ---------- Atribución por campaña ----------
+// Cada promo enviada se anota con su ID de mensaje. Así los tildes y las respuestas
+// se cuentan para la campaña que los generó y no para cualquier charla manual.
+
+let campanaActiva = null;
+const ARCHIVO_MENSAJES_CAMPANA = path.join(DIR_DATA, 'mensajes-campana.json');
+const DIAS_ATRIBUCION = 30;
+const HORAS_RESPUESTA = 48;
+
+function leerIndiceCampanas() {
+  const data = leerJsonSeguro(ARCHIVO_MENSAJES_CAMPANA, {});
+  return { porMensaje: data.porMensaje || {}, porNumero: data.porNumero || {} };
+}
+
+function registrarMensajeCampana(enviado, campanaId, numero) {
+  try {
+    const msgId = enviado && enviado.id && enviado.id._serialized;
+    const indice = leerIndiceCampanas();
+    const ahora = Date.now();
+    const id = resolverNumerosContacto()(numero);
+    if (msgId) indice.porMensaje[msgId] = { c: campanaId, n: id, t: ahora };
+    indice.porNumero[id] = { c: campanaId, t: ahora };
+    const limite = ahora - DIAS_ATRIBUCION * 86400000;
+    for (const mapa of [indice.porMensaje, indice.porNumero])
+      for (const [k, v] of Object.entries(mapa)) if (!v || v.t < limite) delete mapa[k];
+    escribirJsonSeguro(ARCHIVO_MENSAJES_CAMPANA, indice);
+  } catch (e) {
+    /* la atribución no frena el envío */
+  }
+}
+
+// Aplica un cambio al destinatario de una campaña, en memoria si está corriendo.
+function actualizarDestinatario(campanaId, numero, cambio) {
+  const campana =
+    campanaActiva && campanaActiva.id === campanaId ? campanaActiva : leerCampana(campanaId);
+  if (!campana || !Array.isArray(campana.destinatarios)) return false;
+  const resolver = resolverNumerosContacto();
+  const id = resolver(numero);
+  const dest = campana.destinatarios.find((d) => resolver(d.numero) === id);
+  if (!dest || !cambio(dest)) return false;
+  guardarCampana(campana);
+  return true;
+}
+
+const ORDEN_ACK = { enviado: 1, entregado: 2, leido: 3 };
+
+function atribuirAck(msgId, estado) {
+  const ref = msgId && leerIndiceCampanas().porMensaje[msgId];
+  if (!ref) return false;
+  return actualizarDestinatario(ref.c, ref.n, (d) => {
+    if ((ORDEN_ACK[d.ack] || 0) >= ORDEN_ACK[estado]) return false;
+    d.ack = estado;
+    return true;
+  });
+}
+
+// Una respuesta cuenta para la última promo recibida en las 48 h previas.
+function atribuirRespuesta(numero) {
+  const id = resolverNumerosContacto()(numero);
+  const ref = leerIndiceCampanas().porNumero[id];
+  if (!ref || Date.now() - ref.t > HORAS_RESPUESTA * 3600000) return false;
+  return actualizarDestinatario(ref.c, id, (d) => {
+    if (d.respondio) return false;
+    d.respondio = new Date().toISOString();
+    return true;
+  });
+}
+
+// Map contacto (resuelto) -> { pedidos, ultimoPedido, fechas }.
+function leerPedidosPorContacto() {
+  const resolver = resolverNumerosContacto();
+  const cruce = cruzarPedidos(
+    leerJsonSeguro(ARCHIVO_CLIENTES, []),
+    leerJsonSeguro(ARCHIVO_PEDIDOS_REALES, {}).clientes
+  );
+  return new Map([...cruce].map(([numero, info]) => [resolver(numero), info]));
+}
+
+// Resultados de una campaña: sólo cuenta lo atribuido por ID de mensaje o por
+// respuesta en 48 h. "Pidieron" son contactos con un pedido real dentro de los dos
+// días siguientes: coincidencia en el tiempo, no prueba que pidieron por la promo.
+function resultadosCampana(campana, pedidos = leerPedidosPorContacto()) {
+  const dest = Array.isArray(campana.destinatarios) ? campana.destinatarios : [];
+  const enviados = dest.filter((d) => d.estado === 'enviado');
+  const resolver = resolverNumerosContacto();
+  const desde = campana.fecha;
+  const hasta = desde ? sumarDias(desde, 2) : null;
+  const pidieron = desde
+    ? enviados.filter((d) =>
+        (pedidos.get(resolver(d.numero))?.fechas || []).some((f) => f >= desde && f <= hasta)
+      ).length
+    : 0;
+  return {
+    enviados: enviados.length,
+    entregados: enviados.filter((d) => d.ack === 'entregado' || d.ack === 'leido').length,
+    leidos: enviados.filter((d) => d.ack === 'leido').length,
+    respondieron: enviados.filter((d) => d.respondio).length,
+    pidieron,
+    inciertos: dest.filter((d) => d.estado === 'incierto').length,
+    pendientes: dest.filter((d) => d.estado === 'pendiente').length,
+    ventanaPedidos: desde ? { desde, hasta } : null,
+  };
+}
+
+// Al arrancar: lo que quedó "corriendo" se cortó por un reinicio o un deploy.
+// No se reanuda solo; queda para revisar y retomar a mano.
+function marcarCampanasInterrumpidas() {
+  let archivos = [];
+  try {
+    archivos = fs.readdirSync(DIR_CAMPANAS).filter((f) => /^campana-.*\.json$/.test(f));
+  } catch (e) {
+    return 0;
+  }
+  let total = 0;
+  for (const f of archivos) {
+    const c = leerJsonSeguro(path.join(DIR_CAMPANAS, f), null);
+    if (!c || c.estado !== 'corriendo') continue;
+    c.estado = 'interrumpida';
+    c.fin = c.fin || new Date().toISOString();
+    guardarCampana(c);
+    total++;
+  }
+  if (total)
+    registrarLog(
+      `⚠️ ${total} campaña(s) quedaron cortadas por un reinicio. Revisalas en Resultados para retomarlas.`
+    );
+  return total;
 }
 
 const RE_ID_CAMPANA = /^campana-[\w-]+$/;
@@ -568,13 +781,14 @@ function leerCampana(id) {
   return leerJsonSeguro(path.join(DIR_CAMPANAS, `${id}.json`), null);
 }
 
-// Destinatarios a los que no les llegó la campaña (falló o se detuvo antes).
+// Destinatarios a los que no les llegó la campaña (falló, se detuvo antes o quedó
+// cortada por un reinicio). Los dudosos no entran hasta que alguien los revise.
 function numerosFallidosCampana(id) {
   const campana = leerCampana(id);
   if (!campana || campana.simulacro || !Array.isArray(campana.destinatarios)) return [];
   const resolver = resolverNumerosContacto();
   return campana.destinatarios
-    .filter((d) => d.estado === 'fallido' || d.estado === 'detenido')
+    .filter((d) => ['fallido', 'detenido', 'pendiente'].includes(d.estado))
     .map((d) => resolver(d.numero));
 }
 
@@ -587,6 +801,7 @@ function crearCampanaPersistente(simulacro, opciones, objetivo, config) {
     fin: null,
     simulacro: !!simulacro,
     segmento: opciones.segmento || '',
+    origen: opciones.origen || 'manual',
     estado: 'corriendo',
     config: {
       delayMinMs: config.DELAY_MIN_MS,
@@ -655,7 +870,7 @@ function leerEtiquetas() {
 
 function guardarEtiquetas(obj) {
   fs.mkdirSync(path.dirname(ARCHIVO_ETIQUETAS), { recursive: true });
-  fs.writeFileSync(ARCHIVO_ETIQUETAS, JSON.stringify(obj, null, 2));
+  escribirJsonSeguro(ARCHIVO_ETIQUETAS, obj);
 }
 
 // Plantillas por segmento: mensaje.txt es la general y data/mensaje-<tag>.txt
@@ -716,33 +931,79 @@ function limiteHoy(config) {
 
 // ---------- Backup automático ----------
 
+// Todo lo que hace falta para reconstruir la operación. La sesión de WhatsApp queda
+// afuera a propósito: es otra categoría (se vuelve a vincular con el QR).
+const ARCHIVOS_RESPALDO = [
+  'clientes.json',
+  'excluidos.json',
+  'pausados.json',
+  'etiquetas.json',
+  'grupos-envio.json',
+  'mensaje-general.txt',
+  'config-override.json',
+  'envios-turno.json',
+  'perfiles.json',
+  'crm-respuestas.json',
+  'notas-clientes.json',
+  'recordatorios.json',
+  'chat-estados.json',
+  'acciones-masivas.json',
+  'agenda.json',
+  'programacion-estado.json',
+  'mensajes-campana.json',
+  'respuestas-rapidas.json',
+  'campanas/',
+];
+const DIR_BACKUPS = path.join(DIR_DATA, 'backups');
+const estadoRespaldo = { ultimo: null, error: null };
+
 function hacerBackup(motivo) {
   try {
-    const dir = path.join(ROOT, 'data', 'backups');
-    fs.mkdirSync(dir, { recursive: true });
-    const stamp = `${hoy()}-${Date.now().toString(36)}`;
-    for (const f of ['clientes.json', 'excluidos.json', 'etiquetas.json']) {
-      const src = path.join(ROOT, 'data', f);
-      if (fs.existsSync(src)) fs.copyFileSync(src, path.join(dir, `${stamp}-${f}`));
-    }
-    // Rotación: conservar los últimos 30 backups
-    const stamps = [
-      ...new Set(
-        fs.readdirSync(dir).map((f) => f.replace(/-(clientes|excluidos|etiquetas)\.json$/, ''))
-      ),
-    ].sort();
-    while (stamps.length > 30) {
-      const viejo = stamps.shift();
-      for (const f of ['clientes', 'excluidos', 'etiquetas']) {
-        const p = path.join(dir, `${viejo}-${f}.json`);
-        if (fs.existsSync(p)) fs.unlinkSync(p);
-      }
-    }
-    registrarLog(`💾 Backup automático (${motivo}): ${stamp}`);
+    const manifiesto = resguardo.crearRespaldo({
+      dirData: DIR_DATA,
+      dirBackups: DIR_BACKUPS,
+      lista: ARCHIVOS_RESPALDO,
+      motivo,
+      stamp: `${hoy()}-${Date.now().toString(36)}`,
+    });
+    estadoRespaldo.ultimo = {
+      stamp: manifiesto.stamp,
+      creado: manifiesto.creado,
+      archivos: manifiesto.archivos.length,
+      bytes: manifiesto.bytes,
+    };
+    estadoRespaldo.error = null;
+    registrarLog(`💾 Respaldo verificado (${motivo}): ${manifiesto.archivos.length} archivos.`);
+    return manifiesto;
   } catch (e) {
-    /* backup no es crítico */
+    estadoRespaldo.error = e.message;
+    registrarLog(`⚠️ No se pudo hacer el respaldo (${motivo}): ${e.message}`);
+    return null;
   }
 }
+
+function ultimoRespaldo() {
+  if (!estadoRespaldo.ultimo) {
+    const m = resguardo.listarRespaldos(DIR_BACKUPS)[0];
+    if (m)
+      estadoRespaldo.ultimo = {
+        stamp: m.stamp,
+        creado: m.creado,
+        archivos: m.archivos.length,
+        bytes: m.bytes,
+      };
+  }
+  return { ...estadoRespaldo };
+}
+
+// Respaldo diario además de los que se hacen al arrancar y al actualizar la lista.
+setInterval(
+  () => {
+    const ultimo = ultimoRespaldo().ultimo;
+    if (!ultimo || Date.now() - Date.parse(ultimo.creado) > 20 * 3600000) hacerBackup('diario');
+  },
+  60 * 60 * 1000
+);
 
 // ---------- Acks (doble tilde / leído) del día, persistidos ----------
 
@@ -1016,6 +1277,116 @@ function construirHistorialClientes() {
   }
 
   return { enviadosPorNumero, respuestasPorNumero, acksPorNumero, primerAck };
+}
+
+function leerNotasClientes() {
+  return leerJsonSeguro(ARCHIVO_NOTAS, {});
+}
+
+function guardarNotaCliente(numero, nota) {
+  const notas = leerNotasClientes();
+  const id = String(numero || '').trim();
+  if (!id) throw new Error('Falta número de cliente.');
+  notas[id] = { texto: String(nota || '').trim(), actualizado: new Date().toISOString() };
+  escribirJsonSeguro(ARCHIVO_NOTAS, notas);
+  return notas[id];
+}
+
+function leerRecordatorios() {
+  const arr = leerJsonSeguro(ARCHIVO_RECORDATORIOS, []);
+  return Array.isArray(arr) ? arr : [];
+}
+
+function guardarRecordatorios(arr) {
+  escribirJsonSeguro(ARCHIVO_RECORDATORIOS, arr.slice(-500));
+}
+
+function crearRecordatorio(numero, texto, minutos) {
+  const id = String(numero || '').trim();
+  if (!id) throw new Error('Falta número de cliente.');
+  const min = Math.max(5, Math.min(10080, Number(minutos) || 30));
+  const arr = leerRecordatorios();
+  const item = {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    numero: id,
+    texto: String(texto || 'Volver a contactar').trim(),
+    vence: new Date(Date.now() + min * 60000).toISOString(),
+    creado: new Date().toISOString(),
+    hecho: false,
+  };
+  arr.push(item);
+  guardarRecordatorios(arr);
+  return item;
+}
+
+function completarRecordatorio(id) {
+  const arr = leerRecordatorios();
+  const item = arr.find((r) => r.id === id);
+  if (!item) throw new Error('Recordatorio no encontrado.');
+  item.hecho = true;
+  item.completado = new Date().toISOString();
+  guardarRecordatorios(arr);
+  return item;
+}
+
+function recordatoriosPendientes(limite = 30) {
+  return leerRecordatorios()
+    .filter((r) => !r.hecho)
+    .sort((a, b) => String(a.vence).localeCompare(String(b.vence)))
+    .slice(0, limite);
+}
+
+function detalleCliente(numero) {
+  const id = String(numero || '').trim();
+  if (!id) throw new Error('Falta número de cliente.');
+  const clientes = leerClientesEnriquecidos();
+  const cliente = clientes.find((c) => c.numero === id) || {
+    numero: id,
+    nombre: '',
+    telefono: '',
+    segmentosAuto: [],
+    scoreAuto: 0,
+    metricas: {},
+  };
+
+  const historial = construirHistorialClientes();
+  const mapaTags = leerEtiquetas();
+  const excluidos = leerExcluidos();
+  const pausados = leerPausados();
+  const acks = acksDelDia();
+  const enviados = (historial.enviadosPorNumero.get(id) || []).slice().sort();
+  const notas = leerNotasClientes();
+  const recordatorios = leerRecordatorios().filter((r) => r.numero === id && !r.hecho);
+  const respuestas = respuestasRecientes(500)
+    .filter((r) => r.numero === id)
+    .map((r) => ({
+      id: r.id,
+      fecha: r.fecha,
+      hora: r.hora || '',
+      texto: r.texto || '',
+      estado: r.estado,
+      posiblePedido: parecePedido(r.texto),
+    }));
+
+  return {
+    cliente,
+    tags: mapaTags[id] || [],
+    excluido: excluidos.has(id),
+    pausado: pausados[id] || null,
+    estadoAck: acks.get(id) || null,
+    abrirUrl: cliente.telefono ? `https://wa.me/${cliente.telefono}` : '',
+    nota: notas[id] || null,
+    recordatorios,
+    enviados,
+    respuestas,
+    metricas: {
+      enviadosTotal: enviados.length,
+      respuestasTotal: respuestas.length,
+      pedidosProbables: respuestas.filter((r) => r.posiblePedido).length,
+      ultimoEnvio: enviados[enviados.length - 1] || null,
+      ultimaRespuesta: respuestas[0] || null,
+    },
+  };
 }
 
 function enriquecerCliente(cliente, contexto) {
@@ -1976,6 +2347,7 @@ function iniciarWhatsApp() {
     guardarMensajeConversacion(msg, msg.from);
     if (!msg.fromMe) {
       registrarRespuesta(msg);
+      if (!msg.from.endsWith('@g.us')) atribuirRespuesta(msg.from);
       const tipo = clasificarRespuestaTexto(msg.body);
       emit('respuesta', {
         numero: msg.from,
@@ -2002,6 +2374,7 @@ function iniciarWhatsApp() {
     const estado = ack >= 3 ? 'leido' : ack >= 2 ? 'entregado' : 'enviado';
     acksDelDia().set(destino, estado);
     persistirAcks();
+    atribuirAck(msg.id && msg.id._serialized, estado);
     emit('ack', { numero: destino, estado });
   });
 
@@ -2037,7 +2410,13 @@ async function contactoHabilitadoMotor(numero) {
   while (motor.pausado && !motor.detener) await esperar(500);
   if (motor.detener) return false;
   const id = resolverNumerosContacto()(numero);
-  return !leerExcluidos().has(id) && !leerPausados()[id];
+  const habilitado = !leerExcluidos().has(id) && !leerPausados()[id];
+  if (bloqueoIntegridad()) {
+    motor.detener = true;
+    registrarLog('⛔ Campaña detenida: no se pueden leer las bajas o pausas.');
+    return false;
+  }
+  return habilitado;
 }
 
 function emitirMotor() {
@@ -2199,8 +2578,11 @@ async function correrEnvio(simulacro, opciones = {}) {
   const DELAY_MIN = numeroAcotado(config.DELAY_MIN_MS, 15000, 0, 300000);
   const DELAY_MAX = Math.max(DELAY_MIN, numeroAcotado(config.DELAY_MAX_MS, 45000, 0, 300000));
 
-  const plantillas = cargarPlantillas();
-  const mapaTags = leerEtiquetas();
+  // Una promo agendada viaja con su mensaje y sus archivos congelados.
+  const plantillas = opciones.plantillaFija
+    ? { general: opciones.plantillaFija }
+    : cargarPlantillas();
+  const mapaTags = opciones.plantillaFija ? {} : leerEtiquetas();
   const calc = calcularObjetivoCampana(config, opciones);
   const enviadosHoy = config.NO_REPETIR_MISMO_DIA ? cargarEnviadosHoy() : new Set();
   const pendientes = calc.pendientes;
@@ -2214,7 +2596,7 @@ async function correrEnvio(simulacro, opciones = {}) {
   let medias = [];
   let pdfMedia = null;
   if (!simulacro) {
-    for (const imgPath of buscarImagenesPromo()) {
+    for (const imgPath of opciones.imagenesFijas || buscarImagenesPromo()) {
       try {
         medias.push(MessageMedia.fromFilePath(imgPath));
       } catch (e) {
@@ -2222,8 +2604,13 @@ async function correrEnvio(simulacro, opciones = {}) {
       }
     }
     if (medias.length > 1) registrarLog(`🖼️ Se enviarán ${medias.length} imágenes por contacto.`);
-    const pdfPath = ARCHIVO_PDF;
-    if (config.ADJUNTAR_PDF !== false && fs.existsSync(pdfPath)) {
+    const pdfPath =
+      opciones.pdfFijo !== undefined
+        ? opciones.pdfFijo
+        : config.ADJUNTAR_PDF !== false
+          ? ARCHIVO_PDF
+          : null;
+    if (pdfPath && fs.existsSync(pdfPath)) {
       try {
         pdfMedia = MessageMedia.fromFilePath(pdfPath);
         registrarLog('📄 Se adjuntará el menú en PDF (menu.pdf).');
@@ -2241,7 +2628,13 @@ async function correrEnvio(simulacro, opciones = {}) {
     simulacro,
     tandas: totalTandas,
   };
-  const campana = crearCampanaPersistente(simulacro, { segmento: calc.segmento }, objetivo, config);
+  const campana = crearCampanaPersistente(
+    simulacro,
+    { segmento: calc.segmento, origen: opciones.origen },
+    objetivo,
+    config
+  );
+  campanaActiva = campana;
   registrarLog(
     `${simulacro ? '[SIMULACRO] ' : ''}Corrida iniciada desde el panel. Campaña: ${campana.id} | Pendientes: ${pendientes.length} | Esta corrida: ${objetivo.length}` +
       (calc.segmento ? ` | Segmento: ${calc.segmento}` : '') +
@@ -2349,7 +2742,9 @@ async function correrEnvio(simulacro, opciones = {}) {
     }
 
     let exito = false;
+    let incierto = false;
     let ultimoError = null;
+    let enviado = null;
     const reintentos = numeroAcotado(config.REINTENTOS, 0, 0, 3);
     for (let intento = 0; intento <= reintentos && !exito && !motor.detener; intento++) {
       if (!(await contactoHabilitadoMotor(cliente.numero))) break;
@@ -2360,11 +2755,14 @@ async function correrEnvio(simulacro, opciones = {}) {
         break;
       try {
         if (medias.length)
-          await client.sendMessage(cliente.numero, medias[0], { caption: mensaje });
-        else await client.sendMessage(cliente.numero, mensaje);
+          enviado = await client.sendMessage(cliente.numero, medias[0], { caption: mensaje });
+        else enviado = await client.sendMessage(cliente.numero, mensaje);
         exito = true;
       } catch (err) {
         ultimoError = err;
+        // Un timeout o un corte puede llegar después de que WhatsApp aceptó el
+        // mensaje. Reintentar lo duplicaría: queda como dudoso para revisar.
+        if (resguardo.clasificarErrorEnvio(err) === 'incierto') incierto = true;
         if (esErrorSesionFatal(err)) {
           motor.detener = true;
           registrarLog(
@@ -2372,11 +2770,16 @@ async function correrEnvio(simulacro, opciones = {}) {
           );
           break;
         }
+        if (incierto) break;
         if (intento < reintentos) await esperarMotor(10000);
       }
     }
 
     if (exito) {
+      registrarMensajeCampana(enviado, campana.id, cliente.numero);
+    }
+
+    if (exito || incierto) {
       try {
         registrarEnvioTurno(cliente.numero);
       } catch (error) {
@@ -2432,6 +2835,14 @@ async function correrEnvio(simulacro, opciones = {}) {
       campana.destinatarios[i].estado = 'enviado';
       campana.stats.ok = motor.stats.ok;
       registrarLog(`OK  ${i + 1}/${objetivo.length}  ${etiqueta}`);
+    } else if (incierto) {
+      motor.stats.inciertos = (motor.stats.inciertos || 0) + 1;
+      campana.destinatarios[i].estado = 'incierto';
+      campana.destinatarios[i].error = String((ultimoError && ultimoError.message) || '');
+      campana.stats.inciertos = motor.stats.inciertos;
+      registrarLog(
+        `DUDOSO  ${i + 1}/${objetivo.length}  ${etiqueta}  ->  WhatsApp no confirmó (${ultimoError && ultimoError.message}). Puede haber salido: no se reintenta.`
+      );
     } else {
       motor.stats.fallidos++;
       campana.destinatarios[i].estado = motor.detener ? 'detenido' : 'fallido';
@@ -2478,9 +2889,15 @@ async function correrEnvio(simulacro, opciones = {}) {
   const detenido = motor.detener;
   const total = Math.round((Date.now() - inicio) / 1000);
   campana.fin = new Date().toISOString();
-  campana.estado = detenido ? 'detenida' : 'finalizada';
-  campana.stats = { total: motor.stats.total, ok: motor.stats.ok, fallidos: motor.stats.fallidos };
+  campana.estado = motor.cierre ? 'interrumpida' : detenido ? 'detenida' : 'finalizada';
+  campana.stats = {
+    total: motor.stats.total,
+    ok: motor.stats.ok,
+    fallidos: motor.stats.fallidos,
+    inciertos: motor.stats.inciertos || 0,
+  };
   guardarCampana(campana);
+  campanaActiva = null;
   motor.corriendo = false;
   motor.pausado = false;
   motor.detener = false;
@@ -2566,7 +2983,7 @@ async function correrAnalisis(limite) {
         cli.analizado = true;
         analisis.hechos++;
       });
-      fs.writeFileSync(ARCHIVO_CLIENTES, JSON.stringify(clientes, null, 2));
+      escribirJsonSeguro(ARCHIVO_CLIENTES, clientes);
     } catch (e) {
       registrarLog(`⚠️ Un lote del análisis falló (${e.message}); sigue el próximo.`);
     }
@@ -3192,14 +3609,14 @@ app.post('/api/config', (req, res) => {
   const b = req.body || {};
   const override = {};
   const rangos = {
-    DELAY_MIN_MS: [0, 300000],
-    DELAY_MAX_MS: [0, 300000],
+    DELAY_MIN_MS: [PISO_DELAY_MS, 300000],
+    DELAY_MAX_MS: [PISO_DELAY_MS, 300000],
     PAUSA_LARGA_CADA: [0, 500],
     PAUSA_LARGA_SEGUNDOS: [30, 3600],
     REINTENTOS: [0, 3],
     MAX_POR_CORRIDA: [1, 100],
     ESPERA_ENTRE_TANDAS_MINUTOS: [5, 240],
-    MAX_POR_HORA: [0, 1000],
+    MAX_POR_HORA: [1, TOPE_POR_VENTANA],
     VENTANA_CUPO_MINUTOS: [1, 240],
     META_PEDIDOS_DIA: [1, 10000],
   };
@@ -3264,7 +3681,7 @@ app.post('/api/config', (req, res) => {
       override[k] = b[k];
   }
   fs.mkdirSync(path.dirname(ARCHIVO_OVERRIDE), { recursive: true });
-  fs.writeFileSync(ARCHIVO_OVERRIDE, JSON.stringify(override, null, 2));
+  escribirJsonSeguro(ARCHIVO_OVERRIDE, override);
   res.json({ ok: true });
 });
 
@@ -3978,12 +4395,14 @@ app.post('/api/fotos', (req, res) => {
 const RE_NOMBRE_PROMO = /^promo(-\d+)?\.(jpg|jpeg|png|webp)$/i;
 
 app.get('/api/imagen', (req, res) => {
-  const rutas = buscarImagenesPromo();
-  const imagenes = rutas.map((p) => {
-    const ext = path.extname(p).slice(1).replace('jpg', 'jpeg');
+  // Sólo datos y una URL por imagen: antes viajaban todas en base64 en cada carga.
+  const imagenes = buscarImagenesPromo().map((p) => {
+    const stat = fs.statSync(p);
+    const nombre = path.basename(p);
     return {
-      nombre: path.basename(p),
-      dataUrl: `data:image/${ext};base64,${fs.readFileSync(p).toString('base64')}`,
+      nombre,
+      bytes: stat.size,
+      url: `/api/imagen/archivo/${encodeURIComponent(nombre)}?v=${Math.round(stat.mtimeMs)}`,
     };
   });
   res.json({
@@ -3991,10 +4410,16 @@ app.get('/api/imagen', (req, res) => {
     cantidad: imagenes.length,
     maximo: MAX_IMAGENES_PROMO,
     imagenes,
-    // compatibilidad con clientes viejos: primera imagen
-    nombre: imagenes[0] ? imagenes[0].nombre : null,
-    dataUrl: imagenes[0] ? imagenes[0].dataUrl : null,
   });
+});
+
+app.get('/api/imagen/archivo/:nombre', (req, res) => {
+  const nombre = String(req.params.nombre || '');
+  if (!RE_NOMBRE_PROMO.test(nombre)) return res.status(400).json({ error: 'Nombre inválido.' });
+  const p = path.join(DIR_MEDIA, nombre);
+  if (!fs.existsSync(p)) return res.status(404).json({ error: 'No existe.' });
+  res.setHeader('Cache-Control', 'private, max-age=86400');
+  res.sendFile(p);
 });
 
 app.post('/api/imagen', (req, res) => {
@@ -4010,16 +4435,28 @@ app.post('/api/imagen', (req, res) => {
   if (buf.length > 16 * 1024 * 1024)
     return res.status(400).json({ error: 'La imagen es muy pesada (máx 16 MB).' });
 
+  // Primero se escribe la nueva aparte: si el disco falla, las anteriores siguen.
+  const temporal = path.join(DIR_MEDIA, `subida-${process.pid}-${Date.now()}.tmp`);
+  try {
+    fs.mkdirSync(DIR_MEDIA, { recursive: true });
+    fs.writeFileSync(temporal, buf);
+    if (fs.statSync(temporal).size !== buf.length) throw new Error('la copia quedó incompleta');
+  } catch (e) {
+    fs.rmSync(temporal, { force: true });
+    return res.status(500).json({ error: `No se pudo guardar la imagen: ${e.message}` });
+  }
   if (reemplazarTodo) {
     for (let slot = 1; slot <= MAX_IMAGENES_PROMO; slot++) borrarSlotImagen(slot);
   }
   const slot = primerSlotLibrePromo();
-  if (!slot)
+  if (!slot) {
+    fs.rmSync(temporal, { force: true });
     return res
       .status(409)
       .json({ error: `Ya hay ${MAX_IMAGENES_PROMO} imágenes. Quitá alguna primero.` });
+  }
   borrarSlotImagen(slot); // limpia otras extensiones del mismo slot, por las dudas
-  fs.writeFileSync(rutaImagenPromo(slot, ext), buf);
+  fs.renameSync(temporal, rutaImagenPromo(slot, ext));
   const total = buscarImagenesPromo().length;
   const nombreFinal = path.basename(rutaImagenPromo(slot, ext));
   registrarLog(`🖼️ Imagen de promo cargada: ${nombreFinal} (${total} en total).`);
@@ -4051,8 +4488,17 @@ app.post('/api/pdf', (req, res) => {
   if (!data || !data.startsWith('data:application/pdf')) {
     return res.status(400).json({ error: 'Solo se acepta PDF.' });
   }
-  const base64 = data.split(',')[1];
-  fs.writeFileSync(ARCHIVO_PDF, Buffer.from(base64, 'base64'));
+  const buf = Buffer.from(data.split(',')[1] || '', 'base64');
+  if (buf.length < 8) return res.status(400).json({ error: 'El PDF llegó vacío.' });
+  const temporal = `${ARCHIVO_PDF}.${process.pid}.tmp`;
+  try {
+    fs.mkdirSync(path.dirname(ARCHIVO_PDF), { recursive: true });
+    fs.writeFileSync(temporal, buf);
+    fs.renameSync(temporal, ARCHIVO_PDF); // el menú anterior sobrevive si esto falla
+  } catch (e) {
+    fs.rmSync(temporal, { force: true });
+    return res.status(500).json({ error: `No se pudo guardar el PDF: ${e.message}` });
+  }
   registrarLog('📄 Nuevo menú PDF cargado (menu.pdf).');
   res.json({ ok: true, nombre: 'menu.pdf' });
 });
@@ -4119,18 +4565,73 @@ app.get('/api/estadisticas', (req, res) => {
 // ---------- Backups ----------
 
 app.get('/api/backups', (req, res) => {
-  const dir = path.join(ROOT, 'data', 'backups');
-  let archivos = [];
+  res.json({
+    respaldos: resguardo.listarRespaldos(DIR_BACKUPS).map((m) => ({
+      stamp: m.stamp,
+      creado: m.creado,
+      motivo: m.motivo,
+      bytes: m.bytes,
+      archivos: m.archivos.map((a) => a.ruta),
+    })),
+    estado: ultimoRespaldo(),
+    daniados: [...archivosDaniados].map(([archivo, info]) => ({
+      archivo: path.basename(archivo),
+      ...info,
+      copia: info.copia ? path.basename(info.copia) : null,
+    })),
+  });
+});
+
+app.post('/api/backups', (req, res) => {
+  const manifiesto = hacerBackup('manual');
+  if (!manifiesto) return res.status(500).json({ error: estadoRespaldo.error });
+  res.json({ ok: true, stamp: manifiesto.stamp, archivos: manifiesto.archivos.length });
+});
+
+// Descarga: un solo JSON con todo el respaldo, para guardarlo fuera del servidor.
+app.get('/api/backups/:stamp/descargar', (req, res) => {
   try {
-    archivos = fs.readdirSync(dir).sort().reverse();
+    const data = resguardo.exportarRespaldo(DIR_BACKUPS, req.params.stamp);
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="masivos-respaldo-${data.stamp}.json"`
+    );
+    res.json(data);
   } catch (e) {
-    /* sin backups todavía */
+    res.status(404).json({ error: e.message });
   }
-  res.json({ archivos: archivos.slice(0, 60) });
+});
+
+app.post('/api/backups/:stamp/restaurar', (req, res) => {
+  if (motor.corriendo)
+    return res
+      .status(409)
+      .json({ error: 'Hay una campaña en curso. Detenela antes de restaurar.' });
+  const rutas = Array.isArray(req.body && req.body.rutas)
+    ? req.body.rutas.map(String).filter(Boolean)
+    : null;
+  const v = resguardo.verificarRespaldo(DIR_BACKUPS, req.params.stamp);
+  if (!v.ok) return res.status(400).json({ error: v.error });
+  // Lo actual también se guarda, por si la restauración no era lo que se buscaba.
+  if (!hacerBackup('antes de restaurar'))
+    return res
+      .status(500)
+      .json({ error: `No se pudo resguardar lo actual: ${estadoRespaldo.error}` });
+  try {
+    const restaurados = resguardo.restaurarRespaldo(DIR_DATA, DIR_BACKUPS, req.params.stamp, rutas);
+    // Releer: si un archivo de protección vuelve sano, se levanta el bloqueo.
+    leerExcluidos();
+    leerPausados();
+    registrarLog(`♻️ Respaldo ${req.params.stamp} restaurado: ${restaurados.join(', ')}.`);
+    res.json({ ok: true, restaurados, bloqueo: bloqueoIntegridad() });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.get('/api/campanas', (req, res) => {
   let campanas = [];
+  const pedidos = leerPedidosPorContacto();
   try {
     campanas = fs
       .readdirSync(DIR_CAMPANAS)
@@ -4149,7 +4650,9 @@ app.get('/api/campanas', (req, res) => {
             estado: c.estado,
             simulacro: c.simulacro,
             segmento: c.segmento,
+            origen: c.origen || 'manual',
             stats: c.stats,
+            resultados: resultadosCampana(c, pedidos),
           }
         );
       })
@@ -4163,13 +4666,43 @@ app.get('/api/campanas', (req, res) => {
 app.get('/api/campanas/:id', (req, res) => {
   const campana = leerCampana(req.params.id);
   if (!campana) return res.status(404).json({ error: 'Campaña no encontrada.' });
-  res.json(campana);
+  res.json({ ...campana, resultados: resultadosCampana(campana) });
+});
+
+// Los dudosos sólo los resuelve una persona, mirando el chat en el teléfono:
+// "llegó" lo cuenta como enviado; "no llegó" lo deja para el reintento.
+app.post('/api/campanas/:id/inciertos', (req, res) => {
+  if (motor.corriendo) return res.status(409).json({ error: 'Hay una campaña en curso.' });
+  const campana = leerCampana(req.params.id);
+  if (!campana) return res.status(404).json({ error: 'Campaña no encontrada.' });
+  const resolucion = req.body && req.body.resolucion;
+  if (!['llego', 'no-llego'].includes(resolucion))
+    return res.status(400).json({ error: 'Resolución inválida.' });
+  const elegidos = Array.isArray(req.body.numeros) ? new Set(req.body.numeros.map(String)) : null;
+  let total = 0;
+  for (const d of campana.destinatarios || []) {
+    if (d.estado !== 'incierto' || (elegidos && !elegidos.has(d.numero))) continue;
+    d.estado = resolucion === 'llego' ? 'enviado' : 'fallido';
+    d.revisado = new Date().toISOString();
+    total++;
+  }
+  const dest = campana.destinatarios || [];
+  campana.stats = {
+    ...campana.stats,
+    ok: dest.filter((d) => d.estado === 'enviado').length,
+    fallidos: dest.filter((d) => d.estado === 'fallido').length,
+    inciertos: dest.filter((d) => d.estado === 'incierto').length,
+  };
+  guardarCampana(campana);
+  res.json({ ok: true, total, stats: campana.stats });
 });
 
 app.post('/api/preparar-envio', (req, res) => {
   if (estadoWA.estado !== 'listo')
     return res.status(409).json({ error: 'WhatsApp no está listo.' });
   if (motor.corriendo) return res.status(409).json({ error: 'Ya hay una corrida en curso.' });
+  const bloqueoDatos = bloqueoIntegridad();
+  if (bloqueoDatos) return res.status(409).json({ error: bloqueoDatos });
   const simulacro = !!(req.body && req.body.simulacro);
   const cfgEnvio = getConfig();
   if (!turnosDisponibles())
@@ -4243,6 +4776,8 @@ app.post('/api/enviar', (req, res) => {
   if (estadoWA.estado !== 'listo')
     return res.status(409).json({ error: 'WhatsApp no está listo.' });
   if (motor.corriendo) return res.status(409).json({ error: 'Ya hay una corrida en curso.' });
+  const bloqueoDatos = bloqueoIntegridad();
+  if (bloqueoDatos) return res.status(409).json({ error: bloqueoDatos });
   const simulacro = !!(req.body && req.body.simulacro);
   const cfgEnvio = getConfig();
   if (!turnosDisponibles())
@@ -4321,6 +4856,8 @@ app.get('/api/logs', (req, res) => {
 
 const servidor = app.listen(PORT, HOST, () => {
   console.log(`\n🍔 Panel Modo Sabor listo en: http://${HOST}:${PORT}\n`);
+  marcarCampanasInterrumpidas();
+  reconciliarProgramacion();
   hacerBackup('arranque del panel');
   iniciarWhatsApp();
 });
@@ -4408,49 +4945,218 @@ function estadoPedidosReales() {
 setTimeout(actualizarPedidosReales, 5000);
 setInterval(actualizarPedidosReales, 10 * 60 * 1000);
 
-// ---------- Envío programado (sale solo todos los días) ----------
+// ---------- Envío programado (sale solo todos los días) y agenda ----------
 
-let ultimaCorridaProgramada = null;
+// El estado de la última corrida automática vive en disco: un reinicio dentro del
+// minuto programado no vuelve a mandar.
+const ARCHIVO_PROGRAMACION = path.join(DIR_DATA, 'programacion-estado.json');
+const ARCHIVO_AGENDA = path.join(DIR_DATA, 'agenda.json');
+const DIR_AGENDA = path.join(DIR_DATA, 'agenda');
+// Una promo agendada que no pudo salir en este margen no sale tarde: queda vencida.
+const MARGEN_AGENDA_MIN = 20;
 
-setInterval(() => {
+function leerEstadoProgramacion() {
+  return leerJsonSeguro(ARCHIVO_PROGRAMACION, {});
+}
+
+function guardarEstadoProgramacion(datos) {
+  try {
+    escribirJsonSeguro(ARCHIVO_PROGRAMACION, { ...datos, actualizado: new Date().toISOString() });
+    return true;
+  } catch (e) {
+    registrarLog(`⛔ No se pudo guardar el estado de la programación: ${e.message}`);
+    return false;
+  }
+}
+
+let ultimaCorridaProgramada = leerEstadoProgramacion().fecha || null;
+
+function leerAgenda() {
+  const data = leerJsonSeguro(ARCHIVO_AGENDA, []);
+  return Array.isArray(data) ? data : [];
+}
+
+function guardarAgenda(lista) {
+  escribirJsonSeguro(ARCHIVO_AGENDA, lista);
+}
+
+function minutosDelDia(hhmm) {
+  const [h, m] = String(hhmm || '')
+    .split(':')
+    .map(Number);
+  return Number.isFinite(h) && Number.isFinite(m) ? h * 60 + m : null;
+}
+
+// Por qué no puede salir ahora una corrida automática (null si puede).
+function motivoBloqueoAutomatico(config, segmento) {
+  if (bloqueoIntegridad()) return 'no se pueden leer las bajas o pausas';
+  if (!turnosDisponibles()) return 'los turnos del negocio no están sincronizados';
+  if (config.MODO_SOLO_RESPUESTAS) return "modo 'solo respuestas' activo";
+  if (esDiaNoEnvio(config)) return 'hoy es día de no envío';
+  if (estadoWA.estado !== 'listo') return 'WhatsApp no está conectado';
+  if (motor.corriendo) return 'ya hay una corrida en curso';
+  if (!fs.existsSync(ARCHIVO_CLIENTES)) return 'no hay contactos';
+  if (calcularSaludNumero().estado === 'rojo' && !['pidio', 'activo'].includes(segmento))
+    return 'salud del número en rojo';
+  return null;
+}
+
+function lanzarAutomatica(opciones, etiqueta) {
+  motor.corriendo = true;
+  motor.pausado = false;
+  motor.detener = false;
+  registrarLog(`⏰ ${etiqueta} iniciado automáticamente.`);
+  emitirMotor();
+  const promesa = correrEnvio(false, opciones);
+  // correrEnvio crea la campaña antes de su primera espera.
+  const campanaId = campanaActiva ? campanaActiva.id : null;
+  promesa.catch((e) => {
+    motor.corriendo = false;
+    registrarLog(`❌ Error en ${etiqueta}: ${e.message}`);
+    emitirMotor();
+  });
+  return { campanaId, promesa };
+}
+
+function tickProgramacionDiaria(config, hhmm) {
+  if (!config.PROGRAMACION_ACTIVA) return;
+  if (hhmm !== String(config.PROGRAMACION_HORA || '10:30')) return;
+  if (ultimaCorridaProgramada === hoy()) return; // ya salió (o se intentó) hoy
+  if (!fs.existsSync(ARCHIVO_MENSAJE)) return;
+  const segmento = normalizarSegmento(config.PROGRAMACION_SEGMENTO);
+  const bloqueo = motivoBloqueoAutomatico(config, segmento);
+  ultimaCorridaProgramada = hoy();
+  if (bloqueo) {
+    guardarEstadoProgramacion({ fecha: hoy(), hora: hhmm, estado: 'bloqueada', detalle: bloqueo });
+    registrarLog(`⛔ Envío programado bloqueado: ${bloqueo}.`);
+    return;
+  }
+  // Se marca antes de empezar: si esto no se puede guardar, no sale.
+  if (!guardarEstadoProgramacion({ fecha: hoy(), hora: hhmm, estado: 'iniciando' })) return;
+  emit('programado', { hora: hhmm });
+  const { campanaId, promesa } = lanzarAutomatica(
+    { segmento: config.PROGRAMACION_SEGMENTO || '', origen: 'programada' },
+    `Envío programado (${hhmm})`
+  );
+  const fecha = hoy();
+  guardarEstadoProgramacion({ fecha, hora: hhmm, estado: 'corriendo', campanaId });
+  promesa
+    .then(() =>
+      guardarEstadoProgramacion({
+        fecha,
+        hora: hhmm,
+        estado: leerCampana(campanaId)?.estado || 'finalizada',
+        campanaId,
+      })
+    )
+    .catch(() => {});
+}
+
+function tickAgenda(config, hhmm) {
+  const agenda = leerAgenda();
+  const ahora = minutosDelDia(hhmm);
+  const fecha = hoy();
+  let cambio = false;
+  for (const item of agenda) {
+    if (item.estado !== 'pendiente') continue;
+    const programado = minutosDelDia(item.hora);
+    const vencida =
+      item.fecha < fecha || (item.fecha === fecha && ahora - programado > MARGEN_AGENDA_MIN);
+    if (vencida) {
+      item.estado = 'vencida';
+      item.detalle = 'El panel no estaba disponible a esa hora; no se manda tarde.';
+      cambio = true;
+      registrarLog(`⚠️ Promo agendada "${item.titulo}" vencida sin salir.`);
+      continue;
+    }
+    if (item.fecha !== fecha || ahora < programado) continue;
+    const bloqueo = motivoBloqueoAutomatico(config, item.segmento);
+    if (bloqueo) {
+      // Se vuelve a intentar en el próximo tick mientras siga dentro del margen.
+      if (item.detalle !== bloqueo) {
+        item.detalle = bloqueo;
+        cambio = true;
+        registrarLog(`⏳ Promo agendada "${item.titulo}" esperando: ${bloqueo}.`);
+      }
+      continue;
+    }
+    item.estado = 'corriendo';
+    item.inicio = new Date().toISOString();
+    item.detalle = '';
+    guardarAgenda(agenda); // antes de enviar: un reinicio no la repite
+    const dir = path.join(DIR_AGENDA, item.id);
+    const { campanaId, promesa } = lanzarAutomatica(
+      {
+        segmento: item.segmento || '',
+        origen: 'agendada',
+        plantillaFija: item.mensaje,
+        imagenesFijas: (item.imagenes || []).map((f) => path.join(dir, f)),
+        pdfFijo: item.pdf ? path.join(dir, item.pdf) : null,
+      },
+      `Promo agendada "${item.titulo}"`
+    );
+    item.campanaId = campanaId;
+    guardarAgenda(agenda);
+    promesa
+      .then(() => {
+        const lista = leerAgenda();
+        const actual = lista.find((x) => x.id === item.id);
+        if (actual && actual.estado === 'corriendo') {
+          actual.estado = leerCampana(campanaId)?.estado === 'finalizada' ? 'hecha' : 'detenida';
+          actual.fin = new Date().toISOString();
+          guardarAgenda(lista);
+        }
+      })
+      .catch(() => {});
+    return; // una por vez
+  }
+  if (cambio) guardarAgenda(agenda);
+}
+
+// Al arrancar: lo automático que quedó "corriendo" se cortó con el reinicio.
+function reconciliarProgramacion() {
+  const agenda = leerAgenda();
+  let cambio = false;
+  for (const item of agenda)
+    if (item.estado === 'corriendo') {
+      item.estado = 'interrumpida';
+      item.detalle = 'Se cortó por un reinicio. Retomala desde Resultados.';
+      cambio = true;
+    }
+  if (cambio) guardarAgenda(agenda);
+  const prog = leerEstadoProgramacion();
+  if (prog.estado === 'corriendo' || prog.estado === 'iniciando')
+    guardarEstadoProgramacion({ ...prog, estado: 'interrumpida' });
+}
+
+function tickProgramador() {
   try {
     const config = getConfig();
-    if (!config.PROGRAMACION_ACTIVA) return;
-    if (!turnosDisponibles()) return;
-    if (config.MODO_SOLO_RESPUESTAS) return;
-    if (esDiaNoEnvio(config)) return;
-    if (estadoWA.estado !== 'listo' || motor.corriendo) return;
-    if (!fs.existsSync(ARCHIVO_CLIENTES) || !fs.existsSync(ARCHIVO_MENSAJE)) return;
-
     const ahora = new Date();
     const hhmm = `${String(ahora.getHours()).padStart(2, '0')}:${String(ahora.getMinutes()).padStart(2, '0')}`;
-    if (hhmm !== String(config.PROGRAMACION_HORA || '10:30')) return;
-    if (ultimaCorridaProgramada === hoy()) return; // ya salió hoy
-
-    ultimaCorridaProgramada = hoy();
-    const segmento = normalizarSegmento(config.PROGRAMACION_SEGMENTO);
-    if (calcularSaludNumero().estado === 'rojo' && !['pidio', 'activo'].includes(segmento)) {
-      registrarLog('⛔ Envío programado bloqueado: salud roja.');
-      return;
-    }
-    motor.corriendo = true;
-    motor.pausado = false;
-    motor.detener = false;
-    registrarLog(`⏰ Envío programado (${hhmm}) iniciado automáticamente.`);
-    emit('programado', { hora: hhmm });
-    emitirMotor();
-    correrEnvio(false, { segmento: config.PROGRAMACION_SEGMENTO || '' }).catch((e) => {
-      motor.corriendo = false;
-      registrarLog(`❌ Error en la corrida programada: ${e.message}`);
-      emitirMotor();
-    });
+    tickProgramacionDiaria(config, hhmm);
+    if (!motor.corriendo) tickAgenda(config, hhmm);
   } catch (e) {
     /* el programador nunca corta el servidor */
   }
-}, 30000);
+}
 
-process.on('SIGINT', async () => {
-  console.log('\nCerrando panel...');
+setInterval(tickProgramador, 30000);
+
+// Railway manda SIGTERM en cada deploy: se corta el motor y la campaña queda como
+// interrumpida (no "corriendo"), para revisarla y retomarla a mano.
+async function cerrarOrdenado(senal) {
+  console.log(`\nCerrando panel (${senal})...`);
+  if (motor.corriendo) {
+    motor.detener = true;
+    motor.cierre = true;
+    if (campanaActiva) {
+      campanaActiva.estado = 'interrumpida';
+      campanaActiva.fin = new Date().toISOString();
+      guardarCampana(campanaActiva);
+    }
+    registrarLog(`⚠️ Panel cerrado (${senal}) con una campaña en curso: quedó interrumpida.`);
+  }
   try {
     if (client) await client.destroy();
   } catch (e) {
@@ -4458,6 +5164,9 @@ process.on('SIGINT', async () => {
   }
   soltarLockPanel();
   process.exit(0);
-});
+}
+
+process.on('SIGINT', () => cerrarOrdenado('SIGINT'));
+process.on('SIGTERM', () => cerrarOrdenado('SIGTERM'));
 
 process.on('exit', soltarLockPanel);

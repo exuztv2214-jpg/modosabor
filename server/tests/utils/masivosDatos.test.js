@@ -51,7 +51,13 @@ async function run() {
     const { clientes } = await ok.json();
     // 01:30 UTC del 8 es la noche del 7 en Argentina.
     assert.deepEqual(clientes, [
-      { telefono: '3863412345', nombre: 'Ana', pedidos: 2, ultimoPedido: '2026-10-07' },
+      {
+        telefono: '3863412345',
+        nombre: 'Ana',
+        pedidos: 2,
+        ultimoPedido: '2026-10-07',
+        fechas: ['2026-10-01', '2026-10-07'],
+      },
     ]);
   } finally {
     await new Promise((resolve) => server.close(resolve));
