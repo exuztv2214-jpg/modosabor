@@ -143,6 +143,7 @@ function verifyFrontendContract() {
   assert.match(app, /contactos y .*chats sincronizados/);
   assert.match(app, /async function refreshQrStatus\(\)/);
   assert.match(app, /setInterval\(refreshQrStatus, 3000\)/);
+  assert.match(app, /data-action=["']qr["'][^>]*>.*Abrir conexión/s);
   assert.doesNotMatch(app, /qr:\s*state\.status\?\.qr \|\| results\[0\]\.value\.qr/);
   assert.match(app, /wa-preview/);
   assert.match(app, /whatsapp-brand-logo/);
