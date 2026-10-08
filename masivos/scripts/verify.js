@@ -31,7 +31,7 @@ function verifyIsolation() {
   assert.match(server, /Contact\.getModelsArray\(\)/);
   assert.match(server, /normalizarContactosLivianos/);
   assert.match(server, /client\.getChats\(\)/);
-  assert.match(server, /client\.getProfilePicUrl/);
+  assert.match(server, /requestProfilePicFromServer/);
   assert.match(server, /const ORIGENES_PANEL = new Set\(\s*\[/s);
   assert.match(server, /localhost:3867/);
   assert.doesNotMatch(server, /modosabor-api-production\.up\.railway\.app/);
@@ -192,7 +192,7 @@ function verifyFrontendContract() {
   assert.match(server, /listaJob\.corriendo/);
   assert.match(server, /enforceLidAndPnRetrieval/);
   assert.match(server, /listaJob\.enriqueciendo/);
-  assert.match(server, /client\.getProfilePicUrl/);
+  assert.match(server, /async function fotosDelServidor/);
   assert.match(app, /Sincronización iniciada; te aviso al terminar/);
   assert.match(server, /function sincronizarConversacionesEnCRM/);
   assert.match(server, /sincronizarConversacionesEnCRM\(chats\)/);
@@ -200,7 +200,13 @@ function verifyFrontendContract() {
   assert.doesNotMatch(server, /fs\.writeFileSync\(ARCHIVO_CLIENTES, JSON\.stringify\(encontrados/);
   assert.match(server, /WAWebCollections['"]\)\s*\.Chat\.getModelsArray\(\)/);
   assert.match(server, /mensajes:\s*lastMessage/);
-  assert.doesNotMatch(server, /WAWebChatLoadMessages/);
+  // El historial se pide sólo en segundo plano y en tandas (historialEnPagina), nunca
+  // al abrir un chat: la lectura de una conversación sale del archivo guardado.
+  assert.equal(server.match(/WAWebChatLoadMessages/g).length, 1);
+  assert.match(
+    server,
+    /async function historialEnPagina[\s\S]*?WAWebChatLoadMessages[\s\S]*?\n}\n/
+  );
   assert.match(conversationSource, /leerJsonSeguro\(ARCHIVO_CHATS/);
   assert.doesNotMatch(conversationSource, /pupPage\.evaluate/);
   assert.match(server, /path\.join\(DIR_DATA, ['"]mensaje-general\.txt['"]\)/);

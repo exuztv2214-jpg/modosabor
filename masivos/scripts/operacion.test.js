@@ -723,3 +723,52 @@ test('exportar contactos genera CSV seguro para Excel', (t) => {
   assert.match(r.body, /^﻿Nombre;/);
   assert.match(r.body, /'=HYPERLINK/, 'una fórmula queda como texto');
 });
+
+test('el historial en segundo plano completa chats vacíos y no los repite en 24 h', async (t) => {
+  const p = panel(t);
+  p.write('chats.json', [
+    { numero: 'a@lid', timestamp: 200, mensajes: [] },
+    { numero: 'g@g.us', grupo: true, timestamp: 300, mensajes: [] },
+  ]);
+  const pedidos = [];
+  p.context.whatsapp.pupPage = {
+    evaluate: async (_fn, ids) => {
+      pedidos.push(Array.from(ids));
+      return { 'a@lid': [{ id: 'm1', body: 'hola', type: 'chat', timestamp: 100 }] };
+    },
+  };
+
+  await p.run('sincronizarHistorialPendiente("prueba")');
+  assert.deepEqual(pedidos, [['a@lid']], 'los grupos no se piden');
+  const chats = JSON.parse(fs.readFileSync(path.join(p.root, 'data', 'chats.json')));
+  assert.equal(chats.find((c) => c.numero === 'a@lid').mensajes.length, 1);
+  await p.run('sincronizarHistorialPendiente("otra vez")');
+  assert.equal(pedidos.length, 1, 'no se vuelve a pedir en 24 h');
+});
+
+test('las fotos se piden en tandas y las ocultas no se repiten por 7 días', async (t) => {
+  const p = panel(t);
+  p.write('chats.json', [
+    { numero: 'con@lid', mensajes: [] },
+    { numero: 'oculta@lid', mensajes: [] },
+  ]);
+  const llamadas = [];
+  p.context.whatsapp.pupPage = {
+    evaluate: async (_fn, ids) => {
+      llamadas.push(Array.from(ids));
+      if (llamadas.length === 1) return {}; // memoria: nada
+      return { 'con@lid': 'https://x/foto.jpg', 'oculta@lid': null };
+    },
+  };
+  p.context.fetch = async () => ({ ok: true, arrayBuffer: async () => new Uint8Array(500).buffer });
+  p.run('sincronizarHistorialPendiente = async () => {}');
+  await p.run('correrFotos()');
+  const ocultas = JSON.parse(fs.readFileSync(path.join(p.root, 'data', 'fotos-ocultas.json')));
+  assert.ok(ocultas['oculta@lid']);
+  const chats = JSON.parse(fs.readFileSync(path.join(p.root, 'data', 'chats.json')));
+  assert.ok(chats.find((c) => c.numero === 'con@lid').foto);
+  llamadas.length = 0;
+  p.run('fotosJob.corriendo = false');
+  await p.run('correrFotos()');
+  assert.ok(!llamadas.slice(1).flat().includes('oculta@lid'), 'la oculta no se vuelve a pedir');
+});

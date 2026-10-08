@@ -2000,6 +2000,17 @@ function connectLive() {
     const info = JSON.parse(event.data || '{}');
     if (state.loadingHistory === info.numero) state.loadingHistory = '';
     if (info.numero === state.selectedChatNumber) loadConversation(info.numero);
+    // Historial en segundo plano: refresca la lista de chats como mucho cada 20 s.
+    if (info.numero === null && info.nuevos && Date.now() - (state.historyListAt || 0) > 20000) {
+      state.historyListAt = Date.now();
+      api('/api/conversaciones', { signal: AbortSignal.timeout(10000) })
+        .then((chats) => {
+          state.conversations = chats.conversaciones || state.conversations;
+          if (state.selectedChatNumber) loadConversation(state.selectedChatNumber);
+          else if (state.route === 'conversaciones') render();
+        })
+        .catch(() => {});
+    }
   });
   // Mensajes que salen desde el celular o desde el panel.
   stream.addEventListener('saliente', (event) => {

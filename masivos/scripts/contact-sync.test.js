@@ -276,6 +276,30 @@ void (async () => {
     [{ origen: 'crm', numero: '5493819998877@c.us', nombre: 'Importado' }]
   );
   assert.equal(importadoSinChat.length, 1, 'conserva contactos importados manualmente');
+  // Historial: suma mensajes viejos sin duplicar y el último sigue siendo el más nuevo.
+  const conHistorial = [
+    {
+      numero: 'h@lid',
+      timestamp: 300,
+      texto: 'nuevo',
+      mensajes: [{ id: 'm3', body: 'nuevo', type: 'chat', timestamp: 300 }],
+    },
+  ];
+  assert.equal(
+    sync.agregarHistorial(conHistorial, 'h@lid', [
+      { id: 'm1', body: 'viejo', type: 'chat', timestamp: 100 },
+      { id: 'm2', body: 'medio', type: 'chat', timestamp: 200 },
+      { id: 'm3', body: 'nuevo', type: 'chat', timestamp: 300 },
+    ]),
+    2
+  );
+  assert.deepEqual(
+    conHistorial[0].mensajes.map((m) => m.id),
+    ['m1', 'm2', 'm3']
+  );
+  assert.equal(conHistorial[0].texto, 'nuevo');
+  assert.equal(sync.agregarHistorial(conHistorial, 'h@lid', [{ id: 'm1', timestamp: 100 }]), 0);
+
   console.log('contact and chat sync: OK');
 })().catch((error) => {
   console.error(error);

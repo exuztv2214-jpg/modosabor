@@ -252,6 +252,47 @@ function appendChatMessage(chats, message, numero) {
   return true;
 }
 
+// Suma mensajes anteriores (historial) a un chat guardado: sin duplicar por id,
+// ordenados, los últimos 100, y el "último mensaje" sigue siendo el más nuevo.
+// Devuelve cuántos mensajes nuevos quedaron.
+function agregarHistorial(chats, numero, mensajes) {
+  const id = serializedId(numero);
+  if (!id || !Array.isArray(chats)) return 0;
+  let chat = chats.find((item) => (serializedId(item?.numero) || serializedId(item?.id)) === id);
+  if (!chat) {
+    chat = { id, name: '', timestamp: 0, isGroup: id.endsWith('@g.us'), mensajes: [] };
+    chats.push(chat);
+  }
+  const previos = Array.isArray(chat.mensajes) ? chat.mensajes : [];
+  const ids = new Set(previos.map((m) => m?.id).filter(Boolean));
+  const nuevos = (mensajes || [])
+    .filter((m) => m && (!m.id || !ids.has(m.id)))
+    .map((m) => ({
+      id: m.id || null,
+      fromMe: Boolean(m.fromMe),
+      body: cuerpoLimpio(m.body || '', m.type || 'chat'),
+      type: m.type || 'chat',
+      hasMedia: Boolean(m.hasMedia),
+      timestamp: Number(m.timestamp || 0) || null,
+      ack: m.ack ?? null,
+    }));
+  if (!nuevos.length) return 0;
+  chat.mensajes = [...previos, ...nuevos]
+    .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0))
+    .slice(-100);
+  const ultimo = chat.mensajes.at(-1);
+  if ((ultimo.timestamp || 0) >= (chat.timestamp || 0)) {
+    chat.timestamp = ultimo.timestamp;
+    chat.lastMessageBody = ultimo.body;
+    chat.lastMessageType = ultimo.type;
+    chat.lastMessageFromMe = ultimo.fromMe;
+    chat.texto = ultimo.body;
+    chat.tipo = ultimo.type;
+    chat.fromMe = ultimo.fromMe;
+  }
+  return nuevos.filter((m) => chat.mensajes.includes(m)).length;
+}
+
 async function leerChatsConRespaldo(lecturaLigera, lecturaCompleta) {
   try {
     const chats = await lecturaLigera();
@@ -288,6 +329,7 @@ module.exports = {
   normalizeChats,
   mergeChats,
   appendChatMessage,
+  agregarHistorial,
   leerChatsConRespaldo,
   normalizarContactosLivianos,
   normalizarMapeosLid,

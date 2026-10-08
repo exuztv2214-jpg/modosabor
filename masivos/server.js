@@ -26,6 +26,7 @@ const {
   normalizeChats,
   mergeChats,
   appendChatMessage,
+  agregarHistorial,
   leerChatsConRespaldo,
   normalizarContactosLivianos,
   normalizarMapeosLid,
@@ -3029,53 +3030,6 @@ async function descargarBuffer(url, destino) {
   fs.writeFileSync(destino, buf);
 }
 
-// Foto de perfil, del camino más rápido al más lento:
-// 1) la que WhatsApp Web ya tiene en memoria (las miniaturas de la lista de chats);
-// 2) pedirla al servidor usando el chat que ya existe (por su id real, casi siempre LID);
-// 3) el método de la librería, que antes se usaba primero con el número @c.us y se
-//    colgaba buscando un chat que no existe con ese id.
-async function obtenerFotoPerfil(numero, telefono) {
-  const ids = [
-    ...new Set(
-      [numero, telefono ? `${String(telefono).replace(/\D/g, '')}@c.us` : ''].filter(Boolean)
-    ),
-  ];
-  try {
-    const url = await client.pupPage.evaluate(async (ids) => {
-      const C = window.require('WAWebCollections');
-      for (const id of ids) {
-        const thumb = C.ProfilePicThumb && C.ProfilePicThumb.get(id);
-        const local = thumb && (thumb.eurl || thumb.imgFull || thumb.img);
-        if (local) return local;
-      }
-      const bridge = window.require('WAWebContactProfilePicThumbBridge');
-      for (const id of ids) {
-        const chat = C.Chat.get(id);
-        if (!chat) continue;
-        try {
-          const pic = await bridge.requestProfilePicFromServer(chat);
-          if (pic && pic.eurl) return pic.eurl;
-        } catch (e) {
-          /* sin foto visible por privacidad */
-        }
-      }
-      return null;
-    }, ids);
-    if (url) return url;
-  } catch (e) {
-    /* la página de WhatsApp cambió: se prueba con la librería */
-  }
-  for (const id of ids) {
-    try {
-      const url = await client.getProfilePicUrl(id);
-      if (url) return url;
-    } catch (e) {
-      // El número o el LID puede no tener una foto visible por privacidad.
-    }
-  }
-  return null;
-}
-
 function vincularFotosCache() {
   const clientes = leerJsonSeguro(ARCHIVO_CLIENTES, []);
   const chats = leerJsonSeguro(ARCHIVO_CHATS, []);
@@ -3138,6 +3092,40 @@ async function fotosEnMemoria(ids) {
   );
 }
 
+const ARCHIVO_FOTOS_OCULTAS = path.join(DIR_DATA, 'fotos-ocultas.json');
+
+// Pide la foto de varios chats a la vez. Devuelve { id: url } con url = null cuando
+// WhatsApp respondió que no hay foto visible, y sin la clave cuando no respondió a
+// tiempo (se reintenta en la próxima pasada).
+async function fotosDelServidor(ids) {
+  return conTiempoLimite(
+    client.pupPage.evaluate(async (ids) => {
+      const C = window.require('WAWebCollections');
+      const puente = window.require('WAWebContactProfilePicThumbBridge');
+      const salida = {};
+      const pedir = async (id) => {
+        const chat = C.Chat.get(id);
+        if (!chat) return;
+        try {
+          const foto = await Promise.race([
+            puente.requestProfilePicFromServer(chat),
+            new Promise((r) => setTimeout(() => r('tarde'), 7000)),
+          ]);
+          if (foto === 'tarde') return;
+          salida[id] = foto && foto.eurl ? foto.eurl : null;
+        } catch (e) {
+          // ServerStatusCodeError (404/401): no hay foto visible para este negocio.
+          salida[id] = null;
+        }
+      };
+      for (let i = 0; i < ids.length; i += 8) await Promise.all(ids.slice(i, i + 8).map(pedir));
+      return salida;
+    }, ids),
+    45000,
+    'Fotos del servidor'
+  );
+}
+
 async function correrFotos() {
   if (fotosJob.corriendo) return;
   const { clientes, chats } = vincularFotosCache();
@@ -3193,33 +3181,52 @@ async function correrFotos() {
   guardarFotos(fotos);
   emit('fotos', { tipo: 'progreso', hechos: fotosJob.hechos, total: fotosJob.total });
 
-  // 2) Las demás, una por una al servidor de WhatsApp (las que no tienen foto
-  //    visible por privacidad son las que tardan hasta agotar el tiempo).
-  for (const c of resto) {
+  // 2) Las demás se piden al servidor de WhatsApp de a 8 a la vez, dentro de la
+  //    página. Antes iban de a una con 8 s de espera: 315 contactos tardaban casi
+  //    una hora, porque los que ocultan la foto nunca responden. A esos se los
+  //    anota y no se les vuelve a preguntar por 7 días.
+  const sinFoto = leerJsonSeguro(ARCHIVO_FOTOS_OCULTAS, {});
+  const limiteOculta = Date.now() - 7 * 86400000;
+  const aPedir = resto.filter((c) => !(sinFoto[c.numero] > limiteOculta));
+  let ocultas = resto.length - aPedir.length;
+  for (let i = 0; i < aPedir.length; i += 24) {
     if (motor.corriendo) break; // una campaña tiene prioridad: se retoma más tarde
+    const lote = aPedir.slice(i, i + 24);
+    let urls = {};
     try {
-      const url = await conTiempoLimite(
-        obtenerFotoPerfil(c.numero, c.telefono),
-        8000,
-        'Foto de perfil'
-      );
-      if (url) {
-        await bajar(c, url);
-        delServidor++;
-      }
+      urls = await fotosDelServidor(lote.map((c) => c.numero));
     } catch (e) {
-      /* sin foto visible o sin respuesta */
+      registrarLog(`⚠️ Una tanda de fotos falló (${e.message}); sigue la próxima.`);
     }
-    fotosJob.hechos++;
-    if (fotosJob.hechos % 10 === 0) {
-      guardarFotos(fotos);
-      emit('fotos', { tipo: 'progreso', hechos: fotosJob.hechos, total: fotosJob.total });
+    const ahora = Date.now();
+    for (const c of lote) {
+      const url = urls[c.numero];
+      if (url) {
+        try {
+          await bajar(c, url);
+          delServidor++;
+          delete sinFoto[c.numero];
+        } catch (e) {
+          /* la URL venció: se reintenta en la próxima pasada */
+        }
+      } else if (url === null) {
+        sinFoto[c.numero] = ahora;
+        ocultas++;
+      }
+      fotosJob.hechos++;
     }
-    await esperar(300);
+    guardarFotos(fotos);
+    escribirJsonSeguro(ARCHIVO_FOTOS_OCULTAS, sinFoto);
+    emit('fotos', { tipo: 'progreso', hechos: fotosJob.hechos, total: fotosJob.total });
+    await esperar(1000);
   }
 
   guardarFotos(fotos);
   fotosJob.corriendo = false;
+  if (ocultas)
+    registrarLog(`📸 ${ocultas} contactos ocultan su foto (se vuelve a probar en 7 días).`);
+  // Después de las fotos, los mensajes que falten (comparten la página de WhatsApp).
+  setTimeout(() => sincronizarHistorialPendiente('después de las fotos'), 5000);
   const conFoto = deMemoria + delServidor;
   registrarLog(
     `📸 Fotos listas: ${conFoto} nuevas (${deMemoria} desde la memoria de WhatsApp, ${delServidor} pedidas al servidor) · ${fotosJob.total - conFoto} sin foto visible.`
@@ -3843,45 +3850,137 @@ app.get('/api/conversaciones', async (req, res) => {
 
 // Historial de un chat: WhatsApp Web sólo tiene en memoria los últimos mensajes,
 // así que al abrir un chat con pocos guardados se piden los anteriores con la
-// función de la librería (fetchMessages). De a uno por vez y nunca durante una
+// memoria de WhatsApp Web (historialEnPagina). De a uno por vez y nunca durante una
 // campaña, para no trabar la página de WhatsApp. Responde enseguida; cuando
 // termina avisa por SSE ("historial") para que el panel recargue el chat.
 const historialJob = { numero: null, recientes: new Map() };
 
-async function traerHistorial(numero) {
-  const chat = await conTiempoLimite(client.getChatById(numero), 15000, 'Abrir chat');
-  const mensajes = await conTiempoLimite(
-    chat.fetchMessages({ limit: 60 }),
-    25000,
-    'Historial del chat'
+// Trae mensajes anteriores de varios chats en una sola consulta a la página de
+// WhatsApp Web. Usa el chat que ya está en memoria: el camino de la librería
+// (getChatById → fetchMessages) primero "abre" el chat y con cuentas LID se colgaba
+// ("Abrir chat excedió 15s"). Cada chat tiene su propio tope de tiempo.
+async function historialEnPagina(ids, minimo = 30) {
+  return conTiempoLimite(
+    client.pupPage.evaluate(
+      async (ids, minimo) => {
+        const C = window.require('WAWebCollections');
+        const cargador = window.require('WAWebChatLoadMessages');
+        const conTope = (promesa, ms) =>
+          Promise.race([promesa, new Promise((r) => setTimeout(() => r(null), ms))]);
+        const valido = (m) =>
+          !m.isNotification &&
+          !['call_log', 'e2e_notification', 'notification_template', 'gp2'].includes(m.type);
+        const salida = {};
+        for (const id of ids) {
+          const chat = C.Chat.get(id);
+          if (!chat) {
+            salida[id] = null;
+            continue;
+          }
+          try {
+            for (let vuelta = 0; vuelta < 3; vuelta++) {
+              if (chat.msgs.getModelsArray().filter(valido).length >= minimo) break;
+              const cargados = await conTope(cargador.loadEarlierMsgs({ chat }), 6000);
+              if (!cargados || !cargados.length) break;
+            }
+          } catch (e) {
+            /* se devuelve lo que haya en memoria */
+          }
+          salida[id] = chat.msgs
+            .getModelsArray()
+            .filter(valido)
+            .slice(-100)
+            .map((m) => ({
+              id: m.id?._serialized || null,
+              fromMe: Boolean(m.id?.fromMe),
+              body: String(m.caption || m.body || ''),
+              type: m.type || 'chat',
+              hasMedia: Boolean(m.mediaData),
+              timestamp: Number(m.t || 0) || null,
+              ack: m.ack ?? null,
+            }));
+        }
+        return salida;
+      },
+      ids,
+      minimo
+    ),
+    Math.max(20000, ids.length * 20000),
+    'Historial de chats'
   );
+}
+
+// Guarda lo traído sobre el archivo actual (no sobre una copia vieja).
+function guardarHistoriales(porChat) {
   const chats = leerJsonSeguro(ARCHIVO_CHATS, []);
+  let total = 0;
+  for (const [numero, mensajes] of Object.entries(porChat || {}))
+    if (Array.isArray(mensajes)) total += agregarHistorial(chats, numero, mensajes);
+  if (total) escribirJsonSeguro(ARCHIVO_CHATS, chats);
+  return total;
+}
+
+async function traerHistorial(numero) {
+  const porChat = await historialEnPagina([numero], 60);
+  if (porChat[numero] === null) throw new Error('el chat no está en la memoria de WhatsApp Web');
+  return guardarHistoriales(porChat);
+}
+
+// ---------- Historial en segundo plano ----------
+// 473 de 508 chats no tenían ningún mensaje guardado: WhatsApp Web sólo carga los
+// de los chats recientes. Este trabajo recorre los que tienen pocos, de los más
+// recientes a los más viejos, de a 10, sin pisar una campaña ni las fotos.
+const historialFondo = { corriendo: false, hechos: 0, total: 0 };
+const ARCHIVO_HISTORIAL_INTENTOS = path.join(DIR_DATA, 'historial-intentos.json');
+
+async function sincronizarHistorialPendiente(motivo) {
+  if (historialFondo.corriendo || !client || estadoWA.estado !== 'listo') return;
+  const intentos = leerJsonSeguro(ARCHIVO_HISTORIAL_INTENTOS, {});
+  const hace = Date.now() - 24 * 3600000;
+  const pendientes = leerJsonSeguro(ARCHIVO_CHATS, [])
+    .map((c) => ({
+      numero: c.numero || c.id?._serialized || c.id,
+      grupo: c.grupo || c.isGroup,
+      mensajes: (c.mensajes || []).length,
+      timestamp: c.timestamp || 0,
+    }))
+    .filter((c) => c.numero && !c.grupo && !String(c.numero).includes('broadcast'))
+    .filter((c) => c.mensajes < 10 && !(intentos[c.numero] > hace))
+    .sort((a, b) => b.timestamp - a.timestamp);
+  if (!pendientes.length) return;
+  historialFondo.corriendo = true;
+  historialFondo.hechos = 0;
+  historialFondo.total = pendientes.length;
+  registrarLog(`💬 Trayendo mensajes de ${pendientes.length} chats (${motivo})…`);
   let nuevos = 0;
-  for (const msg of mensajes) {
-    if (msg.isStatus || ['e2e_notification', 'notification_template'].includes(msg.type)) continue;
-    if (appendChatMessage(chats, msg, numero)) nuevos++;
-  }
-  if (nuevos) {
-    const guardado = chats.find(
-      (item) => (item.numero || item.id?._serialized || item.id) === numero
-    );
-    if (guardado) {
-      guardado.mensajes = guardado.mensajes
-        .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0))
-        .slice(-100);
-      // appendChatMessage marca como "último" el que agregó; acá van mensajes viejos.
-      const ultimo = guardado.mensajes.at(-1);
-      guardado.timestamp = ultimo.timestamp;
-      guardado.lastMessageBody = ultimo.body;
-      guardado.lastMessageType = ultimo.type;
-      guardado.lastMessageFromMe = ultimo.fromMe;
-      guardado.texto = ultimo.body;
-      guardado.tipo = ultimo.type;
-      guardado.fromMe = ultimo.fromMe;
+  try {
+    for (let i = 0; i < pendientes.length; i += 10) {
+      while ((motor.corriendo || historialJob.numero) && estadoWA.estado === 'listo')
+        await esperar(5000);
+      if (estadoWA.estado !== 'listo') break;
+      const lote = pendientes.slice(i, i + 10).map((c) => c.numero);
+      try {
+        nuevos += guardarHistoriales(await historialEnPagina(lote, 30));
+      } catch (e) {
+        registrarLog(`⚠️ Una tanda de historial falló (${e.message}); sigue la próxima.`);
+      }
+      const ahora = Date.now();
+      const marcas = leerJsonSeguro(ARCHIVO_HISTORIAL_INTENTOS, {});
+      for (const n of lote) marcas[n] = ahora;
+      escribirJsonSeguro(ARCHIVO_HISTORIAL_INTENTOS, marcas);
+      historialFondo.hechos = Math.min(pendientes.length, i + 10);
+      emit('historial', {
+        numero: null,
+        nuevos,
+        hechos: historialFondo.hechos,
+        total: historialFondo.total,
+      });
+      await esperar(1500);
     }
-    escribirJsonSeguro(ARCHIVO_CHATS, chats);
+  } finally {
+    historialFondo.corriendo = false;
   }
-  return nuevos;
+  registrarLog(`💬 Historial listo: ${nuevos} mensajes nuevos en ${historialFondo.hechos} chats.`);
 }
 
 app.post('/api/conversacion/historial', (req, res) => {
