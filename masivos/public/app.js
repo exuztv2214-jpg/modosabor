@@ -981,7 +981,7 @@ function pendingChatBubble() {
 function conversationMessages(chat) {
   const messages = state.conversation?.mensajes || [];
   if (state.conversation?.disponible && messages.length)
-    return `<div class="conversation-messages">${messages.map((message) => `<div class="wa-bubble ${message.fromMe ? '' : 'inbound'}">${esc(messageLabel(message))}<time>${messageTime(message.timestamp)}${message.fromMe ? ' ✓✓' : ''}</time></div>`).join('')}</div>`;
+    return `<div class="conversation-messages">${messages.map((message) => `<div class="wa-bubble ${message.fromMe ? '' : 'inbound'}">${esc(messageLabel(message))}<time>${messageTime(message.timestamp)}${message.fromMe ? '<span class="ticks">✓✓</span>' : ''}</time></div>`).join('')}</div>`;
   if (state.conversation && !messages.length)
     return empty(
       'chat_bubble_outline',
@@ -1237,8 +1237,8 @@ function previewMessage() {
 function renderWhatsappPreview() {
   const c = state.config || {};
   const name = c.NEGOCIO_NOMBRE || businessLabel();
-  const status = c.NEGOCIO_ESTADO || '';
-  const imagen = state.media?.[0]?.dataUrl || state.media?.[0]?.url || '';
+  const status = c.NEGOCIO_ESTADO || 'tocá acá para ver la info';
+  const imagenes = state.media.map((item) => item.dataUrl || item.url || '').filter(Boolean);
   const pdf = state.pdf?.nombre || '';
   const texto = previewMessage();
   const ahora = new Date().toLocaleTimeString('es-AR', {
@@ -1246,15 +1246,21 @@ function renderWhatsappPreview() {
     minute: '2-digit',
     hour12: false,
   });
+  const hora = `<time>${esc(ahora)}<span class="ticks">✓✓</span></time>`;
   const message = texto ? waFormat(esc(texto)) : '<em>Escribí el mensaje para ver cómo llega.</em>';
-  const extras =
-    state.media.length > 1
-      ? `<small class="wa-extra">+ ${state.media.length - 1} imagen(es) más, en mensajes aparte</small>`
-      : '';
-  const documentMarkup = pdf
-    ? `<div class="wa-document">${icon('picture_as_pdf')}<div><strong>${esc(pdf)}</strong><small>PDF · se manda aparte</small></div></div>`
+  // Así lo arma el motor: la primera imagen lleva el texto; el resto y el PDF van aparte.
+  const principal = `<div class="wa-bubble">${imagenes[0] ? `<img class="wa-media-image" src="${esc(assetUrl(imagenes[0]))}" alt="Flyer de la campaña">` : ''}<span class="wa-message-copy">${message}</span>${hora}</div>`;
+  const otras = imagenes
+    .slice(1)
+    .map(
+      (src) =>
+        `<div class="wa-bubble"><img class="wa-media-image" src="${esc(assetUrl(src))}" alt="Imagen adicional">${hora}</div>`
+    )
+    .join('');
+  const documento = pdf
+    ? `<div class="wa-bubble"><div class="wa-document">${icon('description')}<div><strong>${esc(pdf)}</strong><span class="wa-doc-meta">PDF</span></div></div>${hora}</div>`
     : '';
-  return `<div class="card wa-preview">${cardHead('Vista previa', 'Así llega a cada cliente')}<div class="phone"><div class="wa-status-bar"><span>WhatsApp</span><span>${esc(ahora)}</span></div><div class="phone-bar"><img class="whatsapp-brand-logo" src="${esc(previewLogo())}" alt=""><div class="phone-identity"><strong>${esc(name)}</strong>${status ? `<small>${esc(status)}</small>` : ''}</div></div><div class="phone-body"><span class="date-chip">HOY</span><div class="wa-bubble">${imagen ? `<img class="wa-media-image" src="${esc(assetUrl(imagen))}" alt="Flyer de la campaña">` : ''}<div class="wa-message-copy">${message}</div><time>${esc(ahora)} ✓✓</time></div>${extras}${documentMarkup}</div></div><p class="preview-disclaimer">El saludo y el cierre rotan entre los que configuraste. {NOMBRE} usa el nombre de cada contacto.</p></div>`;
+  return `<div class="card wa-preview">${cardHead('Vista previa', 'Así llega a cada cliente')}<div class="phone"><div class="wa-status-bar"><span>${esc(ahora)}</span><span class="icons">${icon('signal_cellular_alt')}${icon('wifi')}${icon('battery_full')}</span></div><div class="phone-bar"><span class="material-symbols-outlined back" aria-hidden="true">arrow_back_ios</span><img class="whatsapp-brand-logo" src="${esc(previewLogo())}" alt=""><div class="phone-identity"><strong>${esc(name)}</strong><small>${esc(status)}</small></div><span class="actions">${icon('videocam')}${icon('call')}</span></div><div class="phone-body"><span class="date-chip">Hoy</span>${principal}${otras}${documento}</div><div class="wa-compose">${icon('add')}<span class="input-fake"></span>${icon('photo_camera')}${icon('mic')}</div><div class="wa-home"><i></i></div></div><p class="preview-disclaimer">El saludo y el cierre rotan entre los que configuraste. {NOMBRE} usa el nombre de cada contacto.</p></div>`;
 }
 
 // ---------- Render ----------
