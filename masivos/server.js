@@ -192,34 +192,6 @@ function grupoEnvioPorId(id) {
 // ---------- Utilidades ----------
 
 const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
-// Marca la página de WhatsApp como visible, enfocada y activa (no congelada). Se
-// repite cada minuto y antes de cada tanda: sin esto Chromium la congelaba y toda
-// consulta quedaba esperando para siempre.
-let sesionCdp = null;
-async function activarPagina() {
-  if (!client || !client.pupPage) return false;
-  try {
-    if (!sesionCdp || sesionCdp.pagina !== client.pupPage) {
-      sesionCdp = {
-        pagina: client.pupPage,
-        cdp: await client.pupPage.createCDPSession(),
-      };
-    }
-    const { cdp } = sesionCdp;
-    await conTiempoLimite(
-      Promise.all([
-        cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true }),
-        cdp.send('Page.setWebLifecycleState', { state: 'active' }),
-      ]),
-      5000,
-      'Activar página'
-    );
-    return true;
-  } catch (e) {
-    sesionCdp = null;
-    return false;
-  }
-}
 // Al conectar, la conexión del panel con la página queda a veces trabada: llegan los
 // mensajes entrantes, pero ninguna orden (leer chats, fotos, enviar) responde y la
 // CPU queda en cero. Recargar la página la destraba (la sesión no se pierde). Se
@@ -243,14 +215,14 @@ async function vigilarPagina(motivo, forzar = false) {
   if (saludPagina.revisando || !client || !client.pupPage || estadoWA.estado !== 'listo') return;
   saludPagina.revisando = true;
   try {
-    activarPagina();
     if (await paginaResponde()) {
       saludPagina.fallas = 0;
       return;
     }
     saludPagina.fallas++;
     if (saludPagina.fallas < 2 && !forzar) return;
-    if (!forzar && Date.now() - saludPagina.ultimaRecarga < 3 * 60 * 1000) return;
+    // Como mucho una recarga cada 10 minutos: si vuelve a trabarse, no entra en ciclo.
+    if (Date.now() - saludPagina.ultimaRecarga < 10 * 60 * 1000) return;
     saludPagina.ultimaRecarga = Date.now();
     saludPagina.fallas = 0;
     registrarLog(`🔄 WhatsApp Web no respondía (${motivo}): recargando la página.`);
@@ -272,7 +244,6 @@ async function vigilarPagina(motivo, forzar = false) {
 setInterval(
   () => {
     if (estadoWA.estado !== 'listo') return;
-    activarPagina();
     if (!motor.corriendo) vigilarPagina('revisión periódica');
   },
   2 * 60 * 1000
@@ -2414,7 +2385,6 @@ function iniciarWhatsApp() {
     estadoWA = { estado: 'listo', qr: null };
     emit('estado', estadoWA);
     registrarLog('✅ WhatsApp listo (panel web).');
-    activarPagina();
     setTimeout(() => vigilarPagina('al conectar', true), 20000);
     setTimeout(() => descargarFotosPendientes('al conectar'), 2 * 60 * 1000);
   });
@@ -3295,7 +3265,6 @@ async function correrFotos() {
     if (motor.corriendo) break; // una campaña tiene prioridad: se retoma más tarde
     const lote = aPedir.slice(i, i + 24);
     let urls = {};
-    await activarPagina();
     try {
       urls = await fotosDelServidor(lote.map((c) => c.numero));
       fallasSeguidas = 0;
@@ -4070,7 +4039,6 @@ async function sincronizarHistorialPendiente(motivo) {
         await esperar(5000);
       if (estadoWA.estado !== 'listo') break;
       const lote = pendientes.slice(i, i + 10).map((c) => c.numero);
-      await activarPagina();
       try {
         nuevos += guardarHistoriales(await historialEnPagina(lote, 30));
         fallasSeguidas = 0;
@@ -5221,8 +5189,6 @@ app.get('/api/diagnostico-wa', async (req, res) => {
     ),
     await medir('ping', () => pagina.evaluate(() => 1)),
   ];
-  pruebas.push(await medir('activar', () => activarPagina()));
-  pruebas.push(await medir('ping2', () => pagina.evaluate(() => 1)));
   pruebas.push(
     await medir('estado', () =>
       pagina.evaluate(() => {
