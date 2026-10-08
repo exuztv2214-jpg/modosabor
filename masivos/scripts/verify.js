@@ -22,16 +22,15 @@ function verifyIsolation() {
   assert.match(server, /path\.join\(ROOT, ['"]sesion['"]/);
   assert.match(server, /MASIVOS_SESSION_DIR/);
   assert.match(server, /function limpiarBloqueosChromium\(\)/);
-  assert.match(
-    server,
-    /'SingletonLock', 'SingletonCookie', 'SingletonSocket', 'DevToolsActivePort'/
-  );
+  assert.match(server, /'SingletonLock'/);
+  assert.match(server, /'SingletonCookie'/);
+  assert.match(server, /'SingletonSocket'/);
+  assert.match(server, /'DevToolsActivePort'/);
   assert.doesNotMatch(server, /D:\\ModoSaborPromoPro/);
   assert.doesNotMatch(server, /Documents\\kimi\\Workspaces\\masivos/);
   assert.match(server, /client\.getContacts\(\)/);
-  assert.match(server, /getChats sin resultados/);
-  assert.match(server, /WAWebFindChatAction/);
-  assert.match(server, /requestProfilePicFromServer/);
+  assert.match(server, /client\.getChats\(\)/);
+  assert.match(server, /client\.getProfilePicUrl/);
   assert.match(server, /const ORIGENES_PANEL = new Set\(\s*\[/s);
   assert.match(server, /localhost:3867/);
   assert.doesNotMatch(server, /modosabor-api-production\.up\.railway\.app/);
@@ -140,7 +139,7 @@ function verifyFrontendContract() {
   assert.match(app, /const wasConnected = state\.status\?\.whatsapp === 'listo';/);
   assert.match(app, /WhatsApp vinculado correctamente/);
   assert.match(app, /stream\.addEventListener\('lista'/);
-  assert.match(app, /Contactos sincronizados:/);
+  assert.match(app, /contactos y .*chats sincronizados/);
   assert.match(app, /async function refreshQrStatus\(\)/);
   assert.match(app, /setInterval\(refreshQrStatus, 3000\)/);
   assert.doesNotMatch(app, /qr:\s*state\.status\?\.qr \|\| results\[0\]\.value\.qr/);
@@ -175,8 +174,12 @@ function verifyFrontendContract() {
   assert.match(server, /api\/reactivar-contactos/);
   assert.match(server, /api\/contactos\/importar/);
   assert.match(server, /app\.post\(["']\/api\/contactos["']/);
-  assert.match(server, /function combinarClientesSincronizados/);
-  assert.match(server, /combinarClientesSincronizados\(encontrados, previos\)/);
+  assert.match(server, /mergeSyncedContacts\(chatsRaw, contactos, previos, lidMappings\)/);
+  assert.match(server, /ARCHIVO_CHATS/);
+  assert.match(server, /listaJob\.corriendo/);
+  assert.match(server, /getContactLidAndPhone/);
+  assert.match(server, /client\.getProfilePicUrl/);
+  assert.match(app, /Sincronización iniciada; te aviso al terminar/);
   assert.match(server, /function sincronizarConversacionesEnCRM/);
   assert.match(server, /sincronizarConversacionesEnCRM\(chats\)/);
   assert.match(server, /escribirJsonSeguro\(ARCHIVO_CLIENTES, listaSincronizada\)/);

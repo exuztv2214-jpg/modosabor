@@ -450,6 +450,7 @@ function messageTime(timestamp) {
       });
 }
 function chatContactLabel(contact) {
+  if (contact?.grupo) return 'Grupo de WhatsApp';
   return (
     contact?.telefono ||
     (String(contact?.numero || '').endsWith('@lid')
@@ -882,10 +883,12 @@ function connectLive() {
   });
   stream.addEventListener('lista', (event) => {
     const info = JSON.parse(event.data || '{}');
-    if (info.tipo === 'inicio') showToast('Sincronizando contactos de WhatsApp…');
+    if (info.tipo === 'inicio') showToast('Sincronizando agenda y chats de WhatsApp…');
     if (info.tipo === 'fin') {
       refresh();
-      showToast(`Contactos sincronizados: ${info.total || 0}.`);
+      showToast(
+        `${info.total || 0} contactos y ${info.chats || 0} chats sincronizados (${info.grupos || 0} grupos).`
+      );
     }
     if (info.tipo === 'error') showToast(info.error || 'No se pudieron sincronizar los contactos.');
   });
@@ -907,11 +910,11 @@ function connectLive() {
 }
 
 function settingsPayload() {
-  const number = (id, fallback = 0) => Number($(id)?.value ?? fallback);
+  const number = (id, fallback = 0) => Number($('#' + id)?.value ?? fallback);
   const enabled = (key) =>
     Boolean($('.switch[data-setting="' + key + '"]')?.classList.contains('on'));
   const lines = (id) =>
-    String($(id)?.value || '')
+    String($('#' + id)?.value || '')
       .split(/\r?\n/)
       .map((line) => line.trim())
       .filter(Boolean);
@@ -968,12 +971,8 @@ async function action(name, value) {
     if (name === 'preview-reply')
       return showToast(`Respuesta simulada: ${value || 'sin texto'}. No se envió nada.`);
     if (name === 'refresh') {
-      showToast('Actualizando contactos y estado…');
-      await api('/api/listar', { method: 'POST', body: '{}' }).catch((error) => {
-        if (state.status?.whatsapp === 'listo') throw error;
-      });
-      await refresh();
-      return showToast('Estado actualizado.');
+      await api('/api/listar', { method: 'POST', body: '{}' });
+      return showToast('Sincronización iniciada; te aviso al terminar.');
     }
     if (name === 'photos') {
       await api('/api/fotos', { method: 'POST', body: '{}' });

@@ -14,6 +14,7 @@ const QRCode = require('qrcode');
 const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const configBase = require('./config');
 const { liberarSesionWhatsApp } = require('./session-utils');
+const { mergeSyncedContacts, normalizeChats } = require('./contact-sync');
 
 const PORT = Number(process.env.PORT || 3867);
 const HOST = process.env.HOST || '127.0.0.1';
@@ -32,6 +33,7 @@ const BROWSER_EXECUTABLE =
   ].find((candidate) => fs.existsSync(candidate));
 const ARCHIVO_MENSAJE = path.join(ROOT, 'mensaje.txt');
 const ARCHIVO_CLIENTES = path.join(ROOT, 'data', 'clientes.json');
+const ARCHIVO_CHATS = path.join(ROOT, 'data', 'chats.json');
 const ARCHIVO_EXCLUIDOS = path.join(ROOT, 'data', 'excluidos.json');
 const ARCHIVO_OVERRIDE = path.join(ROOT, 'data', 'config-override.json');
 const ARCHIVO_LOG = path.join(ROOT, 'logs', 'log.txt');
@@ -371,19 +373,6 @@ function fusionarContactosEntrantes(entrantes, motivo) {
     registrarLog(`📥 Contactos incorporados: ${agregados} nuevos, ${actualizados} actualizados.`);
   }
   return { total: mapa.size, agregados, actualizados };
-}
-
-function combinarClientesSincronizados(encontrados, previos) {
-  const mapa = new Map(
-    encontrados.filter((item) => item && item.numero).map((item) => [item.numero, item])
-  );
-  for (const previo of previos) {
-    if (!previo || !previo.numero || mapa.has(previo.numero)) continue;
-    mapa.set(previo.numero, { ...previo, origen: previo.origen || 'historico' });
-  }
-  return [...mapa.values()].sort((a, b) =>
-    (a.nombre || a.numero).localeCompare(b.nombre || b.numero)
-  );
 }
 
 function sincronizarConversacionesEnCRM(chats) {
@@ -2338,6 +2327,7 @@ async function correrEnvio(simulacro, opciones = {}) {
 // ---------- Análisis de números (LID → teléfono, país, característica, empresa) ----------
 
 const analisis = { corriendo: false, hechos: 0, total: 0, resumen: null };
+const listaJob = { corriendo: false };
 
 async function correrAnalisis(limite) {
   let clientes;
@@ -2457,35 +2447,34 @@ async function descargarBuffer(url, destino) {
   fs.writeFileSync(destino, buf);
 }
 
-async function obtenerFotoPerfil(numero) {
-  return client.pupPage.evaluate(async (contactId) => {
+async function obtenerFotoPerfil(numero, telefono) {
+  const ids = [
+    ...new Set(
+      [telefono ? `${String(telefono).replace(/\D/g, '')}@c.us` : '', numero].filter(Boolean)
+    ),
+  ];
+  for (const id of ids) {
     try {
-      const wid = window.require('WAWebWidFactory').createWid(contactId);
-      const result = await window.require('WAWebFindChatAction').findOrCreateLatestChat(wid);
-      const chat = result && (result.chat || result);
-      if (!chat) return null;
-      const profilePic = await window
-        .require('WAWebContactProfilePicThumbBridge')
-        .requestProfilePicFromServer(chat);
-      return profilePic && profilePic.eurl ? profilePic.eurl : null;
-    } catch (error) {
-      if (error && error.name === 'ServerStatusCodeError') return null;
-      return null;
+      const url = await client.getProfilePicUrl(id);
+      if (url) return url;
+    } catch (e) {
+      // El número o el LID puede no tener una foto visible por privacidad.
     }
-  }, numero);
+  }
+  return null;
 }
 
 async function correrFotos() {
-  let clientes;
-  try {
-    clientes = JSON.parse(fs.readFileSync(ARCHIVO_CLIENTES, 'utf8'));
-  } catch (e) {
-    return;
-  }
+  if (fotosJob.corriendo) return;
+  const clientes = leerJsonSeguro(ARCHIVO_CLIENTES, []);
+  const chats = leerJsonSeguro(ARCHIVO_CHATS, []);
   fs.mkdirSync(DIR_FOTOS, { recursive: true });
-  const pendientes = clientes.filter(
-    (c) => !c.foto || !fs.existsSync(path.join(DIR_FOTOS, c.foto))
-  );
+  const contactosPorNumero = new Map(clientes.map((c) => [c.numero, c]));
+  const pendientes = [...contactosPorNumero.values(), ...chats.filter((c) => c.grupo)]
+    .filter(
+      (item, index, all) => item.numero && all.findIndex((c) => c.numero === item.numero) === index
+    )
+    .filter((item) => !item.foto || !fs.existsSync(path.join(DIR_FOTOS, item.foto)));
   fotosJob.corriendo = true;
   fotosJob.hechos = 0;
   fotosJob.total = pendientes.length;
@@ -2495,30 +2484,32 @@ async function correrFotos() {
   let conFoto = 0;
   for (const c of pendientes) {
     try {
-      const url = await Promise.race([
-        obtenerFotoPerfil(c.numero),
-        new Promise((_, rej) => setTimeout(() => rej(new Error('timeout foto')), 12000)),
-      ]);
+      const url = await obtenerFotoPerfil(c.numero, c.telefono);
       if (url) {
         const archivo = nombreArchivoFoto(c.numero);
         await descargarBuffer(url, path.join(DIR_FOTOS, archivo));
         c.foto = archivo;
         conFoto++;
-      } else {
-        delete c.foto;
-      }
+      } else delete c.foto;
     } catch (e) {
       delete c.foto;
     }
+    const chat = chats.find((item) => item.numero === c.numero);
+    if (chat) {
+      if (c.foto) chat.foto = c.foto;
+      else delete chat.foto;
+    }
     fotosJob.hechos++;
     if (fotosJob.hechos % 10 === 0) {
-      fs.writeFileSync(ARCHIVO_CLIENTES, JSON.stringify(clientes, null, 2));
+      escribirJsonSeguro(ARCHIVO_CLIENTES, clientes);
+      escribirJsonSeguro(ARCHIVO_CHATS, chats);
       emit('fotos', { tipo: 'progreso', hechos: fotosJob.hechos, total: fotosJob.total });
     }
     await esperar(400);
   }
 
-  fs.writeFileSync(ARCHIVO_CLIENTES, JSON.stringify(clientes, null, 2));
+  escribirJsonSeguro(ARCHIVO_CLIENTES, clientes);
+  escribirJsonSeguro(ARCHIVO_CHATS, chats);
   fotosJob.corriendo = false;
   registrarLog(
     `📸 Fotos listas: ${conFoto} con foto · ${fotosJob.total - conFoto} sin foto visible (privacidad).`
@@ -2983,32 +2974,7 @@ async function obtenerConversacion(numero, limite = 60) {
 async function obtenerConversacionesPanel() {
   if (!client || estadoWA.estado !== 'listo')
     return { disponible: false, conversaciones: [], motivo: 'WhatsApp no está listo.' };
-  let chats = [];
-  try {
-    chats = await client.pupPage.evaluate(() =>
-      window
-        .require('WAWebCollections')
-        .Chat.getModelsArray()
-        .map((chat) => {
-          try {
-            const id = chat.id && chat.id._serialized;
-            return id
-              ? {
-                  numero: id,
-                  nombre: chat.formattedTitle || chat.name || '',
-                  timestamp: Number(chat.t || 0),
-                  grupo: Boolean(chat.groupMetadata),
-                }
-              : null;
-          } catch (e) {
-            return null;
-          }
-        })
-        .filter(Boolean)
-    );
-  } catch (e) {
-    /* se conserva la lista local como respaldo */
-  }
+  const chats = normalizeChats(leerJsonSeguro(ARCHIVO_CHATS, []));
   sincronizarConversacionesEnCRM(chats);
   const clientes = leerClientesEnriquecidos();
   const porNumero = new Map(clientes.map((cliente) => [cliente.numero, cliente]));
@@ -3018,23 +2984,10 @@ async function obtenerConversacionesPanel() {
   for (const respuesta of respuestas)
     if (!ultimaRespuesta.has(respuesta.numero)) ultimaRespuesta.set(respuesta.numero, respuesta);
   const vistos = new Set();
-  const base = [
-    ...chats.filter((chat) => !chat.grupo),
-    ...clientes.map((cliente) => ({
-      numero: cliente.numero,
-      nombre: cliente.nombre || '',
-      timestamp: 0,
-      grupo: false,
-    })),
-  ];
+  const base = chats;
   const conversaciones = base
     .filter((chat) => {
-      if (
-        !chat.numero ||
-        vistos.has(chat.numero) ||
-        !['c.us', 'lid'].includes(chat.numero.split('@')[1])
-      )
-        return false;
+      if (!chat.numero || vistos.has(chat.numero)) return false;
       vistos.add(chat.numero);
       return true;
     })
@@ -3045,7 +2998,9 @@ async function obtenerConversacionesPanel() {
       return {
         ...cliente,
         numero: chat.numero,
-        nombre: chat.nombre || cliente.nombre || 'Sin nombre',
+        nombre: chat.nombre || cliente.nombre || (chat.grupo ? 'Grupo de WhatsApp' : 'Sin nombre'),
+        grupo: chat.grupo,
+        foto: chat.foto || cliente.foto,
         texto:
           respuesta?.texto || (chat.timestamp ? 'Abrir conversación' : 'Sin mensajes registrados'),
         hora:
@@ -3057,7 +3012,12 @@ async function obtenerConversacionesPanel() {
         id: respuesta?.id || `chat:${chat.numero}`,
       };
     });
-  return { disponible: true, total: conversaciones.length, conversaciones };
+  return {
+    disponible: true,
+    total: conversaciones.length,
+    grupos: conversaciones.filter((chat) => chat.grupo).length,
+    conversaciones,
+  };
 }
 
 app.get('/api/conversacion', async (req, res) => {
@@ -3316,127 +3276,99 @@ app.post('/api/reactivar-contactos', (req, res) => {
 app.post('/api/listar', async (req, res) => {
   if (estadoWA.estado !== 'listo')
     return res.status(409).json({ error: 'WhatsApp no está listo todavía.' });
-  res.json({ ok: true });
+  if (listaJob.corriendo)
+    return res.status(409).json({ error: 'La sincronización ya está en curso.' });
+  listaJob.corriendo = true;
+  res.json({ ok: true, iniciada: true });
   try {
     emit('lista', { tipo: 'inicio' });
-    const config = getConfig();
-    let chats;
-    let fuente = 'chats';
+    let chatsRaw;
+    let fuente = 'colección de chats';
     try {
-      chats = await client.getChats();
-      if (!chats.length) throw new Error('getChats sin resultados');
+      chatsRaw = await client.pupPage.evaluate(() =>
+        window
+          .require('WAWebCollections')
+          .Chat.getModelsArray()
+          .map((chat) => ({
+            id: chat.id?._serialized || null,
+            name: chat.formattedTitle || chat.name || '',
+            timestamp: Number(chat.t || 0),
+            isGroup: Boolean(chat.groupMetadata),
+            isChannel: Boolean(chat.newsletterMetadata),
+            unreadCount: Number(chat.unreadCount || 0),
+          }))
+          .filter((chat) => chat.id)
+      );
     } catch (error) {
       try {
-        chats = await client.pupPage.evaluate(() => {
-          const modelos = window.require('WAWebCollections').Chat.getModelsArray();
-          return modelos
-            .map((chat) => {
-              try {
-                const id = chat.id && chat.id._serialized;
-                if (!id) return null;
-                return {
-                  id: { server: chat.id.server, _serialized: id },
-                  isGroup: Boolean(chat.groupMetadata),
-                  name: chat.formattedTitle || chat.name || '',
-                  timestamp: Number(chat.t || 0),
-                };
-              } catch (error) {
-                return null;
-              }
-            })
-            .filter(Boolean);
-        });
-        if (!chats.length) throw new Error('lectura simple sin chats');
-        fuente = 'chats-simples';
-        registrarLog(
-          `⚠️ getChats falló (${error && error.message ? error.message : error}). Se usará lectura simple por chat.`
-        );
-      } catch (lecturaError) {
-        fuente = 'contactos';
-        registrarLog(
-          `⚠️ Lectura simple de chats falló (${lecturaError && lecturaError.message ? lecturaError.message : lecturaError}). Se usará getContacts() sin historial de chat.`
-        );
-        const contactos = await client.getContacts();
-        const vistos = new Set();
-        chats = contactos
-          .filter((contacto) => {
-            const server = contacto.id && contacto.id.server;
-            const numero = contacto.id && contacto.id._serialized;
-            if ((server !== 'c.us' && server !== 'lid') || !numero || vistos.has(numero))
-              return false;
-            vistos.add(numero);
-            return true;
-          })
-          .map((contacto) => ({
-            id: contacto.id,
-            isGroup: false,
-            name: contacto.name || contacto.pushname || contacto.shortName || '',
-            timestamp: null,
-            _fromContactFallback: true,
-          }));
+        chatsRaw = (await client.getChats()).map((chat) => ({
+          id: chat.id?._serialized,
+          name: chat.name || chat.formattedTitle || '',
+          timestamp: Number(chat.timestamp || 0),
+          isGroup: Boolean(chat.isGroup),
+          isChannel: Boolean(chat.isChannel),
+          unreadCount: Number(chat.unreadCount || 0),
+        }));
+        fuente = 'getChats';
+      } catch (fallbackError) {
+        throw new Error(`No se pudieron leer los chats: ${fallbackError.message || error.message}`);
       }
     }
-    const ahora = Date.now() / 1000;
-    const limite = (Number(config.DIAS_HISTORIAL_MINIMO) || 3650) * 24 * 60 * 60;
-    const encontrados = chats
-      .filter((chat) => {
-        if (chat.isGroup) return false;
-        const server = chat.id && chat.id.server;
-        if (server !== 'c.us' && server !== 'lid') return false;
-        if (chat._fromContactFallback) return true;
-        if (!chat.timestamp) return false;
-        return ahora - chat.timestamp <= limite;
-      })
-      .map((chat) => ({
-        numero: chat.id._serialized,
-        nombre: chat.name || '',
-        ultimoMensaje: chat.timestamp
-          ? new Date(chat.timestamp * 1000).toISOString().slice(0, 10)
-          : null,
-      }))
-      .sort((a, b) => (a.nombre || a.numero).localeCompare(b.nombre || b.numero));
-
-    // Preservar enriquecimiento previo (teléfono, país/área, foto, análisis)
-    let previos = [];
+    let contactos = [];
     try {
-      previos = JSON.parse(fs.readFileSync(ARCHIVO_CLIENTES, 'utf8'));
-    } catch (e) {
-      /* primera vez */
+      contactos = await client.getContacts();
+    } catch (error) {
+      registrarLog(`⚠️ No se pudo leer la agenda de WhatsApp: ${error.message}`);
     }
-    const mapaPrev = new Map(previos.map((c) => [c.numero, c]));
-    for (const c of encontrados) {
-      const p = mapaPrev.get(c.numero);
-      if (!p) continue;
-      for (const k of [
-        'telefono',
-        'pais',
-        'paisNombre',
-        'area',
-        'areaNombre',
-        'negocio',
-        'analizado',
-        'foto',
-      ]) {
-        if (p[k] !== undefined) c[k] = p[k];
+    const chats = normalizeChats(chatsRaw);
+    const ids = [
+      ...new Set(
+        [...chatsRaw.map((c) => c.id), ...contactos.map((c) => c.id?._serialized)].filter(
+          (id) => id && /@(?:c\.us|lid)$/i.test(id)
+        )
+      ),
+    ];
+    const lidMappings = [];
+    for (let i = 0; i < ids.length; i += 25) {
+      try {
+        lidMappings.push(...(await client.getContactLidAndPhone(ids.slice(i, i + 25))));
+      } catch (error) {
+        registrarLog(
+          `⚠️ No se pudieron resolver algunos teléfonos de WhatsApp (${Math.min(i + 25, ids.length)}/${ids.length}).`
+        );
       }
     }
-
-    const listaSincronizada = combinarClientesSincronizados(encontrados, previos);
+    const previos = leerJsonSeguro(ARCHIVO_CLIENTES, []);
+    const listaSincronizada = mergeSyncedContacts(chatsRaw, contactos, previos, lidMappings);
     hacerBackup('lista actualizada');
     escribirJsonSeguro(ARCHIVO_CLIENTES, listaSincronizada);
+    escribirJsonSeguro(ARCHIVO_CHATS, chats);
     const csv =
       'numero;nombre;ultimo_mensaje\n' +
       listaSincronizada
         .map((c) => `${c.numero};${(c.nombre || '').replace(/;/g, ',')};${c.ultimoMensaje}`)
         .join('\n');
     fs.writeFileSync(ARCHIVO_CLIENTES.replace('.json', '.csv'), csv, 'utf8');
+    const grupos = chats.filter((chat) => chat.grupo).length;
     registrarLog(
-      `📋 Lista actualizada desde el panel: ${listaSincronizada.length} clientes (${fuente}).`
+      `📋 Sincronización lista: ${listaSincronizada.length} contactos, ${chats.length} chats (${grupos} grupos; ${fuente}).`
     );
-    emit('lista', { tipo: 'fin', total: listaSincronizada.length });
+    emit('lista', {
+      tipo: 'fin',
+      total: listaSincronizada.length,
+      chats: chats.length,
+      grupos,
+      agenda: contactos.length,
+    });
+    void correrFotos().catch((error) => {
+      fotosJob.corriendo = false;
+      emit('fotos', { tipo: 'error', error: error.message });
+    });
   } catch (e) {
     registrarLog(`❌ Error actualizando la lista: ${e && e.stack ? e.stack : e.message}`);
     emit('lista', { tipo: 'error', error: e.message });
+  } finally {
+    listaJob.corriendo = false;
   }
 });
 
