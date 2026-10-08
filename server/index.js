@@ -374,6 +374,8 @@ app.use('/api/social-worker', require('./routes/socialWorker'));
   sesión en el volumen para que un deploy no obligue a escanear el QR de nuevo.
 */
 app.use('/api/whatsapp', require('./routes/whatsappMasivo'));
+// Servicio Masivos -> sistema: resumen de pedidos por teléfono (token del proxy).
+app.use('/api/masivos-datos', require('./routes/masivosDatos'));
 app.use('/api/compras', require('./routes/compras'));
 app.use('/api/fidelizacion', require('./routes/fidelizacion'));
 app.use('/api/operacion', require('./routes/operacion'));
