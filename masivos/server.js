@@ -3302,6 +3302,7 @@ app.post('/api/listar', async (req, res) => {
     let fuente = 'chats';
     try {
       chats = await client.getChats();
+      if (!chats.length) throw new Error('getChats sin resultados');
     } catch (error) {
       try {
         chats = await client.pupPage.evaluate(() => {
