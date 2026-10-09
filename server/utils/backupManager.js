@@ -79,7 +79,13 @@ function normalizeRetention(options = {}) {
   return {
     maxFiles: Math.max(3, Number(options.maxFiles || 14)),
     maxTotalBytes: Math.max(16 * 1024 * 1024, configuredBytes),
-    minFiles: Math.max(1, Math.min(3, Number(options.minFiles || 3))),
+    // Mínimo que se conserva aunque supere el límite de espacio. En Railway el
+    // disco es de 500 MB y la base ya pesa 30 MB: BACKUP_MIN_FILES=1 evita que
+    // tres respaldos de arranque llenen el disco.
+    minFiles: Math.max(
+      1,
+      Math.min(3, Number(options.minFiles || process.env.BACKUP_MIN_FILES || 3))
+    ),
   };
 }
 
