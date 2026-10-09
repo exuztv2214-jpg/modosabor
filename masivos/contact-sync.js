@@ -2,7 +2,47 @@
 
 function serializedId(value) {
   if (typeof value === 'string') return value.trim();
-  return String(value?._serialized || '').trim();
+  // WhatsApp Web pasó el id serializado de _serialized a $1 (julio 2026).
+  return String(value?._serialized || value?.$1 || '').trim();
+}
+
+// Parte única del id de un mensaje. El mismo mensaje llegó guardado como
+// 'A56DE3…' (id corto) y como 'true_123@lid_A56DE3…' (id completo).
+function idCortoMensaje(id) {
+  const texto = String(id || '');
+  const partes = texto.split('_');
+  if (partes.length >= 3 && /@/.test(partes[1])) return partes[2];
+  return texto;
+}
+
+function huellaMensaje(m) {
+  return `${m?.timestamp || 0}|${m?.fromMe ? 1 : 0}|${m?.type || 'chat'}|${m?.body || ''}`;
+}
+
+// Deja una sola copia de cada mensaje: por id (corto) prefiriendo el id completo,
+// y descarta copias sin id cuando ya está la versión con id.
+function depurarMensajes(mensajes) {
+  const porId = new Map();
+  const sinId = [];
+  for (const m of mensajes || []) {
+    if (!m) continue;
+    if (!m.id) {
+      sinId.push(m);
+      continue;
+    }
+    const clave = idCortoMensaje(m.id);
+    const previo = porId.get(clave);
+    if (!previo || String(m.id).length > String(previo.id).length) porId.set(clave, m);
+  }
+  const conId = new Set([...porId.values()].map(huellaMensaje));
+  const vistos = new Set();
+  const sueltos = sinId.filter((m) => {
+    const h = huellaMensaje(m);
+    if (conId.has(h) || vistos.has(h)) return false;
+    vistos.add(h);
+    return true;
+  });
+  return [...porId.values(), ...sueltos].sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
 }
 
 function phoneDigits(value) {
@@ -201,15 +241,7 @@ function mergeChats(previos, nuevos) {
     const previo = guardados.get(chat.numero);
     guardados.delete(chat.numero);
     if (!previo) return chat;
-    const porId = new Map();
-    const sinId = [];
-    for (const mensaje of [...previo.mensajes, ...chat.mensajes]) {
-      if (mensaje.id) porId.set(mensaje.id, mensaje);
-      else sinId.push(mensaje);
-    }
-    const mensajes = [...porId.values(), ...sinId]
-      .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0))
-      .slice(-100);
+    const mensajes = depurarMensajes([...previo.mensajes, ...chat.mensajes]).slice(-100);
     return {
       ...chat,
       nombre: chat.nombre === 'Sin nombre' ? previo.nombre : chat.nombre,
@@ -238,7 +270,13 @@ function appendChatMessage(chats, message, numero) {
     timestamp: Number(message?.timestamp || message?.t || Math.floor(Date.now() / 1000)),
     ack: message?.ack ?? null,
   };
-  if (item.id && (chat.mensajes || []).some((saved) => saved?.id === item.id)) return false;
+  if (
+    item.id &&
+    (chat.mensajes || []).some(
+      (saved) => saved?.id && idCortoMensaje(saved.id) === idCortoMensaje(item.id)
+    )
+  )
+    return false;
   chat.mensajes = [...(Array.isArray(chat.mensajes) ? chat.mensajes : []), item].slice(-100);
   chat.timestamp = item.timestamp;
   chat.lastMessageBody = item.body;
@@ -263,35 +301,23 @@ function agregarHistorial(chats, numero, mensajes) {
     chat = { id, name: '', timestamp: 0, isGroup: id.endsWith('@g.us'), mensajes: [] };
     chats.push(chat);
   }
-  // Huella de un mensaje sin id: WhatsApp Web pasó a guardar el id en "$1" y hubo
-  // lecturas que quedaron sin id. Si ahora llega con id, reemplaza a su copia.
-  const huella = (m) =>
-    `${m?.timestamp || 0}|${m?.fromMe ? 1 : 0}|${m?.type || 'chat'}|${m?.body || ''}`;
-  const conId = new Set(
-    (mensajes || [])
-      .filter((m) => m && m.id)
-      .map((m) => huella({ ...m, body: cuerpoLimpio(m.body || '', m.type || 'chat') }))
-  );
-  const previos = (Array.isArray(chat.mensajes) ? chat.mensajes : []).filter(
-    (m) => m?.id || !conId.has(huella(m))
-  );
-  const reemplazados = (chat.mensajes || []).length - previos.length;
-  const ids = new Set(previos.map((m) => m?.id).filter(Boolean));
-  const nuevos = (mensajes || [])
-    .filter((m) => m && (!m.id || !ids.has(m.id)))
-    .map((m) => ({
-      id: m.id || null,
-      fromMe: Boolean(m.fromMe),
-      body: cuerpoLimpio(m.body || '', m.type || 'chat'),
-      type: m.type || 'chat',
-      hasMedia: Boolean(m.hasMedia),
-      timestamp: Number(m.timestamp || 0) || null,
-      ack: m.ack ?? null,
-    }));
-  if (!nuevos.length) return 0;
-  chat.mensajes = [...previos, ...nuevos]
-    .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0))
-    .slice(-100);
+  const previos = Array.isArray(chat.mensajes) ? chat.mensajes : [];
+  const antes = new Set(previos.filter((m) => m?.id).map((m) => idCortoMensaje(m.id)));
+  const entrantes = (mensajes || []).filter(Boolean).map((m) => ({
+    id: m.id || null,
+    fromMe: Boolean(m.fromMe),
+    body: cuerpoLimpio(m.body || '', m.type || 'chat'),
+    type: m.type || 'chat',
+    hasMedia: Boolean(m.hasMedia),
+    timestamp: Number(m.timestamp || 0) || null,
+    ack: m.ack ?? null,
+  }));
+  const depurados = depurarMensajes([...previos, ...entrantes]);
+  // Nuevos: mensajes con id que antes no estaban (las copias sin id se reemplazan).
+  const nuevos = depurados.filter((m) => m.id && !antes.has(idCortoMensaje(m.id))).length;
+  const cambio = depurados.length !== previos.length || nuevos > 0;
+  if (!cambio) return 0;
+  chat.mensajes = depurados.slice(-100);
   const ultimo = chat.mensajes.at(-1);
   if ((ultimo.timestamp || 0) >= (chat.timestamp || 0)) {
     chat.timestamp = ultimo.timestamp;
@@ -302,7 +328,7 @@ function agregarHistorial(chats, numero, mensajes) {
     chat.tipo = ultimo.type;
     chat.fromMe = ultimo.fromMe;
   }
-  return nuevos.filter((m) => chat.mensajes.includes(m)).length;
+  return Math.max(nuevos, 1);
 }
 
 async function leerChatsConRespaldo(lecturaLigera, lecturaCompleta) {
@@ -342,6 +368,7 @@ module.exports = {
   mergeChats,
   appendChatMessage,
   agregarHistorial,
+  depurarMensajes,
   leerChatsConRespaldo,
   normalizarContactosLivianos,
   normalizarMapeosLid,

@@ -27,6 +27,7 @@ const {
   mergeChats,
   appendChatMessage,
   agregarHistorial,
+  depurarMensajes,
   leerChatsConRespaldo,
   normalizarContactosLivianos,
   normalizarMapeosLid,
@@ -3336,7 +3337,8 @@ async function correrFotos() {
   const sinFoto = leerJsonSeguro(ARCHIVO_FOTOS_OCULTAS, {});
   const limiteOculta = Date.now() - 7 * 86400000;
   const aPedir = resto.filter((c) => !(sinFoto[c.numero] > limiteOculta));
-  let ocultas = resto.length - aPedir.length;
+  const saltadas = resto.length - aPedir.length; // ocultas ya conocidas: no se piden
+  let ocultas = saltadas;
   let fallasSeguidas = 0;
   for (let i = 0; i < aPedir.length; i += 24) {
     if (motor.corriendo) break; // una campaña tiene prioridad: se retoma más tarde
@@ -3384,7 +3386,7 @@ async function correrFotos() {
   setTimeout(() => sincronizarHistorialPendiente('después de las fotos'), 5000);
   const conFoto = deMemoria + delServidor;
   registrarLog(
-    `📸 Fotos listas: ${conFoto} nuevas (${deMemoria} desde la memoria de WhatsApp, ${delServidor} pedidas al servidor) · ${ocultas} ocultan su foto · ${Math.max(0, fotosJob.total - fotosJob.hechos)} quedan para la próxima pasada.`
+    `📸 Fotos listas: ${conFoto} nuevas (${deMemoria} desde la memoria de WhatsApp, ${delServidor} pedidas al servidor) · ${ocultas} ocultan su foto · ${Math.max(0, fotosJob.total - fotosJob.hechos - saltadas)} quedan para la próxima pasada.`
   );
   emit('fotos', { tipo: 'fin', conFoto, sinFoto: fotosJob.total - conFoto });
 }
@@ -5511,12 +5513,34 @@ app.get('/api/contactos/exportar', (req, res) => {
   res.send(csv);
 });
 
+// Saca copias repetidas del mismo mensaje (id corto/completo, o sin id cuando ya
+// está la versión con id). Corre al arrancar.
+function depurarChatsGuardados() {
+  try {
+    const chats = leerJsonSeguro(ARCHIVO_CHATS, []);
+    let quitados = 0;
+    for (const chat of chats) {
+      if (!Array.isArray(chat?.mensajes) || !chat.mensajes.length) continue;
+      const limpios = depurarMensajes(chat.mensajes);
+      quitados += chat.mensajes.length - limpios.length;
+      chat.mensajes = limpios;
+    }
+    if (quitados) {
+      escribirJsonSeguro(ARCHIVO_CHATS, chats);
+      registrarLog(`🧹 Chats: ${quitados} mensajes repetidos quitados.`);
+    }
+  } catch (e) {
+    registrarLog(`⚠️ No se pudieron depurar los chats: ${e.message}`);
+  }
+}
+
 // ---------- Arranque ----------
 
 const servidor = app.listen(PORT, HOST, () => {
   console.log(`\n🍔 Panel Modo Sabor listo en: http://${HOST}:${PORT}\n`);
   marcarCampanasInterrumpidas();
   reconciliarProgramacion();
+  depurarChatsGuardados();
   hacerBackup('arranque del panel');
   iniciarWhatsApp();
 });

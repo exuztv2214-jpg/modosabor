@@ -310,6 +310,18 @@ void (async () => {
     ['x1']
   );
 
+  // El mismo mensaje con id corto y con id completo queda una sola vez.
+  const depurados = sync.depurarMensajes([
+    { id: 'A56DE3', body: 'hola', type: 'chat', timestamp: 10 },
+    { id: 'true_87@lid_A56DE3', body: 'hola', type: 'chat', timestamp: 10 },
+    { id: null, body: 'hola', type: 'chat', timestamp: 10 },
+    { id: null, body: 'otro', type: 'chat', timestamp: 11 },
+  ]);
+  assert.deepEqual(
+    depurados.map((m) => m.id),
+    ['true_87@lid_A56DE3', null]
+  );
+
   console.log('contact and chat sync: OK');
 })().catch((error) => {
   console.error(error);
