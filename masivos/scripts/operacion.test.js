@@ -155,6 +155,8 @@ function panel(t, env = {}) {
     MAX_POR_HORA: 0,
     DIAS_NO_ENVIO: [],
     REINTENTOS: 1,
+    HORARIO_ENVIO_DESDE: '',
+    HORARIO_ENVIO_HASTA: '',
   });
   fs.writeFileSync(path.join(root, 'data', 'mensaje-general.txt'), 'Promo');
   write('clientes.json', [
@@ -493,6 +495,8 @@ test('el motor conserva los envíos de toda la ventana configurada', async (t) =
     MAX_POR_HORA: 10,
     VENTANA_CUPO_MINUTOS: 120,
     DIAS_NO_ENVIO: [],
+    HORARIO_ENVIO_DESDE: '',
+    HORARIO_ENVIO_HASTA: '',
   });
   p.write(p.run('`envios-hora-${hoy()}.json`'), [Date.now() - 90 * 60000]);
   await p.run('motor.corriendo = true; correrEnvio(false)');
@@ -771,4 +775,37 @@ test('las fotos se piden en tandas y las ocultas no se repiten por 7 días', asy
   p.run('fotosJob.corriendo = false');
   await p.run('correrFotos()');
   assert.ok(!llamadas.slice(1).flat().includes('oculta@lid'), 'la oculta no se vuelve a pedir');
+});
+
+test('fuera del horario permitido no se prepara ni sigue una campaña real', (t) => {
+  const p = panel(t);
+  const cfg = JSON.parse(fs.readFileSync(path.join(p.root, 'data', 'config-override.json')));
+  p.write('config-override.json', {
+    ...cfg,
+    HORARIO_ENVIO_DESDE: '10:00',
+    HORARIO_ENVIO_HASTA: '22:00',
+  });
+  const dentro = p.run('fueraDeHorarioEnvio(getConfig(), new Date(2026, 9, 9, 15, 0))');
+  const fuera = p.run('fueraDeHorarioEnvio(getConfig(), new Date(2026, 9, 9, 23, 30))');
+  assert.equal(dentro, null);
+  assert.match(fuera, /10:00 a 22:00/);
+  // Horario que cruza la medianoche.
+  p.write('config-override.json', {
+    ...cfg,
+    HORARIO_ENVIO_DESDE: '20:00',
+    HORARIO_ENVIO_HASTA: '02:00',
+  });
+  assert.equal(p.run('fueraDeHorarioEnvio(getConfig(), new Date(2026, 9, 9, 1, 0))'), null);
+  assert.ok(p.run('fueraDeHorarioEnvio(getConfig(), new Date(2026, 9, 9, 12, 0))'));
+});
+
+test('el tope mensual deja afuera a quien ya recibió demasiadas promos', (t) => {
+  const p = panel(t);
+  p.run(`leerClientesEnriquecidos = () => [
+    { numero: 'a@c.us', segmentosAuto: [], metricas: { enviados30: 4 } },
+    { numero: 'b@c.us', segmentosAuto: [], metricas: { enviados30: 1 } },
+  ]`);
+  const calc = p.run('calcularObjetivoCampana(getConfig(), {})');
+  assert.deepEqual(Array.from(calc.objetivo.map((c) => c.numero)), ['b@c.us']);
+  assert.equal(calc.omitidosPorTope, 1);
 });

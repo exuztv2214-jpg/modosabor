@@ -87,6 +87,14 @@ module.exports = {
   PROGRAMACION_ACTIVA: false,
   PROGRAMACION_HORA: '10:30',
 
+  // Horario permitido para mandar promos (vacío = sin restricción). Una campaña que
+  // llega al final del horario se detiene; lo que falta queda para retomar.
+  HORARIO_ENVIO_DESDE: '10:00',
+  HORARIO_ENVIO_HASTA: '22:00',
+
+  // Máximo de promos que recibe cada contacto en 30 días (0 = sin tope).
+  MAX_PROMOS_POR_MES: 4,
+
   // ---------- Variaciones del mensaje ----------
   // {SALUDO} se reemplaza dentro de mensaje.txt. {NOMBRE} se reemplaza
   // por el primer nombre del contacto (si el chat tiene nombre).

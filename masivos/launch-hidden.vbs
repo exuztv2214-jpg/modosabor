@@ -44,4 +44,7 @@ If Not ready Then
   Next
 End If
 
-shell.Run url, 1, False
+' Con /inicio (arranque de Windows) sólo levanta el panel, sin abrir el navegador.
+If Not (WScript.Arguments.Count > 0 And LCase(WScript.Arguments(0)) = "/inicio") Then
+  shell.Run url, 1, False
+End If

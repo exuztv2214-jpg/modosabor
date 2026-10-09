@@ -352,6 +352,23 @@ function estadoTurnos() {
   };
 }
 
+// Devuelve un texto si ahora está fuera del horario permitido para promos, o null.
+// El horario puede cruzar la medianoche (por ejemplo 20:00 a 02:00).
+function fueraDeHorarioEnvio(config, fecha = new Date()) {
+  const desde = String(config.HORARIO_ENVIO_DESDE || '');
+  const hasta = String(config.HORARIO_ENVIO_HASTA || '');
+  const aMin = (t) => {
+    const m = /^(\d{2}):(\d{2})$/.exec(t);
+    return m ? Number(m[1]) * 60 + Number(m[2]) : null;
+  };
+  const d = aMin(desde);
+  const h = aMin(hasta);
+  if (d == null || h == null || d === h) return null;
+  const ahora = fecha.getHours() * 60 + fecha.getMinutes();
+  const dentro = d < h ? ahora >= d && ahora < h : ahora >= d || ahora < h;
+  return dentro ? null : `Fuera del horario permitido para promos (${desde} a ${hasta}).`;
+}
+
 function turnosDisponibles() {
   return !MODOSABOR_API_URL || estadoTurnos().vigente;
 }
@@ -1034,11 +1051,39 @@ function hacerBackup(motivo) {
     };
     estadoRespaldo.error = null;
     registrarLog(`💾 Respaldo verificado (${motivo}): ${manifiesto.archivos.length} archivos.`);
+    copiarRespaldoExterno(manifiesto.stamp);
     return manifiesto;
   } catch (e) {
     estadoRespaldo.error = e.message;
     registrarLog(`⚠️ No se pudo hacer el respaldo (${motivo}): ${e.message}`);
     return null;
+  }
+}
+
+// Copia fuera del disco del panel (por ejemplo OneDrive): un archivo por día con
+// todo el respaldo, se conservan los últimos 30. Si la PC se rompe, bajas,
+// campañas y contactos no se pierden. Se configura en local.env.
+const DIR_COPIA_EXTERNA = String(process.env.MASIVOS_COPIA_EXTERNA_DIR || '').trim();
+
+function copiarRespaldoExterno(stamp) {
+  if (!DIR_COPIA_EXTERNA) return;
+  try {
+    fs.mkdirSync(DIR_COPIA_EXTERNA, { recursive: true });
+    const destino = path.join(DIR_COPIA_EXTERNA, `masivos-respaldo-${hoy()}.json`);
+    const temporal = `${destino}.tmp`;
+    fs.writeFileSync(temporal, JSON.stringify(resguardo.exportarRespaldo(DIR_BACKUPS, stamp)));
+    fs.renameSync(temporal, destino);
+    const viejos = fs
+      .readdirSync(DIR_COPIA_EXTERNA)
+      .filter((f) => /^masivos-respaldo-\d{4}-\d{2}-\d{2}\.json$/.test(f))
+      .sort()
+      .reverse()
+      .slice(30);
+    for (const f of viejos) fs.rmSync(path.join(DIR_COPIA_EXTERNA, f), { force: true });
+    estadoRespaldo.externo = { archivo: path.basename(destino), creado: new Date().toISOString() };
+  } catch (e) {
+    estadoRespaldo.externo = { error: e.message };
+    registrarLog(`⚠️ No se pudo copiar el respaldo a ${DIR_COPIA_EXTERNA}: ${e.message}`);
   }
 }
 
@@ -1515,6 +1560,8 @@ function enriquecerCliente(cliente, contexto) {
     scoreAuto: score,
     metricas: {
       enviadosTotal: enviados.length,
+      // Promos recibidas en los últimos 30 días (para el tope por cliente).
+      enviados30: enviados.filter((fecha) => fecha >= sumarDias(hoy(), -30)).length,
       respondioTotal: respuestas.length,
       pidioTotal: respuestas.filter((r) => r.posiblePedido).length,
       ultimaRespuestaFecha: ultimaRespuesta ? ultimaRespuesta.fecha : null,
@@ -2578,6 +2625,10 @@ function calcularObjetivoCampana(config, opciones = {}) {
   const forzarFriosRecientes = !!opciones.forzarFriosRecientes;
   const incluirSinEntrega = !!opciones.incluirSinEntrega;
   let omitidosSinEntrega = 0;
+  let omitidosPorTope = 0;
+  // Tope de promos por cliente en 30 días: la causa principal de bloqueos son las
+  // quejas de quien recibe demasiadas, no la cantidad total enviada.
+  const topeMensual = numeroAcotado(config.MAX_PROMOS_POR_MES, 4, 0, 30);
   const candidatos = grupo
     ? clientes.filter((c) => grupo.numeros.includes(c.numero))
     : reintento
@@ -2588,6 +2639,10 @@ function calcularObjetivoCampana(config, opciones = {}) {
   const pendientes = ordenarPorPrioridadCampana(
     candidatos.filter((c) => {
       if (excluidos.has(c.numero) || pausados[c.numero] || enviadosHoy.has(c.numero)) return false;
+      if (topeMensual && !reintento && (c.metricas?.enviados30 || 0) >= topeMensual) {
+        omitidosPorTope++;
+        return false;
+      }
       // Nunca se entregó ninguna promo: posible bloqueo. Insistir sube el riesgo de baneo.
       if ((c.segmentosAuto || []).includes('sin_entrega') && !incluirSinEntrega) {
         omitidosSinEntrega++;
@@ -2627,6 +2682,8 @@ function calcularObjetivoCampana(config, opciones = {}) {
     forzarFriosRecientes,
     incluirSinEntrega,
     omitidosSinEntrega,
+    omitidosPorTope,
+    topeMensual,
   };
 }
 
@@ -2647,6 +2704,8 @@ function crearResumenCampana(simulacro, opciones = {}) {
     forzarFriosRecientes: !!calc.forzarFriosRecientes,
     incluirSinEntrega: !!calc.incluirSinEntrega,
     omitidosSinEntrega: calc.omitidosSinEntrega,
+    omitidosPorTope: calc.omitidosPorTope,
+    topeMensual: calc.topeMensual,
     totalClientes: calc.clientes.length,
     candidatos: calc.candidatos.length,
     pendientes: calc.pendientes.length,
@@ -2870,6 +2929,17 @@ async function correrEnvio(simulacro, opciones = {}) {
         esperaMin = minutosHastaCupoHora(maxHora, ventanaCupoMin);
       }
       if (motor.detener) break;
+    }
+
+    // Fuera del horario permitido se corta (no se espera a mañana): lo que falta
+    // queda como detenido para retomarlo cuando corresponda.
+    const fueraHorario = !simulacro && fueraDeHorarioEnvio(config);
+    if (fueraHorario) {
+      motor.detener = true;
+      registrarLog(
+        `⏰ ${fueraHorario} La campaña se detuvo; lo que falta se puede retomar desde Resultados.`
+      );
+      break;
     }
 
     if (simulacro) {
@@ -3766,6 +3836,9 @@ app.get('/api/config', (req, res) => {
     BAJA_RESPUESTA: c.BAJA_RESPUESTA || '',
     PROGRAMACION_ACTIVA: !!c.PROGRAMACION_ACTIVA,
     PROGRAMACION_HORA: c.PROGRAMACION_HORA || '10:30',
+    HORARIO_ENVIO_DESDE: c.HORARIO_ENVIO_DESDE ?? '10:00',
+    HORARIO_ENVIO_HASTA: c.HORARIO_ENVIO_HASTA ?? '22:00',
+    MAX_PROMOS_POR_MES: Number(c.MAX_PROMOS_POR_MES ?? 4),
     PROGRAMACION_SEGMENTO: c.PROGRAMACION_SEGMENTO || 'todos',
     DIAS_NO_ENVIO: Array.isArray(c.DIAS_NO_ENVIO) ? c.DIAS_NO_ENVIO : [],
     MAX_POR_HORA: Number(c.MAX_POR_HORA) || 0,
@@ -3792,6 +3865,7 @@ app.post('/api/config', (req, res) => {
     MAX_POR_HORA: [1, TOPE_POR_VENTANA],
     VENTANA_CUPO_MINUTOS: [1, 240],
     META_PEDIDOS_DIA: [1, 10000],
+    MAX_PROMOS_POR_MES: [0, 30],
   };
   for (const [k, [min, max]] of Object.entries(rangos)) {
     if (b[k] !== undefined && Number.isFinite(Number(b[k]))) {
@@ -3825,6 +3899,11 @@ app.post('/api/config', (req, res) => {
     override.BAJA_RESPUESTA = b.BAJA_RESPUESTA.trim();
   if (typeof b.PROGRAMACION_ACTIVA === 'boolean')
     override.PROGRAMACION_ACTIVA = b.PROGRAMACION_ACTIVA;
+  // Horario permitido para enviar. Vacío = sin restricción.
+  for (const k of ['HORARIO_ENVIO_DESDE', 'HORARIO_ENVIO_HASTA']) {
+    if (typeof b[k] === 'string' && (b[k] === '' || /^([01]\d|2[0-3]):[0-5]\d$/.test(b[k])))
+      override[k] = b[k];
+  }
   if (
     typeof b.PROGRAMACION_HORA === 'string' &&
     /^([01]\d|2[0-3]):[0-5]\d$/.test(b.PROGRAMACION_HORA)
@@ -5020,6 +5099,11 @@ app.post('/api/preparar-envio', (req, res) => {
   if (!simulacro && esDiaNoEnvio(cfgEnvio)) {
     return res.status(409).json({ error: 'Hoy es un día de NO envío.' });
   }
+  const fueraHorarioPrep = !simulacro && fueraDeHorarioEnvio(cfgEnvio);
+  if (fueraHorarioPrep)
+    return res
+      .status(409)
+      .json({ error: `${fueraHorarioPrep} Se cambia en Configuración → Horario permitido.` });
   if (!fs.existsSync(ARCHIVO_CLIENTES))
     return res.status(400).json({ error: 'No hay lista de clientes. Actualizala primero.' });
   const plantilla = fs.existsSync(ARCHIVO_MENSAJE)
@@ -5114,6 +5198,8 @@ app.post('/api/enviar', (req, res) => {
   if (!simulacro && esDiaNoEnvio(cfgEnvio)) {
     return res.status(409).json({ error: 'Hoy es un día de NO envío (se cambia en Config → 🛡️).' });
   }
+  const fueraHorarioEnvio = !simulacro && fueraDeHorarioEnvio(cfgEnvio);
+  if (fueraHorarioEnvio) return res.status(409).json({ error: fueraHorarioEnvio });
   if (!fs.existsSync(ARCHIVO_CLIENTES))
     return res.status(400).json({ error: 'No hay lista de clientes. Actualizala primero.' });
   const plantilla = fs.existsSync(ARCHIVO_MENSAJE)
@@ -5688,6 +5774,8 @@ function minutosDelDia(hhmm) {
 
 // Por qué no puede salir ahora una corrida automática (null si puede).
 function motivoBloqueoAutomatico(config, segmento) {
+  const horario = fueraDeHorarioEnvio(config);
+  if (horario) return horario.replace(/\.$/, '').toLowerCase();
   if (bloqueoIntegridad()) return 'no se pueden leer las bajas o pausas';
   if (!turnosDisponibles()) return 'los turnos del negocio no están sincronizados';
   if (config.MODO_SOLO_RESPUESTAS) return "modo 'solo respuestas' activo";

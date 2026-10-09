@@ -1,5 +1,15 @@
 # Bitácora de Masivos
 
+## 2026-10-09 — Protección del número y operación en la PC (Claude)
+
+- **Tope por cliente:** como máximo `MAX_PROMOS_POR_MES` promos (4 por defecto) en 30 días por contacto; el plan muestra cuántos se omitieron. No aplica a reintentos. Las guías coinciden en que el bloqueo viene de las quejas por exceso, no del volumen total.
+- **Horario permitido:** `HORARIO_ENVIO_DESDE`/`HASTA` (10:00 a 22:00 por defecto, puede cruzar la medianoche; vacío = sin límite). Fuera de horario no se prepara ni se inicia una campaña real (el simulacro sí) y la programación/agenda no salen; una campaña en curso se detiene al llegar al límite y lo que falta queda para retomar.
+- **Arranque con Windows:** `Startup/Masivos Modo Sabor.vbs` ejecuta `launch-hidden.vbs /inicio` (levanta el panel sin abrir el navegador; si ya corre, no hace nada).
+- **Copia diaria fuera de la PC:** con `MASIVOS_COPIA_EXTERNA_DIR` en `local.env` (hoy `OneDrive/ModoSabor-Masivos-respaldos`), cada respaldo verificado deja un JSON por día; se conservan 30. La tarjeta Respaldos muestra la última copia.
+- **Barras de progreso:** campaña con barra, porcentaje, dudosos y hora estimada de fin, visible en todas las pantallas; franja con sincronización, fotos e historial.
+- **Mensaje y saludos:** se quitó el saludo duplicado del mensaje guardado y la negrita `**` (WhatsApp usa `*`); el saludo automático respeta la hora.
+- Sistema principal: respaldos viejos del servidor descargados a la PC y borrados (disco 92% → 81%); `BACKUP_MIN_FILES=1` evita que vuelva a llenarse. El botón Masivos lleva al panel de la PC (`MASIVOS_PANEL_LOCAL_URL`).
+
 ## 2026-10-08 — Masivos pasa a la PC; fotos, historial y envío de imágenes (Claude)
 
 **Causa de fotos y chats que no cargaban en Railway:** el servicio tiene 1 GB de memoria (la cuenta no tiene facturación activa y Railway no permite subirlo) y la pestaña de WhatsApp Web sola usa ~770 MB. Chromium la mataba por memoria (`oom_kill`, 5469 eventos al tope) y toda orden del panel quedaba colgada con CPU en cero; recargar la revivía un minuto. Se descartó pagar. Masivos corre ahora en la PC del dueño:
