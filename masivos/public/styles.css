@@ -2877,3 +2877,71 @@ button.job-campaign {
   border-color: var(--brand-200);
   background: var(--brand-25);
 }
+
+/* ---------- Cupón de la campaña ---------- */
+.cupon-box {
+  padding: var(--s3) var(--s4);
+  border: 1px dashed var(--gray-300);
+  border-radius: var(--radius-md);
+  background: var(--gray-25);
+}
+.cupon-box.on {
+  border-color: var(--brand-200);
+  background: var(--brand-25);
+}
+.cupon-toggle {
+  display: flex;
+  gap: var(--s3);
+  align-items: flex-start;
+  cursor: pointer;
+}
+.cupon-toggle input {
+  margin-top: 4px;
+}
+.cupon-toggle b {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.cupon-toggle small {
+  display: block;
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+.cupon-campos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s4);
+  margin: var(--s3) 0 var(--s2);
+}
+.cupon-campos em {
+  align-self: center;
+  color: var(--text-muted);
+  font-style: normal;
+  font-size: var(--text-sm);
+}
+.cupon-resultado {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--s2);
+  padding: var(--s3);
+  border-radius: var(--radius-md);
+  background: var(--brand-25);
+  border: 1px solid var(--brand-100);
+}
+.cupon-resultado small,
+.cupon-resultado span {
+  display: block;
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+.cupon-resultado strong {
+  display: block;
+  font-size: var(--text-lg);
+  color: var(--text-strong);
+}
+@media (max-width: 720px) {
+  .cupon-resultado {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

@@ -35,7 +35,7 @@ const {
   esNombreGenerico,
 } = require('./contact-sync');
 const { nombreArchivoFoto, vincularFotosExistentes } = require('./photo-cache');
-const { armarMensaje, normalizarSegmento } = require('./mensaje');
+const { armarMensaje, normalizarSegmento, lineaCupon } = require('./mensaje');
 const { moverMediosAlVolumen } = require('./media');
 const { cruzarPedidos } = require('./pedidos-reales');
 const { senalesEntrega } = require('./entrega');
@@ -800,6 +800,54 @@ function leerPedidosPorContacto() {
   return new Map([...cruce].map(([numero, info]) => [resolver(numero), info]));
 }
 
+// ---------- Cupón por campaña ----------
+// El cupón se crea en el sistema (un uso por cliente) y su código va en cada
+// mensaje. Los pedidos que lo usan son ventas que se pueden atribuir a la promo.
+
+function normalizarCuponPedido(cupon) {
+  if (!cupon || typeof cupon !== 'object') return null;
+  const tipo = cupon.tipo === 'fijo' ? 'fijo' : 'porcentaje';
+  const valor = Number(cupon.valor);
+  if (!Number.isFinite(valor) || valor <= 0) return null;
+  if (tipo === 'porcentaje' && valor > 90) return null;
+  const dias = Math.min(60, Math.max(1, Math.round(Number(cupon.dias) || 3)));
+  return { tipo, valor, dias };
+}
+
+async function crearCuponCampana(cupon) {
+  const r = await fetch(`${MODOSABOR_API_URL}/api/masivos-datos/cupones`, {
+    method: 'POST',
+    headers: { 'x-masivos-proxy-token': PANEL_PROXY_TOKEN, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...cupon, descripcion: 'Promo WhatsApp (Masivos)' }),
+    signal: AbortSignal.timeout(15000),
+  });
+  const datos = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(datos.error || `el sistema respondió ${r.status}`);
+  return {
+    codigo: datos.codigo,
+    tipo: datos.tipo,
+    valor: datos.valor,
+    vence: datos.vence,
+    dias: cupon.dias,
+  };
+}
+
+async function leerCuponCampana(codigo) {
+  if (!codigo || !MODOSABOR_API_URL || !PANEL_PROXY_TOKEN) return null;
+  try {
+    const r = await fetch(
+      `${MODOSABOR_API_URL}/api/masivos-datos/cupones/${encodeURIComponent(codigo)}`,
+      {
+        headers: { 'x-masivos-proxy-token': PANEL_PROXY_TOKEN },
+        signal: AbortSignal.timeout(10000),
+      }
+    );
+    return r.ok ? await r.json() : null;
+  } catch (e) {
+    return null;
+  }
+}
+
 // Resultados de una campaña: sólo cuenta lo atribuido por ID de mensaje o por
 // respuesta en 48 h. "Pidieron" son contactos con un pedido real dentro de los dos
 // días siguientes: coincidencia en el tiempo, no prueba que pidieron por la promo.
@@ -879,6 +927,7 @@ function crearCampanaPersistente(simulacro, opciones, objetivo, config) {
     simulacro: !!simulacro,
     segmento: opciones.segmento || '',
     origen: opciones.origen || 'manual',
+    ...(opciones.cupon ? { cupon: opciones.cupon } : {}),
     estado: 'corriendo',
     config: {
       delayMinMs: config.DELAY_MIN_MS,
@@ -2703,6 +2752,7 @@ function crearResumenCampana(simulacro, opciones = {}) {
     segmento: calc.segmento || '',
     forzarFriosRecientes: !!calc.forzarFriosRecientes,
     incluirSinEntrega: !!calc.incluirSinEntrega,
+    cupon: normalizarCuponPedido(opciones.cupon),
     omitidosSinEntrega: calc.omitidosSinEntrega,
     omitidosPorTope: calc.omitidosPorTope,
     topeMensual: calc.topeMensual,
@@ -2773,6 +2823,10 @@ function validarConfirmacion(token, simulacro, segmento) {
 
 async function correrEnvio(simulacro, opciones = {}) {
   const config = getConfig();
+  // Con cupón, cada mensaje lleva su línea («🎟️ Con el código … tenés …»).
+  const configMensaje = opciones.cupon
+    ? { ...config, CUPON_TEXTO: lineaCupon(opciones.cupon) }
+    : config;
   const DELAY_MIN = numeroAcotado(config.DELAY_MIN_MS, 15000, 0, 300000);
   const DELAY_MAX = Math.max(DELAY_MIN, numeroAcotado(config.DELAY_MAX_MS, 45000, 0, 300000));
 
@@ -2828,7 +2882,7 @@ async function correrEnvio(simulacro, opciones = {}) {
   };
   const campana = crearCampanaPersistente(
     simulacro,
-    { segmento: calc.segmento, origen: opciones.origen },
+    { segmento: calc.segmento, origen: opciones.origen, cupon: opciones.cupon },
     objetivo,
     config
   );
@@ -2901,7 +2955,11 @@ async function correrEnvio(simulacro, opciones = {}) {
 
     const cliente = objetivo[i];
     const tagsCliente = tagsParaPlantilla(cliente, mapaTags);
-    const mensaje = armarMensaje(plantillaPara(tagsCliente, plantillas), cliente.nombre, config);
+    const mensaje = armarMensaje(
+      plantillaPara(tagsCliente, plantillas),
+      cliente.nombre,
+      configMensaje
+    );
     const etiqueta = `${cliente.numero} (${cliente.nombre || 'sin nombre'})`;
 
     // 🛡️ Límite por ventana: si no hay cupo, esperar a que lo haya
@@ -5046,6 +5104,7 @@ app.get('/api/campanas', (req, res) => {
             simulacro: c.simulacro,
             segmento: c.segmento,
             origen: c.origen || 'manual',
+            cupon: c.cupon ? c.cupon.codigo : null,
             stats: c.stats,
             resultados: resultadosCampana(c, pedidos),
           }
@@ -5058,10 +5117,12 @@ app.get('/api/campanas', (req, res) => {
   res.json({ campanas });
 });
 
-app.get('/api/campanas/:id', (req, res) => {
+app.get('/api/campanas/:id', async (req, res) => {
   const campana = leerCampana(req.params.id);
   if (!campana) return res.status(404).json({ error: 'Campaña no encontrada.' });
-  res.json({ ...campana, resultados: resultadosCampana(campana) });
+  const cuponResultados =
+    campana.cupon && !campana.simulacro ? await leerCuponCampana(campana.cupon.codigo) : null;
+  res.json({ ...campana, resultados: resultadosCampana(campana), cuponResultados });
 });
 
 // Los dudosos sólo los resuelve una persona, mirando el chat en el teléfono:
@@ -5125,10 +5186,20 @@ app.post('/api/preparar-envio', (req, res) => {
   const segmento = req.body && typeof req.body.segmento === 'string' ? req.body.segmento : '';
   const forzarFriosRecientes = !!(req.body && req.body.forzarFriosRecientes);
   const incluirSinEntrega = !!(req.body && req.body.incluirSinEntrega);
+  const cuponPedido = req.body && req.body.cupon;
+  if (cuponPedido && !normalizarCuponPedido(cuponPedido))
+    return res
+      .status(400)
+      .json({ error: 'Revisá el cupón: el descuento tiene que ser mayor a 0.' });
+  if (cuponPedido && (!MODOSABOR_API_URL || !PANEL_PROXY_TOKEN))
+    return res
+      .status(409)
+      .json({ error: 'Para usar cupones, Masivos tiene que estar conectado al sistema.' });
   const resumen = crearResumenCampana(simulacro, {
     segmento,
     forzarFriosRecientes,
     incluirSinEntrega,
+    cupon: cuponPedido,
   });
   res.json(resumen);
 });
@@ -5191,7 +5262,7 @@ app.post('/api/enviar-prueba', async (req, res) => {
   }
 });
 
-app.post('/api/enviar', (req, res) => {
+app.post('/api/enviar', async (req, res) => {
   if (estadoWA.estado !== 'listo')
     return res.status(409).json({ error: 'WhatsApp no está listo.' });
   if (motor.corriendo) return res.status(409).json({ error: 'Ya hay una corrida en curso.' });
@@ -5234,17 +5305,36 @@ app.post('/api/enviar', (req, res) => {
   }
   const forzarFriosRecientes = !!(confirmacionCampana && confirmacionCampana.forzarFriosRecientes);
   const incluirSinEntrega = !!(confirmacionCampana && confirmacionCampana.incluirSinEntrega);
+  const cuponPedido = confirmacionCampana && confirmacionCampana.cupon;
+  let cupon = null;
+  if (cuponPedido) {
+    // En el simulacro no se crea nada en el sistema: se usa un código de ejemplo.
+    if (simulacro)
+      cupon = { ...cuponPedido, codigo: 'MSEJEMP', vence: sumarDias(hoy(), cuponPedido.dias - 1) };
+    else {
+      try {
+        cupon = await crearCuponCampana(cuponPedido);
+        registrarLog(`🎟️ Cupón ${cupon.codigo} creado para la campaña.`);
+      } catch (e) {
+        return res
+          .status(502)
+          .json({ error: `No se pudo crear el cupón: ${e.message}. No se envió nada.` });
+      }
+    }
+  }
   motor.corriendo = true;
   motor.pausado = false;
   motor.detener = false;
   confirmacionCampana = null;
   emitirMotor();
-  correrEnvio(simulacro, { segmento, forzarFriosRecientes, incluirSinEntrega }).catch((e) => {
-    motor.corriendo = false;
-    registrarLog(`❌ Error en la corrida: ${e.message}`);
-    emit('fin', { ...motor.stats, error: e.message });
-    emitirMotor();
-  });
+  correrEnvio(simulacro, { segmento, forzarFriosRecientes, incluirSinEntrega, cupon }).catch(
+    (e) => {
+      motor.corriendo = false;
+      registrarLog(`❌ Error en la corrida: ${e.message}`);
+      emit('fin', { ...motor.stats, error: e.message });
+      emitirMotor();
+    }
+  );
   res.json({ ok: true });
 });
 

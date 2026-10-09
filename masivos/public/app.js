@@ -48,6 +48,8 @@ const state = {
   logs: [],
   campaignStep: 1,
   incluirSinEntrega: false,
+  // Cupón de la campaña: el código se crea en el sistema recién al enviar.
+  cupon: { activo: false, tipo: 'porcentaje', valor: 10, dias: 3 },
   contactsLimit: 60,
   chatsLimit: 80,
   historyRequested: {},
@@ -814,6 +816,23 @@ function riesgoEntrega(s) {
 }
 
 // Paso 4: chequeos calculados con el estado real; nada está tildado de antemano.
+// Cupón de esta promo: un código único por campaña, un uso por cliente. Sirve
+// para saber con números cuánto vendió: Resultados muestra los pedidos que lo usaron.
+function cuponMarkup() {
+  const c = state.cupon || {};
+  const conectado = state.status?.pedidosReales?.configurado;
+  return `<div class="cupon-box section-gap ${c.activo ? 'on' : ''}"><label class="cupon-toggle"><input type="checkbox" id="cupon-activo" ${c.activo ? 'checked' : ''} ${conectado ? '' : 'disabled'}><span><b>${icon('confirmation_number')} Agregar un cupón de descuento</b><small>${conectado ? 'Se crea un código único al enviar (un uso por cliente) y en Resultados ves cuántos lo usaron y cuánto vendieron.' : 'Disponible cuando Masivos está conectado al sistema.'}</small></span></label>${c.activo ? `<div class="cupon-campos"><label class="field"><span>Descuento</span><span class="inline-inputs"><select id="cupon-tipo" aria-label="Tipo de descuento"><option value="porcentaje" ${c.tipo !== 'fijo' ? 'selected' : ''}>%</option><option value="fijo" ${c.tipo === 'fijo' ? 'selected' : ''}>$</option></select><input id="cupon-valor" type="number" min="1" max="${c.tipo === 'fijo' ? 100000 : 90}" value="${esc(c.valor)}" aria-label="Valor del descuento"></span></label><label class="field"><span>Vale por</span><span class="inline-inputs"><input id="cupon-dias" type="number" min="1" max="60" value="${esc(c.dias)}" aria-label="Días"><em>días</em></span></label></div><p class="stat-foot">Así se ve en el mensaje: ${waFormat(esc(lineaCuponPanel({ codigo: 'MSXXXXX', ...c })))}</p>` : ''}</div>`;
+}
+
+function lineaCuponPanel({ codigo, tipo, valor, dias }) {
+  const fin = new Date(Date.now() + (Math.max(1, Number(dias) || 1) - 1) * 86400000);
+  const descuento =
+    tipo === 'fijo'
+      ? `${Number(valor || 0).toLocaleString('es-AR')} de descuento`
+      : `${Number(valor || 0)}% off`;
+  return `🎟️ Con el código *${codigo}* tenés ${descuento} hasta el ${String(fin.getDate()).padStart(2, '0')}/${String(fin.getMonth() + 1).padStart(2, '0')}.`;
+}
+
 function reviewStep() {
   const cfg = state.config || {};
   const connected = state.status?.whatsapp === 'listo';
@@ -876,7 +895,7 @@ function reviewStep() {
     )
     .join('');
   const ocupado = state.motor?.corriendo;
-  return `${cardHead('Revisar y enviar', 'Primero hacé un simulacro o mandate una prueba; el envío real pide confirmación.')}<div class="checks">${rows}</div><div class="card-foot"><button class="button secondary" data-action="test" ${ocupado ? 'disabled' : ''}>${icon('send_to_mobile')}Enviar prueba a mi WhatsApp</button><button class="button secondary" data-action="simulate" ${ocupado ? 'disabled' : ''}>${icon('play_circle')}Hacer simulacro</button><button class="button secondary" data-action="schedule-campaign">${icon('event')}Agendar para otro momento</button><button class="button primary" data-action="dispatch" ${ocupado ? 'disabled' : ''}>${icon('fact_check')}Preparar y revisar envío</button></div>${ocupado ? `<p class="notice warn section-gap">${icon('hourglass_top')}<span>Hay una campaña en curso: esperá a que termine o detenela.</span></p>` : ''}`;
+  return `${cardHead('Revisar y enviar', 'Primero hacé un simulacro o mandate una prueba; el envío real pide confirmación.')}<div class="checks">${rows}</div>${cuponMarkup()}<div class="card-foot"><button class="button secondary" data-action="test" ${ocupado ? 'disabled' : ''}>${icon('send_to_mobile')}Enviar prueba a mi WhatsApp</button><button class="button secondary" data-action="simulate" ${ocupado ? 'disabled' : ''}>${icon('play_circle')}Hacer simulacro</button><button class="button secondary" data-action="schedule-campaign">${icon('event')}Agendar para otro momento</button><button class="button primary" data-action="dispatch" ${ocupado ? 'disabled' : ''}>${icon('fact_check')}Preparar y revisar envío</button></div>${ocupado ? `<p class="notice warn section-gap">${icon('hourglass_top')}<span>Hay una campaña en curso: esperá a que termine o detenela.</span></p>` : ''}`;
 }
 
 function pedidosRealesBadge() {
@@ -906,7 +925,7 @@ function campaignPlanMarkup() {
   const plan = state.campaignPlan;
   if (!plan) return '';
   const executeAction = plan.simulacro ? 'run-simulation' : 'run-campaign';
-  return `${cardHead(plan.simulacro ? 'Simulacro listo' : 'Envío listo para confirmar', `${esc(segmentLabel(plan.segmento))}. Todavía no salió ningún mensaje.`, `<span class="badge ${plan.simulacro ? '' : 'red'}">${plan.simulacro ? 'Simulacro' : 'Envío real'}</span>`)}<div class="kv"><div><small>Destinatarios</small><strong>${fmt(plan.total || 0)}</strong></div><div><small>Tandas</small><strong>${fmt(plan.config?.tandas || 1)}</strong></div><div><small>Pausa</small><strong>${fmt(plan.config?.delayMinSeg)}–${fmt(plan.config?.delayMaxSeg)} s</strong></div></div>${plan.omitidosSinEntrega ? `<p class="notice section-gap">${icon('shield')}<span>Se omitieron ${fmt(plan.omitidosSinEntrega)} posibles bloqueos (promos que nunca se entregaron).</span></p>` : ''}${plan.omitidosPorTope ? `<p class="notice section-gap">${icon('event_busy')}<span>Se omitieron ${fmt(plan.omitidosPorTope)} contactos que ya recibieron ${fmt(plan.topeMensual)} promos en los últimos 30 días.</span></p>` : ''}<div class="card-foot"><button class="button ghost" data-action="clear-plan">Cancelar</button><button class="button ${plan.simulacro ? 'secondary' : 'primary'}" data-action="${executeAction}">${icon(plan.simulacro ? 'play_circle' : 'send')}${plan.simulacro ? 'Ejecutar simulacro' : 'Enviar ahora'}</button></div>`;
+  return `${cardHead(plan.simulacro ? 'Simulacro listo' : 'Envío listo para confirmar', `${esc(segmentLabel(plan.segmento))}. Todavía no salió ningún mensaje.`, `<span class="badge ${plan.simulacro ? '' : 'red'}">${plan.simulacro ? 'Simulacro' : 'Envío real'}</span>`)}<div class="kv"><div><small>Destinatarios</small><strong>${fmt(plan.total || 0)}</strong></div><div><small>Tandas</small><strong>${fmt(plan.config?.tandas || 1)}</strong></div><div><small>Pausa</small><strong>${fmt(plan.config?.delayMinSeg)}–${fmt(plan.config?.delayMaxSeg)} s</strong></div></div>${plan.omitidosSinEntrega ? `<p class="notice section-gap">${icon('shield')}<span>Se omitieron ${fmt(plan.omitidosSinEntrega)} posibles bloqueos (promos que nunca se entregaron).</span></p>` : ''}${plan.cupon ? `<p class="notice section-gap">${icon('confirmation_number')}<span>Lleva cupón de <b>${plan.cupon.tipo === 'fijo' ? `${fmt(plan.cupon.valor)}` : `${fmt(plan.cupon.valor)}%`}</b> por ${fmt(plan.cupon.dias)} día(s). ${plan.simulacro ? 'En el simulacro se usa un código de ejemplo.' : 'El código se crea al confirmar el envío.'}</span></p>` : ''}${plan.omitidosPorTope ? `<p class="notice section-gap">${icon('event_busy')}<span>Se omitieron ${fmt(plan.omitidosPorTope)} contactos que ya recibieron ${fmt(plan.topeMensual)} promos en los últimos 30 días.</span></p>` : ''}<div class="card-foot"><button class="button ghost" data-action="clear-plan">Cancelar</button><button class="button ${plan.simulacro ? 'secondary' : 'primary'}" data-action="${executeAction}">${icon(plan.simulacro ? 'play_circle' : 'send')}${plan.simulacro ? 'Ejecutar simulacro' : 'Enviar ahora'}</button></div>`;
 }
 
 function contactMatchesFilter(contact, filter) {
@@ -1477,6 +1496,20 @@ function campaignsTable() {
     .join('')}</tbody></table></div>`;
 }
 
+function cuponResultadoMarkup(c) {
+  if (!c.cupon) return '';
+  const r = c.cuponResultados;
+  const desc = c.cupon.tipo === 'fijo' ? `${fmt(c.cupon.valor)}` : `${fmt(c.cupon.valor)}%`;
+  if (!r)
+    return `<p class="notice section-gap">${icon('confirmation_number')}<span>Cupón <b>${esc(c.cupon.codigo)}</b> (${desc}). No se pudieron leer sus usos ahora.</span></p>`;
+  return `<div class="cupon-resultado section-gap"><div><small>Cupón</small><strong>${esc(r.codigo)}</strong><span>${desc} · vence ${esc(
+    String(r.vence || '')
+      .split('-')
+      .reverse()
+      .join('/')
+  )}</span></div><div><small>Lo usaron</small><strong>${fmt(r.usos)}</strong><span>pedidos</span></div><div><small>Vendido con el cupón</small><strong>${fmt(Math.round(r.plataVendida))}</strong><span>en esos pedidos</span></div><div><small>Descontado</small><strong>${fmt(Math.round(r.plataDescontada))}</strong><span>lo que costó la promo</span></div></div>`;
+}
+
 function campaignFunnel(c) {
   const r = c.resultados || {};
   if (c.simulacro || !r.enviados) return '';
@@ -1534,7 +1567,7 @@ function campaignDetailCard() {
     return `<tr><td><div class="person"><div><strong>${esc(d.nombre || 'Sin nombre')}</strong><small>${esc(d.numero)}</small></div></div></td><td><span class="badge ${tono}">${esc(DESTINATARIO_ESTADOS[d.estado] || d.estado)}</span>${extra ? `<br><small class="stat-foot">${esc(extra)}</small>` : ''}</td><td class="hide-sm"><small class="stat-foot">${esc(d.error || '')}</small></td></tr>`;
   };
   return card(
-    `${cardHead(`Campaña del ${esc(campaignTime(c.inicio))}`, `${esc(segmentLabel(c.segmento))} · pausa ${Math.round(Number(c.config?.delayMinMs || 0) / 1000)}–${Math.round(Number(c.config?.delayMaxMs || 0) / 1000)} s`, `<button class="button ghost icon" data-action="close-campaign-detail" aria-label="Cerrar detalle">${icon('close')}</button>`)}${avisoCortada}${campaignFunnel(c)}${avisoDudosos}<div class="recipient-list">${destinatarios.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Contacto</th><th>Estado</th><th class="hide-sm">Motivo</th></tr></thead><tbody>${destinatarios.map(fila).join('')}</tbody></table></div>` : empty('group_off', 'Sin destinatarios', 'No había nadie pendiente.')}</div>${reintento ? `<div class="card-foot">${reintento}</div>` : ''}`,
+    `${cardHead(`Campaña del ${esc(campaignTime(c.inicio))}`, `${esc(segmentLabel(c.segmento))} · pausa ${Math.round(Number(c.config?.delayMinMs || 0) / 1000)}–${Math.round(Number(c.config?.delayMaxMs || 0) / 1000)} s`, `<button class="button ghost icon" data-action="close-campaign-detail" aria-label="Cerrar detalle">${icon('close')}</button>`)}${avisoCortada}${campaignFunnel(c)}${cuponResultadoMarkup(c)}${avisoDudosos}<div class="recipient-list">${destinatarios.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Contacto</th><th>Estado</th><th class="hide-sm">Motivo</th></tr></thead><tbody>${destinatarios.map(fila).join('')}</tbody></table></div>` : empty('group_off', 'Sin destinatarios', 'No había nadie pendiente.')}</div>${reintento ? `<div class="card-foot">${reintento}</div>` : ''}`,
     'section-gap'
   );
 }
@@ -1722,6 +1755,10 @@ function previewMessage() {
     ? cuerpo.replace(/\{SALUDO\}/gi, saludo)
     : `${saludo}\n\n${cuerpo}`;
   texto = texto.replace(/\{NOMBRE\}/gi, 'Cliente');
+  if (state.cupon?.activo)
+    texto += `
+
+${lineaCuponPanel({ codigo: 'MSXXXXX', ...state.cupon })}`;
   const url = String(c.LINK_PEDIDO_URL || '').trim();
   if (c.LINK_PEDIDO_ACTIVO !== false && url && !texto.includes(url))
     texto += `\n\n${String(c.LINK_PEDIDO_TEXTO || '🛒 *Pedí ahora* 👉').trim()} ${url}`;
@@ -2506,7 +2543,20 @@ async function action(name, value, data = {}) {
       });
       const plan = await api('/api/preparar-envio', {
         method: 'POST',
-        body: JSON.stringify({ simulacro, segmento, incluirSinEntrega: !!state.incluirSinEntrega }),
+        body: JSON.stringify({
+          simulacro,
+          segmento,
+          incluirSinEntrega: !!state.incluirSinEntrega,
+          ...(state.cupon?.activo
+            ? {
+                cupon: {
+                  tipo: state.cupon.tipo,
+                  valor: Number(state.cupon.valor),
+                  dias: Number(state.cupon.dias),
+                },
+              }
+            : {}),
+        }),
       });
       state.campaignPlan = plan;
       state.route = 'campana';
@@ -3080,6 +3130,18 @@ document.addEventListener('change', async (event) => {
   }
   if (event.target.id === 'incluir-sin-entrega') {
     state.incluirSinEntrega = event.target.checked;
+    return;
+  }
+  if (['cupon-activo', 'cupon-tipo', 'cupon-valor', 'cupon-dias'].includes(event.target.id)) {
+    const c = { ...(state.cupon || {}) };
+    if (event.target.id === 'cupon-activo') c.activo = event.target.checked;
+    if (event.target.id === 'cupon-tipo') c.tipo = event.target.value;
+    if (event.target.id === 'cupon-valor') c.valor = Number(event.target.value) || 0;
+    if (event.target.id === 'cupon-dias')
+      c.dias = Math.min(60, Math.max(1, Number(event.target.value) || 1));
+    state.cupon = c;
+    state.campaignPlan = null;
+    render();
     return;
   }
   if (event.target.id === 'campaign-group') {

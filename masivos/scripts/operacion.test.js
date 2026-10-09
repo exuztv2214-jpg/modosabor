@@ -809,3 +809,56 @@ test('el tope mensual deja afuera a quien ya recibió demasiadas promos', (t) =>
   assert.deepEqual(Array.from(calc.objetivo.map((c) => c.numero)), ['b@c.us']);
   assert.equal(calc.omitidosPorTope, 1);
 });
+
+test('una campaña con cupón lo crea en el sistema y lo pone en cada mensaje', async (t) => {
+  const p = panel(t, { MODOSABOR_API_URL: 'http://sistema', MASIVOS_PROXY_TOKEN: 'prueba' });
+  p.write('turnos-negocio.json', {
+    actualizado: new Date().toISOString(),
+    turnos: [{ id: 'todo', desde: '00:00', hasta: '23:59' }],
+  });
+  const pedidos = [];
+  p.context.fetch = async (url, opciones = {}) => {
+    pedidos.push(String(url));
+    if (String(url).endsWith('/api/masivos-datos/cupones'))
+      return {
+        ok: true,
+        status: 201,
+        json: async () => ({
+          codigo: 'MSTEST7',
+          tipo: 'porcentaje',
+          valor: 10,
+          vence: '2026-10-12',
+        }),
+      };
+    return { ok: true, json: async () => ({ clientes: [], turnos: [] }) };
+  };
+  const textos = [];
+  p.context.whatsapp.sendMessage = async (numero, contenido, opciones = {}) => {
+    textos.push(String(opciones.caption || contenido));
+    p.sent.push(numero);
+    return {};
+  };
+  const plan = p.request('/api/preparar-envio', {
+    simulacro: false,
+    cupon: { tipo: 'porcentaje', valor: 10, dias: 3 },
+  });
+  assert.equal(plan.status, 200);
+  assert.deepEqual({ ...plan.body.cupon }, { tipo: 'porcentaje', valor: 10, dias: 3 });
+  const envio = p.request('/api/enviar', { simulacro: false, token: plan.body.token });
+  await envio;
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  assert.ok(
+    pedidos.some((u) => u.endsWith('/api/masivos-datos/cupones')),
+    'creó el cupón'
+  );
+  assert.ok(textos.length > 0);
+  assert.ok(
+    textos.every((texto) =>
+      texto.includes('🎟️ Con el código *MSTEST7* tenés 10% off hasta el 12/10.')
+    )
+  );
+  const campana = JSON.parse(
+    p.run('JSON.stringify(leerCampana(fs.readdirSync(DIR_CAMPANAS)[0].replace(".json", "")))')
+  );
+  assert.equal(campana.cupon.codigo, 'MSTEST7');
+});

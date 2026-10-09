@@ -49,6 +49,9 @@ function armarMensaje(plantilla, nombre, config, hora = horaLocal()) {
   mensaje = mensaje.replace(/\{NOMBRE\}/gi, nombreCorto);
   // Variables que el editor ofreció en versiones anteriores y nunca tuvieron dato.
   mensaje = mensaje.replace(/\{(?:ULTIMO_PEDIDO|MENU_LINK)\}/gi, '');
+  // Cupón de la campaña: una línea propia, antes del enlace para pedir.
+  const cupon = String(config.CUPON_TEXTO || '').trim();
+  if (cupon) mensaje = `${mensaje}\n\n${cupon}`;
   // "Botón" de pedido: WhatsApp no muestra botones reales por esta conexión (sólo
   // por la API paga de Meta), así que va una línea con el enlace, que se toca igual.
   const url = String(config.LINK_PEDIDO_URL || '').trim();
@@ -65,10 +68,33 @@ function armarMensaje(plantilla, nombre, config, hora = horaLocal()) {
     .trim();
 }
 
+/**
+ * La línea del cupón: «🎟️ Con el código *MS7KQ2P* tenés 10% off hasta el 12/10».
+ * `vence` es AAAA-MM-DD.
+ */
+function lineaCupon({ codigo, tipo, valor, vence }) {
+  if (!codigo) return '';
+  const descuento =
+    tipo === 'fijo'
+      ? `$${Number(valor).toLocaleString('es-AR')} de descuento`
+      : `${Number(valor)}% off`;
+  const hasta = /^\d{4}-\d{2}-\d{2}$/.test(String(vence || ''))
+    ? ` hasta el ${vence.slice(8, 10)}/${vence.slice(5, 7)}`
+    : '';
+  return `🎟️ Con el código *${codigo}* tenés ${descuento}${hasta}.`;
+}
+
 // "todos" (o vacío) es la base completa habilitada, no un segmento automático.
 function normalizarSegmento(segmento) {
   const valor = String(segmento || '').trim();
   return valor === 'todos' ? '' : valor;
 }
 
-module.exports = { azar, primerNombre, armarMensaje, normalizarSegmento, saludosParaHora };
+module.exports = {
+  azar,
+  primerNombre,
+  armarMensaje,
+  normalizarSegmento,
+  saludosParaHora,
+  lineaCupon,
+};
