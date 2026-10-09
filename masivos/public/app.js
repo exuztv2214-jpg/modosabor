@@ -518,10 +518,29 @@ function progressBar(pct, tono = '') {
 }
 
 // Franja con los trabajos en segundo plano (fotos, historial, sincronización).
+// Envío en curso, visible en cualquier pantalla. En Inicio y Campaña ya está la
+// tarjeta grande, así que ahí no se repite.
+function campaignStripItem() {
+  const m = state.motor || {};
+  if (!m.corriendo || ['inicio', 'campana'].includes(state.route)) return '';
+  const s = m.stats || {};
+  const total = Number(s.total || 0);
+  const hechos = Number(s.hechos || 0);
+  const pct = total ? (hechos / total) * 100 : 0;
+  const titulo = m.pausado
+    ? 'Campaña en pausa'
+    : s.simulacro
+      ? 'Simulacro en curso'
+      : 'Enviando campaña';
+  const eta = campaignEta();
+  return `<button class="job job-campaign" data-route="inicio"><span class="job-icon">${icon(m.pausado ? 'pause' : 'send')}</span><div class="job-body"><div class="job-head"><strong>${esc(titulo)}</strong><small>${fmt(hechos)} de ${fmt(total)}${eta ? ` · ${esc(eta.replace('Termina aprox. a las', 'fin'))}` : ''}</small></div>${progressBar(pct, m.pausado ? 'amber' : '')}</div></button>`;
+}
+
 function jobsStrip() {
   const activos = Object.entries(state.jobs || {}).filter(([, j]) => j && j.activo);
-  if (!activos.length) return '';
-  return `<div class="jobs-strip" aria-live="polite">${activos
+  const campana = campaignStripItem();
+  if (!activos.length && !campana) return '';
+  return `<div class="jobs-strip" aria-live="polite">${campana}${activos
     .map(([clave, j]) => {
       const [iconName, texto] = JOB_LABELS[clave] || ['autorenew', clave];
       const total = Number(j.total || 0);
@@ -2031,7 +2050,9 @@ function connectLive() {
   // Motor de envío en vivo: progreso, esperas, tandas y log.
   const liveRender = () => {
     syncShell();
-    if (state.route === 'inicio' || state.route === 'campana') render();
+    if (state.route === 'inicio' || state.route === 'campana') return render();
+    // En las demás pantallas se actualiza sólo la franja (no se corta lo que se escribe).
+    actualizarJob('_campana', {});
   };
   stream.addEventListener('motor', (event) => {
     const info = JSON.parse(event.data || '{}');

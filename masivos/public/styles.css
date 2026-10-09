@@ -2868,3 +2868,12 @@ button.quick-reply.add .material-symbols-outlined {
   color: var(--text-muted);
   white-space: nowrap;
 }
+button.job-campaign {
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  border-color: var(--brand-200);
+  background: var(--brand-25);
+}
