@@ -38,6 +38,21 @@ const CADA_SEGUNDOS = 20;
 const leer = () => chrome.storage.local.get(['servidor', 'clave', 'ultimo', 'ultimoError']);
 const guardar = (datos) => chrome.storage.local.set(datos);
 
+/*
+  Opciones de la ventanita. Por omisión: la pestaña de publicar queda en
+  segundo plano y hay avisos de Windows al publicar o al fallar.
+*/
+const OPCIONES_POR_OMISION = { verPestana: false, avisos: true };
+async function opciones() {
+  const { opciones: guardadas } = await chrome.storage.local.get(['opciones']);
+  return { ...OPCIONES_POR_OMISION, ...(guardadas || {}) };
+}
+
+/* Hasta cuántas fotos y de qué tamaño. Facebook acepta más, pero cada foto
+   viaja dentro de la página y conviene no pasar de esto. */
+const MAX_FOTOS = 10;
+const MAX_BYTES_FOTO = 8 * 1024 * 1024;
+
 async function pedir(ruta, cuerpo) {
   const { servidor, clave } = await leer();
   if (!servidor || !clave) throw new Error('SIN_VINCULAR');
@@ -48,6 +63,8 @@ async function pedir(ruta, cuerpo) {
       'Content-Type': 'application/json',
       'x-social-worker-key': clave,
       'x-social-worker-code': 'chrome-extension',
+      /* Versión 2: sabe subir fotos a los posteos. */
+      'x-social-worker-media': '1',
     },
     body: JSON.stringify(cuerpo || {}),
   });
@@ -65,6 +82,90 @@ async function pedir(ruta, cuerpo) {
   const datos = await respuesta.json().catch(() => ({}));
   if (!respuesta.ok) throw new Error(datos.error || `El panel respondió ${respuesta.status}`);
   return datos;
+}
+
+/**
+ * Baja una foto de la campaña desde el panel y la devuelve en base64, que es
+ * como puede viajar hasta la página de Facebook.
+ */
+async function bajarFoto({ id, nombre, mime }) {
+  const { servidor, clave } = await leer();
+  const respuesta = await fetch(`${servidor.replace(/\/+$/, '')}/media/${id}`, {
+    headers: { 'x-social-worker-key': clave, 'x-social-worker-code': 'chrome-extension' },
+  });
+  if (!respuesta.ok)
+    throw new Error(`No pude bajar la foto «${nombre || id}» (${respuesta.status}).`);
+  const bytes = new Uint8Array(await respuesta.arrayBuffer());
+  if (bytes.length > MAX_BYTES_FOTO) {
+    throw new Error(`La foto «${nombre || id}» pesa más de 8 MB: achicala antes de publicarla.`);
+  }
+  let binario = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    binario += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  }
+  return {
+    nombre: nombre || `foto-${id}.jpg`,
+    mime: mime || respuesta.headers.get('content-type') || 'image/jpeg',
+    base64: btoa(binario),
+  };
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+   Avisos, insignia y contadores del día
+   ──────────────────────────────────────────────────────────────────────────── */
+
+const hoyLocal = () => new Date().toLocaleDateString('en-CA');
+
+async function contadores() {
+  const { contadores: c } = await chrome.storage.local.get(['contadores']);
+  return c && c.fecha === hoyLocal() ? c : { fecha: hoyLocal(), publicadas: 0, fallidas: 0 };
+}
+
+async function sumar(campo) {
+  const c = await contadores();
+  c[campo] = (c[campo] || 0) + 1;
+  await guardar({ contadores: c });
+  await actualizarInsignia();
+}
+
+/**
+ * La insignia del ícono dice el estado sin abrir nada: cuántas publicó hoy,
+ * «!» si lo último falló, «II» si está pausada.
+ */
+async function actualizarInsignia() {
+  const { clave, pausada, ultimoError } = await chrome.storage.local.get([
+    'clave',
+    'pausada',
+    'ultimoError',
+  ]);
+  const c = await contadores();
+  let texto = '';
+  let color = '#12b76a';
+  if (!clave) {
+    texto = '?';
+    color = '#98a2b3';
+  } else if (pausada) {
+    texto = 'II';
+    color = '#f79009';
+  } else if (ultimoError) {
+    texto = '!';
+    color = '#e3242b';
+  } else if (c.publicadas) {
+    texto = String(c.publicadas);
+  }
+  await chrome.action.setBadgeText({ text: texto });
+  await chrome.action.setBadgeBackgroundColor({ color });
+}
+
+async function avisar(titulo, mensaje) {
+  if (!(await opciones()).avisos) return;
+  chrome.notifications.create({
+    type: 'basic',
+    iconUrl: 'icons/icono-128.png',
+    title: titulo,
+    message: String(mensaje || '').slice(0, 240),
+    priority: 1,
+  });
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -113,8 +214,8 @@ async function vincular({ servidor, codigo }) {
  *
  * Se abre en segundo plano (`active: false`) por el mismo motivo.
  */
-async function enUnaPestana(url, funcion, argumentos = []) {
-  const pestana = await chrome.tabs.create({ url, active: false });
+async function enUnaPestana(url, funcion, argumentos = [], { visible = false } = {}) {
+  const pestana = await chrome.tabs.create({ url, active: visible });
 
   try {
     await esperarCarga(pestana.id);
@@ -710,7 +811,7 @@ async function leerGruposEnLaPagina() {
  * publicó. Es la diferencia entre "revisá el grupo" y creer que salió algo que
  * nunca salió.
  */
-async function publicarEnLaPagina(texto) {
+async function publicarEnLaPagina(texto, fotos = []) {
   const dormir = (ms) => new Promise((r) => setTimeout(r, ms));
 
   const buscarPorTexto = (selector, patron) =>
@@ -809,6 +910,80 @@ async function publicarEnLaPagina(texto) {
   if (!caja)
     return { ok: false, motivo: 'Se abrió el compositor pero nunca apareció dónde escribir.' };
 
+  /*
+    2 bis. Las fotos.
+
+    Se cargan en el mismo <input type="file"> que usa Facebook cuando uno
+    arrastra o elige fotos: se arma la lista de archivos y se avisa con un
+    evento «change», igual que el navegador. Si el input no está todavía, se
+    toca «Foto/video», que es el que lo hace aparecer.
+
+    Después se espera a que se vean las miniaturas: publicar antes de que
+    terminen de subir saca el posteo sin fotos o con una sola.
+  */
+  if (fotos.length) {
+    const dialogo = () =>
+      caja.closest('[role="dialog"]') || document.querySelector('[role="dialog"]') || document;
+    const buscarInput = () =>
+      [...dialogo().querySelectorAll('input[type="file"]')].find((input) =>
+        /image/i.test(input.getAttribute('accept') || 'image')
+      );
+
+    let input = buscarInput();
+    if (!input) {
+      // Se compara la etiqueta y el texto por separado: juntos no coinciden con
+      // un nombre exacto ("Foto/video Foto/video").
+      const PATRON_FOTO = /^\s*(Foto\/video|Photo\/video|Fotos?|Photos?)\s*$/i;
+      const botonFoto = [...dialogo().querySelectorAll('[role="button"], [aria-label]')].find(
+        (el) =>
+          PATRON_FOTO.test(el.getAttribute('aria-label') || '') ||
+          PATRON_FOTO.test(el.textContent || '')
+      );
+      botonFoto?.click();
+      for (let intento = 0; intento < 16 && !input; intento += 1) {
+        await dormir(500);
+        input = buscarInput();
+      }
+    }
+    if (!input) {
+      return {
+        ok: false,
+        motivo: 'No encontré dónde cargar las fotos en el compositor de Facebook.',
+      };
+    }
+
+    const lista = new DataTransfer();
+    for (const foto of fotos) {
+      const binario = atob(foto.base64);
+      const bytes = new Uint8Array(binario.length);
+      for (let i = 0; i < binario.length; i += 1) bytes[i] = binario.charCodeAt(i);
+      lista.items.add(new File([bytes], foto.nombre, { type: foto.mime }));
+    }
+    input.files = lista.files;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+
+    const miniaturas = () =>
+      dialogo().querySelectorAll('img[src^="blob:"], img[src^="data:image"]').length;
+    let vistas = 0;
+    for (let intento = 0; intento < 90; intento += 1) {
+      vistas = miniaturas();
+      if (vistas >= fotos.length) break;
+      await dormir(500);
+    }
+    if (vistas < fotos.length) {
+      return {
+        ok: false,
+        motivo: `Facebook mostró ${vistas} de ${fotos.length} fotos después de 45 segundos. No se publicó para no salir incompleto.`,
+      };
+    }
+    await dormir(1500);
+    caja =
+      dialogo().querySelector('[role="textbox"][contenteditable="true"]') ||
+      document.querySelector('[role="textbox"][contenteditable="true"]') ||
+      caja;
+  }
+
   caja.focus();
   /*
     `insertText` y no asignar el contenido a mano: Facebook escucha los eventos
@@ -828,7 +1003,7 @@ async function publicarEnLaPagina(texto) {
     perfecta.
   */
   let publicar = null;
-  for (let intento = 0; intento < 20; intento += 1) {
+  for (let intento = 0; intento < (fotos.length ? 60 : 20); intento += 1) {
     publicar = buscarPorTexto('[role="button"]', /^\s*(Publicar|Post)\s*$/i);
     if (publicar && publicar.getAttribute('aria-disabled') !== 'true') break;
     await dormir(500);
@@ -857,7 +1032,7 @@ async function publicarEnLaPagina(texto) {
       document.body.innerText
     );
 
-  return { ok: true, enRevision };
+  return { ok: true, enRevision, fotos: fotos.length };
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -888,11 +1063,17 @@ async function anotar(texto) {
 
 async function latir() {
   try {
+    const { pausada } = await chrome.storage.local.get(['pausada']);
     await pedir('/heartbeat', {
       codigo: 'chrome-extension',
       nombre: 'Modo Sabor Social (Chrome)',
       version: chrome.runtime.getManifest().version,
       estado: 'online',
+      /*
+        Lo que sabe hacer, para que el panel no le mande lo que no puede (y
+        avise por qué). `pausada` es informativo: el freno real es no pedir trabajo.
+      */
+      detalle: { puedeSubirMedia: true, formatos: ['post'], pausada: Boolean(pausada) },
     });
     /*
       El latido NO limpia `ultimoError`.
@@ -1027,14 +1208,42 @@ async function hacerPublicacion({ item, lock }) {
   const reportar = (cuerpo) =>
     pedir(`/publicaciones/${item.id}/reportar`, { lockToken: lock, ...cuerpo });
 
+  const destino = item.destino_nombre || 'el grupo';
+  const fallo = async (motivo) => {
+    await sumar('fallidas');
+    await anotar(`No pude publicar en ${destino}: ${motivo}`);
+    await avisar('No se pudo publicar', `${destino}: ${motivo}`);
+    return reportar({ estado: 'failed', error: motivo });
+  };
+
   try {
+    /* Sólo fotos, y hasta MAX_FOTOS: el servidor no manda otra cosa a esta versión. */
+    const archivos = (item.media || [])
+      .filter((m) => String(m.mime || '').startsWith('image/'))
+      .slice(0, MAX_FOTOS);
+    const fotos = [];
+    for (const archivo of archivos) fotos.push(await bajarFoto(archivo));
+    if (fotos.length) await anotar(`Bajé ${fotos.length} foto(s) para ${destino}`);
+
     const url = item.destino_url || `https://www.facebook.com/groups/${item.destino_externo}`;
-    const resultado = await enUnaPestana(url, publicarEnLaPagina, [item.texto || '']);
+    const { verPestana } = await opciones();
+    const resultado = await enUnaPestana(url, publicarEnLaPagina, [item.texto || '', fotos], {
+      visible: verPestana,
+    });
 
-    if (!resultado?.ok) {
-      return reportar({ estado: 'failed', error: resultado?.motivo || 'No se pudo publicar.' });
-    }
+    if (!resultado?.ok) return fallo(resultado?.motivo || 'No se pudo publicar.');
 
+    await sumar('publicadas');
+    const conFotos = resultado.fotos ? ` con ${resultado.fotos} foto(s)` : '';
+    await anotar(
+      resultado.enRevision
+        ? `Publicado${conFotos} en ${destino}, queda a revisión del administrador`
+        : `Publicado${conFotos} en ${destino}`
+    );
+    await avisar(
+      resultado.enRevision ? 'Enviado a revisión' : 'Publicado',
+      `${destino}${conFotos}`
+    );
     return reportar({
       estado: resultado.enRevision ? 'pending_review' : 'published',
       error: resultado.enRevision
@@ -1042,7 +1251,7 @@ async function hacerPublicacion({ item, lock }) {
         : '',
     });
   } catch (error) {
-    return reportar({ estado: 'failed', error: error.message });
+    return fallo(error.message);
   }
 }
 
@@ -1065,32 +1274,72 @@ function programar() {
   chrome.alarms.create('trabajar', { periodInMinutes: CADA_SEGUNDOS / 60 });
 }
 
-chrome.alarms.onAlarm.addListener(async (alarma) => {
-  if (alarma.name !== 'trabajar') return;
-
+/**
+ * Una vuelta: latir, y si no está pausada, hacer lo que el panel tenga.
+ * La usan el reloj y el botón «Trabajar ahora».
+ */
+let trabajando = false;
+async function vuelta() {
+  if (trabajando) return { ok: false, motivo: 'Ya está trabajando en algo.' };
   const { clave } = await leer();
-  if (!clave) return;
+  if (!clave) return { ok: false, motivo: 'Falta vincularla con el panel.' };
 
-  await latir();
+  trabajando = true;
   try {
+    await latir();
+    const { pausada } = await chrome.storage.local.get(['pausada']);
+    if (pausada) return { ok: true, pausada: true };
     await hacerUnaCosa();
+    return { ok: true };
   } catch (error) {
     if (error.message !== 'SIN_VINCULAR') {
       await guardar({ ultimoError: error.message });
       await anotar(`Falló el trabajo: ${error.message}`);
     }
+    return { ok: false, motivo: error.message };
+  } finally {
+    trabajando = false;
+    await actualizarInsignia();
   }
+}
+
+chrome.alarms.onAlarm.addListener((alarma) => {
+  if (alarma.name === 'trabajar') vuelta();
 });
 
+/**
+ * Prueba la sesión de Facebook desde acá, sin esperar al panel: abre Facebook
+ * en segundo plano y mira si hay sesión iniciada.
+ */
+async function probarSesion() {
+  const { haySesion, identidad } = await enUnaPestana(
+    'https://www.facebook.com/',
+    leerGruposEnLaPagina
+  );
+  await anotar(
+    haySesion
+      ? `Sesión de Facebook activa${identidad ? ` (${identidad})` : ''}`
+      : 'No hay sesión de Facebook iniciada'
+  );
+  return { ok: true, haySesion: Boolean(haySesion), identidad: identidad || '' };
+}
+
 chrome.runtime.onMessage.addListener((mensaje, _emisor, responder) => {
-  if (mensaje?.tipo === 'vincular') {
-    vincular(mensaje)
-      .then(() => {
-        programar();
-        responder({ ok: true });
-      })
+  const responderCon = (promesa) => {
+    promesa
+      .then((r) => responder(r))
       .catch((error) => responder({ ok: false, error: error.message }));
     return true; /* la respuesta es asincrónica */
+  };
+
+  if (mensaje?.tipo === 'vincular') {
+    return responderCon(
+      vincular(mensaje).then(async () => {
+        programar();
+        await actualizarInsignia();
+        return { ok: true };
+      })
+    );
   }
 
   if (mensaje?.tipo === 'estado') {
@@ -1099,19 +1348,82 @@ chrome.runtime.onMessage.addListener((mensaje, _emisor, responder) => {
       trae sólo lo que hace falta para hablar con el servidor. El diario es
       para mirar, no para trabajar.
     */
-    chrome.storage.local
-      .get(['servidor', 'clave', 'ultimo', 'ultimoError', 'diario'])
-      .then((datos) =>
-        responder({
-          vinculada: Boolean(datos.clave),
-          servidor: datos.servidor || '',
-          ultimo: datos.ultimo || 0,
-          ultimoError: datos.ultimoError || '',
-          diario: datos.diario || [],
-        })
-      );
-    return true;
+    return responderCon(
+      Promise.all([
+        chrome.storage.local.get([
+          'servidor',
+          'clave',
+          'ultimo',
+          'ultimoError',
+          'diario',
+          'pausada',
+        ]),
+        contadores(),
+        opciones(),
+      ]).then(([datos, hoy, ops]) => ({
+        vinculada: Boolean(datos.clave),
+        servidor: datos.servidor || '',
+        ultimo: datos.ultimo || 0,
+        ultimoError: datos.ultimoError || '',
+        diario: datos.diario || [],
+        pausada: Boolean(datos.pausada),
+        trabajando,
+        hoy,
+        opciones: ops,
+        version: chrome.runtime.getManifest().version,
+      }))
+    );
+  }
+
+  if (mensaje?.tipo === 'pausar') {
+    return responderCon(
+      (async () => {
+        await guardar({ pausada: Boolean(mensaje.valor) });
+        await anotar(mensaje.valor ? 'Pausada desde la ventanita' : 'Reanudada desde la ventanita');
+        await latir();
+        await actualizarInsignia();
+        return { ok: true };
+      })()
+    );
+  }
+
+  if (mensaje?.tipo === 'opcion') {
+    return responderCon(
+      (async () => {
+        const actuales = await opciones();
+        if (!(mensaje.clave in OPCIONES_POR_OMISION)) throw new Error('Opción desconocida.');
+        await guardar({ opciones: { ...actuales, [mensaje.clave]: Boolean(mensaje.valor) } });
+        return { ok: true };
+      })()
+    );
+  }
+
+  if (mensaje?.tipo === 'trabajarAhora') return responderCon(vuelta());
+
+  if (mensaje?.tipo === 'probarSesion') return responderCon(probarSesion());
+
+  if (mensaje?.tipo === 'limpiarError') {
+    return responderCon(
+      (async () => {
+        await guardar({ ultimoError: '' });
+        await actualizarInsignia();
+        return { ok: true };
+      })()
+    );
+  }
+
+  if (mensaje?.tipo === 'desvincular') {
+    return responderCon(
+      (async () => {
+        await guardar({ clave: '', ultimoError: '', pausada: false });
+        await anotar('Desvinculada desde la ventanita');
+        await actualizarInsignia();
+        return { ok: true };
+      })()
+    );
   }
 
   return false;
 });
+
+actualizarInsignia();

@@ -420,6 +420,43 @@ async function run() {
     assert.strictEqual(revisada.targets[0].estado, 'skipped_rule');
     assert.strictEqual(revisada.estado, 'skipped_rule');
 
+    // Con la extensión 2 (sube fotos) la foto para un grupo se encola, y la
+    // extensión la recibe con la lista de archivos; un video sigue sin camino.
+    social.heartbeatWorker({
+      codigo: 'chrome-extension',
+      nombre: 'Modo Sabor Social (Chrome)',
+      version: '2.0.0',
+      detalle: { puedeSubirMedia: true },
+    });
+    const conFotoV2 = social.createCampaign({
+      nombre: 'Foto con extensión 2',
+      texto: 'Promo con flyer',
+      destinoIds: [destinationId],
+      mediaIds: [fotoId],
+    });
+    social.queueCampaign(conFotoV2.id, { now: true });
+    assert.strictEqual(social.getCampaign(conFotoV2.id).targets[0].estado, 'queued');
+    const videoId = Number(
+      db
+        .prepare(
+          "INSERT INTO social_media (nombre, ruta, mime) VALUES ('clip.mp4', 'social-media/clip.mp4', 'video/mp4')"
+        )
+        .run().lastInsertRowid
+    );
+    const conVideo = social.createCampaign({
+      nombre: 'Video para grupo',
+      texto: 'Promo con video',
+      destinoIds: [destinationId],
+      mediaIds: [videoId],
+    });
+    social.queueCampaign(conVideo.id, { now: true });
+    const targetVideo = social.getCampaign(conVideo.id).targets[0];
+    assert.strictEqual(targetVideo.estado, 'skipped_rule');
+    assert.match(targetVideo.ultimo_error, /no videos/);
+    db.prepare("UPDATE social_post_targets SET estado = 'cancelled' WHERE campana_id = ?").run(
+      conFotoV2.id
+    );
+
     db.prepare("UPDATE social_workers SET ultimo_heartbeat_en = '2000-01-01 00:00:00'").run();
     assert.strictEqual(social.claimWork(), null);
     const pendingTarget = social.getCampaign(pending.id).targets[0];

@@ -1,10 +1,17 @@
 {
   "manifest_version": 3,
   "name": "Modo Sabor Social",
-  "version": "1.0.0",
-  "description": "Publica en tus grupos de Facebook desde el panel de Modo Sabor, usando tu propia sesión.",
+  "version": "2.0.0",
+  "description": "Publica texto y fotos en tus grupos de Facebook desde el panel de Modo Sabor, usando tu propia sesión.",
 
-  "permissions": ["storage", "alarms", "tabs", "scripting"],
+  "icons": {
+    "16": "icons/icono-16.png",
+    "32": "icons/icono-32.png",
+    "48": "icons/icono-48.png",
+    "128": "icons/icono-128.png"
+  },
+
+  "permissions": ["storage", "alarms", "tabs", "scripting", "notifications"],
 
   "host_permissions": [
     "https://www.facebook.com/*",
@@ -20,7 +27,12 @@
 
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Modo Sabor Social"
+    "default_title": "Modo Sabor Social",
+    "default_icon": {
+      "16": "icons/icono-16.png",
+      "32": "icons/icono-32.png",
+      "48": "icons/icono-48.png"
+    }
   },
 
   "content_scripts": [

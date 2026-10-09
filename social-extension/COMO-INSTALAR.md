@@ -58,3 +58,21 @@ Hacé clic en el ícono de la extensión, al lado de la barra de direcciones. Te
 ## Cuando actualicemos la extensión
 
 Volvé a `chrome://extensions` y apretá el botón de recargar (↻) en la tarjeta de _Modo Sabor Social_. No hace falta volver a vincular.
+
+---
+
+## Actualizar a la versión 2 (fotos en grupos)
+
+Si ya la tenías instalada, no hace falta volver a instalar ni a vincular:
+
+1. Andá a **`chrome://extensions`**.
+2. En la tarjeta de _Modo Sabor Social_ apretá el botón de **recargar** (la flechita circular).
+3. Listo: el ícono pasa a ser el nuevo y la ventanita dice **v2.0.0**.
+
+### Qué trae la versión 2
+
+- **Publica fotos en los grupos** (hasta 10 por publicación, de hasta 8 MB cada una). Videos, reels e historias siguen yendo por la Fan Page o Instagram: el panel avisa si una campaña los lleva.
+- **Ícono con insignia:** el número de publicaciones de hoy, **!** si lo último falló, **II** si está pausada.
+- **Ventanita nueva** con lo de hoy (publicadas, fallidas, último contacto) y lo último que hizo.
+- **Botones:** pausar/reanudar, trabajar ahora, probar la sesión de Facebook, abrir el panel, abrir Facebook, desvincular.
+- **Opciones:** ver la pestaña mientras publica (para supervisar) y avisos de Windows al publicar o fallar.

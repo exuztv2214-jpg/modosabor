@@ -4,124 +4,348 @@
     <meta charset="utf-8" />
     <style>
       /*
-        La ventanita dice una sola cosa: si está conectada o no.
-
-        Todo lo técnico —la dirección del servidor, la clave, el intervalo— vive
-        adentro y no se muestra. Era exactamente lo que sobraba en la versión
-        anterior: cuatro campos que nadie sabía completar y que, cuando uno
-        quedaba mal, no daban ningún error.
+        La ventanita de la extensión, con el estilo del panel Social (kit
+        «Dashboard Interface»): franja roja arriba, tarjetas blancas con sombra
+        suave y números grandes. Nada para completar: todo lo técnico vive adentro.
       */
       * {
         box-sizing: border-box;
       }
       body {
-        width: 290px;
+        width: 340px;
         margin: 0;
-        padding: 18px;
-        font-family:
-          system-ui,
-          -apple-system,
-          Segoe UI,
-          sans-serif;
-        color: #0f172a;
+        font-family: Poppins, 'Segoe UI', system-ui, sans-serif;
+        color: #161a37;
+        background: #f4f6fc;
+      }
+      .franja {
+        position: relative;
+        overflow: hidden;
+        padding: 16px 16px 46px;
+        background: linear-gradient(120deg, #e3242b, #c8161d 55%, #a11017);
+        color: #fff;
+      }
+      .franja::before {
+        content: '';
+        position: absolute;
+        top: -90px;
+        right: -40px;
+        width: 220px;
+        height: 220px;
+        border-radius: 999px;
+        background: radial-gradient(circle, rgb(255 255 255 / 18%), transparent 65%);
       }
       .marca {
+        position: relative;
         display: flex;
         align-items: center;
-        gap: 9px;
-        margin-bottom: 16px;
+        gap: 10px;
       }
-      .logo {
-        width: 30px;
-        height: 30px;
-        border-radius: 9px;
-        background: #dc1f2d;
-        color: #fff;
-        display: grid;
-        place-items: center;
-        font-weight: 800;
-        font-size: 12px;
+      .marca img {
+        width: 34px;
+        height: 34px;
+        border-radius: 10px;
+        box-shadow: 0 6px 14px rgb(0 0 0 / 18%);
       }
       .marca b {
+        display: block;
         font-size: 14px;
       }
-      .marca span {
-        display: block;
+      .marca small {
+        font-size: 11px;
+        opacity: 0.8;
+      }
+      .version {
+        margin-left: auto;
+        padding: 3px 8px;
+        border-radius: 999px;
+        background: rgb(255 255 255 / 18%);
         font-size: 10px;
-        letter-spacing: 0.09em;
-        color: #94a3b8;
-        text-transform: uppercase;
-        font-weight: 700;
+        font-weight: 600;
+      }
+      .contenido {
+        margin-top: -32px;
+        padding: 0 12px 12px;
+      }
+      .tarjeta {
+        position: relative;
+        margin-bottom: 10px;
+        padding: 14px;
+        border-radius: 16px;
+        background: #fff;
+        box-shadow:
+          0 2px 4px rgb(22 26 55 / 3%),
+          0 14px 30px -12px rgb(22 26 55 / 16%);
       }
       .estado {
         display: flex;
-        align-items: center;
-        gap: 9px;
-        padding: 13px 14px;
-        border-radius: 11px;
-        font-size: 13px;
-        font-weight: 600;
-        line-height: 1.45;
-      }
-      .estado.bien {
-        background: #ecfdf5;
-        border: 1px solid #a7f3d0;
-        color: #065f46;
-      }
-      .estado.falta {
-        background: #fffbeb;
-        border: 1px solid #fde68a;
-        color: #92400e;
-      }
-      .estado.mal {
-        background: #fef2f2;
-        border: 1px solid #fecaca;
-        color: #b91c1c;
+        align-items: flex-start;
+        gap: 10px;
       }
       .punto {
-        width: 9px;
-        height: 9px;
-        border-radius: 50%;
+        width: 10px;
+        height: 10px;
+        margin-top: 5px;
         flex: none;
+        border-radius: 50%;
+        background: #98a2b3;
       }
-      .bien .punto {
-        background: #10b981;
+      .estado.bien .punto {
+        background: #12b76a;
+        box-shadow: 0 0 0 4px #d1fadf;
       }
-      .falta .punto {
-        background: #f59e0b;
+      .estado.falta .punto,
+      .estado.pausa .punto {
+        background: #f79009;
+        box-shadow: 0 0 0 4px #fef0c7;
       }
-      .mal .punto {
-        background: #ef4444;
+      .estado.mal .punto {
+        background: #e3242b;
+        box-shadow: 0 0 0 4px #fee4e2;
       }
-      p.ayuda {
-        margin: 13px 0 0;
+      .estado b {
+        display: block;
+        font-size: 14px;
+      }
+      .estado p {
+        margin: 2px 0 0;
+        color: #6b7190;
         font-size: 12px;
-        line-height: 1.55;
-        color: #64748b;
+        line-height: 1.5;
       }
-      .detalle {
-        margin-top: 12px;
+      .numeros {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 8px;
+      }
+      .numero {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .numero i {
+        display: grid;
+        place-items: center;
+        width: 30px;
+        height: 30px;
+        flex: none;
+        border-radius: 10px;
+        font-style: normal;
+        font-size: 14px;
+      }
+      .numero small {
+        display: block;
+        color: #8a90a8;
+        font-size: 10px;
+      }
+      .numero strong {
+        display: block;
+        font-size: 17px;
+        line-height: 1.1;
+      }
+      .acciones {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+      }
+      button {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        border: 0;
+        border-radius: 12px;
+        padding: 9px 10px;
+        background: #f4f6fc;
+        color: #161a37;
+        cursor: pointer;
+        font: inherit;
+        font-size: 12px;
+        font-weight: 600;
+      }
+      button:hover {
+        background: #eceff7;
+      }
+      button:disabled {
+        opacity: 0.55;
+        cursor: wait;
+      }
+      button.principal {
+        background: #e3242b;
+        color: #fff;
+      }
+      button.principal:hover {
+        background: #c8161d;
+      }
+      button.ancho {
+        grid-column: 1 / -1;
+      }
+      .titulo {
+        margin: 0 0 8px;
+        color: #8a90a8;
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+      }
+      .opcion {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 6px 0;
+        font-size: 12px;
+      }
+      .opcion small {
+        display: block;
+        color: #8a90a8;
+        font-size: 10.5px;
+      }
+      .interruptor {
+        position: relative;
+        width: 34px;
+        height: 20px;
+        flex: none;
+        border-radius: 999px;
+        padding: 0;
+        background: #d0d5dd;
+      }
+      .interruptor::after {
+        content: '';
+        position: absolute;
+        top: 2px;
+        left: 2px;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: #fff;
+        box-shadow: 0 1px 2px rgb(0 0 0 / 20%);
+        transition: transform 0.15s;
+      }
+      .interruptor.on {
+        background: #e3242b;
+      }
+      .interruptor.on::after {
+        transform: translateX(14px);
+      }
+      .diario {
+        max-height: 150px;
+        overflow: auto;
+        color: #4b5170;
         font-size: 11px;
-        color: #94a3b8;
+        line-height: 1.6;
+      }
+      .diario div {
+        padding: 2px 0;
+        border-bottom: 1px solid #f1f3f9;
+      }
+      .pie {
+        display: flex;
+        justify-content: space-between;
+        padding: 2px 4px 0;
+        color: #8a90a8;
+        font-size: 10.5px;
+      }
+      .pie a {
+        color: #c8161d;
+        cursor: pointer;
+        text-decoration: none;
+      }
+      .aviso {
+        margin-top: 8px;
+        padding: 8px 10px;
+        border-radius: 10px;
+        background: #fef3f2;
+        color: #b42318;
+        font-size: 11.5px;
+        line-height: 1.45;
+      }
+      .oculto {
+        display: none !important;
       }
     </style>
   </head>
   <body>
-    <div class="marca">
-      <div class="logo">MS</div>
-      <div>
-        <b>Modo Sabor</b>
-        <span>Social</span>
+    <div class="franja">
+      <div class="marca">
+        <img src="icons/icono-48.png" alt="" />
+        <div>
+          <b>Modo Sabor Social</b>
+          <small>Publica en tus grupos de Facebook</small>
+        </div>
+        <span class="version" id="version">v2</span>
       </div>
     </div>
 
-    <div id="estado" class="estado falta">
-      <span class="punto"></span>
-      <span id="texto">Cargando…</span>
-    </div>
+    <div class="contenido">
+      <div class="tarjeta">
+        <div id="estado" class="estado falta">
+          <span class="punto"></span>
+          <div>
+            <b id="texto">Cargando…</b>
+            <p id="ayuda"></p>
+          </div>
+        </div>
+        <div id="error" class="aviso oculto"></div>
+      </div>
 
-    <p class="ayuda" id="ayuda"></p>
-    <div class="detalle" id="detalle"></div>
+      <div class="tarjeta" id="hoy">
+        <p class="titulo">Hoy</p>
+        <div class="numeros">
+          <div class="numero">
+            <i style="background: #ecfdf3; color: #027a48">✓</i>
+            <div><small>Publicadas</small><strong id="publicadas">0</strong></div>
+          </div>
+          <div class="numero">
+            <i style="background: #fef3f2; color: #b42318">✕</i>
+            <div><small>Fallidas</small><strong id="fallidas">0</strong></div>
+          </div>
+          <div class="numero">
+            <i style="background: #f0f4ff; color: #3538cd">⟳</i>
+            <div><small>Contacto</small><strong id="contacto" style="font-size: 12px">—</strong></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="tarjeta" id="bloqueAcciones">
+        <p class="titulo">Acciones</p>
+        <div class="acciones">
+          <button id="pausar" class="principal ancho">⏸ Pausar publicaciones</button>
+          <button id="trabajar">▶ Trabajar ahora</button>
+          <button id="probar">🛡 Probar sesión</button>
+          <button id="panel">↗ Abrir panel</button>
+          <button id="facebook">f Abrir Facebook</button>
+        </div>
+      </div>
+
+      <div class="tarjeta" id="bloqueOpciones">
+        <p class="titulo">Opciones</p>
+        <div class="opcion">
+          <div>
+            Ver la pestaña mientras publica
+            <small>Para mirar qué hace. Si no, trabaja en segundo plano.</small>
+          </div>
+          <button class="interruptor" id="optVerPestana" aria-label="Ver la pestaña mientras publica"></button>
+        </div>
+        <div class="opcion">
+          <div>
+            Avisos de Windows
+            <small>Cuando publica o cuando algo falla.</small>
+          </div>
+          <button class="interruptor" id="optAvisos" aria-label="Avisos de Windows"></button>
+        </div>
+      </div>
+
+      <div class="tarjeta">
+        <p class="titulo">Lo último que hizo</p>
+        <div class="diario" id="diario">Todavía nada.</div>
+      </div>
+
+      <div class="pie">
+        <span id="servidor"></span>
+        <a id="desvincular" class="oculto">Desvincular</a>
+      </div>
+    </div>
 
     <script src="popup.js"></script>
   </body>

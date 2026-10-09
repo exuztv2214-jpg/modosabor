@@ -1329,11 +1329,30 @@ function porQueNoHayCamino(destino, campaign) {
   const motivoFormato = providers.porQueNoAceptaElFormato({ tipo }, formato);
   if (motivoFormato) return motivoFormato;
   const porNavegador = ['facebook_group', 'facebook_profile'].includes(tipo);
-  const llevaArchivos = (campaign.media || []).length > 0 || formato !== 'post';
-  if (porNavegador && llevaArchivos && !workerSubeMedia()) {
-    return 'La extensión de Chrome todavía publica sólo texto en grupos y en el Perfil. Sacá la foto o el video, o publicá esto en la Fan Page o en Instagram.';
+  if (!porNavegador) return '';
+  const media = campaign.media || [];
+  if (formato !== 'post') {
+    return 'La extensión de Chrome publica posteos con texto y fotos en grupos y en el Perfil, no reels ni historias. Usá la Fan Page o Instagram para eso.';
+  }
+  if (media.some((m) => !String(m.mime || '').startsWith('image/'))) {
+    return 'La extensión de Chrome sube fotos, no videos. Sacá el video o publicalo en la Fan Page o en Instagram.';
+  }
+  if (media.length && !workerSubeMedia()) {
+    return 'La extensión de Chrome conectada es una versión vieja que publica sólo texto. Actualizala a la versión 2 para que suba las fotos.';
   }
   return '';
+}
+
+/** Lo mismo, mirado desde un candidato de la cola (sin la campaña cargada). */
+function extensionPuedePublicar(candidato) {
+  if (formatoParaLaRed(candidato) !== 'post') return false;
+  const mimes = db
+    .prepare(
+      `SELECT m.mime FROM social_campaign_media cm JOIN social_media m ON m.id = cm.media_id
+        WHERE cm.campana_id = ?`
+    )
+    .all(candidato.campana_id);
+  return mimes.every((m) => String(m.mime || '').startsWith('image/'));
 }
 
 /**
@@ -2109,7 +2128,7 @@ function estadoDeEnvio(destino, config) {
  * Un comando no publica nada. No gasta cupo, no lo ve nadie desde afuera y no
  * puede hacer que te bloqueen. Va primero y sin freno.
  */
-function claimWork({ puedeSubirMedia = false } = {}) {
+function claimWork({ puedeSubirMedia = false, workerCode = '' } = {}) {
   const config = getSocialConfig();
   const lock = token();
   const item = db.transaction(() => {
@@ -2226,6 +2245,13 @@ function claimWork({ puedeSubirMedia = false } = {}) {
         !puedeSubirMedia &&
         (formatoParaLaRed(candidato) !== 'post' || Number(candidato.media_total || 0) > 0)
       ) {
+        continue;
+      }
+      /*
+        La extensión 2 sube fotos, pero sólo en posteos comunes: reels,
+        historias y videos no salen por ahí (ver porQueNoHayCamino).
+      */
+      if (workerCode === 'chrome-extension' && !extensionPuedePublicar(candidato)) {
         continue;
       }
 
