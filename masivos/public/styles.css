@@ -2779,3 +2779,92 @@ button.quick-reply.add .material-symbols-outlined {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
+
+/* ---------- Barras de progreso: campaña y trabajos en segundo plano ---------- */
+.progress-track {
+  position: relative;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--gray-100);
+  overflow: hidden;
+}
+.progress-track > i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: inherit;
+  background: var(--brand-500);
+  transition: width 0.4s var(--ease);
+}
+.progress-track.amber > i {
+  background: var(--warning-500);
+}
+.progress-track.indeterminate > i {
+  width: 35%;
+  animation: progreso-indeterminado 1.4s ease-in-out infinite;
+}
+@keyframes progreso-indeterminado {
+  0% {
+    left: -35%;
+  }
+  100% {
+    left: 100%;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .progress-track.indeterminate > i {
+    animation: none;
+    width: 100%;
+    opacity: 0.4;
+  }
+}
+.live-progress {
+  margin-top: var(--s4);
+}
+.live-progress-foot {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--s3);
+  flex-wrap: wrap;
+  margin-top: var(--s2);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+.jobs-strip {
+  display: grid;
+  gap: var(--s2);
+  margin-bottom: var(--s4);
+}
+.job {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  padding: var(--s3) var(--s4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+.job-icon {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--brand-50);
+  color: var(--brand-600);
+}
+.job-body {
+  flex: 1;
+  min-width: 0;
+}
+.job-head {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--s2);
+  margin-bottom: 6px;
+  font-size: var(--text-sm);
+}
+.job-head small {
+  color: var(--text-muted);
+  white-space: nowrap;
+}

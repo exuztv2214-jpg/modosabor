@@ -3598,6 +3598,8 @@ app.get('/api/status', (req, res) => {
     },
     analisis: { corriendo: analisis.corriendo, hechos: analisis.hechos, total: analisis.total },
     fotosJob: { corriendo: fotosJob.corriendo, hechos: fotosJob.hechos, total: fotosJob.total },
+    historialJob: { ...historialFondo },
+    listaJob: { corriendo: listaJob.corriendo || listaJob.enriqueciendo },
     pedidosReales: estadoPedidosReales(),
   });
 });
@@ -4118,6 +4120,7 @@ async function sincronizarHistorialPendiente(motivo) {
   historialFondo.hechos = 0;
   historialFondo.total = pendientes.length;
   registrarLog(`💬 Trayendo mensajes de ${pendientes.length} chats (${motivo})…`);
+  emit('historial', { numero: null, tipo: 'inicio', hechos: 0, total: pendientes.length });
   let nuevos = 0;
   let fallasSeguidas = 0;
   try {
@@ -4155,6 +4158,13 @@ async function sincronizarHistorialPendiente(motivo) {
     historialFondo.corriendo = false;
   }
   registrarLog(`💬 Historial listo: ${nuevos} mensajes nuevos en ${historialFondo.hechos} chats.`);
+  emit('historial', {
+    numero: null,
+    tipo: 'fin',
+    nuevos,
+    hechos: historialFondo.hechos,
+    total: historialFondo.total,
+  });
 }
 
 app.post('/api/conversacion/historial', (req, res) => {

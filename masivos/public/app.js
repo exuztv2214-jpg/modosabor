@@ -62,6 +62,8 @@ const state = {
   massActions: [],
   backups: null,
   settingsDraft: null,
+  // Trabajos en segundo plano: { lista, fotos, historial } con { hechos, total }.
+  jobs: {},
 };
 let qrRefreshTimer = null;
 let waitTimer = null;
@@ -329,7 +331,12 @@ function gauge(pct, tone, value, caption) {
 
 function greeting() {
   const hora = new Date().getHours();
-  const saludo = hora < 13 ? 'Buen día' : hora < 20 ? 'Buenas tardes' : 'Buenas noches';
+  const saludo =
+    hora >= 5 && hora < 13
+      ? 'Buen día'
+      : hora >= 13 && hora < 20
+        ? 'Buenas tardes'
+        : 'Buenas noches';
   const nombre = state.identity?.nombre?.split(/\s+/)[0];
   return nombre ? `${saludo}, ${nombre}` : saludo;
 }
@@ -499,6 +506,51 @@ function healthCard(connected) {
   );
 }
 
+const JOB_LABELS = {
+  lista: ['sync', 'Sincronizando contactos y chats'],
+  fotos: ['account_circle', 'Descargando fotos de perfil'],
+  historial: ['forum', 'Trayendo mensajes de los chats'],
+};
+
+function progressBar(pct, tono = '') {
+  const valor = Math.max(0, Math.min(100, Math.round(pct)));
+  return `<div class="progress-track ${tono}" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${valor}"><i style="width:${valor}%"></i></div>`;
+}
+
+// Franja con los trabajos en segundo plano (fotos, historial, sincronización).
+function jobsStrip() {
+  const activos = Object.entries(state.jobs || {}).filter(([, j]) => j && j.activo);
+  if (!activos.length) return '';
+  return `<div class="jobs-strip" aria-live="polite">${activos
+    .map(([clave, j]) => {
+      const [iconName, texto] = JOB_LABELS[clave] || ['autorenew', clave];
+      const total = Number(j.total || 0);
+      const hechos = Number(j.hechos || 0);
+      const pct = total ? (hechos / total) * 100 : null;
+      return `<div class="job"><span class="job-icon">${icon(iconName)}</span><div class="job-body"><div class="job-head"><strong>${esc(texto)}</strong><small>${total ? `${fmt(hechos)} de ${fmt(total)}` : 'en curso…'}</small></div>${pct == null ? '<div class="progress-track indeterminate"><i></i></div>' : progressBar(pct)}</div></div>`;
+    })
+    .join('')}</div>`;
+}
+
+function actualizarJob(clave, datos) {
+  state.jobs = { ...(state.jobs || {}), [clave]: { ...(state.jobs?.[clave] || {}), ...datos } };
+  const franja = document.querySelector('.jobs-strip');
+  const html = jobsStrip();
+  // Se toca sólo la franja: re-renderizar la vista entera cortaría lo que se escribe.
+  if (franja && html) franja.outerHTML = html;
+  else if (franja) franja.remove();
+  else if (html) $('#app')?.insertAdjacentHTML('afterbegin', html);
+}
+
+// Hora estimada de fin de la campaña, con el cálculo del motor (pausas incluidas).
+function campaignEta() {
+  const eta = Number(state.progress?.etaMs || 0);
+  if (!state.motor?.corriendo || !eta) return '';
+  const fin = new Date(Date.now() + eta);
+  const minutos = Math.round(eta / 60000);
+  return `Termina aprox. a las ${fin.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false })} (${minutos < 1 ? 'menos de 1 min' : `${minutos} min`})`;
+}
+
 function haceCuanto(iso) {
   const ms = Date.now() - Date.parse(iso || '');
   if (!Number.isFinite(ms)) return 'nunca';
@@ -594,7 +646,7 @@ function liveCampaignCard() {
       ? 'Simulacro en curso'
       : 'Enviando campaña';
   return card(
-    `${cardHead(titulo, s.tandas > 1 ? `Tanda ${Number(state.tanda?.actual || 1)} de ${Number(s.tandas)}` : '', `<span class="badge ${m.pausado ? 'amber' : 'brand'}"><span class="dot"></span>${s.simulacro ? 'Simulacro' : m.pausado ? 'Pausada' : 'En vivo'}</span>`)}<div class="live-grid">${gauge(pct, '', `${hechos}/${total}`, 'mensajes')}<div><div class="kv"><div><small>Enviados</small><strong>${fmt(s.ok)}</strong></div><div><small>Fallidos</small><strong>${fmt(s.fallidos)}</strong></div><div><small>Faltan</small><strong>${fmt(Math.max(0, total - hechos))}</strong></div></div>${ultimo ? `<p class="live-last ${ultimo.ok === false ? 'bad' : ''}">${ultimo.ok === false ? '✗' : '✓'} ${esc(ultimo.etiqueta || '')}${ultimo.error ? ` · ${esc(ultimo.error)}` : ''}</p>` : ''}<p class="live-wait" id="live-wait">${esc(waitLabel())}</p></div></div><div class="card-foot">${m.pausado ? `<button class="button primary" data-action="motor-reanudar">${icon('play_arrow')}Reanudar</button>` : `<button class="button secondary" data-action="motor-pausar">${icon('pause')}Pausar</button>`}<button class="button danger" data-action="motor-detener">${icon('stop')}Detener</button></div>`,
+    `${cardHead(titulo, s.tandas > 1 ? `Tanda ${Number(state.tanda?.actual || 1)} de ${Number(s.tandas)}` : '', `<span class="badge ${m.pausado ? 'amber' : 'brand'}"><span class="dot"></span>${s.simulacro ? 'Simulacro' : m.pausado ? 'Pausada' : 'En vivo'}</span>`)}<div class="live-grid">${gauge(pct, '', `${hechos}/${total}`, 'mensajes')}<div><div class="kv"><div><small>Enviados</small><strong>${fmt(s.ok)}</strong></div><div><small>Fallidos</small><strong>${fmt(s.fallidos)}</strong></div><div><small>Faltan</small><strong>${fmt(Math.max(0, total - hechos))}</strong></div></div>${ultimo ? `<p class="live-last ${ultimo.ok === false ? 'bad' : ''}">${ultimo.ok === false ? '✗' : '✓'} ${esc(ultimo.etiqueta || '')}${ultimo.error ? ` · ${esc(ultimo.error)}` : ''}</p>` : ''}<p class="live-wait" id="live-wait">${esc(waitLabel())}</p></div></div><div class="live-progress">${progressBar(pct, m.pausado ? 'amber' : '')}<div class="live-progress-foot"><span>${pct}% · ${fmt(hechos)} de ${fmt(total)}${s.inciertos ? ` · ${fmt(s.inciertos)} dudosos` : ''}</span><span>${esc(campaignEta())}</span></div></div><div class="card-foot">${m.pausado ? `<button class="button primary" data-action="motor-reanudar">${icon('play_arrow')}Reanudar</button>` : `<button class="button secondary" data-action="motor-pausar">${icon('pause')}Pausar</button>`}<button class="button danger" data-action="motor-detener">${icon('stop')}Detener</button></div>`,
     'live-campaign'
   );
 }
@@ -1699,7 +1751,7 @@ function render() {
   const app = $('#app');
   const borrador =
     state.route === 'configuracion' && state.settingsDraft ? capturarBorradorConfig() : null;
-  app.innerHTML = views[state.route]();
+  app.innerHTML = jobsStrip() + views[state.route]();
   if (borrador) aplicarBorradorConfig(borrador);
   document
     .querySelectorAll('.nav-item, .mobile-nav button')
@@ -1799,6 +1851,23 @@ async function refresh() {
     api('/api/grupos-envio'),
     api('/api/perfil'),
   ]);
+  if (results[0].status === 'fulfilled') {
+    const st = results[0].value;
+    state.jobs = {
+      ...(state.jobs || {}),
+      fotos: {
+        activo: !!st.fotosJob?.corriendo,
+        hechos: st.fotosJob?.hechos,
+        total: st.fotosJob?.total,
+      },
+      historial: {
+        activo: !!st.historialJob?.corriendo,
+        hechos: st.historialJob?.hechos,
+        total: st.historialJob?.total,
+      },
+      lista: { ...(state.jobs?.lista || {}), activo: !!st.listaJob?.corriendo },
+    };
+  }
   if (results[0].status === 'fulfilled')
     state.status = {
       ...(state.status || {}),
@@ -1925,7 +1994,10 @@ function connectLive() {
   });
   stream.addEventListener('lista', (event) => {
     const info = JSON.parse(event.data || '{}');
-    if (info.tipo === 'inicio') showToast('Sincronizando agenda y chats de WhatsApp…');
+    if (info.tipo === 'inicio') {
+      actualizarJob('lista', { activo: true, hechos: 0, total: 0 });
+      showToast('Sincronizando agenda y chats de WhatsApp…');
+    }
     if (info.tipo === 'recuperando')
       showToast('Reiniciando la vista de WhatsApp para recuperar la sincronización…');
     if (info.tipo === 'chats') {
@@ -1934,6 +2006,7 @@ function connectLive() {
         `${info.chats || 0} chats cargados (${info.grupos || 0} grupos); completando agenda…`
       );
     }
+    if (info.tipo === 'fin' || info.tipo === 'error') actualizarJob('lista', { activo: false });
     if (info.tipo === 'fin') {
       refresh();
       showToast(
@@ -1944,8 +2017,12 @@ function connectLive() {
   });
   stream.addEventListener('fotos', (event) => {
     const info = JSON.parse(event.data || '{}');
-    if (info.tipo === 'inicio') showToast(`Actualizando fotos de ${info.total || 0} contactos…`);
-    if (info.tipo === 'fin') {
+    if (info.tipo === 'inicio')
+      actualizarJob('fotos', { activo: true, hechos: 0, total: Number(info.total || 0) });
+    if (info.tipo === 'progreso')
+      actualizarJob('fotos', { activo: true, hechos: info.hechos, total: info.total });
+    if (info.tipo === 'fin' || info.tipo === 'error') actualizarJob('fotos', { activo: false });
+    if (info.tipo === 'fin' && info.conFoto) {
       refresh();
       showToast(`Fotos listas: ${info.conFoto || 0} descargadas.`);
     }
@@ -2000,6 +2077,12 @@ function connectLive() {
     const info = JSON.parse(event.data || '{}');
     if (state.loadingHistory === info.numero) state.loadingHistory = '';
     if (info.numero === state.selectedChatNumber) loadConversation(info.numero);
+    if (info.numero === null && info.total)
+      actualizarJob('historial', {
+        activo: info.tipo !== 'fin',
+        hechos: info.hechos || 0,
+        total: info.total,
+      });
     // Historial en segundo plano: refresca la lista de chats como mucho cada 20 s.
     if (info.numero === null && info.nuevos && Date.now() - (state.historyListAt || 0) > 20000) {
       state.historyListAt = Date.now();
