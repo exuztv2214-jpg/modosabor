@@ -2721,7 +2721,7 @@ export default function Social() {
                               </div>
                               <div className="mt-1 h-2 w-full rounded-full bg-slate-100">
                                 <div
-                                  className="h-2 rounded-full bg-blue-500"
+                                  className="social-barra-kit h-2 rounded-full"
                                   style={{ width: `${pct}%` }}
                                 />
                               </div>
@@ -2774,27 +2774,13 @@ export default function Social() {
                     <h3 className="text-sm font-bold text-slate-900">
                       Distribución de estados (últimos 30 días)
                     </h3>
-                    <div className="mt-4 flex flex-wrap gap-3">
-                      {metricsData.estados.map((e) => (
-                        <div
-                          key={e.estado}
-                          className="flex items-center gap-2 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2"
-                        >
-                          <span
-                            className={`h-2.5 w-2.5 rounded-full ${STATUS_STYLES[e.estado]?.bg.replace('bg-', 'bg-') || 'bg-slate-300'}`}
-                          />
-                          <span className="text-xs font-semibold">
-                            {STATUS_STYLES[e.estado]?.label || e.estado}
-                          </span>
-                          <span className="text-xs text-slate-400">{e.cantidad}</span>
-                        </div>
-                      ))}
-                      {!metricsData.estados.length && (
-                        <p className="text-sm text-slate-400">
-                          Todavía no hay estados registrados.
-                        </p>
-                      )}
-                    </div>
+                    {metricsData.estados.length ? (
+                      <AnilloDeEstados estados={metricsData.estados} />
+                    ) : (
+                      <p className="mt-4 text-sm text-slate-400">
+                        Todavía no hay estados registrados.
+                      </p>
+                    )}
                   </div>
                 </>
               )}
@@ -7011,6 +6997,78 @@ function FrenoDeMano({ pausado, motivo, identidades, onPausaGeneral, onPausaIden
  * —cupo usado, tasa de éxito— una barra dice en un vistazo lo que el número
  * solo obliga a calcular.
  */
+const COLOR_DE_ESTADO = {
+  published: '#12b76a',
+  requires_approval: '#8b5cf6',
+  processing: '#6366f1',
+  scheduled: '#3b82f6',
+  queued: '#f59e0b',
+  ambiguous: '#f79009',
+  failed: '#e3242b',
+  skipped_rule: '#98a2b3',
+  skipped_duplicate: '#cbd2e0',
+  cancelled: '#d0d5dd',
+  draft: '#e4e7ec',
+};
+
+/**
+ * Anillo como el del kit ("Earnings By Item Type"): el total en el centro y
+ * una leyenda con puntitos de color. Cada tramo es un arco del mismo círculo.
+ */
+function AnilloDeEstados({ estados }) {
+  const total = estados.reduce((suma, e) => suma + Number(e.cantidad || 0), 0);
+  const radio = 52;
+  const vuelta = 2 * Math.PI * radio;
+  let recorrido = 0;
+  return (
+    <div className="social-anillo">
+      <svg
+        viewBox="0 0 140 140"
+        className="social-anillo-svg"
+        role="img"
+        aria-label="Estados de las publicaciones"
+      >
+        <circle cx="70" cy="70" r={radio} fill="none" stroke="#f1f3f9" strokeWidth="12" />
+        {estados.map((e) => {
+          const parte = total ? (Number(e.cantidad || 0) / total) * vuelta : 0;
+          const tramo = (
+            <circle
+              key={e.estado}
+              cx="70"
+              cy="70"
+              r={radio}
+              fill="none"
+              stroke={COLOR_DE_ESTADO[e.estado] || '#98a2b3'}
+              strokeWidth="12"
+              strokeLinecap="round"
+              strokeDasharray={`${Math.max(parte - 3, 0.01)} ${vuelta}`}
+              strokeDashoffset={-recorrido}
+              transform="rotate(-90 70 70)"
+            />
+          );
+          recorrido += parte;
+          return tramo;
+        })}
+        <text x="70" y="68" textAnchor="middle" className="social-anillo-total">
+          {total}
+        </text>
+        <text x="70" y="86" textAnchor="middle" className="social-anillo-sub">
+          en 30 días
+        </text>
+      </svg>
+      <ul className="social-anillo-leyenda">
+        {estados.map((e) => (
+          <li key={e.estado}>
+            <span style={{ background: COLOR_DE_ESTADO[e.estado] || '#98a2b3' }} />
+            {STATUS_STYLES[e.estado]?.label || e.estado}
+            <b>{e.cantidad}</b>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function MetricCard({ label, value, icon: Icon, color, bg, tinte = '#64748b', barra, pie }) {
   const esNumero = typeof value === 'number' || /^\d+$/.test(String(value));
   const [mostrado, setMostrado] = useState(esNumero ? 0 : value);
@@ -7050,30 +7108,20 @@ function MetricCard({ label, value, icon: Icon, color, bg, tinte = '#64748b', ba
     <div className="social-kpi group">
       <span className="social-kpi-halo" style={{ background: tinte }} />
 
-      <div className="relative flex items-start justify-between">
-        <div className={`inline-flex rounded-xl ${bg} p-2.5`}>
+      {pie && <span className="social-kpi-pie">{pie}</span>}
+
+      {/* Como en el kit: ícono en un cuadradito pastel, etiqueta chica arriba y el número abajo. */}
+      <div className="social-kpi-fila relative">
+        <span className={`social-kpi-icono ${bg}`}>
           <Icon className={color} size={20} />
+        </span>
+        <div className="min-w-0">
+          <p className="social-kpi-etiqueta">{label}</p>
+          <p className={`social-kpi-valor ${esNumero ? '' : 'social-kpi-valor--texto'}`}>
+            {mostrado}
+          </p>
         </div>
-        {pie && <span className="social-kpi-pie">{pie}</span>}
       </div>
-
-      <p
-        className={`relative mt-3 font-black leading-none tracking-tight ${
-          esNumero ? 'text-[2.1rem]' : 'text-[1.35rem] pt-1.5'
-        }`}
-        style={{
-          backgroundImage: `linear-gradient(135deg, ${tinte}, ${tinte}99)`,
-          WebkitBackgroundClip: 'text',
-          backgroundClip: 'text',
-          color: 'transparent',
-        }}
-      >
-        {mostrado}
-      </p>
-
-      <p className="relative mt-1.5 text-[11px] font-bold uppercase tracking-[.12em] text-slate-400">
-        {label}
-      </p>
 
       {typeof barra === 'number' && (
         <span className="social-kpi-barra">
