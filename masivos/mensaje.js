@@ -49,6 +49,13 @@ function armarMensaje(plantilla, nombre, config, hora = horaLocal()) {
   mensaje = mensaje.replace(/\{NOMBRE\}/gi, nombreCorto);
   // Variables que el editor ofreció en versiones anteriores y nunca tuvieron dato.
   mensaje = mensaje.replace(/\{(?:ULTIMO_PEDIDO|MENU_LINK)\}/gi, '');
+  // "Botón" de pedido: WhatsApp no muestra botones reales por esta conexión (sólo
+  // por la API paga de Meta), así que va una línea con el enlace, que se toca igual.
+  const url = String(config.LINK_PEDIDO_URL || '').trim();
+  if (config.LINK_PEDIDO_ACTIVO !== false && url && !mensaje.includes(url)) {
+    const texto = String(config.LINK_PEDIDO_TEXTO || '🛒 *Pedí ahora* 👉').trim();
+    mensaje = `${mensaje}\n\n${texto} ${url}`;
+  }
   mensaje = `${mensaje}\n\n${azar(config.CIERRES)}`;
   const footer = String(config.FOOTER_BAJA || '').trim();
   if (footer) mensaje = `${mensaje}\n\n${footer}`;

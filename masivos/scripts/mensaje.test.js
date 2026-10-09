@@ -50,4 +50,23 @@ assert.equal(normalizarSegmento('grupo:abc'), 'grupo:abc');
   assert.deepEqual(saludosParaHora(['¡Hola{NOMBRE}, buen día!'], 23), ['¡Hola{NOMBRE}, buen día!']);
 }
 
+// Línea para pedir: va antes del cierre, una sola vez y se puede apagar.
+{
+  const base = {
+    SALUDOS: ['¡Hola{NOMBRE}!'],
+    CIERRES: ['¡Te esperamos!'],
+    LINK_PEDIDO_URL: 'https://x.com',
+  };
+  const con = armarMensaje('Promo', 'Ana', base, 12);
+  assert.ok(con.includes('🛒 *Pedí ahora* 👉 https://x.com\n\n¡Te esperamos!'));
+  assert.equal(
+    armarMensaje('Pedí en https://x.com', 'Ana', base, 12).split('https://x.com').length,
+    2
+  );
+  assert.doesNotMatch(
+    armarMensaje('Promo', 'Ana', { ...base, LINK_PEDIDO_ACTIVO: false }, 12),
+    /x\.com/
+  );
+}
+
 console.log('mensaje y segmentos: OK');

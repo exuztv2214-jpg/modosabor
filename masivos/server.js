@@ -3836,9 +3836,12 @@ app.get('/api/config', (req, res) => {
     BAJA_RESPUESTA: c.BAJA_RESPUESTA || '',
     PROGRAMACION_ACTIVA: !!c.PROGRAMACION_ACTIVA,
     PROGRAMACION_HORA: c.PROGRAMACION_HORA || '10:30',
-    HORARIO_ENVIO_DESDE: c.HORARIO_ENVIO_DESDE ?? '10:00',
+    HORARIO_ENVIO_DESDE: c.HORARIO_ENVIO_DESDE ?? '08:00',
     HORARIO_ENVIO_HASTA: c.HORARIO_ENVIO_HASTA ?? '22:00',
     MAX_PROMOS_POR_MES: Number(c.MAX_PROMOS_POR_MES ?? 4),
+    LINK_PEDIDO_ACTIVO: c.LINK_PEDIDO_ACTIVO !== false,
+    LINK_PEDIDO_TEXTO: c.LINK_PEDIDO_TEXTO ?? '🛒 *Pedí ahora* 👉',
+    LINK_PEDIDO_URL: c.LINK_PEDIDO_URL ?? 'https://www.modosabor.com.ar',
     PROGRAMACION_SEGMENTO: c.PROGRAMACION_SEGMENTO || 'todos',
     DIAS_NO_ENVIO: Array.isArray(c.DIAS_NO_ENVIO) ? c.DIAS_NO_ENVIO : [],
     MAX_POR_HORA: Number(c.MAX_POR_HORA) || 0,
@@ -3899,6 +3902,14 @@ app.post('/api/config', (req, res) => {
     override.BAJA_RESPUESTA = b.BAJA_RESPUESTA.trim();
   if (typeof b.PROGRAMACION_ACTIVA === 'boolean')
     override.PROGRAMACION_ACTIVA = b.PROGRAMACION_ACTIVA;
+  if (typeof b.LINK_PEDIDO_ACTIVO === 'boolean') override.LINK_PEDIDO_ACTIVO = b.LINK_PEDIDO_ACTIVO;
+  if (typeof b.LINK_PEDIDO_TEXTO === 'string')
+    override.LINK_PEDIDO_TEXTO = b.LINK_PEDIDO_TEXTO.trim().slice(0, 80);
+  if (
+    typeof b.LINK_PEDIDO_URL === 'string' &&
+    (b.LINK_PEDIDO_URL.trim() === '' || /^https?:\/\/\S+$/i.test(b.LINK_PEDIDO_URL.trim()))
+  )
+    override.LINK_PEDIDO_URL = b.LINK_PEDIDO_URL.trim().slice(0, 200);
   // Horario permitido para enviar. Vacío = sin restricción.
   for (const k of ['HORARIO_ENVIO_DESDE', 'HORARIO_ENVIO_HASTA']) {
     if (typeof b[k] === 'string' && (b[k] === '' || /^([01]\d|2[0-3]):[0-5]\d$/.test(b[k])))
