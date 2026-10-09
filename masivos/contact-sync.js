@@ -263,7 +263,19 @@ function agregarHistorial(chats, numero, mensajes) {
     chat = { id, name: '', timestamp: 0, isGroup: id.endsWith('@g.us'), mensajes: [] };
     chats.push(chat);
   }
-  const previos = Array.isArray(chat.mensajes) ? chat.mensajes : [];
+  // Huella de un mensaje sin id: WhatsApp Web pasó a guardar el id en "$1" y hubo
+  // lecturas que quedaron sin id. Si ahora llega con id, reemplaza a su copia.
+  const huella = (m) =>
+    `${m?.timestamp || 0}|${m?.fromMe ? 1 : 0}|${m?.type || 'chat'}|${m?.body || ''}`;
+  const conId = new Set(
+    (mensajes || [])
+      .filter((m) => m && m.id)
+      .map((m) => huella({ ...m, body: cuerpoLimpio(m.body || '', m.type || 'chat') }))
+  );
+  const previos = (Array.isArray(chat.mensajes) ? chat.mensajes : []).filter(
+    (m) => m?.id || !conId.has(huella(m))
+  );
+  const reemplazados = (chat.mensajes || []).length - previos.length;
   const ids = new Set(previos.map((m) => m?.id).filter(Boolean));
   const nuevos = (mensajes || [])
     .filter((m) => m && (!m.id || !ids.has(m.id)))

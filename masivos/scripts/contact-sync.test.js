@@ -300,6 +300,16 @@ void (async () => {
   assert.equal(conHistorial[0].texto, 'nuevo');
   assert.equal(sync.agregarHistorial(conHistorial, 'h@lid', [{ id: 'm1', timestamp: 100 }]), 0);
 
+  // Un mensaje guardado sin id (lectura vieja) se reemplaza al llegar con id.
+  const sinId = [
+    { numero: 's@lid', mensajes: [{ id: null, body: 'hola', type: 'chat', timestamp: 50 }] },
+  ];
+  sync.agregarHistorial(sinId, 's@lid', [{ id: 'x1', body: 'hola', type: 'chat', timestamp: 50 }]);
+  assert.deepEqual(
+    sinId[0].mensajes.map((m) => m.id),
+    ['x1']
+  );
+
   console.log('contact and chat sync: OK');
 })().catch((error) => {
   console.error(error);

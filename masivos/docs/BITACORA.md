@@ -1,5 +1,27 @@
 # Bitácora de Masivos
 
+## 2026-10-08 — Masivos pasa a la PC; fotos, historial y envío de imágenes (Claude)
+
+**Causa de fotos y chats que no cargaban en Railway:** el servicio tiene 1 GB de memoria (la cuenta no tiene facturación activa y Railway no permite subirlo) y la pestaña de WhatsApp Web sola usa ~770 MB. Chromium la mataba por memoria (`oom_kill`, 5469 eventos al tope) y toda orden del panel quedaba colgada con CPU en cero; recargar la revivía un minuto. Se descartó pagar. Masivos corre ahora en la PC del dueño:
+
+- Datos de producción copiados a `masivos/data` (575 contactos; bajas y pausas verificadas contra producción). Datos locales anteriores en `data.local-anterior/` y en `C:/Users/Exuz/Documents/ModoSabor-backups/2026-10-08-masivos-local-antes`.
+- `masivos/local.env` (fuera de git) con la dirección del sistema y el token; `launcher.ps1` y `launch-hidden.vbs` lo cargan. Lee pedidos y turnos del sistema.
+- Servicio `modosabor-masivos` de Railway apagado (`railway down`); se vuelve a prender con un deploy. El botón Masivos del sistema queda sin destino; se usa `http://127.0.0.1:3867`.
+- Sesión local vieja apartada en `sesion.vieja-20261008`; se vinculó de nuevo con QR.
+
+Arreglos:
+
+- **Imágenes no salían** ("Data passed to getter must include an id property"): whatsapp-web.js actualizado al commit `064a3d5` (3 arreglos sobre el anterior: adjuntos, ids de mensaje `_serialized` → `$1` de la actualización de WhatsApp Web, grupos). Prueba con flyer y PDF enviada al propio número.
+- **Ids de mensaje:** las lecturas dentro de la página aceptan `$1`. 10.627 de 16.295 mensajes guardados no tenían id; el historial los vuelve a pedir y reemplaza la copia sin id.
+- **Historial:** se lee del chat en memoria (`loadEarlierMsgs`) en tandas de 10, en segundo plano. En la PC: 10.186 mensajes en 501 chats en 2 minutos; los chats sin mensajes bajaron de 473 a 16.
+- **Fotos:** 8 pedidos a la vez; quien oculta la foto no se consulta por 7 días. En la PC: 129 fotos en ~40 s.
+- Todos los envíos con `sendSeen: false` (no marca leídos los chats de clientes).
+- Vigilante de la página: si no responde se recarga (máximo una vez cada 10 min) y si no llega a "listo" en 90 s también.
+- Errores no controlados se registran en vez de tirar el panel (en la PC nadie lo levanta solo).
+- Chromium sin GPU por software, caché de disco de 32 MB y cachés borradas al arrancar.
+
+Pendiente: desvincular desde el teléfono los dispositivos viejos (servidor y sesión anterior de la PC). Para enviar, recibir y que salgan las promos agendadas, la PC tiene que estar prendida con el panel abierto.
+
 ## 2026-10-08 — Pendientes de las auditorías, salvo Chispita (Claude)
 
 Pedido: "ve con todos menos chispita" sobre la lista de faltantes (auditoría de Codex + la propia).

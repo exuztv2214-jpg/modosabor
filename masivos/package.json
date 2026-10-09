@@ -13,7 +13,7 @@
     "express": "^5.2.1",
     "qrcode": "^1.5.4",
     "qrcode-terminal": "^0.12.0",
-    "whatsapp-web.js": "github:wwebjs/whatsapp-web.js#1780711a1c86dfeca7c5ba6a66f950eac93dde28"
+    "whatsapp-web.js": "github:wwebjs/whatsapp-web.js#064a3d5a5a3dce1281a6a12740b5a7051339d154"
   },
   "license": "ISC"
 }

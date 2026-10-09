@@ -1203,7 +1203,9 @@ async function manejarEntrante(msg) {
   registrarLog(`🚫 BAJA automática: ${msg.from} pidió no recibir más ("${texto.slice(0, 40)}")`);
   emit('baja', { numero: msg.from });
   try {
-    await client.sendMessage(msg.from, config.BAJA_RESPUESTA || '¡Listo! No te mando más promos.');
+    await client.sendMessage(msg.from, config.BAJA_RESPUESTA || '¡Listo! No te mando más promos.', {
+      sendSeen: false,
+    });
   } catch (e) {
     /* si falla la confirmación, la baja igual queda */
   }
@@ -2896,8 +2898,14 @@ async function correrEnvio(simulacro, opciones = {}) {
         break;
       try {
         if (medias.length)
-          enviado = await client.sendMessage(cliente.numero, medias[0], { caption: mensaje });
-        else enviado = await client.sendMessage(cliente.numero, mensaje);
+          // sendSeen: false. Con la opción por defecto la librería intenta marcar el
+          // chat como leído antes de enviar y falla ("Data passed to getter must
+          // include an id property"); además no conviene marcar leídos los chats.
+          enviado = await client.sendMessage(cliente.numero, medias[0], {
+            caption: mensaje,
+            sendSeen: false,
+          });
+        else enviado = await client.sendMessage(cliente.numero, mensaje, { sendSeen: false });
         exito = true;
       } catch (err) {
         ultimoError = err;
@@ -2938,7 +2946,7 @@ async function correrEnvio(simulacro, opciones = {}) {
         try {
           await esperarMotor(1500 + Math.random() * 2000);
           if (!(await contactoHabilitadoMotor(cliente.numero))) break;
-          await client.sendMessage(cliente.numero, medias[k]);
+          await client.sendMessage(cliente.numero, medias[k], { sendSeen: false });
         } catch (e) {
           registrarLog(`⚠️ La imagen ${k + 1} no llegó a ${etiqueta}: ${e.message}`);
           if (esErrorSesionFatal(e)) {
@@ -2955,7 +2963,7 @@ async function correrEnvio(simulacro, opciones = {}) {
       try {
         await esperarMotor(2000 + Math.random() * 2000);
         if (await contactoHabilitadoMotor(cliente.numero))
-          await client.sendMessage(cliente.numero, pdfMedia);
+          await client.sendMessage(cliente.numero, pdfMedia, { sendSeen: false });
       } catch (e) {
         registrarLog(`⚠️ El PDF no llegó a ${etiqueta}: ${e.message}`);
         if (esErrorSesionFatal(e)) {
@@ -4038,7 +4046,7 @@ async function historialEnPagina(ids, minimo = 30) {
             .filter(valido)
             .slice(-100)
             .map((m) => ({
-              id: m.id?._serialized || null,
+              id: m.id?._serialized || m.id?.$1 || null,
               fromMe: Boolean(m.id?.fromMe),
               body: String(m.caption || m.body || ''),
               type: m.type || 'chat',
@@ -4089,10 +4097,12 @@ async function sincronizarHistorialPendiente(motivo) {
       numero: c.numero || c.id?._serialized || c.id,
       grupo: c.grupo || c.isGroup,
       mensajes: (c.mensajes || []).length,
+      sinId: (c.mensajes || []).filter((m) => !m.id).length,
       timestamp: c.timestamp || 0,
     }))
     .filter((c) => c.numero && !c.grupo && !String(c.numero).includes('broadcast'))
-    .filter((c) => c.mensajes < 10 && !(intentos[c.numero] > hace))
+    // Pocos mensajes, o mensajes guardados sin id (se reemplazan por los que traen id).
+    .filter((c) => (c.mensajes < 10 || c.sinId > 0) && !(intentos[c.numero] > hace))
     .sort((a, b) => b.timestamp - a.timestamp);
   if (!pendientes.length) return;
   await vigilarPagina('antes del historial', true);
@@ -4448,7 +4458,7 @@ app.post('/api/listar', async (req, res) => {
                   )
                   .slice(-100)
                   .map((message) => ({
-                    id: message.id?._serialized || message.id?.id || null,
+                    id: message.id?._serialized || message.id?.$1 || message.id?.id || null,
                     fromMe: Boolean(message.id?.fromMe),
                     // En fotos y videos "body" es la miniatura: el texto va en "caption".
                     body: String(message.caption || message.body || ''),
@@ -4459,7 +4469,7 @@ app.post('/api/listar', async (req, res) => {
                   }));
                 const lastMessage = mensajes.at(-1);
                 return {
-                  id: chat.id?._serialized || null,
+                  id: chat.id?._serialized || chat.id?.$1 || null,
                   name: chat.formattedTitle || chat.name || '',
                   timestamp: Number(lastMessage?.timestamp || chat.t || 0),
                   isGroup: Boolean(chat.groupMetadata),
@@ -4565,7 +4575,7 @@ app.post('/api/listar', async (req, res) => {
                   .map((contact) => {
                     const model = window.WWebJS.getContactModel(contact);
                     return {
-                      id: model.id?._serialized || model.id || null,
+                      id: model.id?._serialized || model.id?.$1 || model.id || null,
                       // Agendado > nombre de perfil > empresa; nunca el número.
                       name:
                         [model.name, model.pushname, model.verifiedName, model.shortName].find(
@@ -5019,32 +5029,51 @@ app.post('/api/enviar-prueba', async (req, res) => {
   const plantilla = String((tag && plantillas[tag]) || plantillas.general || '').trim();
   if (!plantilla) return res.status(400).json({ error: 'El mensaje está vacío.' });
 
-  const destino = client && client.info && client.info.wid && client.info.wid._serialized;
+  let destino = client && client.info && client.info.wid && client.info.wid._serialized;
   if (!destino)
     return res.status(409).json({ error: 'No se pudo detectar tu propio número de WhatsApp.' });
+  // En cuentas con LID, el chat propio no se encuentra por el número clásico
+  // ("Data passed to getter must include an id"): se usa el LID propio.
+  try {
+    const lid = await conTiempoLimite(
+      client.pupPage.evaluate(() => {
+        const yo = window.require('WAWebUserPrefsMeUser').getMaybeMeLidUser();
+        return yo ? yo._serialized : null;
+      }),
+      8000,
+      'LID propio'
+    );
+    if (lid) destino = lid;
+  } catch (e) {
+    /* se sigue con el número clásico */
+  }
   const config = getConfig();
   const mensaje = armarMensaje(plantilla, 'Prueba', config);
   try {
-    const imgs = buscarImagenesPromo().map((p) => MessageMedia.fromFilePath(p));
+    const soloTexto = !!(req.body && req.body.soloTexto);
+    const imgs = soloTexto ? [] : buscarImagenesPromo().map((p) => MessageMedia.fromFilePath(p));
     if (imgs.length) {
-      await client.sendMessage(destino, imgs[0], { caption: `[PRUEBA MODO SABOR]\n\n${mensaje}` });
+      await client.sendMessage(destino, imgs[0], {
+        caption: `[PRUEBA MODO SABOR]\n\n${mensaje}`,
+        sendSeen: false,
+      });
       for (let k = 1; k < imgs.length; k++) {
         await esperar(1500);
-        await client.sendMessage(destino, imgs[k]);
+        await client.sendMessage(destino, imgs[k], { sendSeen: false });
       }
     } else {
-      await client.sendMessage(destino, `[PRUEBA MODO SABOR]\n\n${mensaje}`);
+      await client.sendMessage(destino, `[PRUEBA MODO SABOR]\n\n${mensaje}`, { sendSeen: false });
     }
     const pdfPath = ARCHIVO_PDF;
-    if (config.ADJUNTAR_PDF !== false && fs.existsSync(pdfPath)) {
+    if (!soloTexto && config.ADJUNTAR_PDF !== false && fs.existsSync(pdfPath)) {
       await esperar(2000);
-      await client.sendMessage(destino, MessageMedia.fromFilePath(pdfPath));
+      await client.sendMessage(destino, MessageMedia.fromFilePath(pdfPath), { sendSeen: false });
     }
     registrarPruebaDelDia(destino);
     registrarLog(`🧪 Prueba enviada a tu propio WhatsApp (${destino}).`);
     res.json({ ok: true, destino });
   } catch (e) {
-    registrarLog(`❌ No se pudo enviar la prueba: ${e.message}`);
+    registrarLog(`❌ No se pudo enviar la prueba a ${destino}: ${e.message}`);
     res.status(500).json({ error: e.message });
   }
 });
