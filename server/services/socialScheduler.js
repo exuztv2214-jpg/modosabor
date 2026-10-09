@@ -202,12 +202,23 @@ function correrAutolistas() {
   return encoladas;
 }
 
+// Aparta lo encolado que no tiene por dónde salir (ver apartarSinCamino).
+function apartarSinCaminoSeguro() {
+  try {
+    social.apartarSinCamino();
+  } catch (error) {
+    logger.error('[social] no se pudo revisar la cola sin camino', { message: error.message });
+  }
+}
+
 function startSocialScheduler() {
   if (process.env.ISOLATED_OPERATIONAL_TEST === '1') return null;
   recoverAndQueueSocialWork();
+  apartarSinCaminoSeguro();
 
   const timer = setInterval(() => {
     recoverAndQueueSocialWork();
+    apartarSinCaminoSeguro();
     correrAutolistas();
     despacharUnaPublicacionApi().catch((error) =>
       logger.error('[social] error inesperado en el despachador', error)

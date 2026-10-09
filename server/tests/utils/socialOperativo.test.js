@@ -382,6 +382,44 @@ async function run() {
       destinoIds: [destinationId],
     });
     social.queueCampaign(pending.id, { now: true });
+
+    // Una foto para un grupo: la extensión publica sólo texto, así que no se
+    // encola para siempre; queda salteada con el motivo escrito.
+    const fotoId = Number(
+      db
+        .prepare(
+          "INSERT INTO social_media (nombre, ruta, mime) VALUES ('flyer.jpg', 'social-media/flyer.jpg', 'image/jpeg')"
+        )
+        .run().lastInsertRowid
+    );
+    const conFoto = social.createCampaign({
+      nombre: 'Con foto para grupo',
+      texto: 'Promo con flyer',
+      destinoIds: [destinationId],
+      mediaIds: [fotoId],
+    });
+    social.queueCampaign(conFoto.id, { now: true });
+    const targetConFoto = social.getCampaign(conFoto.id).targets[0];
+    assert.strictEqual(targetConFoto.estado, 'skipped_rule');
+    assert.match(targetConFoto.ultimo_error, /sólo texto/);
+
+    // Algo encolado antes de la regla: la revisión periódica lo aparta y la
+    // campaña queda "salteada", no "publicada" ni en cola para siempre.
+    const vieja = social.createCampaign({
+      nombre: 'Encolada antes de la regla',
+      texto: 'Promo con flyer',
+      destinoIds: [destinationId],
+      mediaIds: [fotoId],
+    });
+    db.prepare("UPDATE social_post_targets SET estado = 'queued' WHERE campana_id = ?").run(
+      vieja.id
+    );
+    db.prepare("UPDATE social_campaigns SET estado = 'queued' WHERE id = ?").run(vieja.id);
+    assert.ok(social.apartarSinCamino() >= 1);
+    const revisada = social.getCampaign(vieja.id);
+    assert.strictEqual(revisada.targets[0].estado, 'skipped_rule');
+    assert.strictEqual(revisada.estado, 'skipped_rule');
+
     db.prepare("UPDATE social_workers SET ultimo_heartbeat_en = '2000-01-01 00:00:00'").run();
     assert.strictEqual(social.claimWork(), null);
     const pendingTarget = social.getCampaign(pending.id).targets[0];

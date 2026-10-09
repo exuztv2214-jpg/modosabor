@@ -1298,6 +1298,84 @@ function huellaDeCampana(campaign) {
  * `canDispatch`: si un grupo está bloqueado a mano, no importa si además sería
  * repetido.
  */
+/**
+ * ¿La extensión conectada sabe subir fotos y videos? Lo informa ella misma en
+ * el heartbeat (`detalle.puedeSubirMedia`). La versión actual publica sólo texto.
+ */
+function workerSubeMedia() {
+  const worker = db
+    .prepare(
+      "SELECT detalle FROM social_workers WHERE estado = 'online' ORDER BY ultimo_heartbeat_en DESC LIMIT 1"
+    )
+    .get();
+  return parse(worker?.detalle)?.puedeSubirMedia === true;
+}
+
+/**
+ * Motivo por el que este destino no puede recibir esta campaña, o ''.
+ *
+ * Antes no se preguntaba al encolar: una campaña con un reel para el Perfil (o
+ * una foto para un grupo) quedaba en cola para siempre, porque la extensión no
+ * la toma y nadie más publica ahí. Se aparta con el motivo escrito, como el
+ * resto de los descartes, y no traba a los destinos que sí pueden.
+ */
+function porQueNoHayCamino(destino, campaign) {
+  const tipo = destino.destino_tipo || destino.tipo;
+  const formato = formatoParaLaRed({
+    ...campaign,
+    cuenta_id: destino.cuenta_id,
+    destino_tipo: tipo,
+  });
+  const motivoFormato = providers.porQueNoAceptaElFormato({ tipo }, formato);
+  if (motivoFormato) return motivoFormato;
+  const porNavegador = ['facebook_group', 'facebook_profile'].includes(tipo);
+  const llevaArchivos = (campaign.media || []).length > 0 || formato !== 'post';
+  if (porNavegador && llevaArchivos && !workerSubeMedia()) {
+    return 'La extensión de Chrome todavía publica sólo texto en grupos y en el Perfil. Sacá la foto o el video, o publicá esto en la Fan Page o en Instagram.';
+  }
+  return '';
+}
+
+/**
+ * Revisa lo que ya está en cola y aparta lo que no tiene por dónde salir (por
+ * ejemplo, encolado antes de que existiera la regla o cuando la extensión
+ * cambió). Sin esto quedaba en cola para siempre con un motivo que no era.
+ */
+function apartarSinCamino() {
+  const filas = db
+    .prepare(
+      `SELECT t.id, t.campana_id, d.cuenta_id, d.tipo AS destino_tipo
+         FROM social_post_targets t
+         JOIN social_destinations d ON d.id = t.destino_id
+         JOIN social_campaigns c ON c.id = t.campana_id
+        WHERE t.estado IN ('queued', 'scheduled') AND COALESCE(c.ensayo, 0) = 0`
+    )
+    .all();
+  let apartados = 0;
+  const campanas = new Map();
+  for (const fila of filas) {
+    if (!campanas.has(fila.campana_id)) campanas.set(fila.campana_id, getCampaign(fila.campana_id));
+    const campana = campanas.get(fila.campana_id);
+    const motivo = campana ? porQueNoHayCamino(fila, campana) : '';
+    if (!motivo) continue;
+    db.prepare(
+      `UPDATE social_post_targets SET estado = 'skipped_rule', ultimo_error = ?, lock_token = '',
+              lock_hasta = NULL, actualizado_en = CURRENT_TIMESTAMP WHERE id = ?`
+    ).run(motivo, fila.id);
+    log({
+      campanaId: fila.campana_id,
+      targetId: fila.id,
+      nivel: 'warn',
+      codigo: 'SIN_CAMINO',
+      mensaje: motivo,
+    });
+    apartados++;
+    campana.tocada = true;
+  }
+  for (const [id, campana] of campanas) if (campana?.tocada) refreshCampaignState(id);
+  return apartados;
+}
+
 function motivoParaSaltear(destino, campaign, huella, config) {
   if (Number(destino.bloqueado_manualmente) === 1) {
     return {
@@ -1398,6 +1476,11 @@ function queueCampaign(id, { now = false } = {}) {
   const pendientes = [];
   for (const candidato of candidatos) {
     asegurarFormatoProgramable(candidato, campaign);
+    const sinCamino = Number(campaign.ensayo) ? '' : porQueNoHayCamino(candidato, campaign);
+    if (sinCamino) {
+      descartados.push({ ...candidato, estado: 'skipped_rule', motivo: sinCamino });
+      continue;
+    }
     const motivo = motivoParaSaltear(candidato, campaign, huella, config);
     if (motivo) {
       descartados.push({ ...candidato, ...motivo });
@@ -2444,7 +2527,11 @@ function refreshCampaignState(campaignId) {
     )
     .get(campaignId);
   let state = 'processing';
-  if (!summary.pending) {
+  if (!summary.pending && !Number(summary.total)) {
+    // Todo quedó salteado (reglas, repetidos, sin camino): no salió nada, y
+    // decir "Publicada" sería mentir.
+    state = 'skipped_rule';
+  } else if (!summary.pending) {
     state =
       (summary.failed || summary.ok < summary.total) && summary.ok
         ? 'partial'
@@ -2957,6 +3044,7 @@ module.exports = {
   pausarIdentidad,
   reanudarIdentidad,
   claimWork,
+  apartarSinCamino,
   claimApiWork,
   publicarPorApi,
   reportPublication,
