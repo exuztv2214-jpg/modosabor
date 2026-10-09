@@ -13,8 +13,33 @@ function primerNombre(nombre) {
   return limpio.split(/\s+/)[0];
 }
 
-function armarMensaje(plantilla, nombre, config) {
-  const saludoBase = azar(config.SALUDOS);
+// Saludos que tienen sentido a esta hora: "buen día" a las 23 h queda mal.
+// Los neutros ("¡Hola!", "¡Qué tal!") sirven siempre.
+function saludosParaHora(saludos, hora) {
+  const lista = Array.isArray(saludos) && saludos.length ? saludos : ['¡Hola{NOMBRE}! 👋'];
+  const franja = hora >= 5 && hora < 13 ? 'manana' : hora >= 13 && hora < 20 ? 'tarde' : 'noche';
+  const aptos = lista.filter((s) => {
+    const t = String(s).toLowerCase();
+    if (/buen d[ií]a|buenos d[ií]as|ma[nñ]ana/.test(t)) return franja === 'manana';
+    if (/buenas tardes/.test(t)) return franja === 'tarde';
+    if (/buenas noches/.test(t)) return franja === 'noche';
+    return true;
+  });
+  return aptos.length ? aptos : lista;
+}
+
+function horaLocal() {
+  return Number(
+    new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/Argentina/Buenos_Aires',
+      hour: 'numeric',
+      hourCycle: 'h23',
+    }).format(new Date())
+  );
+}
+
+function armarMensaje(plantilla, nombre, config, hora = horaLocal()) {
+  const saludoBase = azar(saludosParaHora(config.SALUDOS, hora));
   const nombreCorto = primerNombre(nombre);
   const saludo = saludoBase.replace(/\{NOMBRE\}/gi, nombreCorto ? ` ${nombreCorto}` : '');
   const cuerpo = plantilla.trim();
@@ -39,4 +64,4 @@ function normalizarSegmento(segmento) {
   return valor === 'todos' ? '' : valor;
 }
 
-module.exports = { azar, primerNombre, armarMensaje, normalizarSegmento };
+module.exports = { azar, primerNombre, armarMensaje, normalizarSegmento, saludosParaHora };

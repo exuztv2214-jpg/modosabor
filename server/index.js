@@ -291,6 +291,9 @@ const MASIVOS_UPSTREAM_URL = String(
   process.env.MASIVOS_UPSTREAM_URL || 'http://127.0.0.1:3867'
 ).replace(/\/+$/, '');
 const MASIVOS_PROXY_TOKEN = String(process.env.MASIVOS_PROXY_TOKEN || '').trim();
+// Cuando Masivos corre en la PC del local (y no en el servidor), abrir el panel
+// desde el sistema lleva directo a esa dirección en vez de mostrar un error.
+const MASIVOS_PANEL_LOCAL_URL = String(process.env.MASIVOS_PANEL_LOCAL_URL || '').trim();
 
 /*
  * Masivos va ANTES de express.json y de sanitize a propósito: el cuerpo se
@@ -304,9 +307,15 @@ app.use('/masivos', (req, res, next) => {
   const credential = req.cookies?.auth_token || req.headers.authorization;
   if (req.path === '/' && !credential) return res.redirect('/masivos/admin');
   return auth(req, res, () =>
-    requirePermission('marketing.edit')(req, res, () =>
-      proxyMasivos(req, res, MASIVOS_UPSTREAM_URL, MASIVOS_PROXY_TOKEN)
-    )
+    requirePermission('marketing.edit')(req, res, () => {
+      if (
+        MASIVOS_PANEL_LOCAL_URL &&
+        req.method === 'GET' &&
+        String(req.headers.accept || '').includes('text/html')
+      )
+        return res.redirect(MASIVOS_PANEL_LOCAL_URL);
+      return proxyMasivos(req, res, MASIVOS_UPSTREAM_URL, MASIVOS_PROXY_TOKEN);
+    })
   );
 });
 

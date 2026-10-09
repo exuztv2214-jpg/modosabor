@@ -40,4 +40,14 @@ assert.equal(normalizarSegmento(undefined), '');
 assert.equal(normalizarSegmento('activo'), 'activo');
 assert.equal(normalizarSegmento('grupo:abc'), 'grupo:abc');
 
+// El saludo respeta la hora: nada de 'buen día' de noche.
+{
+  const { saludosParaHora } = require('../mensaje');
+  const lista = ['¡Hola{NOMBRE}! 👋', '¡Hola{NOMBRE}, buen día! 🌞', '¡Buenas noches{NOMBRE}!'];
+  assert.ok(!saludosParaHora(lista, 23).some((s) => /buen día/.test(s)));
+  assert.ok(saludosParaHora(lista, 9).some((s) => /buen día/.test(s)));
+  assert.ok(!saludosParaHora(lista, 9).some((s) => /noches/.test(s)));
+  assert.deepEqual(saludosParaHora(['¡Hola{NOMBRE}, buen día!'], 23), ['¡Hola{NOMBRE}, buen día!']);
+}
+
 console.log('mensaje y segmentos: OK');
