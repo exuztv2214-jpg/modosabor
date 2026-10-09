@@ -2394,7 +2394,10 @@ function iniciarWhatsApp() {
   limpiarBloqueosChromium();
   if (!cachesLimpias) {
     cachesLimpias = true;
-    limpiarCachesChromium();
+    // Sólo con poco disco (el volumen de 500 MB de Railway): en la PC la caché acelera
+    // el arranque y borrarla obligaba a WhatsApp Web a recompilar todo.
+    const disco = espacioDisco();
+    if (disco && disco.libre < 2 * 1024 * 1024 * 1024) limpiarCachesChromium();
   }
 
   client = new Client({
@@ -2432,22 +2435,25 @@ function iniciarWhatsApp() {
   client.on('authenticated', () => {
     registrarLog('✅ Sesión autenticada.');
     // Si la página se traba durante el arranque, 'ready' nunca llega y el panel queda
-    // sin poder enviar. A los 90 s sin 'ready' se recarga la página (una vez por arranque).
+    // sin poder enviar. A los 4 min sin 'ready' se recarga la página (hasta 3 veces).
     const esperado = client;
-    setTimeout(async () => {
-      if (client !== esperado || estadoWA.estado === 'listo') return;
-      if (++recargasArranque > 3) return; // no entrar en ciclo: queda para revisar a mano
-      registrarLog('🔄 WhatsApp no terminó de cargar: recargando la página.');
-      try {
-        await conTiempoLimite(
-          client.pupPage.reload({ waitUntil: 'domcontentloaded', timeout: 30000 }),
-          35000,
-          'Recarga de WhatsApp'
-        );
-      } catch (e) {
-        registrarLog(`⚠️ No se pudo recargar WhatsApp Web: ${e.message}`);
-      }
-    }, 90000);
+    setTimeout(
+      async () => {
+        if (client !== esperado || estadoWA.estado === 'listo') return;
+        if (++recargasArranque > 3) return; // no entrar en ciclo: queda para revisar a mano
+        registrarLog('🔄 WhatsApp no terminó de cargar: recargando la página.');
+        try {
+          await conTiempoLimite(
+            client.pupPage.reload({ waitUntil: 'domcontentloaded', timeout: 30000 }),
+            35000,
+            'Recarga de WhatsApp'
+          );
+        } catch (e) {
+          registrarLog(`⚠️ No se pudo recargar WhatsApp Web: ${e.message}`);
+        }
+      },
+      4 * 60 * 1000
+    );
   });
   client.on('loading_screen', (pct) => console.log(`WhatsApp cargando: ${pct}%`));
   client.on('change_state', (st) => console.log(`WhatsApp estado: ${st}`));
